@@ -241,6 +241,38 @@ class Recorder:
             self.checkpoint()
 
 
+def audio_created(path: Path):
+    """The recording time that phones and recorders write into the file, if any."""
+    probe = Path(ffmpeg_path()).with_name('ffprobe')
+    if not probe.exists():
+        return None
+    result = subprocess.run([str(probe), '-v', 'error', '-show_entries', 'format_tags=creation_time', '-of', 'json', str(path)],
+                            capture_output=True, text=True, timeout=60)
+    try:
+        value = json.loads(result.stdout)['format']['tags']['creation_time']
+        return dt.datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone()
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def convert_audio(source: Path, destination: Path) -> float:
+    """Any audio file to the 16 kHz mono WAV that recording produces. Returns the duration."""
+    temp = destination.with_name('.' + destination.name)
+    result = subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-y', '-i', str(source), '-vn',
+                             '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(temp)], capture_output=True, text=True, timeout=3600)
+    if result.returncode:
+        temp.unlink(missing_ok=True)
+        raise ValueError('This file has no audio that ffmpeg can read: ' + result.stderr[-500:].strip())
+    import wave
+    with wave.open(str(temp), 'rb') as audio:
+        duration = audio.getnframes() / audio.getframerate()
+    if duration <= 0:
+        temp.unlink(missing_ok=True)
+        raise ValueError('This audio file is empty.')
+    os.replace(temp, destination)
+    return duration
+
+
 def render_recording(directory: Path) -> float:
     info = json.loads((directory / 'capture.json').read_text())
     tracks = [('microphone.pcm', info['microphone_rate'])]

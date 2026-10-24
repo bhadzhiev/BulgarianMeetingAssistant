@@ -13,7 +13,7 @@ import re
 import secrets
 import signal
 import threading
-from urllib.parse import urlsplit, parse_qs, quote
+from urllib.parse import urlsplit, parse_qs, quote, unquote
 import webbrowser
 
 from app.service import MeetingService
@@ -184,6 +184,16 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized() or self.headers.get('Origin') != self.server.origin:
             return self.respond(403, {'error': 'Invalid app session or origin'})
         try:
+            if urlsplit(self.path).path == '/api/import-audio':
+                # Audio is too large for JSON; the body streams to disk.
+                modified = self.headers.get('X-Last-Modified', '')
+                try:
+                    result = self.server.service.import_audio(self.rfile, int(self.headers.get('Content-Length', '0')),
+                        unquote(self.headers.get('X-Filename', '')), int(modified) if modified.isdigit() else None)
+                except Exception:
+                    self.close_connection = True  # the rest of a refused upload is never read
+                    raise
+                return self.respond(200, result)
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                 raise ValueError('Expected JSON')
             size = int(self.headers.get('Content-Length', '0'))

@@ -13,7 +13,7 @@ import wave
 import numpy as np
 import sounddevice as sd
 
-from .capture import Recorder, devices, ffmpeg_path, render_recording
+from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
 from .storage import Library, atomic_json, atomic_text
 from . import processing
 from . import correction
@@ -34,6 +34,8 @@ DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model
 
 
 MARKER_KINDS = ('important', 'decision', 'check')
+AUDIO_TYPES = {'.m4a', '.mp3', '.wav', '.aac', '.ogg', '.opus', '.flac', '.webm', '.mp4', '.mov', '.caf', '.aiff', '.aif', '.amr', '.3gp'}
+MAX_AUDIO_BYTES = 4_000_000_000
 
 
 class MeetingService:
@@ -259,6 +261,53 @@ class MeetingService:
             self._queue_metadata(meeting['id'], enrich=True)
         return self.detail(meeting['id'])
 
+    def import_audio(self, source, size, filename, modified_ms=None):
+        """A recording from a phone or another app becomes a meeting that is processed like a new recording."""
+        import shutil
+        import tempfile
+        name = Path(filename).name if isinstance(filename, str) else ''
+        if Path(name).suffix.lower() not in AUDIO_TYPES:
+            raise ValueError('Choose an audio file: ' + ', '.join(sorted(AUDIO_TYPES)))
+        if not 0 < size <= MAX_AUDIO_BYTES:
+            raise ValueError('Choose an audio file of at most 4 GB')
+        # The upload and conversion happen outside the library; only a complete recording becomes a meeting.
+        staging = Path(tempfile.mkdtemp(prefix='.upload-', dir=self.library.root))
+        try:
+            upload = staging / ('source' + Path(name).suffix.lower())
+            with upload.open('wb') as output:
+                left = size
+                while left:
+                    chunk = source.read(min(1 << 20, left))
+                    if not chunk:
+                        raise ValueError('The upload stopped before the file was complete. Try again.')
+                    output.write(chunk)
+                    left -= len(chunk)
+            created = audio_created(upload)
+            duration = convert_audio(upload, staging / 'recording.wav')
+            upload.unlink()
+            if not created and isinstance(modified_ms, int) and modified_ms > 0:
+                created = dt.datetime.fromtimestamp(modified_ms / 1000).astimezone()
+            created = created or dt.datetime.now().astimezone()
+            with self.lock:
+                settings = dict(self.settings, models_dir=str(self.project / 'models'))
+                # A blank name lets an AI title replace the file name; the file name is the fallback.
+                meeting = self.library.create('', 'audio', settings)
+                os.replace(staging / 'recording.wav', self.library.directory(meeting['id']) / 'recording.wav')
+                self.library.update(meeting['id'], title=Path(name).stem.strip()[:160] or 'Imported audio', status='recorded',
+                                    progress='Audio imported', duration=duration, created=created.isoformat(),
+                                    started_at=created.isoformat(), ended_at=(created + dt.timedelta(seconds=duration)).isoformat())
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        if settings.get('auto_process'):
+            try:
+                self.process(meeting['id'], 'all')
+            except ValueError as exc:
+                self.library.update(meeting['id'], error=str(exc), progress='Audio imported — update settings and transcribe')
+                self._queue_metadata(meeting['id'])
+        else:
+            self._queue_metadata(meeting['id'])
+        return self.detail(meeting['id'])
+
     def _start(self, meeting_id, device, mode):
         recorder = None
         try:
@@ -380,6 +429,8 @@ class MeetingService:
             meeting = self.library.get(meeting_id)
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('This meeting is already busy')
+            if meeting['mode'] == 'audio' and action == 'recover':
+                raise ValueError('An imported audio file has no raw tracks to recover')
             if meeting['mode'] == 'imported':
                 if action in {'transcribe', 'recover'}:
                     raise ValueError('An imported transcript has no audio to transcribe')

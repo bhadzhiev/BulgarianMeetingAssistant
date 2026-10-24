@@ -47,6 +47,16 @@ For the iPhone: use the same Apple Account on both devices, enable Wi-Fi/Bluetoo
 Continuity Camera, and confirm **iPhone Microphone** appears under macOS Sound → Input.
 A cable can help maintain a stable connection. The app does not run on the iPhone itself.
 
+## Import audio from a phone or another app
+
+In **Import audio or a transcript**, choose an audio file (.m4a, .mp3, .wav, .aac, .ogg, .opus,
+.flac, .webm, .mp4, .mov, .caf, .aiff, .amr, .3gp; up to 4 GB) and click **Import file**.
+The app converts it with ffmpeg into the same 16 kHz mono `recording.wav` that a recording makes,
+then processes it with the current settings. The meeting date comes from the recording time in
+the file (iPhone Voice Memos write it), else from the file's modification time.
+The file name is the meeting name until an AI title replaces it. The meeting appears only after
+the conversion succeeds; an interrupted upload leaves nothing behind.
+
 ## Record an online meeting
 
 Choose **Online meeting** and your microphone. The app captures **all Mac system audio**

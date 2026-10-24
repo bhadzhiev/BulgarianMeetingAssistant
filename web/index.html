@@ -32,9 +32,9 @@
     </form>
     <p class="below-card">Your recording is saved continuously. You can process it again whenever you need.</p>
     <div class="card import-card">
-      <div class="card-heading"><div><p class="eyebrow">ALREADY HAVE A TRANSCRIPT?</p><h2>Import a transcript</h2></div><span class="badge">.MD · .TXT · .SRT</span></div>
-      <p class="hint">Use lines like <code>[00:01:07] Maria Georgieva: text</code>. A first line such as <code>DevOps sync, 19 Oct 2026: transcript</code> becomes the name and date.</p>
-      <div class="import-row"><input id="import-file" type="file" accept=".md,.markdown,.txt,.srt,text/plain,text/markdown" aria-label="Transcript file"><button id="import-button" class="primary" type="button" disabled>Import file</button></div>
+      <div class="card-heading"><div><p class="eyebrow">RECORDED ELSEWHERE?</p><h2>Import audio or a transcript</h2></div><span class="badge">AUDIO · .MD · .TXT · .SRT</span></div>
+      <p class="hint">Audio files (.m4a, .mp3, .wav and other formats) are processed like a new recording, with the settings above. The recording date comes from the file.</p><p class="hint">For transcripts, use lines like <code>[00:01:07] Maria Georgieva: text</code>. A first line such as <code>DevOps sync, 19 Oct 2026: transcript</code> becomes the name and date.</p>
+      <div class="import-row"><input id="import-file" type="file" accept=".md,.markdown,.txt,.srt,text/plain,text/markdown,.m4a,.mp3,.wav,.aac,.ogg,.opus,.flac,.webm,.mp4,.mov,.caf,.aiff,.aif,.amr,.3gp,audio/*" aria-label="Audio or transcript file"><button id="import-button" class="primary" type="button" disabled>Import file</button></div>
       <details class="import-paste"><summary>Paste the text instead</summary><textarea id="import-text" rows="8" placeholder="[00:00:00] Name: text…" aria-label="Transcript text"></textarea><button id="import-paste-button" class="secondary" type="button" disabled>Import text</button></details>
     </div>
   </section>

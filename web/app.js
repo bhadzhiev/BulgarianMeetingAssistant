@@ -171,7 +171,7 @@ function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=
 function markNotes() { dirtyNotes=true; $('save-notes').disabled=$('save-outcomes').disabled=false; }
 function renderDetail() {
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
- $('detail-title').textContent=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=statusNames[d.status]||d.status;
+ $('detail-title').textContent=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=statusNames[d.status]||d.status;
  const titleMessages={pending:'AI title pending',generating:'Generating AI title…',generated:'AI-generated title',waiting:'AI title waiting for a transcript',manual:'',error:'AI title could not be generated'};
  $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
  const sync=d.calendar_sync; $('calendar-status').hidden=!sync;$('calendar-status').replaceChildren();
@@ -180,7 +180,7 @@ function renderDetail() {
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
  $('sync-calendar').textContent=sync?.status==='synced'?'Update calendar event':'Sync to Google Calendar';
  // The status badge already says Ready; the bar is only for progress and extra advice.
- $('job-progress').textContent=d.progress||''; $('job-progress').hidden=!d.progress||d.progress===statusNames[d.status]||['Imported','Recording saved'].includes(d.progress); $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
+ $('job-progress').textContent=d.progress||''; $('job-progress').hidden=!d.progress||d.progress===statusNames[d.status]||['Imported','Recording saved','Audio imported'].includes(d.progress); $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
  const audioURL='/files/'+d.id+'/recording.wav';
  if(d.files.includes('recording.wav')) { if(!$('audio').src.endsWith(audioURL)) $('audio').src=audioURL; $('audio').hidden=false; $('audio-unavailable').hidden=true; }
  else { $('audio').removeAttribute('src'); $('audio').hidden=true; $('audio-unavailable').hidden=false; }
@@ -192,7 +192,7 @@ function renderDetail() {
  $('correction-status').hidden=!fix&&!d.correction_error;
  $('correction-status').textContent=d.correction_error?'AI correction failed · the Whisper transcript is shown. '+d.correction_error:fix?'AI corrected '+fix.changed+(fix.changed===1?' segment':' segments')+(fix.rejected?' · '+fix.rejected+' larger changes were refused':'')+'. Marked segments show the original Whisper text; click ↺ to restore it.':'';
  $('correction-status').classList.toggle('warning',!!d.correction_error);
- $('recover').hidden=d.mode==='imported'||!!d.files.includes('recording.wav')&&!['interrupted','error'].includes(d.status);$('process').hidden=d.mode==='imported';
+ $('recover').hidden=d.mode==='imported'||d.mode==='audio'||!!d.files.includes('recording.wav')&&!['interrupted','error'].includes(d.status);$('process').hidden=d.mode==='imported';
  $('summarize').disabled=busy||!d.transcript.length; $('summarize').textContent=d.minutes?'Generate new AI notes':'Generate notes';
  $('process').textContent=d.transcript.length?'Transcribe again':'Transcribe';
  placeActions(d);
@@ -552,7 +552,24 @@ async function importTranscript(text,filename) {
  toast('Transcript imported · '+d.transcript.length+' segments');state=await api('/api/state');renderState();await openMeeting(d.id,true);
 }
 $('import-file').onchange=()=>{$('import-button').disabled=!$('import-file').files.length;};
-$('import-button').onclick=()=>perform(async()=>{const file=$('import-file').files[0];if(!file)return;if(file.size>5_000_000)throw new Error('Choose a transcript file of at most 5 MB');$('import-button').disabled=true;try{await importTranscript(await file.text(),file.name);}finally{$('import-button').disabled=!$('import-file').files.length;}});
+const AUDIO_FILE=/\.(m4a|mp3|wav|aac|ogg|opus|flac|webm|mp4|mov|caf|aiff?|amr|3gp)$/i;
+// XMLHttpRequest reports upload progress; a long phone recording takes a while to send.
+function uploadAudio(file) {
+ return new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest(); xhr.open('POST','/api/import-audio');
+  xhr.setRequestHeader('Content-Type','application/octet-stream'); xhr.setRequestHeader('X-Filename',encodeURIComponent(file.name)); xhr.setRequestHeader('X-Last-Modified',String(file.lastModified||''));
+  xhr.upload.onprogress=event=>{if(event.lengthComputable)$('import-button').textContent=event.loaded<event.total?'Uploading '+Math.floor(100*event.loaded/event.total)+'%':'Converting audio…';};
+  xhr.onload=()=>{let data;try{data=JSON.parse(xhr.responseText);}catch{data={error:'The import failed.'};}xhr.status===200?resolve(data):reject(new Error(data.error||'The import failed.'));};
+  xhr.onerror=()=>reject(new Error('The upload stopped. Check that the app is still running, then try again.'));
+  xhr.send(file);
+ });
+}
+$('import-button').onclick=()=>perform(async()=>{const file=$('import-file').files[0];if(!file)return;$('import-button').disabled=true;
+ try{
+  if(AUDIO_FILE.test(file.name)){const d=await uploadAudio(file);$('import-file').value='';toast('Audio imported · '+shortDuration(d.duration));state=await api('/api/state');renderState();await openMeeting(d.id,true);return;}
+  if(file.size>5_000_000)throw new Error('Choose a transcript file of at most 5 MB');
+  await importTranscript(await file.text(),file.name);
+ }finally{$('import-button').textContent='Import file';$('import-button').disabled=!$('import-file').files.length;}});
 $('import-text').oninput=()=>{$('import-paste-button').disabled=!$('import-text').value.trim();};
 $('import-paste-button').onclick=()=>perform(async()=>{$('import-paste-button').disabled=true;try{await importTranscript($('import-text').value,'');}finally{$('import-paste-button').disabled=!$('import-text').value.trim();}});
 $('pause').onclick=()=>perform(()=>api('/api/pause',{paused:state.active.status!=='paused'}));$('stop').onclick=()=>perform(()=>api('/api/stop',{}));

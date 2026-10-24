@@ -86,10 +86,11 @@ def is_question(text: str) -> bool:
 
 
 def detect_questions(segments, previous=None) -> list[dict]:
+    # A position ID is not enough: a new transcript can put another question at the same position.
+    # Text and time identify the question; the speaker is left out so that renaming keeps the state.
     answered = {}
     for item in (previous or {}).get('questions', []):
-        answered[item.get('id')] = bool(item.get('answered'))
-        answered[(item.get('text'), item.get('speaker'), item.get('timestamp'))] = bool(item.get('answered'))
+        answered[(item.get('text'), item.get('timestamp'))] = bool(item.get('answered'))
     questions = []
     for segment_index, segment in enumerate(segments):
         for sentence_index, sentence in enumerate(split_sentences(segment.get('text', ''))):
@@ -98,7 +99,7 @@ def detect_questions(segments, previous=None) -> list[dict]:
             question_id = f'q-{segment_index}-{sentence_index}'
             timestamp = float(segment['start'])
             speaker = segment.get('speaker') or None
-            was_answered = answered.get(question_id, answered.get((sentence, speaker, timestamp), False))
+            was_answered = answered.get((sentence, timestamp), False)
             questions.append({
                 'id': question_id,
                 'segment_index': segment_index,

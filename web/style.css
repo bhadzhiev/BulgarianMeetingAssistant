@@ -81,3 +81,4 @@
 .note-section .tracked-task{grid-template-columns:22px 1fr;padding-left:8px}.note-section textarea{resize:vertical}
 .question-filters{margin:4px 0 8px}
 @media(max-width:720px){.detail-heading{flex-direction:column;gap:0}.detail-actions{justify-content:flex-start;padding-top:12px}.menu-items{left:0;right:auto}}
+.speaker-meeting{margin:0 0 0 2px;font-size:12px}

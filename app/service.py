@@ -230,7 +230,8 @@ class MeetingService:
             self.library.update(meeting['id'], **changes)
             save_transcript(self.library.directory(meeting['id']), segments)
             self.library.add_speakers(s.speaker for s in segments if s.speaker)
-            self._run_analytics(meeting['id'], settings)
+            self.busy.add(meeting['id'])
+        self._analyze_unlocked(meeting['id'], settings)
         if settings.get('auto_process') and settings['summarizer'] != 'none':
             try:
                 self.process(meeting['id'], 'summarize')
@@ -436,6 +437,7 @@ class MeetingService:
 
     def edit(self, meeting_id, body):
         from meeting_assistant import TranscriptSegment, save_transcript, save_minutes, validate_minutes
+        analytics_settings = None
         with self.lock:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before editing')
@@ -485,12 +487,25 @@ class MeetingService:
                 save_transcript(directory, segments)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
-                self._run_analytics(meeting_id, dict(self.settings, models_dir=str(self.project / 'models')))
+                analytics_settings = dict(self.settings, models_dir=str(self.project / 'models'))
             if 'minutes' in body:
                 source = json.loads((directory / 'transcript.json').read_text())
                 validate_minutes(body['minutes'], [TranscriptSegment(**s) for s in source])
                 save_minutes(directory, body['minutes'])
-            return self.detail(meeting_id)
+            if analytics_settings is None:
+                return self.detail(meeting_id)
+            self.busy.add(meeting_id)
+        self._analyze_unlocked(meeting_id, analytics_settings)
+        return self.detail(meeting_id)
+
+    def _analyze_unlocked(self, meeting_id, settings):
+        # Semantic topics can wait minutes for the AI endpoint; recording controls must not wait.
+        # The busy mark keeps other edits and jobs away from this meeting until analytics finish.
+        try:
+            self._run_analytics(meeting_id, settings)
+        finally:
+            with self.lock:
+                self.busy.discard(meeting_id)
 
     def save_trackers(self, trackers):
         return dict(trackers=self.library.save_trackers(trackers))
@@ -541,7 +556,18 @@ class MeetingService:
             raise ValueError('Analytics dates must use YYYY-MM-DD') from None
         if first and last and first > last:
             raise ValueError('The start date must not be after the end date')
-        speaker_key, topic_key = speaker.casefold(), topic.casefold()
+        wanted_speaker, topic_key = speaker.casefold(), topic.casefold()
+
+        def speaker_key(name, meeting):
+            # Diarization labels such as SPEAKER_00 are local to one meeting; only real names join meetings.
+            return (meeting['id'], name.casefold()) if conversation.is_generic_speaker(name) else name.casefold()
+
+        def new_speaker(name, meeting):
+            row = dict(speaker=name, talk_seconds=0.0, turns=0, questions=0, unanswered_questions=0,
+                       longest_monologue_seconds=0.0, meetings=set())
+            if conversation.is_generic_speaker(name):
+                row.update(meeting_id=meeting['id'], meeting_title=meeting['title'])
+            return row
         with self.lock:
             records = [(meeting, self._meeting_analytics(meeting['id'])) for meeting in self.library.list()]
         records = [(meeting, data) for meeting, data in records if data]
@@ -556,14 +582,14 @@ class MeetingService:
             if first and meeting_date < first.isoformat() or last and meeting_date > last.isoformat():
                 continue
             speaker_rows = [row for row in data.get('speakers', [])
-                            if not speaker_key or row.get('speaker', '').casefold() == speaker_key]
+                            if not wanted_speaker or row.get('speaker', '').casefold() == wanted_speaker]
             topic_rows = [row for row in data.get('topics', [])
                           if not topic_key or str(row.get('id', '')).casefold() == topic_key or row.get('name', '').casefold() == topic_key]
             questions = [item for item in data.get('questions', [])
-                         if not speaker_key or (item.get('speaker') or '').casefold() == speaker_key]
-            speaker_in_topics = any((hit.get('speaker') or '').casefold() == speaker_key
+                         if not wanted_speaker or (item.get('speaker') or '').casefold() == wanted_speaker]
+            speaker_in_topics = any((hit.get('speaker') or '').casefold() == wanted_speaker
                                     for row in topic_rows for hit in row.get('matches', []))
-            if speaker_key and not speaker_rows and not questions and not speaker_in_topics or topic_key and not topic_rows:
+            if wanted_speaker and not speaker_rows and not questions and not speaker_in_topics or topic_key and not topic_rows:
                 continue
             unanswered = sum(not item.get('answered', False) for item in questions)
             meetings.append(dict(id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
@@ -572,9 +598,7 @@ class MeetingService:
                                  topic_matches=sum(len(row.get('matches', [])) for row in topic_rows)))
             for row in speaker_rows:
                 name = row['speaker']
-                key = name.casefold()
-                aggregate = speakers.setdefault(key, dict(speaker=name, talk_seconds=0.0, turns=0, questions=0,
-                    unanswered_questions=0, longest_monologue_seconds=0.0, meetings=set()))
+                aggregate = speakers.setdefault(speaker_key(name, meeting), new_speaker(name, meeting))
                 aggregate['talk_seconds'] += row.get('talk_seconds', 0)
                 aggregate['turns'] += row.get('turns', 0)
                 aggregate['longest_monologue_seconds'] = max(aggregate['longest_monologue_seconds'], row.get('longest_monologue_seconds', 0))
@@ -583,9 +607,7 @@ class MeetingService:
                 name = item.get('speaker')
                 if not name:
                     continue
-                key = name.casefold()
-                aggregate = speakers.setdefault(key, dict(speaker=name, talk_seconds=0.0, turns=0, questions=0,
-                    unanswered_questions=0, longest_monologue_seconds=0.0, meetings=set()))
+                aggregate = speakers.setdefault(speaker_key(name, meeting), new_speaker(name, meeting))
                 aggregate['questions'] += 1
                 aggregate['unanswered_questions'] += not item.get('answered', False)
                 aggregate['meetings'].add(meeting['id'])

@@ -54,6 +54,16 @@ class ConversationAnalyticsTests(unittest.TestCase):
         self.assertEqual(questions[1]['speaker'], 'Мария')
         self.assertFalse(questions[1]['answered'])
 
+    def test_answered_state_needs_the_same_question_not_the_same_position(self):
+        previous = dict(questions=[dict(id='q-0-0', text='Кога започваме?', speaker='SPEAKER_00', timestamp=0.0, answered=True)])
+        replaced = analytics.detect_questions([segment(0, 4, 'Кой плаща?', 'SPEAKER_00')], previous)
+        self.assertEqual(replaced[0]['id'], 'q-0-0')
+        self.assertFalse(replaced[0]['answered'])
+        renamed = analytics.detect_questions([segment(0, 4, 'Кога започваме?', 'Иван')], previous)
+        self.assertTrue(renamed[0]['answered'])
+        moved = analytics.detect_questions([segment(0, 2, 'Здравей.'), segment(0, 4, 'Кога започваме?')], previous)
+        self.assertTrue(moved[0]['answered'])
+
     def test_literal_topics_are_case_insensitive_with_timestamp_evidence(self):
         tracker = dict(id='budget', name='Бюджет', phrases=['БЮДЖЕТ', 'разходи'], semantic_matching=False)
         topics, error = analytics.build_topics([segment(12, 15, 'Имаме бюджет и разходи.', 'Иван')], [tracker])
@@ -121,6 +131,23 @@ class AnalyticsServiceTests(unittest.TestCase):
         self.assertEqual(result['speakers'][0]['questions'], 1)
         self.assertIn('Иван', self.service.library.speakers())
         self.assertNotIn('SPEAKER_00', self.service.library.speakers())
+
+    def test_transcript_save_runs_analytics_outside_the_app_lock(self):
+        meeting_id, directory = self.meeting()
+        atomic_json(directory / 'transcript.json', [segment(0, 4, 'Здравей', 'Иван')])
+        seen = {}
+        def slow_analyze(*args, **kwargs):
+            # Another thread stands in for pause, stop and the state poll.
+            import threading
+            probe = threading.Thread(target=lambda: seen.update(free=self.service.lock.acquire(timeout=1)) or self.service.lock.release())
+            probe.start(); probe.join()
+            seen['busy'] = meeting_id in self.service.busy
+            return {}
+        with patch('app.service.conversation.analyze', side_effect=slow_analyze):
+            self.service.edit(meeting_id, {'transcript': [segment(0, 4, 'Здравейте', 'Иван')]})
+        self.assertTrue(seen['free'])
+        self.assertTrue(seen['busy'])
+        self.assertNotIn(meeting_id, self.service.busy)
 
     def test_question_toggle_is_persistent_and_stale_text_is_rejected(self):
         meeting_id, directory = self.meeting()
@@ -191,6 +218,23 @@ class AnalyticsServiceTests(unittest.TestCase):
         self.assertEqual(dates['meetings'][0]['id'], second)
         with self.assertRaises(ValueError):
             self.service.analytics_overview(from_date='2026-10-25', to_date='2026-10-20')
+
+    def test_generic_speakers_are_separate_per_meeting(self):
+        rows = []
+        for title, seconds in [('Първа', 10), ('Втора', 20)]:
+            meeting_id, directory = self.meeting(title)
+            atomic_json(directory / 'transcript.json', [segment(0, seconds, 'Кога?', 'SPEAKER_00'), segment(seconds, seconds + 5, 'Да.', 'Иван')])
+            atomic_json(directory / 'speaker-timeline.json', [turn(0, seconds, 'SPEAKER_00'), turn(seconds, seconds + 5, 'Иван')])
+            analytics.analyze(directory, {}, [])
+            rows.append(meeting_id)
+        speakers = self.service.analytics_overview()['speakers']
+        generic = [row for row in speakers if row['speaker'] == 'SPEAKER_00']
+        self.assertEqual(sorted((row['meeting_title'], row['talk_seconds'], row['questions']) for row in generic),
+                         [('Втора', 20, 1), ('Първа', 10, 1)])
+        self.assertEqual({row['meeting_id'] for row in generic}, set(rows))
+        ivan = next(row for row in speakers if row['speaker'] == 'Иван')
+        self.assertEqual((ivan['talk_seconds'], ivan['meetings']), (10, 2))
+        self.assertNotIn('meeting_title', ivan)
 
     def test_tracker_validation_and_defaults(self):
         saved = self.service.save_trackers([dict(name=' Продажби ', phrases=[' оферта ', 'оферта'], semantic_matching=False)])

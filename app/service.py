@@ -154,11 +154,23 @@ class MeetingService:
                                         ('analytics', 'analytics.json', None)]:
                 path = directory / name
                 meeting[key] = json.loads(path.read_text()) if path.exists() else fallback
+            notes_valid = True
             if meeting['minutes']:
                 from meeting_assistant import validate_minutes
                 try:
                     validate_minutes(meeting['minutes'])  # adds fields that older notes lack
                 except ValueError:
+                    notes_valid = False
+            meeting['minutes_proposal'] = None
+            if notes_valid and (directory / 'minutes.proposed.json').exists():
+                from meeting_assistant import validate_minutes
+                from . import notes
+                try:
+                    proposed = json.loads((directory / 'minutes.proposed.json').read_text())
+                    validate_minutes(proposed)
+                    meeting['minutes_proposal'] = dict(revision=self._notes_revision(directory),
+                                                       changes=notes.changes(meeting['minutes'], proposed))
+                except (OSError, ValueError):
                     pass
             meeting['live'] = read_json(directory / 'live.json', None)
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
@@ -506,6 +518,43 @@ class MeetingService:
         finally:
             with self.lock:
                 self.busy.discard(meeting_id)
+
+    @staticmethod
+    def _notes_revision(directory):
+        import hashlib
+        digest = hashlib.sha256()
+        for name in ['minutes.json', 'minutes.proposed.json']:
+            path = directory / name
+            digest.update(path.read_bytes() if path.exists() else b'')
+            digest.update(b'\0')
+        return digest.hexdigest()
+
+    def review_notes(self, meeting_id, action, accept=(), revision=''):
+        """Apply the accepted changes of a new AI draft to the saved notes, or discard the draft."""
+        from meeting_assistant import TranscriptSegment, save_minutes, validate_minutes
+        from . import notes
+        if action not in {'apply', 'discard'} or not isinstance(accept, list) or not all(isinstance(item, str) for item in accept):
+            raise ValueError('Invalid notes review')
+        with self.lock:
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('Wait until processing finishes before changing the notes')
+            directory = self.library.directory(meeting_id)
+            proposal = directory / 'minutes.proposed.json'
+            if not proposal.exists() or revision != self._notes_revision(directory):
+                raise ValueError('These notes changed. Reload the meeting and review the new notes again.')
+            if action == 'apply':
+                current = json.loads((directory / 'minutes.json').read_text()) if (directory / 'minutes.json').exists() else None
+                if current is not None:
+                    validate_minutes(current)
+                proposed = json.loads(proposal.read_text())
+                validate_minutes(proposed)
+                result = notes.apply(current, proposed, set(accept))
+                source = json.loads((directory / 'transcript.json').read_text())
+                validate_minutes(result, [TranscriptSegment(**s) for s in source])
+                processing.archive(directory, ['minutes.json', 'minutes.md'])
+                save_minutes(directory, result)
+            proposal.unlink()
+            return self.detail(meeting_id)
 
     def save_trackers(self, trackers):
         return dict(trackers=self.library.save_trackers(trackers))

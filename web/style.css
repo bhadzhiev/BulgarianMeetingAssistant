@@ -82,3 +82,15 @@
 .question-filters{margin:4px 0 8px}
 @media(max-width:720px){.detail-heading{flex-direction:column;gap:0}.detail-actions{justify-content:flex-start;padding-top:12px}.menu-items{left:0;right:auto}}
 .speaker-meeting{margin:0 0 0 2px;font-size:12px}
+.note-list{list-style:none;padding-left:0}.note-item{padding:10px 0 10px 12px;border-left:3px solid #e7d9b4;margin:0 0 6px}.note-item.verified{border-left-color:var(--green)}.note-text{margin:0 0 6px}
+.note-meta{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;font-size:12px}.note-source{display:flex;align-items:flex-start;gap:6px;min-width:0;flex:1}
+.quote{flex:1;min-width:0;padding:1px 0;background:transparent;color:var(--muted);font-size:12px;font-weight:400;font-style:italic;text-align:left;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.quote:hover{color:var(--ink)}.no-source{color:var(--muted);font-size:11px}
+.review-badge{flex:none;padding:2px 8px;font-size:11px;font-weight:600;border-radius:6px;background:#fbf4e6;color:#8a5a12;border:1px solid #f0e0bd}.review-badge.verified{background:#eaf3e6;color:var(--green);border-color:#cfe3c8}.review-badge:hover:not(:disabled){filter:brightness(.97)}
+.tracked-meta .note-source{flex-basis:100%}
+.proposal-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 18px;background:#fbf4e6;color:#6d4810}.proposal-banner button{font-size:12px;padding:8px 14px;white-space:nowrap}
+#review-dialog{width:min(820px,95vw);display:flex;flex-direction:column;padding:24px 28px}#review-dialog:not([open]){display:none}#review-dialog .hint{margin-top:0}
+.review-body{overflow:auto;min-height:0;border-top:1px solid var(--line);padding-top:6px}.review-section h3{font-size:13px;margin:16px 0 6px}
+.review-change{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:10px 0;border-top:1px solid #edf0e9;margin:0;font-size:13px;font-weight:400;cursor:pointer}.review-change input{margin-top:3px}
+.change-kind{display:block;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:4px}.review-change.added .change-kind{color:var(--green)}.review-change.removed .change-kind{color:var(--red)}
+.review-change del{display:block;color:var(--muted);text-decoration:line-through;margin-bottom:3px}.review-change ins{display:block;text-decoration:none;background:#eef6e9;border-radius:4px;padding:1px 4px;margin-bottom:4px}.review-change p{margin:0 0 4px}
+.review-footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:14px;margin-top:6px}

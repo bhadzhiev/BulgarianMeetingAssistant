@@ -327,16 +327,22 @@ def minutes_schema() -> dict[str, Any]:
         "required": ["task", "owner", "deadline", "due_date", "evidence_timestamp"],
         "additionalProperties": False,
     }
+    item = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}, "evidence_timestamp": {"type": ["string", "null"]}},
+        "required": ["text", "evidence_timestamp"],
+        "additionalProperties": False,
+    }
     return {
         "type": "object",
         "properties": {
-            "summary": {"type": "array", "items": {"type": "string"}},
-            "decisions": {"type": "array", "items": {"type": "string"}},
-            "next_steps": {"type": "array", "items": {"type": "string"}},
-            "needs_decision": {"type": "array", "items": {"type": "string"}},
+            "summary": {"type": "array", "items": item},
+            "decisions": {"type": "array", "items": item},
+            "next_steps": {"type": "array", "items": item},
+            "needs_decision": {"type": "array", "items": item},
             "tasks": {"type": "array", "items": task},
-            "open_questions": {"type": "array", "items": {"type": "string"}},
-            "observations": {"type": "array", "items": {"type": "string"}},
+            "open_questions": {"type": "array", "items": item},
+            "observations": {"type": "array", "items": item},
         },
         "required": ["summary", "decisions", "next_steps", "needs_decision", "tasks", "open_questions", "observations"],
         "additionalProperties": False,
@@ -356,13 +362,17 @@ def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date:
 Отговори на български. Не измисляй факти, имена, задачи или срокове.
 Задача трябва да е изрично подкрепена от текста; обсъждана идея не е автоматично задача.
 Ако отговорник или срок липсва, върни null. За всяка задача дай timestamp от текста.
+Всеки елемент в summary, decisions, next_steps, needs_decision, open_questions и observations е обект:
+text е твърдението, evidence_timestamp е timestamp на сегмента, който го доказва. Не пиши timestamp в text.
+За решение посочи момента, в който решението е прието, а не момента, в който е предложено.
+Обсъждана възможност не е решение. Върни null за evidence_timestamp само ако няма един конкретен момент.
 Разграничавай решения, задачи и отворени въпроси. Върни само JSON по дадената схема.
 Дата на срещата: {meeting_date or dt.date.today().isoformat()}. Ако срокът на задача може да се определи
 като конкретна дата спрямо нея, попълни due_date във формат YYYY-MM-DD; иначе върни null.
 next_steps: договорени следващи стъпки за процеса (например следваща среща); не повтаряй задачите.
 needs_decision: въпроси, които изрично чакат решение от ръководител или възложител и не са решени.
 observations: поверителни наблюдения за ръководителя след срещата: рискове, обещания, които изглеждат
-нереалистични, колебание или скрито несъгласие. Всяко наблюдение посочва timestamp на казаното.
+нереалистични, колебание или скрито несъгласие. Всяко наблюдение има evidence_timestamp на казаното.
 Не оценявай личности. Ако няма ясна основа в текста, върни празен списък.
 {known}
 ТРАНСКРИПТ:
@@ -391,6 +401,22 @@ def extract_json(text: str) -> dict[str, Any]:
 
 
 MINUTES_OPTIONAL = ("next_steps", "needs_decision", "observations")
+# Every statement in these fields has a source moment and a review state, like a task.
+ITEM_FIELDS = ("summary", "decisions", "next_steps", "needs_decision", "open_questions", "observations")
+REVIEW_STATES = ("ai", "verified")
+_CITED = re.compile(r"\s*[(\[](\d{2,}:\d{2}:\d{2})[)\]]")
+_STAMP = re.compile(r"\b(\d{2,}:\d{2}:\d{2})\b")
+
+
+def note_item(value: Any) -> Any:
+    """Notes saved before sources existed are plain text; a cited "(00:12:03)" becomes the source."""
+    if not isinstance(value, str):
+        return value
+    cited = _CITED.search(value)
+    if cited:
+        return {"text": _CITED.sub("", value, count=1).strip(), "evidence_timestamp": cited.group(1), "review": "ai"}
+    bare = _STAMP.search(value)
+    return {"text": value.strip(), "evidence_timestamp": bare.group(1) if bare else None, "review": "ai"}
 
 
 def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] | None = None) -> None:
@@ -404,15 +430,31 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
     for field in fields:
         if not isinstance(minutes[field], list):
             raise ValueError(f"{field} must be a list")
-        if field != "tasks" and any(not isinstance(item, str) for item in minutes[field]):
-            raise ValueError(f"{field} must contain text")
     evidence = {timestamp(s.start) for s in segments} if segments is not None else None
+    for field in ITEM_FIELDS:
+        minutes[field] = [note_item(item) for item in minutes[field]]
+        for item in minutes[field]:
+            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review"}:
+                raise ValueError(f"{field} items need text and a source timestamp field")
+            item.setdefault("review", "ai")
+            if not isinstance(item["text"], str) or not item["text"].strip():
+                raise ValueError(f"{field} items need text")
+            if item["review"] not in REVIEW_STATES:
+                raise ValueError("Review state must be ai or verified")
+            stamp = item["evidence_timestamp"]
+            if stamp is not None and (not isinstance(stamp, str) or not re.fullmatch(r"\d{2,}:\d{2}:\d{2}", stamp)):
+                raise ValueError("Invalid evidence timestamp")
+            if stamp is not None and evidence is not None and stamp not in evidence:
+                raise ValueError(f"Timestamp {stamp} does not reference a transcript segment")
     for task in minutes["tasks"]:
         core = {"task", "owner", "deadline", "evidence_timestamp"}
-        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status"}:
+        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status", "review"}:
             raise ValueError("Invalid task fields")
         task.setdefault("due_date", None)
         task.setdefault("status", "open")
+        task.setdefault("review", "ai")
+        if task["review"] not in REVIEW_STATES:
+            raise ValueError("Review state must be ai or verified")
         if task["status"] not in {"open", "done"}:
             raise ValueError("Task status must be open or done")
         if task["due_date"] is not None:
@@ -439,7 +481,10 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
         raise ValueError("Cannot summarize an empty transcript")
     prompt = llm_prompt(transcript, getattr(args, "speakers", None), getattr(args, "meeting_date", None))
     schema = minutes_schema()
-    schema["properties"]["tasks"]["items"]["properties"]["evidence_timestamp"]["enum"] = list(dict.fromkeys(timestamp(s.start) for s in segments))
+    stamps = list(dict.fromkeys(timestamp(s.start) for s in segments))
+    schema["properties"]["tasks"]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps
+    for field in ITEM_FIELDS:
+        schema["properties"][field]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
     if args.summarizer in {"local", "ollama"}:
         from app.local_ai import complete_json
         return complete_json(vars(args), [{"role": "user", "content": prompt}], schema, "meeting_minutes")
@@ -469,15 +514,18 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
     atomic_text(output_dir / "minutes.json", 
         json.dumps(minutes, ensure_ascii=False, indent=2)
     )
+    def line(item: dict[str, Any]) -> str:
+        source = f" ({item['evidence_timestamp']})" if item.get("evidence_timestamp") else ""
+        return f"- {item['text']}{source}" + (" — проверено" if item.get("review") == "verified" else "")
     lines = ["# Бележки от срещата", "", "## Резюме"]
-    lines.extend(f"- {item}" for item in minutes.get("summary", []))
+    lines.extend(line(item) for item in minutes.get("summary", []))
     lines.extend(["", "## Взети решения"])
     decisions = minutes.get("decisions", [])
-    lines.extend(f"- {item}" for item in decisions) if decisions else lines.append("- Няма извлечени решения.")
+    lines.extend(line(item) for item in decisions) if decisions else lines.append("- Няма извлечени решения.")
     for field, heading in [("next_steps", "Следващи стъпки"), ("needs_decision", "Въпроси, изискващи решение")]:
         if minutes.get(field):
             lines.extend(["", f"## {heading}"])
-            lines.extend(f"- {item}" for item in minutes[field])
+            lines.extend(line(item) for item in minutes[field])
     lines.extend(["", "## Задачи", "", "| Задача | Отговорник | Краен срок | Дата | Статус | Източник |", "|---|---|---|---|---|---|"])
     for task in minutes.get("tasks", []):
         values = [task.get("task", ""), task.get("owner") or "Не е посочен", task.get("deadline") or "Не е посочен",
@@ -487,7 +535,7 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
         lines.append("| Няма извлечени задачи | — | — | — | — | — |")
     lines.extend(["", "## Отворени въпроси"])
     questions = minutes.get("open_questions", [])
-    lines.extend(f"- {item}" for item in questions) if questions else lines.append("- Няма извлечени отворени въпроси.")
+    lines.extend(line(item) for item in questions) if questions else lines.append("- Няма извлечени отворени въпроси.")
     atomic_text(output_dir / "minutes.md", "\n".join(lines) + "\n")
 
 

@@ -31,6 +31,20 @@ def upload_audio(audio: bytes, key: str, model: str) -> dict:
         return json.load(response)
 
 
+def archive(directory: Path, names) -> Path | None:
+    """Copy the files that exist into a new versions/<time> folder before they change."""
+    import shutil
+    from datetime import datetime
+    existing = [directory / name for name in names if (directory / name).exists()]
+    if not existing:
+        return None
+    previous = directory / 'versions' / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    previous.mkdir(parents=True)
+    for path in existing:
+        shutil.copy2(path, previous / path.name)
+    return previous
+
+
 def transcribe(directory: Path, settings: dict, progress, api_key: str = '', speakers=()) -> None:
     import numpy as np
     from meeting_assistant import TranscriptSegment, clean_text, merge_segments, save_transcript
@@ -105,20 +119,11 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 atomic_json(directory / 'transcript.partial.json', [asdict(s) for s in segments])
         if not segments:
             raise ValueError('No speech was recognized. The recording is saved; try another model or provider.')
-        if any((directory / name).exists() for name in ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json', 'minutes.md', 'analytics.json', 'speaker-timeline.json']):
-            archive = directory / 'versions'
-            archive.mkdir(exist_ok=True)
-            from datetime import datetime
-            previous = archive / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-            previous.mkdir()
-            import shutil
-            for name in ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json', 'minutes.md', 'analytics.json', 'speaker-timeline.json']:
-                path = directory / name
-                if path.exists():
-                    shutil.copy2(path, previous / name)
+        if archive(directory, ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json',
+                               'minutes.md', 'minutes.proposed.json', 'analytics.json', 'speaker-timeline.json']):
             # Previous notes and analytics no longer refer to the current transcription.
             # The kept Whisper text belongs to the old transcription.
-            for name in ['minutes.json', 'minutes.md', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:
+            for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:
                 (directory / name).unlink(missing_ok=True)
         save_transcript(directory, segments)
         metadata = dict(provider=provider,
@@ -135,7 +140,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
 
 
 def summarize(directory: Path, settings: dict, progress, api_key: str = '', speakers=()) -> None:
-    from meeting_assistant import TranscriptSegment, generate_minutes, save_minutes, validate_minutes
+    from meeting_assistant import ITEM_FIELDS, TranscriptSegment, generate_minutes, save_minutes, timestamp, validate_minutes
     segments = [TranscriptSegment(**s) for s in json.loads((directory / 'transcript.json').read_text())]
     if not segments:
         raise ValueError('Transcribe the recording before generating notes')
@@ -165,8 +170,18 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     for index, group in enumerate(groups):
         progress(f'Generating notes · part {index + 1} of {len(groups)}')
         minutes = generate_minutes(args, group)
+        stamps = {timestamp(s.start) for s in group}
+        for field in ITEM_FIELDS:
+            # A wrong source on a statement is dropped, not fatal: the statement then shows no source.
+            for item in minutes.get(field, []) if isinstance(minutes, dict) else []:
+                if isinstance(item, dict) and item.get('evidence_timestamp') not in stamps:
+                    item['evidence_timestamp'] = None
         validate_minutes(minutes, group)
         for field in result:
             result[field].extend(minutes[field])
     validate_minutes(result, segments)
-    save_minutes(directory, result)
+    if (directory / 'minutes.json').exists():
+        # Saved notes may hold checked statements and manual edits; the new run waits for review.
+        atomic_json(directory / 'minutes.proposed.json', result)
+    else:
+        save_minutes(directory, result)

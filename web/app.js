@@ -14,8 +14,8 @@ function option(text, value) { const node = el('option', '', text); node.value =
 function withDate(title, value) { const day = date(value); return title.includes(day) ? title : title + ' · ' + day; }
 function time(seconds) { seconds=Math.max(0,Math.floor(seconds||0)); return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(x=>String(x).padStart(2,'0')).join(':'); }
 function date(value) { return new Date(value).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
-function error(message) { const target=$('settings-dialog').open?$('settings-error'):$('error'); target.textContent=message; target.hidden=false; }
-function clearError() { $('error').hidden=true; $('settings-error').hidden=true; }
+function error(message) { const target=$('settings-dialog').open?$('settings-error'):$('review-dialog').open?$('review-error'):$('error'); target.textContent=message; target.hidden=false; }
+function clearError() { $('error').hidden=true; $('settings-error').hidden=true; $('review-error').hidden=true; }
 function toast(message) { $('toast').textContent=message; $('toast').hidden=false; setTimeout(()=>$('toast').hidden=true,3000); }
 function knownSpeaker(name) { const key=(name||'').trim().toLocaleLowerCase(); return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
 function speakerTone(name) { let hash=0; for(const c of name.toLocaleLowerCase()) hash=(hash*31+c.codePointAt(0))>>>0; return 'tone-'+(hash%8); }
@@ -169,7 +169,7 @@ function renderDetail() {
  $('correction-status').textContent=d.correction_error?'AI correction failed · the Whisper transcript is shown. '+d.correction_error:fix?'AI corrected '+fix.changed+(fix.changed===1?' segment':' segments')+(fix.rejected?' · '+fix.rejected+' larger changes were refused':'')+'. Marked segments show the original Whisper text; click ↺ to restore it.':'';
  $('correction-status').classList.toggle('warning',!!d.correction_error);
  $('recover').hidden=d.mode==='imported'||!!d.files.includes('recording.wav')&&!['interrupted','error'].includes(d.status);$('process').hidden=d.mode==='imported';
- $('summarize').disabled=busy||!d.transcript.length;
+ $('summarize').disabled=busy||!d.transcript.length; $('summarize').textContent=d.minutes?'Generate new AI notes':'Generate notes';
  $('process').textContent=d.transcript.length?'Transcribe again':'Transcribe';
  placeActions(d);
  $('timestamp-note').textContent=d.transcript_metadata?.timestamps==='approximate chunk boundaries'?'Cloud timestamps mark approximate audio chunks. Click a time to listen.':'Click a timestamp to listen. Correct the text or add a speaker label below.';
@@ -201,20 +201,92 @@ function showMoment(stamp) {
 function stampButton(stamp) { const button=el('button','quiet stamp',stamp+' ▶'); button.type='button'; button.title='Show this moment in the transcript'; button.onclick=()=>showMoment(stamp); return button; }
 // AI notes cite moments as (00:29:46); make them links to the transcript.
 function linkedText(target,text) { text.split(/\(?\b(\d{2}:\d{2}:\d{2})\b\)?/).forEach((part,i)=>target.append(i%2?stampButton(part):document.createTextNode(part))); return target; }
+const FIELD_TITLES={summary:'Summary',decisions:'Decisions',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations'};
+const ITEM_FIELDS=Object.keys(FIELD_TITLES).filter(field=>field!=='tasks');
+function segmentAt(stamp) { return detail.transcript.find(s=>time(s.start)===stamp); }
+let excerptEnd=null;
+$('audio').addEventListener('timeupdate',()=>{if(excerptEnd!==null&&$('audio').currentTime>=excerptEnd){$('audio').pause();excerptEnd=null;}});
+$('audio').addEventListener('seeking',()=>{if(excerptEnd!==null&&$('audio').currentTime>excerptEnd)excerptEnd=null;});
+// Play only the cited segment and stay in the notes; without audio, show it in the transcript.
+function playExcerpt(stamp) {
+ const segment=segmentAt(stamp);
+ if(!segment||!detail.files.includes('recording.wav')) return showMoment(stamp);
+ excerptEnd=segment.end; $('audio').currentTime=segment.start; $('audio').play().catch(e=>error(e.message));
+}
+function sourceBlock(stamp) {
+ const box=el('div','note-source');
+ if(!stamp) { box.append(el('span','no-source','No source moment')); return box; }
+ const audio=detail.files.includes('recording.wav'), play=el('button','quiet stamp',(audio?'▶ ':'')+stamp);
+ play.type='button'; play.title=audio?'Play this moment':'Show this moment in the transcript'; play.onclick=()=>playExcerpt(stamp); box.append(play);
+ const segment=segmentAt(stamp);
+ if(segment) { const quote=el('button','quote',(segment.speaker?segment.speaker+': ':'')+'“'+segment.text+'”'); quote.type='button'; quote.title='Show in the transcript'; quote.onclick=()=>showMoment(stamp); box.append(quote); }
+ return box;
+}
+async function saveMinutes() { detail=await api('/api/meetings/'+selected+'/edit',{minutes:detail.minutes}); dirtyNotes=false; lastFingerprint=JSON.stringify(detail); renderDetail(); }
+function reviewBadge(item,busy) {
+ const checked=item.review==='verified', badge=el('button','review-badge'+(checked?' verified':''),checked?'✓ Checked':'AI suggestion');
+ badge.type='button'; badge.disabled=busy||notesEditing;
+ badge.title=checked?'You checked this against the source. Click to undo.':'Not checked yet. Click after you check it against the source.';
+ badge.onclick=()=>perform(async()=>{const previous=item.review;item.review=checked?'ai':'verified';try{await saveMinutes();}catch(e){item.review=previous;throw e;}});
+ return badge;
+}
 function noteSection(minutes,field,title,busy,hint) {
  const section=el('section','note-section'+(field==='observations'?' private-notes':''));
  section.append(el('h3','',title)); if(hint) section.append(el('p','hint',hint));
- const items=minutes[field]||[];
+ const items=minutes[field]=minutes[field]||[];
  if(!notesEditing) {
   if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
-  else { const list=el('ul','note-list'); for(const item of items) list.append(linkedText(el('li'),item)); section.append(list); }
+  else { const list=el('ul','note-list'); for(const item of items) { const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'); meta.append(reviewBadge(item,busy),sourceBlock(item.evidence_timestamp)); li.append(linkedText(el('p','note-text'),item.text),meta); list.append(li); } section.append(list); }
   return section;
  }
- const area=el('textarea');
- area.value=items.join('\n');area.setAttribute('aria-label',title+' · one item per line');area.disabled=busy;area.placeholder='One item per line';
- area.rows=Math.max(3,items.reduce((rows,item)=>rows+Math.ceil((item.length+1)/90),1));
- area.oninput=()=>{minutes[field]=area.value.split('\n').filter(s=>s.trim());area.style.height='auto';area.style.height=area.scrollHeight+2+'px';markNotes();};
- section.append(area); return section;
+ const list=el('div','item-editors'), stamps=[...new Set(detail.transcript.map(s=>time(s.start)))];
+ function draw() { list.replaceChildren(); items.forEach((item,index)=>{
+  const row=el('div','task-editor'), area=el('textarea');
+  area.value=item.text; area.rows=Math.max(2,Math.ceil(item.text.length/90)); area.disabled=busy; area.setAttribute('aria-label',title+' '+(index+1));
+  area.oninput=()=>{item.text=area.value;markNotes();};
+  const bottom=el('div','task-bottom'), select=el('select'), remove=el('button','quiet','Remove');
+  select.setAttribute('aria-label','Source for '+title+' '+(index+1)); select.disabled=busy; select.append(option('No source moment',''),...stamps.map(stamp=>option(stamp,stamp)));
+  select.value=item.evidence_timestamp||''; select.onchange=()=>{item.evidence_timestamp=select.value||null;markNotes();};
+  remove.type='button'; remove.disabled=busy; remove.onclick=()=>{items.splice(index,1);markNotes();draw();};
+  bottom.append(el('label','','Source'),select,remove); row.append(area,bottom); list.append(row); }); }
+ draw();
+ // A statement that you write yourself needs no AI check.
+ const add=el('button','secondary','＋ Add'); add.type='button'; add.disabled=busy; add.onclick=()=>{items.push({text:'',evidence_timestamp:null,review:'verified'});markNotes();draw();list.lastElementChild?.querySelector('textarea').focus();};
+ section.append(list,add); return section;
+}
+function changeText(field,item) { return field==='tasks'?[item.task,item.owner,item.deadline&&'said: '+item.deadline,item.due_date].filter(Boolean).join(' · '):item.text; }
+async function reviewNotes(action,accept) {
+ detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
+ lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
+}
+function openReview() {
+ const proposal=detail.minutes_proposal, body=$('review-body'), choices=new Map(); body.replaceChildren(); clearError();
+ for(const field of Object.keys(FIELD_TITLES)) {
+  const list=proposal.changes.filter(change=>change.field===field); if(!list.length) continue;
+  const section=el('section','review-section'); section.append(el('h3','',FIELD_TITLES[field]));
+  for(const change of list) {
+   const row=el('label','review-change '+change.kind), box=el('input'), main=el('div'), checked=change.current?.review==='verified';
+   // Additions and AI-only edits are preselected; removals and edits of checked statements are not.
+   box.type='checkbox'; box.checked=change.kind==='added'||change.kind==='changed'&&!checked; choices.set(change.id,box);
+   main.append(el('span','change-kind',{added:'New',changed:'Changed',removed:'Not in the new notes'}[change.kind]+(checked?' · you checked the saved version':'')));
+   if(change.current) main.append(el(change.kind==='removed'||change.kind==='changed'?'del':'p','',changeText(field,change.current)));
+   if(change.proposed) main.append(el('ins','',changeText(field,change.proposed)));
+   const stamp=(change.proposed||change.current).evidence_timestamp; if(stamp) main.append(sourceBlock(stamp));
+   row.append(box,main); section.append(row);
+  }
+  body.append(section);
+ }
+ $('review-apply').onclick=()=>perform(async()=>{await reviewNotes('apply',[...choices].filter(([,box])=>box.checked).map(([id])=>id));toast('Notes updated · the previous version is kept in versions/');});
+ $('review-discard').onclick=()=>perform(async()=>{if(!confirm('Discard the new AI notes? Your saved notes stay as they are.'))return;await reviewNotes('discard',[]);toast('New AI notes discarded');});
+ $('review-dialog').showModal();
+}
+$('review-close').onclick=()=>$('review-dialog').close();
+function proposalBanner(busy) {
+ const proposal=detail.minutes_proposal, count=proposal.changes.length, banner=el('div','notice proposal-banner');
+ banner.append(el('span','',count?'New AI notes are ready · '+count+(count===1?' change':' changes')+' to review. Your saved notes have not changed.':'The new AI notes match your saved notes.'));
+ const button=el('button','secondary',count?'Review changes':'Dismiss'); button.type='button'; button.disabled=busy||notesEditing;
+ button.onclick=count?openReview:()=>perform(()=>reviewNotes('discard',[]));
+ banner.append(button); return banner;
 }
 function taskRow(task,index,busy) {
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(task,today);
@@ -222,9 +294,9 @@ function taskRow(task,index,busy) {
  done.onchange=()=>perform(async()=>{await api('/api/meetings/'+detail.id+'/task',{index,task:task.task,changes:{status:done.checked?'done':'open'}});await openMeeting(detail.id,true);});
  const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(speakerBadge(el('span'),task.owner||''),el('span','',task.owner||'No owner'));
- meta.append(who,el('span','due-label '+kind,task.due_date&&task.status!=='done'?label+' · '+task.due_date:label));
+ meta.append(reviewBadge(task,busy),who,el('span','due-label '+kind,task.due_date&&task.status!=='done'?label+' · '+task.due_date:label));
  if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
- if(task.evidence_timestamp) meta.append(stampButton(task.evidence_timestamp));
+ if(task.evidence_timestamp) meta.append(sourceBlock(task.evidence_timestamp));
  main.append(el('p','tracked-text',task.task||'Untitled task'),meta); row.append(done,main); return row;
 }
 function renderNotes(busy=false) {
@@ -233,6 +305,7 @@ function renderNotes(busy=false) {
  for(const name of ['notes','outcomes']) { $('edit-'+name).hidden=notesEditing||!detail.minutes; $('edit-'+name).disabled=busy; $('save-'+name).hidden=$('cancel-'+name).hidden=!notesEditing; $('save-'+name).disabled=!dirtyNotes; }
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(el('p','empty-content','Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
+ if(detail.minutes_proposal) for(const id of ['notes','outcomes']) $(id).append(proposalBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
  const section=el('section','note-section');section.append(el('h3','','Tasks'));
@@ -454,7 +527,7 @@ $('pause').onclick=()=>perform(()=>api('/api/pause',{paused:state.active.status!
 for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!leaveEdits())return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
 $('edit-title').onclick=()=>perform(async()=>{const title=window.prompt('Meeting name',detail.title);if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
 $('save-transcript').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript});dirtyTranscript=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Transcript corrections saved');});
-$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{minutes:detail.minutes});dirtyNotes=false;notesEditing=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Meeting notes saved');});
+$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());notesEditing=false;try{await saveMinutes();}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');});
 for(const name of ['notes','outcomes']) {
  $('edit-'+name).onclick=()=>{notesEditing=true;renderNotes(false);};
  $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!confirm('Discard your changes to the notes?'))return;notesEditing=false;await openMeeting(selected,true);});

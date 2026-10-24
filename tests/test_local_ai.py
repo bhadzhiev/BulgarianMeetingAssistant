@@ -84,7 +84,7 @@ class LocalAITests(unittest.TestCase):
             root=Path(tmp);(root/'transcript.json').write_text(json.dumps([dict(start=0,end=10,text='Иван ще изпрати оферта до петък.',speaker=None)]))
             with patch('meeting_assistant.post_json',return_value=response(NOTES)) as post:
                 summarize(root,settings,lambda message:None,'cloud-secret')
-                self.assertEqual(json.loads((root/'minutes.json').read_text())['tasks'],[dict(t,due_date=None,status='open') for t in NOTES['tasks']])
+                self.assertEqual(json.loads((root/'minutes.json').read_text())['tasks'],[dict(t,due_date=None,status='open',review='ai') for t in NOTES['tasks']])
                 self.assertEqual(post.call_args.args[0],'http://localhost:9999/v1/chat/completions')
                 self.assertEqual(post.call_args.args[1]['model'],'shared')
             with patch('meeting_assistant.post_json',return_value=response({'title':'Оферта за новия сайт'})) as post:

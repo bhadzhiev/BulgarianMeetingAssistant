@@ -232,7 +232,23 @@ your decision, private observations), and **Analytics**. Generated notes contain
   This is an AI interpretation. Check it against the recording. It is not in `minutes.md`,
   but it is in `minutes.json`.
 
-Notes made before this version still open. Their new sections are empty, and their tasks are open.
+Every statement in the notes (summary, decisions, next steps, questions, observations) and every
+task has a **source moment** and a **review state**:
+
+- The source shows the exact transcript segment and its speaker. Click **▶ 00:12:03** to play only
+  that segment, or click the quote to see it in the transcript. Without audio, the click opens the transcript.
+- **AI suggestion** means nobody has checked the statement. Click it after you check the source; it
+  becomes **✓ Checked**. Statements that you add yourself start as checked.
+- The AI must cite the moment where a decision was taken, not where it was proposed.
+
+**Generate new AI notes** never replaces saved notes. The new result waits as a proposal, and
+**Review changes** lists each new, changed, or missing statement or task. New and changed items are
+preselected; removals and changes to checked statements are not. **Apply selected** keeps task status
+and saves the previous notes in `versions/`. A changed statement needs a new check.
+
+Notes made before this version still open. A source written in the text, such as "(00:12:03)",
+becomes the source moment. Other old statements show "No source moment" until you generate new notes.
+Notes made before the task tracker still open. Their new sections are empty, and their tasks are open.
 Generate notes again to fill the new sections.
 
 Click **✓ Tasks** in the sidebar to see the tasks from all meetings in one list. The badge shows

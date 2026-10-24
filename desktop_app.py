@@ -226,12 +226,13 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/stop':
                 result = service.stop()
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
                 elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
+                elif match[2] == 'notes-review': result = service.review_notes(match[1], body['action'], body.get('accept', []), body.get('revision', ''))
                 elif match[2] == 'title': result = service.generate_meeting_title(match[1])
                 elif match[2] == 'calendar': result = service.sync_calendar(match[1])
                 elif match[2] == 'delete': result = service.delete(match[1], body.get('calendar_event', False))

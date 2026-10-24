@@ -18,6 +18,7 @@ from . import processing
 from . import correction
 from . import analytics as conversation
 from . import diarization
+from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client
 from .meeting_automation import MeetingAutomation
@@ -26,6 +27,7 @@ from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validat
 DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model='gpt-transcribe',
                 summarizer='none', llm_model='gpt-4.1-mini', transcript_correction='local',
                 local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', auto_process=True, live_transcription=True,
+                whisper_vad=True, whisper_vocabulary='',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
 
@@ -77,7 +79,10 @@ class MeetingService:
         if (values['transcription'] not in {'local', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
                 or values['transcript_correction'] not in {'none', 'local', 'openai'}):
             raise ValueError('Invalid processing provider')
-        for field in ['auto_process', 'live_transcription', 'diarization_enabled', 'auto_title', 'calendar_enabled']:
+        vocabulary = values['whisper_vocabulary']
+        if not isinstance(vocabulary, str) or len(vocabulary) > 2000 or any(ord(c) < 32 and c != '\n' for c in vocabulary):
+            raise ValueError('The transcription vocabulary must be text of at most 2000 characters')
+        for field in ['auto_process', 'live_transcription', 'whisper_vad', 'diarization_enabled', 'auto_title', 'calendar_enabled']:
             if type(values[field]) is not bool:
                 raise ValueError(f'{field} must be true or false')
         if values['title_provider'] not in {'local','openai'}:
@@ -253,7 +258,8 @@ class MeetingService:
                 settings = self.library.get(meeting_id)['settings']
                 if settings.get('live_transcription', True):
                     # Caption failures must not take down the durable recorder.
-                    live = LiveSession(self.library.directory(meeting_id), self.project, settings, self.processing_slot)
+                    prompt = whisper.build_prompt(settings.get('whisper_vocabulary', ''), self.library.speakers())
+                    live = LiveSession(self.library.directory(meeting_id), self.project, settings, self.processing_slot, prompt)
                     self.live_sessions[meeting_id] = live
                     try:
                         live.start()
@@ -373,7 +379,7 @@ class MeetingService:
                     duration = render_recording(directory)
                     self.library.update(meeting_id, duration=duration)
                 if action in {'all', 'transcribe'}:
-                    processing.transcribe(directory, settings, progress, key)
+                    processing.transcribe(directory, settings, progress, key, self.library.speakers())
                 should_diarize = action in {'all', 'transcribe'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
                 if should_diarize and settings.get('diarization_enabled', True) and (directory / 'recording.wav').exists():
                     self._run_diarization(meeting_id, directory, progress)

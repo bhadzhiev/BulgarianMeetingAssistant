@@ -20,6 +20,7 @@ import numpy as np
 from .capture import ffmpeg_path
 from .storage import atomic_json, atomic_text
 from .model_cache import ensure_model
+from .whisper import repeats_prompt
 
 RATE = 16000
 INTERVAL = 2.5
@@ -148,7 +149,7 @@ class CaptionEngine:
         self.publish()
 
 
-def run_worker(directory: Path, models_dir: Path, model_name: str):
+def run_worker(directory: Path, models_dir: Path, model_name: str, prompt: str = ''):
     state = dict(status='loading', message='Loading live caption model (first use downloads it)',
                  segments=[], partial=None, processed_until=0, error=None)
     atomic_json(directory / 'live.json', state)
@@ -161,10 +162,11 @@ def run_worker(directory: Path, models_dir: Path, model_name: str):
         model = Model(model_path, models_dir=str(models_dir), language='bg', translate=False,
             print_progress=False, print_realtime=False, print_timestamps=False,
             single_segment=True, no_context=True, suppress_blank=True,
-            suppress_non_speech_tokens=True, temperature=0, n_threads=4)
+            suppress_non_speech_tokens=True, temperature=0, n_threads=4, initial_prompt=prompt)
         def decode(samples):
             raw = model.transcribe(samples, language='bg', single_segment=True, no_context=True)
-            return ' '.join(s.text for s in raw)
+            text = ' '.join(s.text for s in raw)
+            return '' if repeats_prompt(text, prompt) else text
         engine = CaptionEngine(directory, decode)
         stop_file = directory / '.live-stop'
         while True:
@@ -191,8 +193,9 @@ def run_worker(directory: Path, models_dir: Path, model_name: str):
 
 class LiveSession:
     """Own the child process and share the app's model-memory slot with final jobs."""
-    def __init__(self, directory: Path, project: Path, settings: dict, slot):
+    def __init__(self, directory: Path, project: Path, settings: dict, slot, prompt: str = ''):
         self.directory, self.project = directory, project
+        self.prompt = prompt
         self.settings, self.slot = settings, slot
         self.stopping = threading.Event()
         self.thread = None
@@ -232,7 +235,7 @@ class LiveSession:
             with (self.directory / 'live-caption.log').open('w') as log:
                 process = subprocess.Popen([sys.executable, '-m', 'app.live',
                     '--directory', str(self.directory), '--models-dir', self.settings['models_dir'],
-                    '--model', self.settings['local_model']], cwd=self.project,
+                    '--model', self.settings['local_model'], '--prompt=' + self.prompt], cwd=self.project,
                     stdout=log, stderr=log)
                 deadline = None
                 while process.poll() is None:
@@ -270,8 +273,9 @@ def main():
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--models-dir', type=Path, required=True)
     parser.add_argument('--model', required=True)
+    parser.add_argument('--prompt', default='')
     args = parser.parse_args()
-    run_worker(args.directory, args.models_dir, args.model)
+    run_worker(args.directory, args.models_dir, args.model, args.prompt)
 
 
 if __name__ == '__main__':

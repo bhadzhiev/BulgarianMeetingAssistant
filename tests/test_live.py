@@ -121,7 +121,7 @@ class LiveLifecycleTests(unittest.TestCase):
 
     def test_recording_starts_live_session_exposes_draft_and_signals_stop(self):
         class FakeLive:
-            def __init__(self,directory,project,settings,slot):self.started=False;self.stopped=False
+            def __init__(self,directory,project,settings,slot,prompt=''):self.started=False;self.stopped=False
             def start(self):self.started=True
             def snapshot(self):return dict(status='listening',segments=[],partial=dict(start=0,end=.1,text='Жив текст'),processed_until=.1)
             def request_stop(self):self.stopped=True

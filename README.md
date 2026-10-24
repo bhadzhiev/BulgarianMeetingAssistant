@@ -69,6 +69,19 @@ the settings it started with for automatic processing.
 - **Local transcription:** Whisper through pywhispercpp, Bulgarian language, no translation.
   Default `large-v3-turbo`; `large-v3`, `medium`, and `small` are also available. Models download
   into `models/` on first use. Expect about 1.6 GB for turbo and 3.1 GB for full large-v3.
+- **Voice detection (VAD):** on by default. The final local pass uses the Silero model of
+  whisper.cpp (under 1 MB, downloads into `models/` on first use) to skip silence. On silence,
+  Whisper can invent text such as "Абонирайте се!"; VAD stops this and makes timestamps more exact.
+  If the model cannot download, transcription continues without VAD and the reason is saved
+  in `transcript.metadata.json`. Turn it off in **Settings → Recording**.
+- **Hallucination filter:** the app removes known Whisper inventions (subtitle credits,
+  "subscribe" and "thanks for watching" phrases) and loops where one phrase repeats four or more times.
+- **Vocabulary:** enter names and terms in **Settings → Recording → Vocabulary for transcription**.
+  Whisper gets them with the known speakers as a prompt. This helps with words such as Terraform
+  or OIDC. A prompt makes Whisper timestamps unreliable, so the final pass then runs two times:
+  the first pass gives the segments and timestamps, the second gives the words. The app aligns
+  the words to the segments. If the two passes differ too much, the first text stays.
+  Live captions use the same prompt and drop captions that only repeat it.
 - **Cloud transcription:** sends recorded audio chunks to OpenAI; requires an API key and
   incurs API charges. Default model is `gpt-transcribe`, configurable in Settings. Cloud
   timestamps indicate approximate audio chunk boundaries, not word alignment. See the

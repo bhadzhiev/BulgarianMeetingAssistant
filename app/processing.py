@@ -12,7 +12,8 @@ import uuid
 import wave
 
 from .storage import atomic_json
-from .model_cache import ensure_model
+from .model_cache import ensure_model, ensure_vad_model
+from . import whisper
 
 
 def upload_audio(audio: bytes, key: str, model: str) -> dict:
@@ -30,21 +31,31 @@ def upload_audio(audio: bytes, key: str, model: str) -> dict:
         return json.load(response)
 
 
-def transcribe(directory: Path, settings: dict, progress, api_key: str = '') -> None:
+def transcribe(directory: Path, settings: dict, progress, api_key: str = '', speakers=()) -> None:
     import numpy as np
-    from meeting_assistant import TranscriptSegment, merge_segments, save_transcript
+    from meeting_assistant import TranscriptSegment, clean_text, merge_segments, save_transcript
     provider = settings['transcription']
     model = None
+    vad = prompt = None
     if provider == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before processing with cloud transcription.')
     if provider == 'local':
         from pywhispercpp.model import Model
         progress('Loading local Whisper model (first use may download it)')
         model_path = ensure_model(settings['local_model'], Path(settings['models_dir']), progress)
+        options = {}
+        if settings.get('whisper_vad', True):
+            try:
+                options = dict(vad=True, vad_model_path=ensure_vad_model(Path(settings['models_dir']), progress))
+                vad = True
+            except Exception as exc:
+                # Voice detection only improves quality; transcription continues without it.
+                vad = f'unavailable: {exc}'
+        prompt = whisper.build_prompt(settings.get('whisper_vocabulary', ''), speakers)
         model = Model(model_path, models_dir=str(Path(settings['models_dir'])),
             language='bg', translate=False, print_progress=False, print_realtime=False,
             print_timestamps=False, no_context=True, suppress_blank=True,
-            suppress_non_speech_tokens=True, temperature=0, n_threads=6)
+            suppress_non_speech_tokens=True, temperature=0, n_threads=6, **options)
     segments = []
     try:
         with wave.open(str(directory / 'recording.wav'), 'rb') as source:
@@ -69,8 +80,13 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '') -> 
                 start, end = cursor / rate, (cursor + count) / rate
                 progress(f'Transcribing {int(100 * cursor / max(1, total))}% · {provider}')
                 if provider == 'local':
-                    raw_segments = model.transcribe(samples.astype(np.float32) / 32768, language='bg', no_context=True)
-                    segments.extend(merge_segments(raw_segments, start))
+                    audio = samples.astype(np.float32) / 32768
+                    # The model keeps call parameters, so every call sets the prompt explicitly.
+                    timed = merge_segments(model.transcribe(audio, language='bg', no_context=True, initial_prompt=''), start)
+                    if prompt and timed:
+                        prompted = model.transcribe(audio, language='bg', no_context=True, initial_prompt=prompt)
+                        timed = whisper.apply_prompted_text(timed, ' '.join(clean_text(s.text) for s in prompted))
+                    segments.extend(timed)
                 else:
                     buffer = io.BytesIO()
                     with wave.open(buffer, 'wb') as chunk:
@@ -105,9 +121,14 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '') -> 
             for name in ['minutes.json', 'minutes.md', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:
                 (directory / name).unlink(missing_ok=True)
         save_transcript(directory, segments)
-        atomic_json(directory / 'transcript.metadata.json', dict(provider=provider,
+        metadata = dict(provider=provider,
             model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
-            timestamps='segment' if provider == 'local' else 'approximate chunk boundaries'))
+            timestamps='segment' if provider == 'local' else 'approximate chunk boundaries')
+        if provider == 'local':
+            metadata.update(vad=vad is True, prompt=prompt or None)
+            if isinstance(vad, str):
+                metadata['vad_error'] = vad
+        atomic_json(directory / 'transcript.metadata.json', metadata)
     finally:
         del model
         gc.collect()

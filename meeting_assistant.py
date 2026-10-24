@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from app.storage import atomic_text
+from app.whisper import remove_hallucinations
 
 import numpy as np
 import sounddevice as sd
@@ -52,7 +53,7 @@ def timestamp(seconds: float, srt: bool = False) -> str:
 
 def clean_text(text: str) -> str:
     text = re.sub(r"\[[^\]]*]|\([^)]*(?:silence|noise|music)[^)]*\)", "", text, flags=re.I)
-    return re.sub(r"\s+", " ", text).strip()
+    return remove_hallucinations(re.sub(r"\s+", " ", text).strip())
 
 
 def find_device(selector: str | None) -> int:

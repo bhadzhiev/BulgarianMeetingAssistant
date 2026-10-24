@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+models/
+output/
+meetings/
+bin/
+.DS_Store
+backups/
+google_oauth_client.json
+.idea/
+*.log

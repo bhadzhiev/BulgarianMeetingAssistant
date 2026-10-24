@@ -1,0 +1,803 @@
+from __future__ import annotations
+
+from dataclasses import asdict
+import json
+import datetime as dt
+import os
+from pathlib import Path
+import threading
+import time
+import wave
+
+import numpy as np
+import sounddevice as sd
+
+from .capture import Recorder, devices, ffmpeg_path, render_recording
+from .storage import Library, atomic_json, atomic_text
+from . import processing
+from . import correction
+from . import analytics as conversation
+from . import diarization
+from .live import LiveSession, read_json
+from .google_calendar import GoogleCalendar, bundled_client
+from .meeting_automation import MeetingAutomation
+from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
+
+DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model='gpt-transcribe',
+                summarizer='none', llm_model='gpt-4.1-mini', transcript_correction='local',
+                local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', auto_process=True, live_transcription=True,
+                diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
+                calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
+
+
+class MeetingService:
+    def __init__(self, root: Path, project: Path, google=None):
+        self.project = project
+        self.library = Library(root)
+        self.library.recover()
+        self.settings_path = root / 'settings.json'
+        self.settings = dict(DEFAULTS)
+        if self.settings_path.exists():
+            self.settings.update(migrate_settings(json.loads(self.settings_path.read_text())))
+        self.google = google or GoogleCalendar(root, builtin=bundled_client(project))
+        self.base_url = 'http://127.0.0.1:8765'
+        self.api_key = os.environ.get('OPENAI_API_KEY', '')
+        self.lock = threading.RLock()
+        self.active = None
+        self.start_thread = None
+        self.finish_thread = None
+        self.recorder = None
+        self.live_sessions = {}
+        self.busy = set()
+        self.processing_slot = threading.Semaphore(1)
+        self.task_cache = {}
+        self.analytics_cache = {}
+        self.preview = None
+        self.preview_level = 0
+        self.preview_deadline = 0
+        self.closed = threading.Event()
+        for meeting in self.library.list():
+            if meeting.get('title_status') == 'generating':
+                self.library.update(meeting['id'],title_status='pending')
+        self.automation = MeetingAutomation(self)
+        self.monitor = threading.Thread(target=self._monitor, daemon=True)
+        self.monitor.start()
+
+    def validate_settings(self, settings):
+        if set(settings) - set(DEFAULTS):
+            raise ValueError('Unknown setting')
+        values = migrate_settings(dict(self.settings, **settings))
+        values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
+        if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:
+            raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
+        if values['local_ai_reasoning'] not in {'default', 'none', 'low', 'medium', 'high'}:
+            raise ValueError('Invalid local AI reasoning effort')
+        if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
+            raise ValueError('Invalid local AI response format')
+        if (values['transcription'] not in {'local', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
+                or values['transcript_correction'] not in {'none', 'local', 'openai'}):
+            raise ValueError('Invalid processing provider')
+        for field in ['auto_process', 'live_transcription', 'diarization_enabled', 'auto_title', 'calendar_enabled']:
+            if type(values[field]) is not bool:
+                raise ValueError(f'{field} must be true or false')
+        if values['title_provider'] not in {'local','openai'}:
+            raise ValueError('Invalid title provider')
+        for field in ['calendar_id','calendar_name','calendar_account']:
+            if not isinstance(values[field],str) or len(values[field])>512 or any(ord(c)<32 for c in values[field]):
+                raise ValueError('Invalid calendar setting')
+        for key in ['local_model', 'cloud_model', 'llm_model', 'title_model', 'local_ai_model']:
+            if not isinstance(values[key], str) or not values[key].strip() or len(values[key]) > 150:
+                raise ValueError('Invalid model name')
+            if key == 'local_model' and ('/' in values[key] or '\\' in values[key] or '..' in values[key]):
+                raise ValueError('Choose a model name, not a filesystem path')
+        return values
+
+    def save_settings(self, values):
+        with self.lock:
+            values = dict(values)
+            if 'calendar_account' in values:
+                raise ValueError('The calendar account is set by Google sign-in, not by settings input.')
+            key = values.pop('api_key', None)
+            if key is not None and (not isinstance(key, str) or len(key) > 1000 or '\n' in key):
+                raise ValueError('Invalid API key')
+            settings = self.validate_settings(values)
+            previous = dict(self.settings)
+        status = self.google.status()
+        changed = settings['calendar_id'] != previous['calendar_id'] or not previous['calendar_enabled']
+        account_changed = status['connected'] and status['account'] != previous.get('calendar_account')
+        if settings['calendar_enabled'] and (changed or account_changed):
+            if not status['connected']:
+                raise ValueError('Sign in with Google before enabling automatic sync.')
+            calendars = self.google.list_calendars()
+            destination = next((c for c in calendars if c['id'] == settings['calendar_id']), None)
+            if not destination:
+                raise ValueError('Choose a calendar you can write to.')
+            settings.update(calendar_name=destination['name'], calendar_account=status['account'])
+        with self.lock:
+            atomic_json(self.settings_path, settings)
+            self.settings = settings
+            if key is not None:
+                self.api_key = key.strip()
+            return dict(settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
+
+    def snapshot(self):
+        with self.lock:
+            try:
+                inputs = devices()
+                device_error = None
+            except Exception as exc:
+                inputs, device_error = [], str(exc)
+            active = self.library.get(self.active) if self.active else None
+            if active and self.recorder:
+                active.update(duration=self.recorder.clock.elapsed(), level=self.recorder.level)
+                live = self.live_sessions.get(self.active)
+                active['live'] = live.snapshot() if live else None
+            return dict(meetings=self.library.list(), active=active, google=self.google.status(),
+                speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(),
+                settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
+                device_error=device_error, preview_level=self.preview_level,
+                preview_active=self.preview is not None,
+                system_audio_available=(self.project / 'bin/SystemAudio').exists())
+
+    def detail(self, meeting_id):
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            directory = self.library.directory(meeting_id)
+            for key, name, fallback in [('transcript', 'transcript.json', []), ('minutes', 'minutes.json', None),
+                                        ('transcript_metadata', 'transcript.metadata.json', None),
+                                        ('transcript_raw', 'transcript.raw.json', None),
+                                        ('analytics', 'analytics.json', None)]:
+                path = directory / name
+                meeting[key] = json.loads(path.read_text()) if path.exists() else fallback
+            if meeting['minutes']:
+                from meeting_assistant import validate_minutes
+                try:
+                    validate_minutes(meeting['minutes'])  # adds fields that older notes lack
+                except ValueError:
+                    pass
+            meeting['live'] = read_json(directory / 'live.json', None)
+            meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
+                               'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
+                               'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json'] if (directory / name).exists()]
+            return meeting
+
+    def _stop_preview(self):
+        if self.preview:
+            self.preview.stop()
+            self.preview.close()
+            self.preview = None
+        self.preview_level = 0
+
+    def check_microphone(self, device):
+        with self.lock:
+            if self.active:
+                raise ValueError('A meeting is already recording')
+            self._stop_preview()
+            self.preview_deadline = time.monotonic() + 10
+            def callback(data, frames, timing, status):
+                samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768
+                self.preview_level = min(1, float(np.sqrt(np.mean(samples ** 2))) * 5)
+            self.preview = sd.RawInputStream(device=int(device), channels=1, dtype='int16', callback=callback)
+            try:
+                self.preview.start()
+            except Exception:
+                self.preview.close()
+                self.preview = None
+                raise
+            return {'ok': True}
+
+    def start(self, title, mode, device):
+        if mode not in {'in_person', 'online'}:
+            raise ValueError('Choose an in-person or online meeting')
+        if not isinstance(title, str):
+            raise ValueError('Meeting title must be text')
+        ffmpeg_path()
+        if int(device) not in {d['id'] for d in devices()}:
+            raise ValueError('Select an available microphone')
+        with self.lock:
+            if self.active:
+                raise ValueError('A meeting is already recording')
+            self._stop_preview()
+            settings = dict(self.settings, models_dir=str(self.project / 'models'))
+            # Missing credentials never prevent saving a recording.
+            meeting = self.library.create(title, mode, settings)
+            self.active = meeting['id']
+            self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
+            self.start_thread.start()
+            return meeting
+
+    def import_transcript(self, text, filename=''):
+        from meeting_assistant import TranscriptSegment, save_transcript
+        from .transcripts import parse_transcript
+        if not isinstance(text, str) or not text.strip() or len(text) > 5_000_000:
+            raise ValueError('Choose a transcript file of at most 5 MB')
+        parsed = parse_transcript(text, self.library.speakers())
+        segments = [TranscriptSegment(**s) for s in parsed['segments']]
+        name = parsed['title'] or (Path(filename).stem if isinstance(filename, str) else '')
+        with self.lock:
+            settings = dict(self.settings, models_dir=str(self.project / 'models'))
+            meeting = self.library.create(name or '', 'imported', settings)
+            changes = dict(status='ready', progress='Imported', duration=max(s.end for s in segments))
+            if parsed['date']:
+                # Noon keeps the date the same in every time zone of the user.
+                when = dt.datetime.combine(parsed['date'], dt.time(12)).astimezone().isoformat()
+                changes.update(created=when, started_at=when)
+            self.library.update(meeting['id'], **changes)
+            save_transcript(self.library.directory(meeting['id']), segments)
+            self.library.add_speakers(s.speaker for s in segments if s.speaker)
+            self._run_analytics(meeting['id'], settings)
+        if settings.get('auto_process') and settings['summarizer'] != 'none':
+            try:
+                self.process(meeting['id'], 'summarize')
+            except ValueError:
+                pass  # For example, a missing API key. The user can generate notes later.
+        else:
+            self._queue_metadata(meeting['id'], enrich=True)
+        return self.detail(meeting['id'])
+
+    def _start(self, meeting_id, device, mode):
+        recorder = None
+        try:
+            recorder = Recorder(self.library.directory(meeting_id), device, mode, self.project / 'bin/SystemAudio')
+            with self.lock:
+                self.recorder = recorder
+            recorder.start()
+            if self.closed.is_set():
+                recorder.stop()
+                with self.lock:
+                    self.library.update(meeting_id, status='interrupted', progress='App closed — saved audio can be recovered')
+                    self.active, self.recorder = None, None
+                return
+            with self.lock:
+                self.library.update(meeting_id, status='recording', progress='Recording',started_at=dt.datetime.now().astimezone().isoformat())
+                settings = self.library.get(meeting_id)['settings']
+                if settings.get('live_transcription', True):
+                    # Caption failures must not take down the durable recorder.
+                    live = LiveSession(self.library.directory(meeting_id), self.project, settings, self.processing_slot)
+                    self.live_sessions[meeting_id] = live
+                    try:
+                        live.start()
+                    except Exception as exc:
+                        atomic_json(self.library.directory(meeting_id) / 'live.json',
+                            dict(status='error', error=str(exc), message='Live captions unavailable; recording continues',
+                                 segments=[], partial=None, processed_until=0))
+        except Exception as exc:
+            if recorder:
+                try:
+                    recorder.stop()
+                except Exception:
+                    pass
+            with self.lock:
+                self.library.update(meeting_id, status='error', error=str(exc), progress='Recording could not start')
+                self.active, self.recorder = None, None
+
+    def pause(self, paused):
+        with self.lock:
+            if not self.active or self.library.get(self.active)['status'] not in {'recording', 'paused'}:
+                raise ValueError('No active recording')
+            self.recorder.pause(paused)
+            return self.library.update(self.active, status='paused' if paused else 'recording',
+                                       progress='Paused' if paused else 'Recording')
+
+    def stop(self, failure=None):
+        with self.lock:
+            if not self.active or self.library.get(self.active)['status'] not in {'recording', 'paused'}:
+                raise ValueError('No active recording to stop')
+            meeting_id, recorder = self.active, self.recorder
+            failure = failure or recorder.error()
+            self.library.update(meeting_id, status='stopping', progress='Saving recording')
+            self.finish_thread = threading.Thread(target=self._finish, args=(meeting_id, recorder, failure), daemon=True)
+            self.finish_thread.start()
+            return {'id': meeting_id, 'status': 'stopping'}
+
+    def _finish(self, meeting_id, recorder, failure):
+        processing_started = False
+        try:
+            recorder.stop()
+            self.library.update(meeting_id,ended_at=dt.datetime.now().astimezone().isoformat())
+            live = self.live_sessions.get(meeting_id)
+            if live:
+                live.request_stop()
+            duration = render_recording(self.library.directory(meeting_id))
+            with self.lock:
+                meeting = self.library.update(meeting_id, status='recorded', duration=duration,
+                    error=failure, progress='Recording saved' if not failure else 'Stopped after an audio error; recording saved')
+                self.active, self.recorder = None, None
+                if meeting['settings']['auto_process'] and not failure:
+                    try:
+                        self.process(meeting_id, 'all', use_saved=True)
+                        processing_started = True
+                    except Exception as exc:
+                        self.library.update(meeting_id, status='recorded', error=str(exc),
+                                            progress='Recording saved — update settings and retry processing')
+        except Exception as exc:
+            live = self.live_sessions.get(meeting_id)
+            if live:
+                live.request_stop()
+            with self.lock:
+                self.library.update(meeting_id, status='interrupted', error=str(exc),
+                                    progress='Raw audio saved — use Recover / Retry')
+                self.active, self.recorder = None, None
+        finally:
+            self._queue_metadata(meeting_id,enrich=not processing_started)
+
+
+    def process(self, meeting_id, action, use_saved=False):
+        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze'}:
+            raise ValueError('Unknown processing action')
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('This meeting is already busy')
+            if meeting['mode'] == 'imported':
+                if action in {'transcribe', 'recover'}:
+                    raise ValueError('An imported transcript has no audio to transcribe')
+                if action == 'all':
+                    action = 'summarize'
+            settings = meeting['settings'] if use_saved else dict(self.settings, models_dir=str(self.project / 'models'))
+            settings = migrate_settings(settings)
+            # Processing retries do not opt old meetings into a different calendar or AI provider.
+            for field in ['calendar_enabled','calendar_id','calendar_name','calendar_account','auto_title','title_provider','title_model']:
+                settings[field] = meeting['settings'].get(field, DEFAULTS[field] if field != 'auto_title' else False)
+            settings = migrate_settings(settings)
+            if action == 'summarize' and settings['summarizer'] == 'none':
+                raise ValueError('Choose Local API or OpenAI for notes in Settings first')
+            settings.setdefault('transcript_correction', 'none')
+            settings.setdefault('diarization_enabled', True)
+            if action == 'correct':
+                if settings['transcript_correction'] == 'none':
+                    raise ValueError('Choose Local API or OpenAI for transcript correction in Settings first')
+                if not (self.library.directory(meeting_id) / 'transcript.json').exists():
+                    raise ValueError('Transcribe the recording before AI correction')
+            if action == 'reanalyze' and not (self.library.directory(meeting_id) / 'transcript.json').exists():
+                raise ValueError('Transcribe or import a meeting before running analytics')
+            # Capture the key for this job; it is never persisted in metadata.
+            key = self.api_key
+            if (action in {'all', 'transcribe'} and settings['transcription'] == 'openai' or
+                action in {'all', 'summarize'} and settings['summarizer'] == 'openai' or
+                action in {'all', 'transcribe', 'correct'} and settings['transcript_correction'] == 'openai') and not key:
+                raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
+            self.busy.add(meeting_id)
+            self.library.update(meeting_id, status='processing', error=None, settings=settings, progress='Queued for processing')
+            threading.Thread(target=self._process, args=(meeting_id, action, settings, key), daemon=True).start()
+            return {'id': meeting_id, 'status': 'processing'}
+
+    def _process(self, meeting_id, action, settings, key):
+        try:
+            with self.processing_slot:
+                directory = self.library.directory(meeting_id)
+                progress = lambda message: self.library.update(meeting_id, progress=message)
+                imported = self.library.get(meeting_id)['mode'] == 'imported'
+                if action != 'reanalyze' and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
+                    progress('Recovering saved audio')
+                    duration = render_recording(directory)
+                    self.library.update(meeting_id, duration=duration)
+                if action in {'all', 'transcribe'}:
+                    processing.transcribe(directory, settings, progress, key)
+                should_diarize = action in {'all', 'transcribe'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
+                if should_diarize and settings.get('diarization_enabled', True) and (directory / 'recording.wav').exists():
+                    self._run_diarization(meeting_id, directory, progress)
+                if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
+                    try:
+                        correction.correct(directory, settings, progress, key, speakers=self.library.speakers())
+                        self.library.update(meeting_id, correction_error=None)
+                    except Exception as exc:
+                        if action == 'correct':
+                            raise
+                        # A failed clean-up must not block notes; the Whisper transcript stays.
+                        message = str(exc).replace(key, '[redacted]') if key else str(exc)
+                        self.library.update(meeting_id, correction_error=message)
+                if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
+                    processing.summarize(directory, settings, progress, key, speakers=self.library.speakers())
+                if action != 'recover' and (directory / 'transcript.json').exists():
+                    self._run_analytics(meeting_id, settings, progress)
+                self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
+                                    error=None, progress='Ready')
+        except Exception as exc:
+            # Never include request objects, headers, or keys in persisted errors.
+            message = str(exc)
+            if key:
+                message = message.replace(key, '[redacted]')
+            self.library.update(meeting_id, status='error', error=message, progress='Processing failed — recording preserved')
+        finally:
+            with self.lock:
+                self.busy.discard(meeting_id)
+            self._queue_metadata(meeting_id,enrich=True)
+
+    def _run_diarization(self, meeting_id, directory, progress):
+        from meeting_assistant import TranscriptSegment, save_transcript
+        try:
+            timeline = diarization.diarize(directory, progress)
+            source = json.loads((directory / 'transcript.json').read_text())
+            assigned = conversation.assign_speakers(source, timeline)
+            save_transcript(directory, [TranscriptSegment(**segment) for segment in assigned])
+            self.library.update(meeting_id, diarization_error=None)
+        except Exception as exc:
+            # Diarization is optional; transcription and notes must still succeed.
+            self.library.update(meeting_id, diarization_error=str(exc))
+
+    def _run_analytics(self, meeting_id, settings, progress=lambda message: None):
+        try:
+            progress('Building conversation analytics')
+            result = conversation.analyze(self.library.directory(meeting_id), settings,
+                                          self.library.trackers(), progress)
+            self.library.update(meeting_id, analytics_error=result.get('semantic_error'))
+            return result
+        except Exception as exc:
+            # Keep an earlier valid analytics file and never fail the transcript job.
+            self.library.update(meeting_id, analytics_error=str(exc))
+            return None
+
+    def edit(self, meeting_id, body):
+        from meeting_assistant import TranscriptSegment, save_transcript, save_minutes, validate_minutes
+        with self.lock:
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('Wait until processing finishes before editing')
+            directory = self.library.directory(meeting_id)
+            if 'title' in body:
+                if not isinstance(body['title'], str) or not body['title'].strip():
+                    raise ValueError('Meeting title is required')
+                current = self.library.get(meeting_id)
+                self.library.update(meeting_id, title=body['title'].strip()[:160],title_source='manual',
+                    title_revision=current.get('title_revision',0)+1,title_status='manual',title_error=None)
+                self._queue_metadata(meeting_id)
+            if 'transcript' in body:
+                if not isinstance(body['transcript'], list) or len(body['transcript']) > 100000:
+                    raise ValueError('Invalid transcript')
+                transcript_path = directory / 'transcript.json'
+                old_segments = [TranscriptSegment(**item) for item in json.loads(transcript_path.read_text())] if transcript_path.exists() else []
+                segments = []
+                duration = self.library.get(meeting_id)['duration']
+                previous = 0
+                for item in body['transcript']:
+                    s = TranscriptSegment(**item)
+                    if (type(s.start) not in {int, float} or type(s.end) not in {int, float}
+                        or not np.isfinite(s.start) or not np.isfinite(s.end)
+                        or not 0 <= s.start <= s.end <= duration + 1 or s.start < previous
+                        or not isinstance(s.text, str) or len(s.text) > 100000
+                        or s.speaker is not None and not isinstance(s.speaker, str)):
+                        raise ValueError('Invalid transcript segment')
+                    previous = s.start
+                    segments.append(s)
+                renames = {}
+                for old, new in zip(old_segments, segments):
+                    if (conversation.is_generic_speaker(old.speaker) and new.speaker
+                            and not conversation.is_generic_speaker(new.speaker)
+                            and new.speaker.strip() != old.speaker):
+                        renames[old.speaker] = new.speaker.strip()
+                if renames:
+                    for segment in segments:
+                        if segment.speaker in renames:
+                            segment.speaker = renames[segment.speaker]
+                    timeline_path = directory / 'speaker-timeline.json'
+                    if timeline_path.exists():
+                        timeline = json.loads(timeline_path.read_text())
+                        for turn in timeline:
+                            if turn.get('speaker') in renames:
+                                turn['speaker'] = renames[turn['speaker']]
+                        atomic_json(timeline_path, timeline)
+                save_transcript(directory, segments)
+                # Human labels become known speakers; diarization IDs stay meeting-local.
+                self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
+                self._run_analytics(meeting_id, dict(self.settings, models_dir=str(self.project / 'models')))
+            if 'minutes' in body:
+                source = json.loads((directory / 'transcript.json').read_text())
+                validate_minutes(body['minutes'], [TranscriptSegment(**s) for s in source])
+                save_minutes(directory, body['minutes'])
+            return self.detail(meeting_id)
+
+    def save_trackers(self, trackers):
+        return dict(trackers=self.library.save_trackers(trackers))
+
+    def update_question(self, meeting_id, question_id, answered, text=None):
+        if not isinstance(question_id, str) or type(answered) is not bool:
+            raise ValueError('Invalid question update')
+        with self.lock:
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('Wait until processing finishes before changing analytics')
+            path = self.library.directory(meeting_id) / 'analytics.json'
+            result = json.loads(path.read_text())
+            question = next((item for item in result.get('questions', []) if item.get('id') == question_id), None)
+            if question is None or text is not None and question.get('text') != text:
+                raise ValueError('These analytics changed. Reload the meeting and try again.')
+            question['answered'] = answered
+            result['unanswered_questions'] = sum(not item['answered'] for item in result['questions'])
+            atomic_json(path, result)
+            return result
+
+    def _meeting_analytics(self, meeting_id):
+        path = self.library.directory(meeting_id) / 'analytics.json'
+        try:
+            stamp = path.stat().st_mtime_ns
+        except FileNotFoundError:
+            self.analytics_cache.pop(meeting_id, None)
+            return None
+        cached = self.analytics_cache.get(meeting_id)
+        if not cached or cached[0] != stamp:
+            try:
+                value = json.loads(path.read_text())
+                if not isinstance(value, dict) or value.get('version') != conversation.VERSION:
+                    raise ValueError('Unsupported analytics file')
+                cached = (stamp, value)
+            except (OSError, ValueError):
+                cached = (stamp, None)
+            self.analytics_cache[meeting_id] = cached
+        return cached[1]
+
+    def analytics_overview(self, from_date='', to_date='', speaker='', topic=''):
+        for value in [from_date, to_date, speaker, topic]:
+            if not isinstance(value, str) or len(value) > 200:
+                raise ValueError('Invalid analytics filter')
+        try:
+            first = dt.date.fromisoformat(from_date) if from_date else None
+            last = dt.date.fromisoformat(to_date) if to_date else None
+        except ValueError:
+            raise ValueError('Analytics dates must use YYYY-MM-DD') from None
+        if first and last and first > last:
+            raise ValueError('The start date must not be after the end date')
+        speaker_key, topic_key = speaker.casefold(), topic.casefold()
+        with self.lock:
+            records = [(meeting, self._meeting_analytics(meeting['id'])) for meeting in self.library.list()]
+        records = [(meeting, data) for meeting, data in records if data]
+        available_speakers = sorted({name for _, data in records for name in
+            [row.get('speaker') for row in data.get('speakers', [])]
+            + [row.get('speaker') for row in data.get('questions', [])]
+            + [hit.get('speaker') for topic in data.get('topics', []) for hit in topic.get('matches', [])] if name}, key=str.casefold)
+        available_topics = sorted({row['name'] for _, data in records for row in data.get('topics', [])}, key=str.casefold)
+        speakers, topics, meetings = {}, {}, []
+        for meeting, data in records:
+            meeting_date = (meeting.get('started_at') or meeting['created'])[:10]
+            if first and meeting_date < first.isoformat() or last and meeting_date > last.isoformat():
+                continue
+            speaker_rows = [row for row in data.get('speakers', [])
+                            if not speaker_key or row.get('speaker', '').casefold() == speaker_key]
+            topic_rows = [row for row in data.get('topics', [])
+                          if not topic_key or str(row.get('id', '')).casefold() == topic_key or row.get('name', '').casefold() == topic_key]
+            questions = [item for item in data.get('questions', [])
+                         if not speaker_key or (item.get('speaker') or '').casefold() == speaker_key]
+            speaker_in_topics = any((hit.get('speaker') or '').casefold() == speaker_key
+                                    for row in topic_rows for hit in row.get('matches', []))
+            if speaker_key and not speaker_rows and not questions and not speaker_in_topics or topic_key and not topic_rows:
+                continue
+            unanswered = sum(not item.get('answered', False) for item in questions)
+            meetings.append(dict(id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
+                                 talk_seconds=round(sum(row['talk_seconds'] for row in speaker_rows), 3),
+                                 questions=len(questions), unanswered_questions=unanswered,
+                                 topic_matches=sum(len(row.get('matches', [])) for row in topic_rows)))
+            for row in speaker_rows:
+                name = row['speaker']
+                key = name.casefold()
+                aggregate = speakers.setdefault(key, dict(speaker=name, talk_seconds=0.0, turns=0, questions=0,
+                    unanswered_questions=0, longest_monologue_seconds=0.0, meetings=set()))
+                aggregate['talk_seconds'] += row.get('talk_seconds', 0)
+                aggregate['turns'] += row.get('turns', 0)
+                aggregate['longest_monologue_seconds'] = max(aggregate['longest_monologue_seconds'], row.get('longest_monologue_seconds', 0))
+                aggregate['meetings'].add(meeting['id'])
+            for item in questions:
+                name = item.get('speaker')
+                if not name:
+                    continue
+                key = name.casefold()
+                aggregate = speakers.setdefault(key, dict(speaker=name, talk_seconds=0.0, turns=0, questions=0,
+                    unanswered_questions=0, longest_monologue_seconds=0.0, meetings=set()))
+                aggregate['questions'] += 1
+                aggregate['unanswered_questions'] += not item.get('answered', False)
+                aggregate['meetings'].add(meeting['id'])
+            for row in topic_rows:
+                key = row.get('name', '').casefold()
+                aggregate = topics.setdefault(key, dict(id=row.get('id'), name=row.get('name'), matches=0, meetings=set()))
+                aggregate['matches'] += len(row.get('matches', []))
+                aggregate['meetings'].add(meeting['id'])
+        total_speech = round(sum(row['talk_seconds'] for row in speakers.values()), 3)
+        speaker_rows = []
+        for row in speakers.values():
+            row['meetings'] = len(row['meetings'])
+            row['talk_seconds'] = round(row['talk_seconds'], 3)
+            row['talk_percent'] = round(100 * row['talk_seconds'] / total_speech, 1) if total_speech else 0.0
+            row['average_turn_seconds'] = round(row['talk_seconds'] / row['turns'], 3) if row['turns'] else 0.0
+            row['longest_monologue_seconds'] = round(row['longest_monologue_seconds'], 3)
+            speaker_rows.append(row)
+        topic_rows = []
+        for row in topics.values():
+            row['meetings'] = len(row['meetings'])
+            topic_rows.append(row)
+        speaker_rows.sort(key=lambda row: (-row['talk_seconds'], row['speaker'].casefold()))
+        topic_rows.sort(key=lambda row: (-row['matches'], row['name'].casefold()))
+        return dict(meetings=meetings, meeting_count=len(meetings), speakers=speaker_rows, topics=topic_rows,
+                    total_speech_seconds=total_speech, questions=sum(row['questions'] for row in meetings),
+                    unanswered_questions=sum(row['unanswered_questions'] for row in meetings),
+                    available_speakers=available_speakers, available_topics=available_topics,
+                    filters=dict(**{'from': from_date, 'to': to_date}, speaker=speaker, topic=topic))
+
+    def _meeting_tasks(self, meeting):
+        from meeting_assistant import validate_minutes
+        path = self.library.directory(meeting['id']) / 'minutes.json'
+        try:
+            stamp = path.stat().st_mtime_ns
+        except FileNotFoundError:
+            self.task_cache.pop(meeting['id'], None)
+            return []
+        cached = self.task_cache.get(meeting['id'])
+        if not cached or cached[0] != stamp:
+            try:
+                minutes = json.loads(path.read_text())
+                validate_minutes(minutes)
+                cached = (stamp, minutes['tasks'])
+            except (OSError, ValueError):
+                cached = (stamp, [])
+            self.task_cache[meeting['id']] = cached
+        when = meeting.get('started_at') or meeting['created']
+        return [dict(task, index=index, meeting_id=meeting['id'], meeting_title=meeting['title'], meeting_date=when)
+                for index, task in enumerate(cached[1])]
+
+    def tasks(self):
+        """Every task from every meeting's notes, for one tracking list."""
+        with self.lock:
+            return [task for meeting in self.library.list() for task in self._meeting_tasks(meeting)]
+
+    def task_summary(self):
+        today = dt.date.today().isoformat()
+        open_tasks = [t for t in self.tasks() if t['status'] == 'open']
+        return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
+                    today=today)
+
+    def update_task(self, meeting_id, index, text, changes):
+        if not isinstance(changes, dict) or not changes or set(changes) - {'task', 'status', 'due_date', 'owner'}:
+            raise ValueError('Only text, status, due date and owner can change here')
+        if 'task' in changes:
+            if not isinstance(changes['task'], str) or not changes['task'].strip():
+                raise ValueError('Task text cannot be empty')
+            changes['task'] = changes['task'].strip()[:1000]
+        if 'owner' in changes and changes['owner'] is not None:
+            if not isinstance(changes['owner'], str):
+                raise ValueError('Owner must be text')
+            changes['owner'] = changes['owner'].strip()[:160] or None
+        def change(tasks):
+            tasks[index].update(changes)
+            return dict(tasks[index], index=index, meeting_id=meeting_id)
+        return self._change_tasks(meeting_id, index, text, change)
+
+    def delete_task(self, meeting_id, index, text):
+        def remove(tasks):
+            tasks.pop(index)
+            return dict(deleted=True, meeting_id=meeting_id)
+        return self._change_tasks(meeting_id, index, text, remove)
+
+    def _change_tasks(self, meeting_id, index, text, change):
+        from meeting_assistant import TranscriptSegment, save_minutes, validate_minutes
+        with self.lock:
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('Wait until processing finishes before changing tasks')
+            directory = self.library.directory(meeting_id)
+            minutes = json.loads((directory / 'minutes.json').read_text())
+            validate_minutes(minutes)
+            # The index alone is not enough: notes can be regenerated after the page loaded.
+            if type(index) is not int or not 0 <= index < len(minutes['tasks']) or minutes['tasks'][index]['task'] != text:
+                raise ValueError('These notes changed. Reload the task list and try again.')
+            result = change(minutes['tasks'])
+            source = json.loads((directory / 'transcript.json').read_text())
+            validate_minutes(minutes, [TranscriptSegment(**s) for s in source])
+            save_minutes(directory, minutes)
+            return result
+
+    def save_speakers(self, names):
+        return dict(speakers=self.library.save_speakers(names))
+
+    def delete(self, meeting_id, calendar_event=False):
+        if type(calendar_event) is not bool:
+            raise ValueError('Invalid calendar event choice')
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            live = self.live_sessions.get(meeting_id)
+            if meeting_id == self.active or meeting_id in self.busy or live and live.thread and live.thread.is_alive():
+                raise ValueError('Wait until recording and processing finish before deleting this meeting.')
+            if not self.automation.forget(meeting_id):
+                raise ValueError('A title or calendar update is running for this meeting. Try again in a moment.')
+            self.busy.add(meeting_id)
+        try:
+            binding = meeting.get('calendar_sync') or {}
+            event_deleted = False
+            if calendar_event and binding.get('calendar_id') and binding.get('event_id'):
+                # Google first: a failure keeps the meeting so nothing is lost silently.
+                event_deleted = self.google.delete_event(binding['calendar_id'], binding['event_id'], meeting_id,
+                                                         expected_account=binding.get('account_id'))
+            with self.lock:
+                self.library.delete(meeting_id)
+                self.live_sessions.pop(meeting_id, None)
+        except Exception:
+            self.automation.restore(meeting_id)
+            raise
+        finally:
+            with self.lock:
+                self.busy.discard(meeting_id)
+        return dict(deleted=meeting_id, calendar_event_deleted=event_deleted)
+
+    def _queue_metadata(self, meeting_id, enrich=False, force_title=False):
+        if self.closed.is_set():return
+        meeting = self.library.get(meeting_id)
+        settings = meeting['settings']
+        needs_title = enrich and settings.get('auto_title',False) and meeting.get('title_source') != 'manual'
+        if force_title or needs_title or settings.get('calendar_enabled',False) or meeting.get('calendar_sync'):
+            self.automation.enqueue(meeting_id,enrich=enrich,force_title=force_title)
+
+    def generate_meeting_title(self, meeting_id):
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('Wait until this meeting finishes processing.')
+            directory = self.library.directory(meeting_id)
+            if not any((directory/name).exists() for name in ['transcript.json','live-transcript.json']):
+                raise ValueError('A transcript or saved live draft is needed to generate a title.')
+            self.library.update(meeting_id,title_status='pending',title_error=None)
+            self._queue_metadata(meeting_id,enrich=True,force_title=True)
+            return self.detail(meeting_id)
+
+    def sync_calendar(self, meeting_id):
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            if meeting_id == self.active:
+                raise ValueError('Stop recording before adding this meeting to the calendar.')
+            if not meeting.get('calendar_sync'):
+                if not self.settings['calendar_enabled'] or not self.settings['calendar_id']:
+                    raise ValueError('Choose and enable a destination Google Calendar in Settings first.')
+                settings = dict(meeting['settings'])
+                settings.update({k:self.settings[k] for k in ['calendar_enabled','calendar_id','calendar_name','calendar_account']})
+                self.library.update(meeting_id,settings=settings)
+            else:
+                binding = dict(meeting['calendar_sync'],status='pending',attempts=0,next_retry=0)
+                self.library.update(meeting_id,calendar_sync=binding)
+            self._queue_metadata(meeting_id)
+            return self.detail(meeting_id)
+
+    def sync_saved_meetings(self):
+        count = 0
+        for meeting in self.library.list():
+            directory = self.library.directory(meeting['id'])
+            if meeting['id'] != self.active and (directory/'recording.wav').exists():
+                self.sync_calendar(meeting['id'])
+                count += 1
+        return dict(queued=count)
+
+    def google_connected(self):
+        for meeting in self.library.list():
+            binding = meeting.get('calendar_sync')
+            if binding and binding.get('status') != 'synced':
+                self.library.update(meeting['id'],calendar_sync=dict(binding,status='pending',attempts=0,next_retry=0))
+        self.automation.retry_pending()
+
+    def _monitor(self):
+        while not self.closed.wait(1):
+            try:
+                with self.lock:
+                    if self.preview and time.monotonic() > self.preview_deadline:
+                        self._stop_preview()
+                    if self.recorder and self.active:
+                        status = self.library.get(self.active)['status']
+                        if status in {'recording', 'paused'}:
+                            error = self.recorder.error()
+                            if error:
+                                self.stop(error)
+                            else:
+                                self.recorder.checkpoint()
+                self.automation.retry_pending()
+            except Exception as exc:
+                print(f'Monitor: {exc}', flush=True)
+
+    def close(self):
+        self.closed.set()
+        self.automation.close()
+        if self.start_thread and self.start_thread.is_alive():
+            self.start_thread.join(timeout=35)
+        if self.finish_thread and self.finish_thread.is_alive():
+            self.finish_thread.join(timeout=20)
+        with self.lock:
+            self._stop_preview()
+            if self.active and self.recorder:
+                # Signal handlers let the normal durability path finish before exit.
+                self.recorder.stop()
+                self.library.update(self.active, status='interrupted', progress='Saved raw audio — recover on next launch',
+                    ended_at=dt.datetime.now().astimezone().isoformat(),duration=self.recorder.clock.elapsed())
+        for live in self.live_sessions.values():
+            live.request_stop()
+        for live in self.live_sessions.values():
+            live.close()

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meeting Assistant</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="Meeting Assistant home"><span class="brand-icon">м</span><span>Meeting<br><strong>Assistant</strong></span></a>
+  <button id="new-meeting" class="primary wide">＋ New meeting</button>
+  <button id="open-tasks" class="secondary wide tasks-link">✓ Tasks <span id="tasks-badge" class="count-badge" hidden></span></button>
+  <button id="open-analytics" class="secondary wide tasks-link">▥ Conversation analytics</button>
+  <label class="search-label" for="search">YOUR MEETINGS</label>
+  <input id="search" type="search" placeholder="Search title or transcript…" aria-label="Search meetings">
+  <nav id="library" aria-label="Meeting library"></nav>
+  <footer><span class="dot"></span> Saved on this Mac<button id="settings-open" class="quiet">Settings ↗</button></footer>
+</aside>
+<main>
+  <div class="topbar"><span>YOUR MEETING WORKSPACE</span><span id="connection">Connecting…</span></div>
+  <div id="error" class="error" role="alert" hidden></div>
+  <section id="setup">
+    <div class="heading"><p class="eyebrow">LESS NOTE-TAKING. MORE LISTENING.</p><h1>Be in the conversation.</h1><p class="subheading">Record your meeting. Come back to the details.</p></div>
+    <form id="record-form" class="card setup-card">
+      <div class="card-heading"><h2>A new meeting</h2><span class="badge">BG + EN</span></div>
+      <label for="meeting-title">Meeting name</label><input id="meeting-title" placeholder="Leave blank for an AI-generated title" maxlength="160" autocomplete="off">
+      <fieldset><legend>Where are you meeting?</legend><div class="mode-options">
+        <label class="mode"><input type="radio" name="mode" value="in_person" checked><span class="mode-icon">◉</span><strong>In person</strong><small>iPhone or Mac microphone</small></label>
+        <label class="mode"><input type="radio" name="mode" value="online"><span class="mode-icon">▣</span><strong>Online meeting</strong><small>Mac audio + your microphone</small></label>
+      </div></fieldset>
+      <div id="mode-help" class="hint">Place your iPhone near the centre of the table, or use your Mac microphone.</div>
+      <label for="microphone">Microphone</label><div class="input-row"><select id="microphone" required><option value="">Loading microphones…</option></select><button id="check-mic" type="button" class="secondary">Test mic</button></div>
+      <div class="meter-row"><meter id="setup-meter" min="0" max="1" value="0" aria-label="Microphone level"></meter><span id="mic-hint">Test your microphone before recording</span></div>
+      <div class="processing-summary"><span class="small-icon">✦</span><div><strong id="processing-name">Local transcription</strong><p id="privacy-copy">Audio and transcripts stay on this Mac.</p></div><button type="button" id="settings-inline" class="quiet">Change</button></div>
+      <div class="start-row"><p>Make sure everyone knows<br>the meeting is being recorded.</p><button id="start" class="primary" type="submit">● Start recording</button></div>
+    </form>
+    <p class="below-card">Your recording is saved continuously. You can process it again whenever you need.</p>
+    <div class="card import-card">
+      <div class="card-heading"><div><p class="eyebrow">ALREADY HAVE A TRANSCRIPT?</p><h2>Import a transcript</h2></div><span class="badge">.MD · .TXT · .SRT</span></div>
+      <p class="hint">Use lines like <code>[00:01:07] Maria Georgieva: text</code>. A first line such as <code>DevOps sync, 19 Oct 2026: transcript</code> becomes the name and date.</p>
+      <div class="import-row"><input id="import-file" type="file" accept=".md,.markdown,.txt,.srt,text/plain,text/markdown" aria-label="Transcript file"><button id="import-button" class="primary" type="button" disabled>Import file</button></div>
+      <details class="import-paste"><summary>Paste the text instead</summary><textarea id="import-text" rows="8" placeholder="[00:00:00] Name: text…" aria-label="Transcript text"></textarea><button id="import-paste-button" class="secondary" type="button" disabled>Import text</button></details>
+    </div>
+  </section>
+  <section id="recording" hidden>
+    <div class="heading"><p class="eyebrow" id="recording-mode">MEETING IN PROGRESS</p><h1 id="recording-title">Recording</h1></div>
+    <div class="card recording-card"><div id="recording-indicator" class="recording-indicator"><span></span><b id="recording-status">Recording</b></div><div id="timer">00:00:00</div><meter id="recording-meter" min="0" max="1" value="0" aria-label="Recording microphone level"></meter><p id="recording-help">Audio is being saved on this Mac.</p><div class="recording-controls"><button id="pause" class="secondary">Ⅱ Pause</button><button id="stop" class="primary">■ Stop & save</button></div></div>
+    <div class="card live-card">
+      <div class="card-heading"><h2>Live transcript</h2><span class="badge">DRAFT · BULGARIAN</span></div>
+      <p id="live-status" class="hint" role="status">Preparing live captions…</p>
+      <div id="live-transcript" class="live-transcript" role="log" aria-label="Live meeting transcript" aria-live="polite" aria-relevant="additions text"></div>
+      <p class="live-disclaimer">Provisional text may change. The full recording is used for the final transcript.</p>
+    </div>
+    <p class="below-card">Keep the app running. Live captions appear during recording; final processing follows after you stop.</p>
+  </section>
+  <section id="tasks" hidden>
+    <div class="heading"><p class="eyebrow">FOLLOW-UP</p><h1>Tasks from all meetings</h1><p id="tasks-summary" class="subheading"></p></div>
+    <div class="card">
+      <div class="task-filters"><div class="segmented" role="group" aria-label="Filter tasks by status"><button type="button" data-filter="open" class="selected">Open</button><button type="button" data-filter="overdue">Overdue</button><button type="button" data-filter="done">Done</button><button type="button" data-filter="all">All</button></div><select id="task-owner" aria-label="Filter tasks by owner"></select></div>
+      <div id="task-list" class="task-list"></div>
+    </div>
+    <p class="below-card">Tasks come from the notes of each meeting. Generate notes to add tasks. Changes here also change the meeting notes.</p>
+  </section>
+  <section id="analytics" hidden>
+    <div class="heading"><p class="eyebrow">CONVERSATION INTELLIGENCE</p><h1>Analytics across meetings</h1><p id="analytics-summary" class="subheading">Talk time, topics and questions from saved analytics.</p></div>
+    <div class="card">
+      <div class="analytics-filters"><label>From<input id="analytics-from" type="date"></label><label>To<input id="analytics-to" type="date"></label><label>Speaker<select id="analytics-speaker"><option value="">All speakers</option></select></label><label>Topic<select id="analytics-topic"><option value="">All topics</option></select></label><button id="analytics-apply" class="secondary" type="button">Apply</button><button id="analytics-reset" class="quiet" type="button">Reset</button></div>
+      <div id="analytics-overview" class="metric-grid"></div>
+      <h2>Speakers</h2><div id="analytics-speakers"></div>
+      <h2>Topics</h2><div id="analytics-topics" class="topic-summary-grid"></div>
+      <h2>Meetings</h2><div id="analytics-meetings"></div>
+    </div>
+    <p class="below-card">Only meetings with generated analytics are included. Speaker names are meeting-local until you confirm them; these are descriptive metrics, not employee scores.</p>
+  </section>
+  <section id="detail" hidden>
+    <div class="detail-heading"><div><p id="detail-date" class="eyebrow"></p><h1 id="detail-title"></h1></div><span id="detail-status" class="badge"></span></div>
+    <p id="title-status" class="hint" role="status"></p><div id="calendar-status" class="notice" hidden></div><div id="job-progress" class="notice" aria-live="polite"></div>
+    <div id="detail-error" class="error" hidden></div>
+    <div class="card playback-card"><div class="card-heading"><h2>Recording</h2><span id="detail-duration"></span></div><audio id="audio" controls preload="metadata"></audio><p id="audio-unavailable" class="hint" hidden>Recover the saved audio to enable playback.</p><div id="exports" class="exports"></div></div>
+    <div class="action-bar"><button id="process" class="primary">Transcribe</button><button id="correct" class="secondary">AI-correct transcript</button><button id="summarize" class="secondary">Generate notes</button><button id="recover" class="secondary">Recover audio</button><button id="edit-title" class="quiet">Rename</button><button id="generate-title" class="secondary">Generate AI title</button><button id="sync-calendar" class="secondary">Sync to Google Calendar</button><button id="delete-meeting" class="danger">Delete meeting</button></div>
+    <div class="tabs" role="tablist"><button id="tab-transcript" class="selected" role="tab" aria-selected="true">Transcript</button><button id="tab-outcomes" role="tab" aria-selected="false">Tasks &amp; decisions</button><button id="tab-notes" role="tab" aria-selected="false">Summary &amp; notes</button><button id="tab-analytics" role="tab" aria-selected="false">Analytics</button></div>
+    <div id="transcript-panel" class="card"><div class="card-heading"><h2>Every detail, in context.</h2><button id="save-transcript" class="secondary" disabled>Save corrections</button></div><p id="timestamp-note" class="hint"></p><p id="correction-status" class="notice" hidden></p><div id="speaker-legend" class="speaker-legend" aria-label="Speakers in this meeting" hidden></div><div id="transcript"></div><div id="saved-live-draft" hidden></div></div>
+    <div id="outcomes-panel" class="card" hidden><div class="card-heading"><h2>Decisions, tasks and next steps.</h2><button id="save-outcomes" class="secondary" disabled>Save changes</button></div><div id="outcomes"></div></div>
+    <div id="notes-panel" class="card" hidden><div class="card-heading"><h2>What matters next.</h2><button id="save-notes" class="secondary" disabled>Save notes</button></div><div id="notes"></div></div>
+    <div id="meeting-analytics-panel" class="card" hidden><div class="card-heading"><div><p class="eyebrow">TALK TIME · TOPICS · QUESTIONS</p><h2>Conversation analytics</h2></div><button id="reanalyze" class="secondary">Reanalyze</button></div><p id="diarization-status" class="notice warning" hidden></p><p id="meeting-analytics-error" class="notice warning" hidden></p><div id="meeting-analytics-content"></div><p class="hint">Talk time comes from offline speaker intervals and excludes silence. Topic hits link to transcript evidence. Questions are detected from wording and punctuation; answered state is set manually.</p></div>
+  </section>
+</main>
+<dialog id="viewer-dialog" aria-labelledby="viewer-title"><div class="card-heading"><div><p class="eyebrow">PREVIEW</p><h2 id="viewer-title"></h2></div><span class="viewer-actions"><a id="viewer-download" class="quiet">↓ Download</a><button id="viewer-close" class="quiet" type="button" aria-label="Close preview">✕</button></span></div><div id="viewer-body" class="markdown"></div></dialog>
+<dialog id="settings-dialog"><form id="settings-form"><div class="card-heading"><div><p class="eyebrow">MAKE IT YOURS</p><h2>Settings</h2></div><button id="settings-close" class="quiet" type="button" aria-label="Close settings">✕</button></div>
+<div id="settings-error" class="error" role="alert" hidden></div>
+<div class="tabs settings-tabs" role="tablist"><button type="button" role="tab" data-tab="recording">Recording</button><button type="button" role="tab" data-tab="notes">Notes &amp; AI</button><button type="button" role="tab" data-tab="speakers">Speakers</button><button type="button" role="tab" data-tab="trackers">Topic trackers</button><button type="button" role="tab" data-tab="calendar">Calendar</button></div>
+<div class="settings-body">
+<div class="settings-panel" data-tab="recording" role="tabpanel">
+<label for="provider">Transcription</label><select id="provider"><option value="local">Local · Whisper on this Mac</option><option value="openai">Cloud · OpenAI</option></select>
+<div id="local-model-field"><label for="local-model">Local Whisper model · live captions & local final pass</label><select id="local-model"><option>large-v3-turbo</option><option>large-v3</option><option>medium</option><option>small</option></select><p class="hint">Models download on first use. Larger models need more time and memory.</p></div>
+<div id="cloud-model-field" hidden><label for="cloud-model">Cloud transcription model</label><input id="cloud-model" value="gpt-transcribe"><p class="hint">Cloud timestamps refer to audio chunks, not individual words.</p></div>
+<label for="transcript-correction">AI correction after transcription</label><select id="transcript-correction"><option value="local">Local · Configured API</option><option value="openai">Cloud · OpenAI</option><option value="none">Off</option></select><p class="hint">Runs after you stop recording, before notes. It fixes spelling, punctuation and misheard words. Timestamps and speakers do not change. The original Whisper text is kept, and you can restore any segment.</p>
+<label class="checkbox"><input id="live-enabled" type="checkbox" checked> Show live transcript while recording</label><p class="hint">Live captions run locally using the Whisper model above, including when the final transcript uses cloud processing.</p><label class="checkbox"><input id="auto-process" type="checkbox" checked> Process automatically after recording</label><label class="checkbox"><input id="diarization-enabled" type="checkbox" checked> Identify speakers and calculate talk time after recording</label><p class="hint">Optional offline pyannote diarization. Install requirements-diarization.txt and set HF_TOKEN for model access. Audio is not sent to a cloud transcription service; failures leave the transcript and notes intact.</p>
+<fieldset class="settings-section"><legend>OpenAI cloud</legend>
+<label for="api-key">OpenAI API key <span id="key-state"></span></label><input id="api-key" type="password" autocomplete="off" placeholder="Optional · kept only until the app closes"><p class="hint">Your key is kept in app memory, never saved in meeting files. Leave blank to keep the current key.</p>
+<button id="forget-key" class="quiet" type="button">Forget API key</button>
+<p class="hint">The key is used for cloud transcription, cloud notes and cloud titles.</p>
+</fieldset>
+</div>
+<div class="settings-panel" data-tab="notes" role="tabpanel" hidden>
+<label for="summarizer">Meeting notes</label><select id="summarizer"><option value="none">None · transcript only</option><option value="local">Local · Configured API</option><option value="openai">Cloud · OpenAI</option></select>
+<div id="notes-model-field" hidden><label for="llm-model">Cloud notes and correction model</label><input id="llm-model"><p class="hint">Local notes use the shared Local AI model below.</p></div>
+<fieldset class="settings-section"><legend>Local AI · OpenAI-compatible API</legend>
+<label for="local-ai-base-url">API base URL</label><input id="local-ai-base-url" type="url" placeholder="http://localhost:1235/v1" required>
+<label for="local-ai-model">Local AI model</label><input id="local-ai-model" list="local-ai-models" required><datalist id="local-ai-models"></datalist>
+<button id="load-local-models" class="secondary" type="button">Load available models</button><p id="local-ai-status" class="hint" role="status"></p>
+<label for="local-ai-format">JSON response format</label><select id="local-ai-format"><option value="json_schema">JSON schema · recommended</option><option value="json_object">JSON object</option><option value="text">Prompt only · compatibility mode</option></select>
+<label for="local-ai-reasoning">Reasoning effort</label><select id="local-ai-reasoning"><option value="default">Server default · most compatible</option><option value="none">Off · faster extraction</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><p class="hint">Use Server default if your endpoint does not support reasoning_effort. Reasoning can substantially delay notes and titles.</p>
+<label for="local-ai-max-tokens">Maximum output tokens</label><input id="local-ai-max-tokens" type="number" min="128" max="32768" step="1" required><p class="hint">Includes reasoning tokens on many servers. Truncated results are rejected; increase this limit or reduce reasoning if needed.</p>
+<p class="hint">One endpoint and model for local summaries, decisions, tasks, open questions and titles. Keep the model server running. Speech recognition and live captions use Whisper.</p>
+</fieldset>
+<fieldset class="settings-section"><legend>Automatic meeting titles</legend>
+<label class="checkbox"><input id="auto-title" type="checkbox" checked> Let AI name meetings after transcription</label><p class="hint">Leave the meeting name blank to use an AI title. Names you type are preserved.</p>
+<label for="title-provider">Title generation</label><select id="title-provider"><option value="local">Local · Configured API</option><option value="openai">Cloud · OpenAI</option></select>
+<div id="title-model-field"><label for="title-model">Cloud title model</label><input id="title-model"></div><p id="title-privacy" class="hint"></p>
+</fieldset>
+</div>
+<div class="settings-panel" data-tab="speakers" role="tabpanel" hidden>
+<p class="hint">Shared by all meetings. Names are suggested for speaker labels and task owners, and known speakers are marked in transcripts. Notes use these exact spellings for task owners. Labels that you save in a transcript are added automatically.</p>
+<div id="speaker-list" class="speaker-list"></div>
+<div class="input-row"><input id="new-speaker" maxlength="80" placeholder="Add a name, for example Мария Петрова" autocomplete="off" aria-label="New known speaker"><button id="add-speaker" class="secondary" type="button">Add speaker</button></div>
+</div>
+<div class="settings-panel" data-tab="trackers" role="tabpanel" hidden>
+<p class="hint">Track topics in every meeting. Phrases use local, case-insensitive matching. Optional semantic matching uses only your configured Local AI endpoint; it never falls back to cloud AI.</p>
+<div id="tracker-list"></div>
+<div class="google-actions"><button id="add-tracker" class="secondary" type="button">＋ Add topic</button><button id="save-trackers" class="primary" type="button">Save topic trackers</button></div>
+<p class="hint">After changing trackers, open a meeting’s Analytics tab and choose Reanalyze to refresh its evidence.</p>
+</div>
+<div class="settings-panel" data-tab="calendar" role="tabpanel" hidden>
+<p id="google-status" class="hint" role="status">Not signed in</p>
+<div class="google-actions"><button id="google-connect" class="primary" type="button">Sign in with Google</button><button id="google-disconnect" class="quiet" type="button">Sign out</button></div>
+<a id="google-auth-link" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in in your browser ↗</a>
+<label for="calendar-id">Destination calendar</label><select id="calendar-id"><option value="">Sign in with Google to choose a calendar</option></select><button id="refresh-calendars" class="quiet" type="button">Refresh calendars</button>
+<label class="checkbox"><input id="calendar-enabled" type="checkbox"> Add every new meeting to this calendar</label>
+<p class="hint">Google receives the title, recording time, and a link to this Mac. Open links while this app is running. Existing events keep their original calendar.</p>
+<button id="sync-all-meetings" class="secondary" type="button">Sync saved meetings</button><p class="hint">Save the calendar choice first. Repeated sync updates the same events.</p>
+<details id="google-advanced"><summary>Advanced · use your own Google OAuth client</summary><label for="google-client-file">Google Desktop OAuth client JSON</label><input id="google-client-file" type="file" accept="application/json,.json"><p class="hint">Only needed when this app has no built-in Google client. Credentials are stored in macOS Keychain.</p></details>
+</div>
+</div>
+<div class="settings-footer"><div id="settings-privacy" class="notice"></div><p class="hint">Processing and retries use these settings. Active recordings keep the settings they started with.</p><button id="settings-save" class="primary wide" type="submit">Save settings</button></div></form></dialog>
+<datalist id="known-speakers"></datalist>
+<div id="toast" role="status" hidden></div>
+</body></html>

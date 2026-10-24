@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""Loopback-only meeting app. Run directly or double-click Open Meeting Assistant.command."""
+from __future__ import annotations
+
+import argparse
+import http.cookies
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import html
+import mimetypes
+from pathlib import Path
+import re
+import secrets
+import signal
+import threading
+from urllib.parse import urlsplit, parse_qs, quote
+import webbrowser
+
+from app.service import MeetingService
+from app.google_calendar import CalendarError
+
+PROJECT = Path(__file__).resolve().parent
+EXPORTS = {'recording.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json'}
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, address, service):
+        super().__init__(address, Handler)
+        self.service = service
+        self.token = secrets.token_urlsafe(32)
+        self.origin = f'http://127.0.0.1:{self.server_port}'
+        self.service.base_url = self.origin
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Request URLs may contain the one-time launch token.
+        pass
+
+    def headers_common(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+
+    def respond(self, status, body, mime='application/json', cookie=None):
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body, ensure_ascii=False).encode()
+        elif isinstance(body, str):
+            body = body.encode()
+        self.send_response(status)
+        self.headers_common()
+        self.send_header('Content-Type', mime)
+        self.send_header('Content-Length', str(len(body)))
+        if cookie:
+            self.send_header('Set-Cookie', cookie)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def authorized(self):
+        if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
+            return False
+        cookie = http.cookies.SimpleCookie()
+        try:
+            cookie.load(self.headers.get('Cookie', ''))
+        except http.cookies.CookieError:
+            return False
+        value = cookie.get('meeting_session')
+        return value is not None and secrets.compare_digest(value.value, self.server.token)
+
+    def do_GET(self):
+        try:
+            self.get()
+        except (ValueError, KeyError, TypeError) as exc:
+            self.respond(400, {'error': str(exc)})
+        except CalendarError as exc:
+            self.respond(400, {'error': str(exc)})
+        except FileNotFoundError:
+            self.respond(404, {'error': 'Not found'})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            self.respond(500, {'error': 'Cannot read this meeting. Check the app terminal.'})
+
+    def get(self):
+        url = urlsplit(self.path)
+        token = parse_qs(url.query).get('token', [''])[0]
+        if url.path == '/' and token and self.headers.get('Host') == f'127.0.0.1:{self.server.server_port}' and secrets.compare_digest(token, self.server.token):
+            self.send_response(303)
+            self.headers_common()
+            self.send_header('Set-Cookie', f'meeting_session={self.server.token}; HttpOnly; SameSite=Strict; Path=/')
+            self.send_header('Location', '/')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        callback_params = parse_qs(url.query)
+        if url.path == '/oauth/google/callback' or url.path == '/' and 'state' in callback_params and ('code' in callback_params or 'error' in callback_params):
+            if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
+                return self.respond(403, 'Invalid callback host', 'text/plain')
+            try:
+                self.server.service.google.complete({k:v[0] for k,v in parse_qs(url.query).items()})
+                self.server.service.google_connected()
+                message = 'You are signed in with Google. Return to Meeting Assistant and choose the destination calendar in Settings.'
+                code = 200
+            except Exception as exc:
+                message, code = str(exc), 400
+            return self.respond(code, '<!doctype html><html><head><title>Meeting Assistant · Google Calendar</title></head><body><h1>Meeting Assistant</h1><p>'+html.escape(message)+'</p><p><a href="/">Return to Meeting Assistant</a> or close this tab.</p></body></html>', 'text/html; charset=utf-8')
+        if not self.authorized():
+            self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
+            return
+        if url.path == '/api/search':
+            return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
+        if url.path == '/api/tasks':
+            return self.respond(200, self.server.service.tasks())
+        if url.path == '/api/trackers':
+            return self.respond(200, {'trackers': self.server.service.library.trackers()})
+        if url.path == '/api/analytics':
+            query = parse_qs(url.query)
+            value = lambda name: query.get(name, [''])[0]
+            return self.respond(200, self.server.service.analytics_overview(
+                value('from'), value('to'), value('speaker'), value('topic')))
+        if url.path == '/api/state':
+            return self.respond(200, self.server.service.snapshot())
+        if url.path == '/api/calendar/calendars':
+            return self.respond(200, self.server.service.google.list_calendars())
+        match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})', url.path)
+        if match:
+            return self.respond(200, self.server.service.detail(match[1]))
+        match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/analytics', url.path)
+        if match:
+            return self.respond(200, {'analytics': self.server.service.detail(match[1])['analytics']})
+        match = re.fullmatch(r'/files/([a-f0-9]{32})/([a-z.-]+)', url.path)
+        if match and match[2] in EXPORTS:
+            path = self.server.service.library.directory(match[1]) / match[2]
+            return self.serve_file(path, download=match[2] != 'recording.wav')
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
+        if url.path in assets:
+            return self.serve_file(PROJECT / 'web' / assets[url.path])
+        self.respond(404, {'error': 'Not found'})
+
+    def serve_file(self, path, download=False):
+        if not path.is_file() or path.is_symlink():
+            raise FileNotFoundError()
+        total = path.stat().st_size
+        start, end, status = 0, total - 1, 200
+        range_header = self.headers.get('Range')
+        if range_header:
+            match = re.fullmatch(r'bytes=(\d+)-(\d*)', range_header)
+            if not match or int(match[1]) >= total:
+                self.send_response(416)
+                self.send_header('Content-Range', f'bytes */{total}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            start = int(match[1])
+            end = min(total - 1, int(match[2]) if match[2] else total - 1)
+            if end < start:
+                raise ValueError('Invalid range')
+            status = 206
+        self.send_response(status)
+        self.headers_common()
+        self.send_header('Content-Type', mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Content-Length', str(max(0, end - start + 1)))
+        if status == 206:
+            self.send_header('Content-Range', f'bytes {start}-{end}/{total}')
+        if download:
+            self.send_header('Content-Disposition', f'attachment; filename="{path.name}"')
+        self.end_headers()
+        with path.open('rb') as source:
+            source.seek(start)
+            left = end - start + 1
+            while left > 0:
+                data = source.read(min(left, 65536))
+                if not data:
+                    break
+                self.wfile.write(data)
+                left -= len(data)
+
+    def do_POST(self):
+        if not self.authorized() or self.headers.get('Origin') != self.server.origin:
+            return self.respond(403, {'error': 'Invalid app session or origin'})
+        try:
+            if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
+                raise ValueError('Expected JSON')
+            size = int(self.headers.get('Content-Length', '0'))
+            if not 0 < size <= 8_000_000:
+                raise ValueError('Invalid request size')
+            body = json.loads(self.rfile.read(size))
+            if not isinstance(body, dict):
+                raise ValueError('Expected an object')
+            service = self.server.service
+            path = urlsplit(self.path).path
+            if path == '/api/local-ai/models':
+                from app.local_ai import list_models
+                result = {'models': list_models(body.get('base_url', service.settings['local_ai_base_url']))}
+            elif path == '/api/calendar/credentials':
+                result = service.google.configure(body['credentials'])
+            elif path == '/api/calendar/connect':
+                url = service.google.begin(self.server.origin)
+                opened = webbrowser.open(url)
+                result = {'authorization_url':url,'browser_opened':opened}
+            elif path == '/api/calendar/disconnect':
+                result = service.google.disconnect()
+            elif path == '/api/calendar/sync-all':
+                result = service.sync_saved_meetings()
+            elif path == '/api/import':
+                result = service.import_transcript(body['text'], body.get('filename', ''))
+            elif path == '/api/speakers':
+                result = service.save_speakers(body['speakers'])
+            elif path == '/api/trackers':
+                result = service.save_trackers(body['trackers'])
+            elif path == '/api/settings':
+                result = service.save_settings(body)
+            elif path == '/api/check-mic':
+                result = service.check_microphone(body['device'])
+            elif path == '/api/start':
+                result = service.start(body.get('title', ''), body['mode'], body['device'])
+            elif path == '/api/pause':
+                if type(body['paused']) is not bool:
+                    raise ValueError('Invalid pause state')
+                result = service.pause(body['paused'])
+            elif path == '/api/stop':
+                result = service.stop()
+            else:
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question)', path)
+                if not match:
+                    raise FileNotFoundError()
+                if match[2] == 'process': result = service.process(match[1], body['action'])
+                elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
+                elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
+                elif match[2] == 'title': result = service.generate_meeting_title(match[1])
+                elif match[2] == 'calendar': result = service.sync_calendar(match[1])
+                elif match[2] == 'delete': result = service.delete(match[1], body.get('calendar_event', False))
+                elif match[2] == 'task': result = service.update_task(match[1], body['index'], body['task'], body['changes'])
+                elif match[2] == 'delete-task': result = service.delete_task(match[1], body['index'], body['task'])
+                else: result = service.edit(match[1], body)
+            self.respond(200, result)
+        except FileNotFoundError:
+            self.respond(404, {'error': 'Meeting not found'})
+        except (ValueError, KeyError, TypeError) as exc:
+            self.respond(400, {'error': str(exc)})
+        except Exception as exc:
+            # Audio setup errors should be visible without disclosing secrets.
+            message = str(exc)
+            if self.server.service.api_key:
+                message = message.replace(self.server.service.api_key, '[redacted]')
+            self.respond(500, {'error': message})
+
+
+def stop_running_copy(lock_path, timeout=60):
+    """Stop the other process that holds the library lock, then wait for its lock to free."""
+    import fcntl, os, subprocess, time
+    # Only a process that holds this lock file is stopped, never an unrelated reused PID.
+    found = subprocess.run(['/usr/sbin/lsof', '-t', str(lock_path)], capture_output=True, text=True).stdout
+    pids = {int(pid) for pid in found.split()} - {os.getpid()}
+    print('Stopping the running Meeting Assistant…', flush=True)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)  # the normal shutdown saves an active recording
+        except ProcessLookupError:
+            pass
+    with open(lock_path, 'a') as probe:
+        deadline, sent = time.monotonic() + timeout, set()
+        while True:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(probe, fcntl.LOCK_UN)
+                return
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    if signal.SIGKILL in sent:
+                        raise SystemExit('Meeting Assistant is still running and could not be stopped.')
+                    for pid in pids:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    sent.add(signal.SIGKILL)
+                    deadline = time.monotonic() + 5
+                time.sleep(0.2)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--library', type=Path, default=PROJECT / 'meetings')
+    parser.add_argument('--no-browser', action='store_true')
+    args = parser.parse_args()
+    # One process per library, including when an alternate port is requested.
+    import fcntl
+    args.library.mkdir(parents=True, exist_ok=True)
+    lockfile = (args.library / '.app.lock').open('a')
+    try:
+        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        # A new start replaces the old copy so that code changes take effect.
+        stop_running_copy(args.library / '.app.lock')
+        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    service = MeetingService(args.library, PROJECT)
+    server = Server(('127.0.0.1', args.port), service)
+    url = f'{server.origin}/?token={server.token}'
+    from app.storage import atomic_json
+    atomic_json(args.library / '.running.json', {'url': url})
+    print(f'Meeting Assistant: {url}', flush=True)
+    if not args.no_browser:
+        webbrowser.open(url)
+    def stop(signum, frame):
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        server.serve_forever()
+    finally:
+        service.close()
+        server.server_close()
+        (args.library / '.running.json').unlink(missing_ok=True)
+        lockfile.close()
+
+
+if __name__ == '__main__':
+    main()

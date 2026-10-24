@@ -20,7 +20,7 @@ from app.service import MeetingService
 from app.google_calendar import CalendarError
 
 PROJECT = Path(__file__).resolve().parent
-EXPORTS = {'recording.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json'}
+EXPORTS = {'recording.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
 
 
 class Server(ThreadingHTTPServer):
@@ -223,15 +223,18 @@ class Handler(BaseHTTPRequestHandler):
                 if type(body['paused']) is not bool:
                     raise ValueError('Invalid pause state')
                 result = service.pause(body['paused'])
+            elif path == '/api/marker':
+                result = service.add_marker(body['kind'], body.get('note', ''))
             elif path == '/api/stop':
                 result = service.stop()
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
                 elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
+                elif match[2] == 'marker-delete': result = service.delete_marker(match[1], body['id'])
                 elif match[2] == 'notes-review': result = service.review_notes(match[1], body['action'], body.get('accept', []), body.get('revision', ''))
                 elif match[2] == 'title': result = service.generate_meeting_title(match[1])
                 elif match[2] == 'calendar': result = service.sync_calendar(match[1])

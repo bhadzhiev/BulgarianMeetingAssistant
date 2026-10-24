@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import threading
 import time
+import uuid
 import wave
 
 import numpy as np
@@ -30,6 +31,9 @@ DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model
                 whisper_vad=True, whisper_vocabulary='',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
+
+
+MARKER_KINDS = ('important', 'decision', 'check')
 
 
 class MeetingService:
@@ -137,6 +141,7 @@ class MeetingService:
                 active.update(duration=self.recorder.clock.elapsed(), level=self.recorder.level)
                 live = self.live_sessions.get(self.active)
                 active['live'] = live.snapshot() if live else None
+                active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=self.library.list(), active=active, google=self.google.status(),
                 speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(),
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
@@ -173,9 +178,10 @@ class MeetingService:
                 except (OSError, ValueError):
                     pass
             meeting['live'] = read_json(directory / 'live.json', None)
+            meeting['markers'] = read_json(directory / 'markers.json', [])
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
-                               'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json'] if (directory / name).exists()]
+                               'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'] if (directory / name).exists()]
             return meeting
 
     def _stop_preview(self):
@@ -289,6 +295,32 @@ class MeetingService:
             with self.lock:
                 self.library.update(meeting_id, status='error', error=str(exc), progress='Recording could not start')
                 self.active, self.recorder = None, None
+
+    def add_marker(self, kind, note=''):
+        """Mark this moment of the recording, so that the review after the meeting starts here."""
+        if kind not in MARKER_KINDS:
+            raise ValueError('Choose important, decision or check')
+        if not isinstance(note, str) or len(note) > 300:
+            raise ValueError('A marker note must be text of at most 300 characters')
+        with self.lock:
+            if not self.active or not self.recorder or self.library.get(self.active)['status'] not in {'recording', 'paused'}:
+                raise ValueError('Markers can be added only during a recording')
+            path = self.library.directory(self.active) / 'markers.json'
+            markers = read_json(path, [])
+            # The clock excludes pauses, like the saved audio, so the time matches the transcript.
+            markers.append(dict(id=uuid.uuid4().hex[:12], time=round(self.recorder.clock.elapsed(), 2), kind=kind,
+                                note=' '.join(note.split())))
+            atomic_json(path, markers)
+            return dict(markers=markers)
+
+    def delete_marker(self, meeting_id, marker_id):
+        with self.lock:
+            path = self.library.directory(meeting_id) / 'markers.json'
+            markers = read_json(path, [])
+            if not any(marker.get('id') == marker_id for marker in markers):
+                raise ValueError('This marker no longer exists. Reload the meeting.')
+            atomic_json(path, [marker for marker in markers if marker.get('id') != marker_id])
+            return self.detail(meeting_id)
 
     def pause(self, paused):
         with self.lock:

@@ -36,7 +36,11 @@ Do not share the launch URL: it grants access to this local app session.
 3. Use **Test mic** for a ten-second level check. It does not save audio.
 4. Click **Start recording**. **Pause** discards audio until you resume and removes
    the pause from the saved timeline.
-5. Click **Stop & save**. The meeting appears in the library immediately; processing
+5. To mark a moment, press **1** (Important), **2** (Decision) or **3** (Check later), or click the
+   buttons under the timer. Type a short note first if you want. Markers are saved in `markers.json`.
+   After the meeting, **Moments you marked** at the top of the transcript plays each moment.
+   Notes generation gets the markers as hints; the AI must still find the moment in the transcript.
+6. Click **Stop & save**. The meeting appears in the library immediately; processing
    continues in the background when automatic processing is enabled.
 
 For the iPhone: use the same Apple Account on both devices, enable Wi-Fi/Bluetooth and

@@ -349,7 +349,20 @@ def minutes_schema() -> dict[str, Any]:
     }
 
 
-def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date: str | None = None) -> str:
+MARKER_NAMES = {"important": "Важно", "decision": "Решение", "check": "Провери"}
+
+
+def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date: str | None = None,
+               markers: list[dict[str, Any]] | None = None) -> str:
+    marked = ""
+    if markers:
+        lines = "\n".join(f"[{timestamp(m['time'])}] {MARKER_NAMES.get(m['kind'], m['kind'])}" + (f" — {m['note']}" if m.get("note") else "")
+                          for m in markers[:100])
+        marked = f"""
+Моменти, отбелязани от потребителя по време на срещата. Те са подсказки къде да търсиш, не факти.
+Провери всеки момент в текста и не измисляй решение само заради маркер.
+{lines}
+"""
     known = ""
     if speakers:
         names = "\n".join(f"- {name}" for name in speakers[:100])
@@ -374,7 +387,7 @@ needs_decision: въпроси, които изрично чакат решен�
 observations: поверителни наблюдения за ръководителя след срещата: рискове, обещания, които изглеждат
 нереалистични, колебание или скрито несъгласие. Всяко наблюдение има evidence_timestamp на казаното.
 Не оценявай личности. Ако няма ясна основа в текста, върни празен списък.
-{known}
+{known}{marked}
 ТРАНСКРИПТ:
 {transcript}"""
 
@@ -479,7 +492,8 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
     transcript = transcript_for_llm(segments)
     if not transcript:
         raise ValueError("Cannot summarize an empty transcript")
-    prompt = llm_prompt(transcript, getattr(args, "speakers", None), getattr(args, "meeting_date", None))
+    prompt = llm_prompt(transcript, getattr(args, "speakers", None), getattr(args, "meeting_date", None),
+                        [m for m in getattr(args, "markers", None) or [] if segments[0].start - 5 <= m["time"] <= segments[-1].end + 5])
     schema = minutes_schema()
     stamps = list(dict.fromkeys(timestamp(s.start) for s in segments))
     schema["properties"]["tasks"]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps

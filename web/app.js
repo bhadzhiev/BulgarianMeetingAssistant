@@ -94,10 +94,34 @@ function renderState() {
   $('pause').textContent=a.status==='paused'?'▶ Resume':'Ⅱ Pause'; $('recording-indicator').classList.toggle('paused',a.status!=='recording');
   $('recording-help').textContent=a.status==='starting'?'Preparing audio capture. macOS may request recording permission.':a.status==='paused'?'Paused. Audio during the pause is discarded.':a.status==='stopping'?'Finishing audio files. Please keep the app open.':'Audio is being saved continuously on this Mac.';
   renderLive(a);
+  renderMarkerList($('marker-list'),a.markers||[],false);
   if(view==='setup') { selected=a.id; show('recording'); }
  } else if(view==='recording' && selected) { perform(()=>openMeeting(selected,true)); }
  renderLibrary();
 }
+const MARKER_LABELS={important:'★ Important',decision:'✓ Decision',check:'? Check later'};
+// Recording markers during the meeting, and review shortcuts after it.
+function renderMarkerList(target,markers,review) {
+ target.replaceChildren();
+ for(const marker of [...markers].sort((a,b)=>a.time-b.time)) {
+  const row=el('div','marker-row '+marker.kind), when=el(review?'button':'span','marker-time',time(marker.time)+(review?' ▶':''));
+  if(review){when.type='button';when.title='Show and play this moment';when.onclick=()=>showSeconds(marker.time);}
+  row.append(when,el('span','marker-kind',MARKER_LABELS[marker.kind]||marker.kind));
+  if(marker.note) row.append(el('span','marker-note',marker.note));
+  if(review){const remove=el('button','quiet','✕');remove.type='button';remove.setAttribute('aria-label','Remove marker');remove.onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+detail.id+'/marker-delete',{id:marker.id});lastFingerprint=JSON.stringify(detail);renderDetail();});row.append(remove);}
+  target.append(row);
+ }
+}
+async function addMarker(kind) {
+ const note=$('marker-note').value.trim(), result=await api('/api/marker',{kind,note});
+ $('marker-note').value=''; if(state.active) state.active.markers=result.markers; renderMarkerList($('marker-list'),result.markers,false); toast(MARKER_LABELS[kind]+' · '+time(result.markers.at(-1).time));
+}
+for(const button of document.querySelectorAll('[data-marker]')) button.onclick=()=>perform(()=>addMarker(button.dataset.marker));
+$('marker-note').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();perform(()=>addMarker('important'));}};
+document.addEventListener('keydown',event=>{
+ if(view!=='recording'||!state?.active||event.metaKey||event.ctrlKey||event.altKey||event.target.closest('input,textarea,select,[contenteditable]')) return;
+ const kind={'1':'important','2':'decision','3':'check'}[event.key]; if(kind){event.preventDefault();perform(()=>addMarker(kind));}
+});
 function captionRow(segment, provisional=false, ended=false) {
  const row=el('div','live-segment'+(provisional?' provisional':''));
  row.append(el('span','live-time',time(segment.start)),el('p','',segment.text));
@@ -177,6 +201,8 @@ function renderDetail() {
  if(!d.transcript.length) $('transcript').append(el('p','empty-content',d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));
  d.transcript.forEach((s,index)=>{ const row=el('div','segment');const seek=el('button','',time(s.start)+' ▶');seek.setAttribute('aria-label','Play from '+time(s.start));seek.onclick=()=>{ $('audio').currentTime=s.start; $('audio').play().catch(e=>error(e.message)); }; const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore Whisper text: '+original.text;restore.setAttribute('aria-label','Restore original Whisper text for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text);row.append(seek,content);$('transcript').append(row); });
  renderSpeakerLegend();
+ $('detail-markers').hidden=!d.markers?.length; $('detail-markers').replaceChildren();
+ if(d.markers?.length){$('detail-markers').append(el('h3','','Moments you marked'));const list=el('div','marker-list');renderMarkerList(list,d.markers,true);$('detail-markers').append(list);}
  $('save-transcript').disabled=true; renderSavedDraft(d); renderNotes(busy); renderMeetingAnalytics(busy);
 }
 const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','delete-meeting'];
@@ -196,6 +222,12 @@ function showMoment(stamp) {
  if(index<0) index=detail.transcript.findIndex(s=>s.end>=seconds);
  switchTab('transcript'); const row=$('transcript').children[index];
  if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
+ if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
+}
+function showSeconds(seconds) {
+ let index=-1; detail.transcript.forEach((segment,i)=>{if(segment.start<=seconds+0.5)index=i;});
+ switchTab('transcript'); const row=$('transcript').children[Math.max(0,index)];
+ if(row&&detail.transcript.length){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
  if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
 }
 function stampButton(stamp) { const button=el('button','quiet stamp',stamp+' ▶'); button.type='button'; button.title='Show this moment in the transcript'; button.onclick=()=>showMoment(stamp); return button; }

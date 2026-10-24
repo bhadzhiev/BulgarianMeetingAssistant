@@ -94,3 +94,9 @@
 .change-kind{display:block;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:4px}.review-change.added .change-kind{color:var(--green)}.review-change.removed .change-kind{color:var(--red)}
 .review-change del{display:block;color:var(--muted);text-decoration:line-through;margin-bottom:3px}.review-change ins{display:block;text-decoration:none;background:#eef6e9;border-radius:4px;padding:1px 4px;margin-bottom:4px}.review-change p{margin:0 0 4px}
 .review-footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
+.marker-panel{margin-top:24px;border-top:1px solid var(--line);padding-top:18px;text-align:left}.marker-panel .hint{margin:8px 0 10px}
+.marker-bar{display:flex;gap:8px;flex-wrap:wrap}.marker-bar input{flex:1;min-width:180px;padding:9px 11px;font-size:13px}.marker-bar button{font-size:12px;padding:9px 13px;white-space:nowrap}
+.marker-list{display:flex;flex-direction:column;gap:4px}.marker-row{display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 10px;border-radius:8px;background:#f7f9f3;border-left:3px solid var(--muted)}
+.marker-row.important{border-left-color:#b9862b}.marker-row.decision{border-left-color:var(--green)}.marker-row.check{border-left-color:#2f5f8a}
+.marker-time{font-variant-numeric:tabular-nums;color:var(--green);font-weight:600;padding:0;background:transparent;font-size:12px}.marker-kind{font-weight:600}.marker-note{color:var(--muted);flex:1;overflow-wrap:anywhere}.marker-row .quiet{margin-left:auto;padding:2px 6px}
+.detail-markers{margin:0 0 16px}.detail-markers h3{font-size:13px;margin:0 0 8px}

@@ -166,6 +166,8 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     args.speakers = list(speakers)
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
     args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or None
+    from .live import read_json
+    args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
     result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[])
     for index, group in enumerate(groups):
         progress(f'Generating notes · part {index + 1} of {len(groups)}')

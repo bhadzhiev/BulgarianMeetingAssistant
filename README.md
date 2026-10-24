@@ -128,13 +128,19 @@ Long audio is processed in bounded chunks, preferring a quiet boundary near each
 Long transcripts are summarized in parts; notes retain their part order rather than inventing
 an overall synthesis. Local and cloud jobs preserve the prior final transcript until success.
 
+The meeting header shows one button for the next step (for example **Transcribe** or
+**Generate notes**). The other actions are in **More ▾**, and the saved files are in **Files ▾**.
+The tabs stay at the top of the window when you scroll.
+
 From a saved meeting you can:
 
 - Play the recording or click a transcript timestamp to seek.
+- Read the notes as lists. Click a timestamp in the notes to see that moment in the transcript.
+- Tick a task as done directly in **Tasks & decisions**.
 - Correct transcript text and manually label speakers, then **Save corrections**.
 - Choose speakers from the shared list of known speakers. Known speakers show a coloured badge.
-- Delete the meeting with **Delete meeting**. You can also delete its Google Calendar event.
-- Edit summaries, decisions, tasks, owners, deadlines, and source timestamps, then **Save notes**.
+- Delete the meeting with **More ▾ → Delete meeting**. You can also delete its Google Calendar event.
+- Click **Edit** to change summaries, decisions, tasks, owners, deadlines, and source timestamps, then **Save notes**.
 - Search meeting names and saved transcripts, rename a meeting, and export audio/Markdown/JSON/SRT.
 - Transcribe again with the current settings or generate notes independently.
 
@@ -254,7 +260,7 @@ The app keeps one list of known speakers for all meetings in `meetings/speakers.
 
 ### Delete a meeting
 
-Click **Delete meeting** on a saved meeting and confirm. The app removes the meeting folder
+Click **More ▾ → Delete meeting** on a saved meeting and confirm. The app removes the meeting folder
 with the recording, transcripts, notes, and versions. You cannot undo this. Make a copy
 of the folder first if you are not sure.
 

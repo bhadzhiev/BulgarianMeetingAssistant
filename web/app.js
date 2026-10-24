@@ -5,9 +5,13 @@ let lastFingerprint = '', lastLibrary = '', lastDevices = '', pending = false;
 let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = 'recording';
 let taskFilter = 'open', tasksData = [], lastTasks = '';
 let analyticsData = null, trackersData = [];
+let notesEditing = false, questionFilter = 'open', questionLimit = 10;
 let requestedMeeting=new URLSearchParams(location.search).get('meeting'), initialRouteHandled=false, lastGoogleConnected=false;
 const statusNames = {starting:'Starting',recording:'Recording',paused:'Paused',stopping:'Saving',recorded:'Recorded',processing:'Processing',ready:'Ready',error:'Needs attention',interrupted:'Interrupted'};
 function el(tag, className, text) { const node = document.createElement(tag); if(className) node.className=className; if(text!==undefined) node.textContent=text; return node; }
+function option(text, value) { const node = el('option', '', text); node.value = value; return node; }
+// Imported titles often contain the date already; do not show it two times.
+function withDate(title, value) { const day = date(value); return title.includes(day) ? title : title + ' · ' + day; }
 function time(seconds) { seconds=Math.max(0,Math.floor(seconds||0)); return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(x=>String(x).padStart(2,'0')).join(':'); }
 function date(value) { return new Date(value).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
 function error(message) { const target=$('settings-dialog').open?$('settings-error'):$('error'); target.textContent=message; target.hidden=false; }
@@ -58,12 +62,12 @@ function renderLibrary() {
  const signature=JSON.stringify([rows,selected,view]); if(signature===lastLibrary) return; lastLibrary=signature;
  $('library').replaceChildren();
  if(!rows.length) $('library').append(el('p','empty-library',query?'No matching meetings.':'Your meetings will appear here.'));
- for(const m of rows) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',date(m.created)+' · '+(statusNames[m.status]||m.status))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
+ for(const m of rows) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',(m.title.includes(date(m.created))?'':date(m.created)+' · ')+(statusNames[m.status]||m.status))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
 }
 async function openMeeting(id,force=false) {
  if(!force&&!leaveEdits()) return;
  if(state.active?.id===id) { selected=id; show('recording'); renderState(); return; }
- selected=id; history.replaceState(null,'','/?meeting='+id); dirtyTranscript=dirtyNotes=false; detail=await api('/api/meetings/'+id); lastFingerprint=JSON.stringify(detail); renderDetail(); show('detail'); renderLibrary();
+ selected=id; history.replaceState(null,'','/?meeting='+id); dirtyTranscript=dirtyNotes=false; if(detail?.id!==id){notesEditing=false;questionFilter='open';questionLimit=10;} detail=await api('/api/meetings/'+id); lastFingerprint=JSON.stringify(detail); renderDetail(); show('detail'); renderLibrary();
 }
 function renderState() {
  syncSpeakers();
@@ -143,19 +147,21 @@ function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=
 function markNotes() { dirtyNotes=true; $('save-notes').disabled=$('save-outcomes').disabled=false; }
 function renderDetail() {
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
- $('detail-title').textContent=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':'In-person meeting'); $('detail-status').textContent=statusNames[d.status]||d.status;
+ $('detail-title').textContent=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=statusNames[d.status]||d.status;
  const titleMessages={pending:'AI title pending',generating:'Generating AI title…',generated:'AI-generated title',waiting:'AI title waiting for a transcript',manual:'',error:'AI title could not be generated'};
- $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');
+ $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
  const sync=d.calendar_sync; $('calendar-status').hidden=!sync;$('calendar-status').replaceChildren();
  if(sync){$('calendar-status').append(el('span','',sync.status==='synced'?'Saved in Google Calendar':sync.status==='error'?'Calendar sync needs attention: '+sync.error:'Calendar sync pending…'));if(sync.status==='synced'&&sync.html_link){const url=new URL(sync.html_link);if(url.protocol==='https:'&&['www.google.com','calendar.google.com'].includes(url.hostname)){const link=el('a','',' Open event ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';$('calendar-status').append(link);}}}
  $('generate-title').disabled=busy||d.title_status==='generating'||(!d.transcript.length&&!d.live?.segments?.length);
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
  $('sync-calendar').textContent=sync?.status==='synced'?'Update calendar event':'Sync to Google Calendar';
- $('detail-duration').textContent=time(d.duration); $('job-progress').textContent=d.progress||''; $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
+ // The status badge already says Ready; the bar is only for progress and extra advice.
+ $('job-progress').textContent=d.progress||''; $('job-progress').hidden=!d.progress||d.progress===statusNames[d.status]||['Imported','Recording saved'].includes(d.progress); $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
  const audioURL='/files/'+d.id+'/recording.wav';
  if(d.files.includes('recording.wav')) { if(!$('audio').src.endsWith(audioURL)) $('audio').src=audioURL; $('audio').hidden=false; $('audio-unavailable').hidden=true; }
- else { $('audio').removeAttribute('src'); $('audio').hidden=true; $('audio-unavailable').hidden=false; $('audio-unavailable').textContent=d.mode==='imported'?'This meeting was imported from a transcript. It has no audio.':'Recover the saved audio to enable playback.'; }
- $('exports').replaceChildren(); for(const name of d.files) { const a=el('a','',name==='recording.wav'?'↓ Audio':'↓ '+name); a.href='/files/'+d.id+'/'+name; a.download=name; $('exports').append(a); if(name.endsWith('.md')) { const v=el('button','view-file','View'); v.type='button'; v.setAttribute('aria-label','View '+name); v.onclick=()=>perform(()=>openViewer(d.id,name)); $('exports').append(v); } }
+ else { $('audio').removeAttribute('src'); $('audio').hidden=true; $('audio-unavailable').hidden=false; }
+ $('playback').hidden=d.mode==='imported';
+ $('exports').replaceChildren(); $('files-menu').hidden=!d.files.length; for(const name of d.files) { const row=el('div','file-row'), a=el('a','',name==='recording.wav'?'↓ Audio (WAV)':'↓ '+name); a.href='/files/'+d.id+'/'+name; a.download=name; row.append(a); if(name.endsWith('.md')) { const v=el('button','view-file','View'); v.type='button'; v.setAttribute('aria-label','View '+name); v.onclick=()=>perform(()=>openViewer(d.id,name)); row.append(v); } $('exports').append(row); }
  for(const id of ['process','summarize','recover','edit-title','delete-meeting']) $(id).disabled=busy;
  $('correct').disabled=busy||!d.transcript.length; $('correct').hidden=state.settings.transcript_correction==='none'&&!d.transcript_raw;
  const fix=d.transcript_metadata?.correction;
@@ -165,6 +171,7 @@ function renderDetail() {
  $('recover').hidden=d.mode==='imported'||!!d.files.includes('recording.wav')&&!['interrupted','error'].includes(d.status);$('process').hidden=d.mode==='imported';
  $('summarize').disabled=busy||!d.transcript.length;
  $('process').textContent=d.transcript.length?'Transcribe again':'Transcribe';
+ placeActions(d);
  $('timestamp-note').textContent=d.transcript_metadata?.timestamps==='approximate chunk boundaries'?'Cloud timestamps mark approximate audio chunks. Click a time to listen.':'Click a timestamp to listen. Correct the text or add a speaker label below.';
  $('transcript').replaceChildren();
  if(!d.transcript.length) $('transcript').append(el('p','empty-content',d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));
@@ -172,15 +179,58 @@ function renderDetail() {
  renderSpeakerLegend();
  $('save-transcript').disabled=true; renderSavedDraft(d); renderNotes(busy); renderMeetingAnalytics(busy);
 }
+const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','delete-meeting'];
+// One clear next step is a button; the other actions wait in the More menu.
+function placeActions(d) {
+ const audio=d.files.includes('recording.wav');
+ const primary=!$('recover').hidden&&!audio?'recover':!$('process').hidden&&!d.transcript.length?'process':d.transcript.length&&!d.minutes?'summarize':null;
+ for(const id of ACTIONS) { const button=$(id); if(id===primary){button.className='primary';$('primary-action').append(button);} else {button.className=id==='delete-meeting'?'danger-text':'';$('more-actions').append(button);} }
+}
+function closeMenus(except) { for(const menu of document.querySelectorAll('details.menu[open]')) if(menu!==except) menu.open=false; }
+document.addEventListener('click',event=>{closeMenus(event.target.closest('details.menu'));if(event.target.closest('.menu-items button,.menu-items a'))closeMenus();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenus();});
+function stampSeconds(stamp) { const [h,m,sec]=stamp.split(':').map(Number); return h*3600+m*60+sec; }
+// Show the transcript at this moment and play it when the meeting has audio.
+function showMoment(stamp) {
+ const seconds=stampSeconds(stamp); let index=detail.transcript.findIndex(s=>time(s.start)===stamp);
+ if(index<0) index=detail.transcript.findIndex(s=>s.end>=seconds);
+ switchTab('transcript'); const row=$('transcript').children[index];
+ if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
+ if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
+}
+function stampButton(stamp) { const button=el('button','quiet stamp',stamp+' ▶'); button.type='button'; button.title='Show this moment in the transcript'; button.onclick=()=>showMoment(stamp); return button; }
+// AI notes cite moments as (00:29:46); make them links to the transcript.
+function linkedText(target,text) { text.split(/\(?\b(\d{2}:\d{2}:\d{2})\b\)?/).forEach((part,i)=>target.append(i%2?stampButton(part):document.createTextNode(part))); return target; }
 function noteSection(minutes,field,title,busy,hint) {
- const section=el('section','note-section'+(field==='observations'?' private-notes':''));const area=el('textarea');
+ const section=el('section','note-section'+(field==='observations'?' private-notes':''));
  section.append(el('h3','',title)); if(hint) section.append(el('p','hint',hint));
- area.value=(minutes[field]||[]).join('\n');area.setAttribute('aria-label',title+' · one item per line');area.disabled=busy;area.placeholder='One item per line';
- area.oninput=()=>{minutes[field]=area.value.split('\n').filter(s=>s.trim());markNotes();};
+ const items=minutes[field]||[];
+ if(!notesEditing) {
+  if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
+  else { const list=el('ul','note-list'); for(const item of items) list.append(linkedText(el('li'),item)); section.append(list); }
+  return section;
+ }
+ const area=el('textarea');
+ area.value=items.join('\n');area.setAttribute('aria-label',title+' · one item per line');area.disabled=busy;area.placeholder='One item per line';
+ area.rows=Math.max(3,items.reduce((rows,item)=>rows+Math.ceil((item.length+1)/90),1));
+ area.oninput=()=>{minutes[field]=area.value.split('\n').filter(s=>s.trim());area.style.height='auto';area.style.height=area.scrollHeight+2+'px';markNotes();};
  section.append(area); return section;
 }
+function taskRow(task,index,busy) {
+ const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(task,today);
+ const row=el('div','tracked-task '+kind), done=el('input'); done.type='checkbox'; done.checked=task.status==='done'; done.disabled=busy; done.setAttribute('aria-label','Mark task as done');
+ done.onchange=()=>perform(async()=>{await api('/api/meetings/'+detail.id+'/task',{index,task:task.task,changes:{status:done.checked?'done':'open'}});await openMeeting(detail.id,true);});
+ const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+ who.append(speakerBadge(el('span'),task.owner||''),el('span','',task.owner||'No owner'));
+ meta.append(who,el('span','due-label '+kind,task.due_date&&task.status!=='done'?label+' · '+task.due_date:label));
+ if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
+ if(task.evidence_timestamp) meta.append(stampButton(task.evidence_timestamp));
+ main.append(el('p','tracked-text',task.task||'Untitled task'),meta); row.append(done,main); return row;
+}
 function renderNotes(busy=false) {
- $('notes').replaceChildren();$('outcomes').replaceChildren();$('save-notes').disabled=$('save-outcomes').disabled=true;
+ $('notes').replaceChildren();$('outcomes').replaceChildren();
+ if(!detail.minutes||busy) notesEditing=false;
+ for(const name of ['notes','outcomes']) { $('edit-'+name).hidden=notesEditing||!detail.minutes; $('edit-'+name).disabled=busy; $('save-'+name).hidden=$('cancel-'+name).hidden=!notesEditing; $('save-'+name).disabled=!dirtyNotes; }
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(el('p','empty-content','Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
  $('notes').append(noteSection(minutes,'summary','Summary',busy),noteSection(minutes,'needs_decision','Questions for your decision',busy));
@@ -195,8 +245,13 @@ function renderNotes(busy=false) {
   const bottom=el('div','task-bottom');const doneLabel=el('label','checkbox');const done=el('input');done.type='checkbox';done.checked=task.status==='done';done.disabled=busy;done.onchange=()=>{task.status=done.checked?'done':'open';box.classList.toggle('done',done.checked);markNotes();};doneLabel.append(done,document.createTextNode(' Done'));
   bottom.append(doneLabel,el('label','','Source'));const select=el('select');select.setAttribute('aria-label','Evidence for task '+(index+1));select.disabled=busy;for(const stamp of [...new Set(detail.transcript.map(s=>time(s.start)))]){const option=el('option','',stamp);option.value=stamp;select.append(option);}select.value=task.evidence_timestamp;select.onchange=()=>{task.evidence_timestamp=select.value;markNotes();};
   const remove=el('button','quiet','Remove');remove.disabled=busy;remove.onclick=()=>{minutes.tasks.splice(index,1);markNotes();drawTasks();};bottom.append(select,remove);box.append(bottom);taskList.append(box);}); }
- drawTasks();const add=el('button','secondary','＋ Add task');add.disabled=busy||!detail.transcript.length;add.onclick=()=>{minutes.tasks.push({task:'',owner:null,deadline:null,due_date:null,status:'open',evidence_timestamp:time(detail.transcript[0].start)});markNotes();drawTasks();};section.append(add);$('outcomes').append(section);
- $('outcomes').append(noteSection(minutes,'open_questions','Unresolved questions',busy),noteSection(minutes,'next_steps','Agreed next steps',busy));
+ if(!notesEditing) {
+  if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
+  minutes.tasks.forEach((task,index)=>taskList.append(taskRow(task,index,busy)));
+ } else {
+  drawTasks();const add=el('button','secondary','＋ Add task');add.disabled=busy||!detail.transcript.length;add.onclick=()=>{minutes.tasks.push({task:'',owner:null,deadline:null,due_date:null,status:'open',evidence_timestamp:time(detail.transcript[0].start)});markNotes();drawTasks();};section.append(add);
+ }
+ $('outcomes').append(section,noteSection(minutes,'open_questions','Unresolved questions',busy),noteSection(minutes,'next_steps','Agreed next steps',busy));
  $('notes').append(
   noteSection(minutes,'observations','Private observations',busy,'Only for you. AI interpretation of risks, unrealistic promises and disagreement. Check it against the recording. Not included in the Markdown export.'));
 }
@@ -211,13 +266,16 @@ function seekEvidence(item) {
 }
 function speakerStats(target,rows,global=false) {
  target.replaceChildren();if(!rows.length){target.append(el('p','empty-content','No diarized speaker time is available. Imported transcripts only have topic and question analytics.'));return;}
+ // Without diarized audio every talk-time number is zero; show only what is known.
+ const timed=rows.some(row=>row.talk_seconds>0);
+ if(!timed)target.append(el('p','hint','No talk time. Talk time needs a recording with speaker diarization; imported transcripts have none.'));
  for(const row of rows) {
   const box=el('div','speaker-stat'),heading=el('div','speaker-stat-heading'),name=el('div','tracked-owner');
-  name.append(speakerBadge(el('span'),row.speaker),el('strong','',row.speaker));heading.append(name,el('span','',shortDuration(row.talk_seconds)+' · '+row.talk_percent+'%'));
-  const bar=el('div','talk-bar'),fill=el('span');fill.style.width=Math.max(0,Math.min(100,row.talk_percent))+'%';bar.append(fill);
-  const facts=['Turns: '+row.turns,'Longest turn: '+shortDuration(row.longest_monologue_seconds),'Average turn: '+shortDuration(row.average_turn_seconds),'Questions: '+row.questions];
-  if(global)facts.push('Unanswered: '+row.unanswered_questions,'Meetings: '+row.meetings);
-  box.append(heading,bar,el('p','speaker-stat-meta',facts.join(' · ')));target.append(box);
+  name.append(speakerBadge(el('span'),row.speaker),el('strong','',row.speaker));heading.append(name);box.append(heading);
+  if(timed){heading.append(el('span','',shortDuration(row.talk_seconds)+' · '+row.talk_percent+'%'));const bar=el('div','talk-bar'),fill=el('span');fill.style.width=Math.max(0,Math.min(100,row.talk_percent))+'%';bar.append(fill);box.append(bar);}
+  const facts=timed?['Turns: '+row.turns,'Longest turn: '+shortDuration(row.longest_monologue_seconds),'Average turn: '+shortDuration(row.average_turn_seconds),'Questions: '+row.questions]:['Questions: '+row.questions];
+  if(global)facts.push('Not marked as answered: '+row.unanswered_questions,'Meetings: '+row.meetings);
+  box.append(el('p','speaker-stat-meta',facts.join(' · ')));target.append(box);
  }
 }
 function renderMeetingAnalytics(busy=false) {
@@ -226,7 +284,7 @@ function renderMeetingAnalytics(busy=false) {
  $('diarization-status').hidden=!detail.diarization_error;$('diarization-status').textContent=detail.diarization_error?'Speaker diarization unavailable · '+detail.diarization_error:'';
  $('meeting-analytics-error').hidden=!detail.analytics_error;$('meeting-analytics-error').textContent=detail.analytics_error?'Some analytics need attention · '+detail.analytics_error:'';
  if(!data){target.append(el('p','empty-content',detail.transcript.length?'Choose Reanalyze to build talk-time, topic and question analytics.':'Transcribe or import a meeting to build conversation analytics.'));return;}
- const speakers=el('section','analytics-section'),speakerRows=el('div');speakers.append(el('h3','','Talk time'),el('p','hint',shortDuration(data.total_speech_seconds)+' of diarized speech. Silence is excluded.'),speakerRows);speakerStats(speakerRows,data.speakers||[]);target.append(speakers);
+ const speakers=el('section','analytics-section'),speakerRows=el('div');speakers.append(el('h3','','Talk time'));if(data.total_speech_seconds)speakers.append(el('p','hint',shortDuration(data.total_speech_seconds)+' of diarized speech. Silence is excluded.'));speakers.append(speakerRows);speakerStats(speakerRows,data.speakers||[]);target.append(speakers);
  const topics=el('section','analytics-section');topics.append(el('h3','','Topic trackers'));
  if(!(data.topics||[]).length){const configure=el('button','secondary','Configure topic trackers');configure.onclick=()=>openSettings('trackers');topics.append(el('p','hint','No topic trackers are configured.'),configure);}
  for(const topic of data.topics||[]) {
@@ -235,13 +293,22 @@ function renderMeetingAnalytics(busy=false) {
   topics.append(box);
  }
  target.append(topics);
- const questions=el('section','analytics-section');questions.append(el('h3','','Questions'),el('p','hint',(data.unanswered_questions||0)+' unanswered · answered state is manual'));
- if(!(data.questions||[]).length)questions.append(el('p','empty-content','No questions detected.'));
- for(const question of data.questions||[]) {
+ const all=data.questions||[],questions=el('section','analytics-section');
+ questions.append(el('h3','','Questions'),el('p','hint',all.length+' detected from wording · '+all.filter(q=>!q.answered).length+' not marked as answered. The app does not detect answers. Tick a question when it was answered.'));
+ if(!all.length)questions.append(el('p','empty-content','No questions detected.'));
+ else {
+  const filters=el('div','segmented question-filters');filters.setAttribute('role','group');filters.setAttribute('aria-label','Filter questions');
+  for(const [key,label] of [['open','Not answered'],['answered','Answered'],['all','All']]){const button=el('button',key===questionFilter?'selected':'',label);button.type='button';button.onclick=()=>{questionFilter=key;questionLimit=10;renderMeetingAnalytics(busy);};filters.append(button);}
+  questions.append(filters);
+ }
+ const shown=all.filter(q=>questionFilter==='all'||(questionFilter==='answered')===!!q.answered);
+ if(all.length&&!shown.length)questions.append(el('p','empty-content','No questions match this filter.'));
+ for(const question of shown.slice(0,questionLimit)) {
   const row=el('div','question-row'+(question.answered?' answered':'')),toggle=el('input');toggle.type='checkbox';toggle.checked=question.answered;toggle.disabled=busy;toggle.setAttribute('aria-label','Mark question as answered');
   toggle.onchange=()=>perform(async()=>{const updated=await api('/api/meetings/'+detail.id+'/question',{id:question.id,text:question.text,answered:toggle.checked});detail.analytics=updated;lastFingerprint=JSON.stringify(detail);renderMeetingAnalytics(false);});
-  const main=el('div'),text=el('p','',question.text),meta=el('div','tracked-meta'),seek=el('button','quiet tracked-source',time(question.timestamp)+' ▶');seek.onclick=()=>seekEvidence(question);meta.append(el('span','',question.speaker||'Unknown speaker'),seek,el('span','',question.answered?'Answered':'Unanswered'));main.append(text,meta);row.append(toggle,main);questions.append(row);
+  const main=el('div'),text=el('p','',question.text),meta=el('div','tracked-meta'),seek=el('button','quiet tracked-source',time(question.timestamp)+' ▶');seek.onclick=()=>seekEvidence(question);meta.append(el('span','',question.speaker||'Unknown speaker'),seek);main.append(text,meta);row.append(toggle,main);questions.append(row);
  }
+ if(shown.length>questionLimit){const more=el('button','secondary','Show all '+shown.length+' questions');more.type='button';more.onclick=()=>{questionLimit=Infinity;renderMeetingAnalytics(busy);};questions.append(more);}
  target.append(questions);
 }
 async function loadAnalytics() {
@@ -250,14 +317,15 @@ async function loadAnalytics() {
 }
 function renderGlobalAnalytics() {
  const data=analyticsData;if(!data)return;
- for(const [id,values,placeholder] of [['analytics-speaker',data.available_speakers,'All speakers'],['analytics-topic',data.available_topics,'All topics']]) {const select=$(id),current=select.value;select.replaceChildren(el('option','',placeholder));for(const value of values){const option=el('option','',value);option.value=value;select.append(option);}select.value=[...select.options].some(option=>option.value===current)?current:'';}
- $('analytics-summary').textContent=data.meeting_count+' meetings · '+shortDuration(data.total_speech_seconds)+' diarized speech · '+data.questions+' questions · '+data.unanswered_questions+' unanswered';
- $('analytics-overview').replaceChildren(metric('Meetings',data.meeting_count),metric('Diarized speech',shortDuration(data.total_speech_seconds)),metric('Questions',data.questions),metric('Unanswered',data.unanswered_questions));
+ for(const [id,values,placeholder] of [['analytics-speaker',data.available_speakers,'All speakers'],['analytics-topic',data.available_topics,'All topics']]) {const select=$(id),current=select.value;select.replaceChildren(option(placeholder,''),...values.map(value=>option(value,value)));select.value=[...select.options].some(option=>option.value===current)?current:'';}
+ const speech=data.total_speech_seconds?shortDuration(data.total_speech_seconds):'—';
+ $('analytics-summary').textContent=data.meeting_count+(data.meeting_count===1?' meeting':' meetings')+(data.total_speech_seconds?' · '+speech+' diarized speech':'')+' · '+data.questions+' questions · '+data.unanswered_questions+' not marked as answered';
+ $('analytics-overview').replaceChildren(metric('Meetings',data.meeting_count),metric('Diarized speech',speech),metric('Questions',data.questions),metric('Not marked as answered',data.unanswered_questions));
  speakerStats($('analytics-speakers'),data.speakers,true);
  $('analytics-topics').replaceChildren();if(!data.topics.length)$('analytics-topics').append(el('p','empty-content','No topic hits match these filters.'));
  for(const topic of data.topics){const box=el('div','metric');box.append(el('strong','',topic.matches),el('span','',topic.name+' · '+topic.meetings+' meetings'));$('analytics-topics').append(box);}
  $('analytics-meetings').replaceChildren();if(!data.meetings.length)$('analytics-meetings').append(el('p','empty-content','No generated analytics match these filters.'));
- for(const meeting of data.meetings){const row=el('div','analytics-meeting'),button=el('button','quiet tracked-source',meeting.title);button.onclick=()=>perform(async()=>{await openMeeting(meeting.id);switchTab('analytics');});row.append(button,el('span','',date(meeting.date)),el('span','',shortDuration(meeting.talk_seconds)),el('span','',meeting.questions+' questions · '+meeting.topic_matches+' topic hits'));$('analytics-meetings').append(row);}
+ for(const meeting of data.meetings){const row=el('div','analytics-meeting'),button=el('button','quiet tracked-source',meeting.title);button.onclick=()=>perform(async()=>{await openMeeting(meeting.id);switchTab('analytics');});row.append(button,el('span','',date(meeting.date)),el('span','',meeting.talk_seconds?shortDuration(meeting.talk_seconds):'No talk time'),el('span','',meeting.questions+' questions · '+meeting.topic_matches+' topic hits'));$('analytics-meetings').append(row);}
 }
 function renderTrackers() {
  const target=$('tracker-list');target.replaceChildren();if(!trackersData.length)target.append(el('p','empty-content','No topic trackers yet. Add topics such as Бюджет, Продажби or Риск.'));
@@ -321,8 +389,7 @@ function renderTasks() {
  const week=open.filter(t=>t.due_date&&t.due_date>=today&&daysBetween(today,t.due_date)<=7);
  $('tasks-summary').textContent=open.length+' open · '+late.length+' overdue · '+week.length+' due in the next 7 days';
  const owner=$('task-owner').value, owners=[...new Set(tasksData.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
- $('task-owner').replaceChildren(el('option','','All owners'),...owners.map(name=>{const o=el('option','',name);o.value=name;return o;}));
- const none=el('option','','No owner');none.value='__none__';$('task-owner').append(none);
+ $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
  $('task-owner').value=[...$('task-owner').options].some(o=>o.value===owner)?owner:'';
  for(const button of document.querySelectorAll('[data-filter]')) button.classList.toggle('selected',button.dataset.filter===taskFilter);
  const rows=tasksData.filter(t=>taskFilter==='all'||(taskFilter==='done'?t.status==='done':t.status==='open'&&(taskFilter==='open'||t.due_date&&t.due_date<today)))
@@ -349,7 +416,7 @@ function renderTasks() {
   due.onchange=()=>perform(()=>updateTask(task,{due_date:due.value||null}));
   meta.append(who,el('span','due-label '+kind,label),due);
   if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
-  const source=el('button','quiet tracked-source','↗ '+task.meeting_title+' · '+date(task.meeting_date)+' · '+task.evidence_timestamp);source.title='Open the meeting';
+  const source=el('button','quiet tracked-source','↗ '+withDate(task.meeting_title,task.meeting_date)+' · '+task.evidence_timestamp);source.title='Open the meeting';
   source.onclick=()=>perform(async()=>{await openMeeting(task.meeting_id);switchTab('outcomes');});
   meta.append(source);main.append(meta);row.append(done,main,actions);$('task-list').append(row);
  }
@@ -387,7 +454,11 @@ $('pause').onclick=()=>perform(()=>api('/api/pause',{paused:state.active.status!
 for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!leaveEdits())return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
 $('edit-title').onclick=()=>perform(async()=>{const title=window.prompt('Meeting name',detail.title);if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
 $('save-transcript').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript});dirtyTranscript=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Transcript corrections saved');});
-$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{await api('/api/meetings/'+selected+'/edit',{minutes:detail.minutes});dirtyNotes=false;$('save-notes').disabled=$('save-outcomes').disabled=true;toast('Meeting notes saved');});
+$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{minutes:detail.minutes});dirtyNotes=false;notesEditing=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Meeting notes saved');});
+for(const name of ['notes','outcomes']) {
+ $('edit-'+name).onclick=()=>{notesEditing=true;renderNotes(false);};
+ $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!confirm('Discard your changes to the notes?'))return;notesEditing=false;await openMeeting(selected,true);});
+}
 $('reanalyze').onclick=()=>perform(async()=>{if(!leaveEdits())return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});
 for(const tab of ['transcript','outcomes','notes','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
 $('settings-open').onclick=()=>openSettings();$('settings-inline').onclick=()=>openSettings('recording');

@@ -113,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path == '/api/search':
             return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
+        if url.path == '/api/backups':
+            return self.respond(200, self.server.service.backups())
         if url.path == '/api/tasks':
             return self.respond(200, self.server.service.tasks())
         if url.path == '/api/trackers':
@@ -233,6 +235,12 @@ class Handler(BaseHTTPRequestHandler):
                 if type(body['paused']) is not bool:
                     raise ValueError('Invalid pause state')
                 result = service.pause(body['paused'])
+            elif path == '/api/backups/create':
+                result = service.create_backup()
+            elif path == '/api/backups/restore':
+                result = service.restore_backup(body['name'])
+            elif path == '/api/backups/reveal':
+                result = service.reveal_backup(body['name'])
             elif path == '/api/marker':
                 result = service.add_marker(body['kind'], body.get('note', ''))
             elif path == '/api/stop':
@@ -303,6 +311,7 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--library', type=Path, default=PROJECT / 'meetings')
     parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--backups', type=Path, help='Folder for library archives (default: ~/Documents/Meeting Assistant Backups)')
     args = parser.parse_args()
     # One process per library, including when an alternate port is requested.
     import fcntl
@@ -314,7 +323,7 @@ def main():
         # A new start replaces the old copy so that code changes take effect.
         stop_running_copy(args.library / '.app.lock')
         fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    service = MeetingService(args.library, PROJECT)
+    service = MeetingService(args.library, PROJECT, backup_dir=args.backups)
     server = Server(('127.0.0.1', args.port), service)
     url = f'{server.origin}/?token={server.token}'
     from app.storage import atomic_json

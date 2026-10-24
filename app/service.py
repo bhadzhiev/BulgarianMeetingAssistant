@@ -19,6 +19,7 @@ from . import processing
 from . import correction
 from . import analytics as conversation
 from . import diarization
+from . import backup
 from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client
@@ -39,8 +40,9 @@ MAX_AUDIO_BYTES = 4_000_000_000
 
 
 class MeetingService:
-    def __init__(self, root: Path, project: Path, google=None):
+    def __init__(self, root: Path, project: Path, google=None, backup_dir: Path | None = None):
         self.project = project
+        self.backup_dir = backup_dir or Path.home() / 'Documents' / 'Meeting Assistant Backups'
         self.library = Library(root)
         self.library.recover()
         self.settings_path = root / 'settings.json'
@@ -638,6 +640,31 @@ class MeetingService:
                 save_minutes(directory, result)
             proposal.unlink()
             return self.detail(meeting_id)
+
+    def backups(self):
+        return dict(folder=str(self.backup_dir), archives=backup.archives(self.backup_dir) if self.backup_dir.exists() else [])
+
+    def create_backup(self):
+        # Archiving can take minutes; recording controls must not wait for it.
+        with self.lock:
+            skip = {self.active} if self.active else set()
+        result = backup.create(self.library.root, self.backup_dir, skip)
+        return dict(self.backups(), created=result, skipped_active=bool(skip))
+
+    def restore_backup(self, name):
+        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library)
+        with self.lock:
+            for meeting_id in result['restored']:
+                # A meeting archived during a job comes back as interrupted, like after a crash.
+                if self.library.get(meeting_id)['status'] in {'starting', 'recording', 'paused', 'stopping', 'processing'}:
+                    self.library.update(meeting_id, status='interrupted', progress='Restored from an archive',
+                                        error='This meeting was busy when it was archived. Use Recover / Retry.')
+        return dict(self.backups(), **result)
+
+    def reveal_backup(self, name):
+        import subprocess
+        subprocess.run(['/usr/bin/open', '-R', str(backup.archive_path(self.backup_dir, name))], check=False, timeout=10)
+        return {'ok': True}
 
     def save_trackers(self, trackers):
         return dict(trackers=self.library.save_trackers(trackers))

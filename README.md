@@ -302,6 +302,23 @@ The app validates notes' structure and source timestamps, but factual correctnes
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
 
+## Archive and restore the library
+
+**Settings → Backup → Archive library now** writes `meetings-<date>-<time>.tar.gz` into
+`~/Documents/Meeting Assistant Backups` (change it with `desktop_app.py --backups <folder>`).
+The archive holds every meeting folder (audio, transcripts, notes, markers, `versions/`), known speakers,
+topic trackers and settings, plus a manifest with the size and SHA-256 of each file. A recording in
+progress is left out.
+
+After writing, the app runs a **restore test**: it extracts the archive into a temporary folder,
+compares every file with the manifest, and opens the folder as a library with every meeting.
+Only an archive that passes is kept; the list shows the result.
+
+**Restore** checks the archive the same way, then adds the meetings that the library does not have.
+It never changes existing meetings or your settings; it adds missing known speakers and topic trackers.
+A meeting that was busy when it was archived comes back as interrupted.
+Keep a copy of the archives on another disk: an archive on the same Mac does not protect against disk loss.
+
 ## Durability and recovery
 
 Every meeting has a private directory under `meetings/`:

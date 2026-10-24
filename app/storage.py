@@ -38,7 +38,7 @@ class Library:
         self.trackers_path = self.root / 'trackers.json'
         # Finish deletions that a crash interrupted after the meeting left the library.
         # Uploads that a crash interrupted never became meetings.
-        for leftover in [*self.root.glob('.deleted-*'), *self.root.glob('.upload-*')]:
+        for leftover in [*self.root.glob('.deleted-*'), *self.root.glob('.upload-*'), *self.root.glob('.restore-*')]:
             if leftover.is_dir() and not leftover.is_symlink():
                 shutil.rmtree(leftover, ignore_errors=True)
 

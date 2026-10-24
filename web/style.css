@@ -100,3 +100,5 @@
 .marker-row.important{border-left-color:#b9862b}.marker-row.decision{border-left-color:var(--green)}.marker-row.check{border-left-color:#2f5f8a}
 .marker-time{font-variant-numeric:tabular-nums;color:var(--green);font-weight:600;padding:0;background:transparent;font-size:12px}.marker-kind{font-weight:600}.marker-note{color:var(--muted);flex:1;overflow-wrap:anywhere}.marker-row .quiet{margin-left:auto;padding:2px 6px}
 .detail-markers{margin:0 0 16px}.detail-markers h3{font-size:13px;margin:0 0 8px}
+.backup-list{margin:14px 0}.backup-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}.backup-row strong{display:block;font-size:13px}
+.backup-meta{font-size:12px;color:var(--muted)}.backup-meta.ok{color:var(--green)}.backup-meta.bad{color:var(--red)}.backup-actions{display:flex;gap:6px;flex:none}.backup-actions button{font-size:12px;padding:7px 12px}#backup-folder{font-size:11px;overflow-wrap:anywhere}

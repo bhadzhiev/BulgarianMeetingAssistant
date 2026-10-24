@@ -444,8 +444,29 @@ async function saveTrackers() {
  const result=await api('/api/trackers',{trackers:trackersData});trackersData=result.trackers;state.trackers=result.trackers;renderTrackers();toast('Topic trackers saved · reanalyze meetings to refresh them');
 }
 function settingsFields() { $('local-model-field').hidden=false;$('cloud-model-field').hidden=$('provider').value!=='openai';$('notes-model-field').hidden=$('summarizer').value!=='openai'&&$('transcript-correction').value!=='openai';$('title-model-field').hidden=$('title-provider').value!=='openai';$('settings-privacy').textContent=privacy({transcription:$('provider').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,calendar_enabled:$('calendar-enabled').checked});$('title-privacy').textContent=$('title-provider').value==='openai'?'Transcript excerpts are sent to OpenAI for title generation.':'Uses the shared Local AI endpoint and model above.'; }
+function fileSize(bytes) { return bytes>=1e9?(bytes/1e9).toFixed(1)+' GB':bytes>=1e6?Math.round(bytes/1e6)+' MB':Math.max(1,Math.round(bytes/1e3))+' KB'; }
+function renderBackups(data) {
+ $('backup-folder').textContent=data.folder; const list=$('backup-list'); list.replaceChildren();
+ if(!data.archives.length) list.append(el('p','empty-content','No archives yet.'));
+ for(const archive of data.archives) {
+  const row=el('div','backup-row'), main=el('div'), actions=el('div','backup-actions');
+  main.append(el('strong','',archive.created?new Date(archive.created).toLocaleString():archive.name),
+   el('span','backup-meta '+(archive.verified?'ok':'bad'),fileSize(archive.bytes)+' · '+(archive.verified?'✓ Restore test passed · '+archive.meetings+(archive.meetings===1?' meeting':' meetings'):'✗ '+(archive.error||'Restore test failed'))));
+  const reveal=el('button','quiet','Show in Finder'); reveal.type='button'; reveal.onclick=()=>perform(()=>api('/api/backups/reveal',{name:archive.name}));
+  const restore=el('button','secondary','Restore'); restore.type='button'; restore.disabled=!archive.verified;
+  restore.onclick=()=>perform(async()=>{if(!confirm('Restore meetings from this archive?\n\nMeetings that this library does not have are added. Existing meetings and your settings do not change.'))return;
+   restore.disabled=true;$('backup-status').textContent='Restoring and checking…';
+   try{const result=await api('/api/backups/restore',{name:archive.name});renderBackups(result);$('backup-status').textContent=result.restored.length+' meetings restored · '+result.skipped.length+' already in the library';state=await api('/api/state');renderState();}
+   finally{restore.disabled=false;}});
+  actions.append(reveal,restore); row.append(main,actions); list.append(row);
+ }
+}
+async function loadBackups() { renderBackups(await api('/api/backups')); }
+$('backup-now').onclick=()=>perform(async()=>{const button=$('backup-now');button.disabled=true;$('backup-status').textContent='Archiving and running the restore test… Large libraries take a few minutes.';
+ try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+result.created.meetings+' meetings'+(result.skipped_active?' · the recording in progress was left out':'');}
+ catch(e){$('backup-status').textContent='';throw e;}finally{button.disabled=false;}});
 function showSettingsTab(name) {
- settingsTab=name;
+ settingsTab=name; if(name==='backup') perform(loadBackups);
  for(const tab of document.querySelectorAll('.settings-tabs button')) { const yes=tab.dataset.tab===name; tab.classList.toggle('selected',yes); tab.setAttribute('aria-selected',String(yes)); }
  for(const panel of document.querySelectorAll('.settings-panel')) panel.hidden=panel.dataset.tab!==name;
  document.querySelector('.settings-body').scrollTop=0;

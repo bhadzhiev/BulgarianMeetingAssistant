@@ -92,7 +92,16 @@ class Handler(BaseHTTPRequestHandler):
     def get(self):
         url = urlsplit(self.path)
         token = parse_qs(url.query).get('token', [''])[0]
-        if url.path == '/' and token and self.headers.get('Host') == f'127.0.0.1:{self.server.server_port}' and secrets.compare_digest(token, self.server.token):
+        valid_token = (token and self.headers.get('Host') == f'127.0.0.1:{self.server.server_port}'
+                       and secrets.compare_digest(token, self.server.token))
+        if url.path == '/' and valid_token:
+            # A native window (Tauri) opens this URL from its own origin, and WebKit then drops a
+            # SameSite=Strict cookie. A refresh from this page makes the next step same-origin.
+            target = '/session?token=' + quote(token)
+            return self.respond(200, f'<!doctype html><meta http-equiv="refresh" content="0;url={target}">'
+                                     f'<title>Meeting Assistant</title><a href="{target}">Open Meeting Assistant</a>',
+                                'text/html; charset=utf-8')
+        if url.path == '/session' and valid_token:
             self.send_response(303)
             self.headers_common()
             self.send_header('Set-Cookie', f'meeting_session={self.server.token}; HttpOnly; SameSite=Strict; Path=/')

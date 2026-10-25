@@ -52,7 +52,18 @@ async function api(path,body) {
 }
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
 function hasEdits() { return dirtyTranscript || dirtyNotes; }
-function leaveEdits() { return !hasEdits() || window.confirm('Leave without saving your corrections?'); }
+// The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
+function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
+ return new Promise(resolve=>{
+  const dialog=$('ask-dialog'), input=$('ask-input');
+  $('ask-message').textContent=message; $('ask-ok').textContent=ok; $('ask-cancel').textContent=cancel; $('ask-ok').className=danger?'danger':'primary';
+  input.hidden=value===null; input.value=value??''; dialog.returnValue='';
+  dialog.onclose=()=>{ const yes=dialog.returnValue==='ok'; resolve(value===null?yes:yes?input.value:null); };
+  dialog.showModal(); if(value===null) $('ask-ok').focus(); else { input.focus(); input.select(); }
+ });
+}
+$('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
+async function leaveEdits() { return !hasEdits() || await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'}); }
 function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare','find']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); }
 function renderLibrary() {
  const query=$('search').value.toLocaleLowerCase();
@@ -66,7 +77,7 @@ function renderLibrary() {
  for(const m of rows) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',(m.title.includes(date(m.created))?'':date(m.created)+' · ')+(statusNames[m.status]||m.status))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
 }
 async function openMeeting(id,force=false) {
- if(!force&&!leaveEdits()) return;
+ if(!force&&!(await leaveEdits())) return;
  if(state.active?.id===id) { selected=id; show('recording'); renderState(); return; }
  selected=id; history.replaceState(null,'','/?meeting='+id); dirtyTranscript=dirtyNotes=false; if(detail?.id!==id){notesEditing=false;questionFilter='open';questionLimit=10;} detail=await api('/api/meetings/'+id); lastFingerprint=JSON.stringify(detail); renderDetail(); show('detail'); renderLibrary();
 }
@@ -321,7 +332,7 @@ function openReview() {
   body.append(section);
  }
  $('review-apply').onclick=()=>perform(async()=>{await reviewNotes('apply',[...choices].filter(([,box])=>box.checked).map(([id])=>id));toast('Notes updated · the previous version is kept in versions/');});
- $('review-discard').onclick=()=>perform(async()=>{if(!confirm('Discard the new AI notes? Your saved notes stay as they are.'))return;await reviewNotes('discard',[]);toast('New AI notes discarded');});
+ $('review-discard').onclick=()=>perform(async()=>{if(!(await ask('Discard the new AI notes? Your saved notes stay as they are.',{ok:'Discard',danger:true})))return;await reviewNotes('discard',[]);toast('New AI notes discarded');});
  $('review-dialog').showModal();
 }
 $('review-close').onclick=()=>$('review-dialog').close();
@@ -473,7 +484,7 @@ function renderBackups(data) {
    el('span','backup-meta '+(archive.verified?'ok':'bad'),fileSize(archive.bytes)+' · '+(archive.verified?'✓ Restore test passed · '+archive.meetings+(archive.meetings===1?' meeting':' meetings'):'✗ '+(archive.error||'Restore test failed'))));
   const reveal=el('button','quiet','Show in Finder'); reveal.type='button'; reveal.onclick=()=>perform(()=>api('/api/backups/reveal',{name:archive.name}));
   const restore=el('button','secondary','Restore'); restore.type='button'; restore.disabled=!archive.verified;
-  restore.onclick=()=>perform(async()=>{if(!confirm('Restore meetings from this archive?\n\nMeetings that this library does not have are added. Existing meetings and your settings do not change.'))return;
+  restore.onclick=()=>perform(async()=>{if(!(await ask('Restore meetings from this archive?\n\nMeetings that this library does not have are added. Existing meetings and your settings do not change.',{ok:'Restore'})))return;
    restore.disabled=true;$('backup-status').textContent='Restoring and checking…';
    try{const result=await api('/api/backups/restore',{name:archive.name});renderBackups(result);$('backup-status').textContent=result.restored.length+' meetings restored · '+result.skipped.length+' already in the library';state=await api('/api/state');renderState();}
    finally{restore.disabled=false;}});
@@ -591,7 +602,7 @@ function itemActions(item,row) {
   select.setAttribute('aria-label','Merge into');select.append(option('Same as…',''),...others.map(other=>option(other.text.slice(0,100),other.id)));
   go.onclick=()=>{if(!select.value)return;perform(async()=>{await api('/api/items/'+item.id+'/merge',{into:select.value});await refreshAfterItemChange();toast('Merged · both histories are kept');});};
   cancel.onclick=()=>{bar.remove();actions.hidden=false;};bar.append(select,go,cancel);main.append(bar);actions.hidden=true;};
- remove.onclick=()=>{if(confirm('Delete this '+item.kind+' everywhere?\n\n'+item.text+'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.')))perform(async()=>{await api('/api/items/'+item.id+'/delete',{text:item.text});await refreshAfterItemChange();toast('Deleted');});};
+ remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this '+item.kind+' everywhere?\n\n'+item.text+'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.'),{ok:'Delete',danger:true})))return;await api('/api/items/'+item.id+'/delete',{text:item.text});await refreshAfterItemChange();toast('Deleted');});
  actions.append(edit,merge,remove); return actions;
 }
 function globalTaskRow(item,today) {
@@ -686,8 +697,8 @@ function renderProjectSettings() {
  const row=(kind,entry)=>{const line=el('div','scope-entry '+kind),rename=el('button','quiet','Rename'),remove=el('button','quiet danger-text','Delete');rename.type=remove.type='button';
   line.append(el(kind==='projects'?'strong':'span','',entry.name),rename,remove);
   const change=async body=>{state.projects=(await api('/api/projects/change',Object.assign({kind,id:entry.id},body))).projects;lastProjects='';syncProjects();renderProjectSettings();};
-  rename.onclick=()=>perform(async()=>{const name=prompt('New name',entry.name);if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
-  remove.onclick=()=>perform(async()=>{if(confirm('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.'))await change({action:'delete'});});
+  rename.onclick=()=>perform(async()=>{const name=await ask('New name',{value:entry.name,ok:'Rename'});if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
+  remove.onclick=()=>perform(async()=>{if(await ask('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.',{ok:'Delete',danger:true}))await change({action:'delete'});});
   return line;};
  for(const project of projectList()) { const box=el('div','project-entry'); box.append(row('projects',project),...seriesOf(project.id).map(series=>row('series',series))); list.append(box); }
 }
@@ -697,7 +708,7 @@ function sourceChip(source) {
  return chip;
 }
 async function openPrepare(projectId,seriesId) {
- if(!leaveEdits()) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('prepare');
+ if(!(await leaveEdits())) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('prepare');
  prepareScope={project:projectId||prepareScope.project||projectList()[0]?.id||'',series:projectId?seriesId||'':prepareScope.series};
  renderLibrary(); await loadPrepare();
 }
@@ -747,8 +758,8 @@ function resultRow(result) {
  row.append(head,highlighted(result.snippet));
  const sources=el('div','item-meetings'); sources.append(sourceChip(result)); row.append(sources); return row;
 }
-function openFind(query) {
- if(!leaveEdits()) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('find'); renderLibrary();
+async function openFind(query) {
+ if(!(await leaveEdits())) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('find'); renderLibrary();
  fillProjects($('find-project'),$('find-project').value,'All projects');
  $('find-kinds').replaceChildren(...FIND_KINDS.map(([key,label])=>{const button=el('button',key===findKind?'selected':'',label);button.type='button';button.onclick=()=>{findKind=key;openFind($('find-query').value);};return button;}));
  if(query!==undefined) $('find-query').value=query;
@@ -837,12 +848,12 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden){events?.c
 // The microphone list is scanned only while the new-meeting form is visible.
 setInterval(()=>{ if(view!=='setup'||document.hidden||!state) return;
  api('/api/devices').then(result=>{if(JSON.stringify(result.devices)!==JSON.stringify(state.devices)||result.device_error!==state.device_error){state.devices=result.devices;state.device_error=result.device_error;renderState();}}).catch(()=>{}); },3000);
-$('open-tasks').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
-$('open-analytics').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
+$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
+$('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
 $('task-owner').onchange=renderTasks;
-$('new-meeting').onclick=()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;renderLibrary();};
+$('new-meeting').onclick=async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;renderLibrary();};
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent});toast('Microphone test started · 10 seconds');});
@@ -874,15 +885,15 @@ $('import-button').onclick=()=>perform(async()=>{const file=$('import-file').fil
 $('import-text').oninput=()=>{$('import-paste-button').disabled=!$('import-text').value.trim();};
 $('import-paste-button').onclick=()=>perform(async()=>{$('import-paste-button').disabled=true;try{await importTranscript($('import-text').value,'');}finally{$('import-paste-button').disabled=!$('import-text').value.trim();}});
 $('pause').onclick=()=>perform(()=>api('/api/pause',{paused:state.active.status!=='paused'}));$('stop').onclick=()=>perform(()=>api('/api/stop',{}));
-for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!leaveEdits())return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
-$('edit-title').onclick=()=>perform(async()=>{const title=window.prompt('Meeting name',detail.title);if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
+for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
+$('edit-title').onclick=()=>perform(async()=>{const title=await ask('Meeting name',{value:detail.title,ok:'Rename'});if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
 $('save-transcript').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript});dirtyTranscript=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Transcript corrections saved');});
 $('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());notesEditing=false;try{await saveMinutes();}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');});
 for(const name of ['notes','outcomes']) {
  $('edit-'+name).onclick=()=>{notesEditing=true;renderNotes(false);};
- $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!confirm('Discard your changes to the notes?'))return;notesEditing=false;await openMeeting(selected,true);});
+ $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!(await ask('Discard your changes to the notes?',{ok:'Discard',danger:true})))return;notesEditing=false;await openMeeting(selected,true);});
 }
-$('reanalyze').onclick=()=>perform(async()=>{if(!leaveEdits())return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});
+$('reanalyze').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});
 for(const tab of ['transcript','outcomes','notes','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
 $('settings-open').onclick=()=>openSettings();$('settings-inline').onclick=()=>openSettings('recording');
 for(const tab of document.querySelectorAll('.settings-tabs button')) tab.onclick=()=>showSettingsTab(tab.dataset.tab);
@@ -916,8 +927,8 @@ $('add-tracker').onclick=()=>{trackersData.push({id:'',name:'',phrases:[],semant
 $('save-trackers').onclick=()=>perform(saveTrackers);
 $('delete-meeting').onclick=()=>perform(async()=>{
  const id=selected, title=detail.title;
- if(!window.confirm('Delete "'+title+'"?\n\nThe recording, transcript, notes and all other files of this meeting are removed from this Mac. You cannot undo this.')) return;
- const calendar_event=!!detail.calendar_sync?.event_id&&window.confirm('Also delete the Google Calendar event of this meeting?\n\nOK deletes the event. Cancel keeps the event.');
+ if(!(await ask('Delete "'+title+'"?\n\nThe recording, transcript, notes and all other files of this meeting are removed from this Mac. You cannot undo this.',{ok:'Delete meeting',danger:true}))) return;
+ const calendar_event=!!detail.calendar_sync?.event_id&&await ask('Also delete the Google Calendar event of this meeting?',{ok:'Delete event',cancel:'Keep event',danger:true});
  await api('/api/meetings/'+id+'/delete',{calendar_event});
  $('audio').pause();$('audio').removeAttribute('src');
  dirtyTranscript=dirtyNotes=false;detail=null;selected=null;history.replaceState(null,'','/');

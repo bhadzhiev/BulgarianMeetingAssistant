@@ -23,6 +23,7 @@ from . import backup
 from . import items
 from . import briefing
 from . import search
+from .events import Watcher
 from .projects import Projects
 from . import whisper
 from .live import LiveSession, read_json
@@ -85,6 +86,7 @@ class MeetingService:
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
+        self.watcher = Watcher(self)
 
     def validate_settings(self, settings):
         if set(settings) - set(DEFAULTS):
@@ -149,8 +151,7 @@ class MeetingService:
     def snapshot(self):
         with self.lock:
             try:
-                # Rescan only when no audio stream is open; a rescan would break a running stream.
-                inputs = devices(rescan=not self.active and not self.recorder and self.preview is None)
+                inputs = devices()
                 device_error = None
             except Exception as exc:
                 inputs, device_error = [], str(exc)
@@ -216,6 +217,24 @@ class MeetingService:
             self.preview.close()
             self.preview = None
         self.preview_level = 0
+
+    def input_devices(self):
+        """The microphone list, scanned again. The new-meeting form asks for it while it is open."""
+        with self.lock:
+            try:
+                # Rescan only when no audio stream is open; a rescan would break a running stream.
+                return dict(devices=devices(rescan=not self.active and not self.recorder and self.preview is None), device_error=None)
+            except Exception as exc:
+                return dict(devices=[], device_error=str(exc))
+
+    def live_values(self):
+        """What changes many times a second: the timer and the levels."""
+        with self.lock:
+            if self.active and self.recorder:
+                return dict(meeting_id=self.active, duration=round(self.recorder.clock.elapsed(), 1), level=round(self.recorder.level, 3))
+            if self.preview is not None:
+                return dict(preview_level=round(self.preview_level, 3))
+            return None
 
     @staticmethod
     def _input_device(device, name=None):

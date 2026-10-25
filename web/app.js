@@ -532,7 +532,7 @@ const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'
 const statusFilter={task:'open',decision:'current'};
 const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in'};
+const EVENT_LABELS={created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');

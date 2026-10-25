@@ -26,6 +26,8 @@ TASK_STATES = ('open', 'done')
 DECISION_STATES = ('proposed', 'accepted', 'superseded')
 AI_UPDATES = ('owner', 'deadline', 'due_date')
 MATCH = 0.55
+# A decision's state shows in its mentions as the review state: accepted means checked.
+REVIEW_OF = {'accepted': 'verified', 'proposed': 'ai'}
 # Common words say nothing about which task a sentence means.
 STOP_WORDS = {'чрез', 'дали', 'като', 'това', 'тази', 'този', 'тези', 'които', 'който', 'която', 'което', 'към', 'във', 'със',
               'при', 'след', 'преди', 'между', 'трябва', 'може', 'или', 'още', 'вече', 'все', 'нещо', 'неща', 'the', 'and', 'for', 'with'}
@@ -69,6 +71,7 @@ class Registry:
         except (OSError, ValueError):
             data = dict(version=1, items={})
         self.data = data
+        self.status_changed = set()  # items whose status a sync changed; other meetings must follow
 
     @property
     def items(self) -> dict:
@@ -92,14 +95,18 @@ class Registry:
         self._event(item, 'created', meeting_id)
         return item_id
 
-    def candidates(self, kind: str, mention: dict) -> list[dict]:
+    def candidates(self, kind: str, mention: dict, meeting_id=None) -> list[dict]:
         text = mention.get(MENTION[kind]['text']) or ''
         found = []
         for item in self.items.values():
-            if item['kind'] != kind or item['status'] in {'done', 'superseded'}:
+            # An item from the earlier notes of this meeting waits for the new notes, whatever its status.
+            detached = self._detached(item, meeting_id)
+            if item['kind'] != kind or item['status'] in {'done', 'superseded'} and not detached:
                 continue
             score = similarity(text, item['text'] or '')
             if kind == 'task' and mention.get('owner') and mention.get('owner') == item.get('owner'):
+                score += 0.05
+            if detached:
                 score += 0.05
             if score >= MATCH:
                 found.append(dict(item_id=item['id'], score=round(min(score, 1.0), 2)))
@@ -116,11 +123,42 @@ class Registry:
                     applied[name] = [old, new]
                     if name not in item['manual']:
                         item['manual'].append(name)
-        if kind == 'decision' and changes.get('review', [None, None])[1] == 'verified' and item['status'] == 'proposed':
-            applied['status'] = [item['status'], 'accepted']
-            item['status'] = 'accepted'
+        if kind == 'decision':
+            review = changes.get('review', [None, None])[1]
+            # Checking a decision accepts it; a changed AI statement needs a new check, so it is proposed again.
+            new_status = 'accepted' if review == 'verified' and item['status'] == 'proposed' else \
+                'proposed' if review == 'ai' and item['status'] == 'accepted' else None
+            if new_status:
+                applied['status'] = [item['status'], new_status]
+                item['status'] = new_status
+        if 'status' in applied:
+            self.status_changed.add(item['id'])
         if applied:
             self._event(item, 'changed', meeting_id, applied, by='user')
+
+    @staticmethod
+    def _detached(item, meeting_id) -> bool:
+        return bool(meeting_id) and any(link['meeting_id'] == meeting_id and link.get('detached') for link in item['links'])
+
+    @staticmethod
+    def _reconcile(kind: str, item: dict, mention: dict) -> bool:
+        """The item holds the state; every meeting's notes show the same state."""
+        if kind == 'task' and mention.get('status') != item['status']:
+            mention['status'] = item['status']
+            return True
+        if kind == 'decision' and item['status'] in REVIEW_OF and mention.get('review') != REVIEW_OF[item['status']]:
+            mention['review'] = REVIEW_OF[item['status']]
+            return True
+        return False
+
+    def detach(self, meeting_id: str) -> None:
+        """The notes of a meeting are gone because it was transcribed again. Its items keep their identity
+        and history, and wait for the new notes of the meeting."""
+        for item in self.items.values():
+            for link in item['links']:
+                if link['meeting_id'] == meeting_id and not link.get('detached'):
+                    link['detached'] = True
+                    self._event(item, 'detached', meeting_id)
 
     def link(self, item_id: str, kind: str, mention: dict, meeting_id: str, ai_updates: bool, duplicate=False) -> None:
         """Connect a mention to an existing item. With ai_updates, new details from the AI fill the item,
@@ -133,7 +171,12 @@ class Registry:
                 if value is not None and value != item.get(name) and name not in item['manual']:
                     applied[name] = [item.get(name), value]
                     item[name] = value
-        if not any(link['meeting_id'] == meeting_id for link in item['links']):
+        self._reconcile(kind, item, mention)
+        existing = next((link for link in item['links'] if link['meeting_id'] == meeting_id), None)
+        if existing:
+            existing.pop('detached', None)
+            existing.update(evidence_timestamp=mention.get('evidence_timestamp'), seen=seen(kind, mention))
+        else:
             item['links'].append(dict(meeting_id=meeting_id, evidence_timestamp=mention.get('evidence_timestamp'),
                                       seen=seen(kind, mention), duplicate=duplicate))
         self._event(item, 'duplicate' if duplicate else 'discussed', meeting_id, applied)
@@ -169,11 +212,24 @@ class Registry:
                         edits = {name: [link['seen'].get(name), value] for name, value in now_seen.items() if link['seen'].get(name) != value}
                         if edits:
                             self._apply_edit(item, kind, edits, meeting_id)
-                        link.update(seen=now_seen, evidence_timestamp=mention.get('evidence_timestamp'))
+                        link.pop('detached', None)
+                    changed |= self._reconcile(kind, item, mention)
+                    link = link or item['links'][-1]
+                    link.update(seen=seen(kind, mention), evidence_timestamp=mention.get('evidence_timestamp'))
                     continue
                 if mention.get('link'):
                     continue
-                found = self.candidates(kind, mention)
+                text = mention.get(MENTION[kind]['text']) or ''
+                same = next((item for item in self.items.values() if item['kind'] == kind and self._detached(item, meeting_id)
+                             and ' '.join(text.casefold().split()) == ' '.join((item['text'] or '').casefold().split())), None)
+                if same:
+                    # The new notes of the meeting say the same thing again: it is the same item.
+                    self.link(same['id'], kind, mention, meeting_id, ai_updates=False)
+                    mention['item_id'] = same['id']
+                    present.add(same['id'])
+                    changed = True
+                    continue
+                found = self.candidates(kind, mention, meeting_id)
                 if found:
                     mention['link'] = dict(candidates=found)
                 else:
@@ -181,9 +237,11 @@ class Registry:
                     present.add(mention['item_id'])
                 changed = True
         for item in list(self.items.values()):
-            if item['id'] in present or not any(link['meeting_id'] == meeting_id for link in item['links']):
+            # Detached links wait for a person to link the new notes; only a removed mention ends a link.
+            if item['id'] in present or not any(link['meeting_id'] == meeting_id and (minutes is None or not link.get('detached'))
+                                                for link in item['links']):
                 continue
-            item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id]
+            item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id or minutes is not None and link.get('detached')]
             if item['links']:
                 self._event(item, 'removed', meeting_id, by='user')
             else:

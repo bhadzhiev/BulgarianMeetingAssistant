@@ -985,20 +985,38 @@ class MeetingService:
             cached = self.task_cache[meeting_id] = (stamp, minutes)
         return cached[1]
 
-    def _sync_items(self, meeting_id):
-        """Run after every change to a meeting's notes."""
+    def _sync_items(self, meeting_id, follow=True):
+        """Run after every change to a meeting's notes. A status change reaches every linked meeting."""
         from meeting_assistant import save_minutes, validate_minutes
         with self.items.lock:
             directory = self.library.directory(meeting_id)
-            minutes = None
+            self.items.status_changed = set()
             if (directory / 'minutes.json').exists():
                 minutes = json.loads((directory / 'minutes.json').read_text())
                 validate_minutes(minutes)
-            if self.items.sync(meeting_id, minutes) and minutes is not None:
-                save_minutes(directory, minutes)
+                if self.items.sync(meeting_id, minutes):
+                    save_minutes(directory, minutes)
+            else:
+                # Transcribing again removes the notes; the items wait for the new notes, they are not deleted.
+                self.items.detach(meeting_id)
+            changed = set(self.items.status_changed)
             self.items.save()
             path = directory / 'minutes.json'
             self.items_synced[meeting_id] = path.stat().st_mtime_ns if path.exists() else None
+            if follow:
+                self._sync_linked(changed, except_meeting=meeting_id)
+
+    def _sync_linked(self, item_ids, except_meeting=None):
+        """Write the current state of these items into the notes of every meeting that mentions them.
+        A busy meeting follows at its next sync, when its job ends."""
+        meetings = {link['meeting_id'] for item_id in item_ids if item_id in self.items.items
+                    for link in self.items.items[item_id]['links']} - {except_meeting}
+        for meeting_id in sorted(meetings):
+            if meeting_id != self.active and meeting_id not in self.busy:
+                try:
+                    self._sync_items(meeting_id, follow=False)
+                except (OSError, ValueError) as exc:
+                    print(f'Task registry: {meeting_id}: {exc}', flush=True)
 
     def _refresh_items(self):
         """Notes that changed outside the app (or before this version) reach the registry on the next read."""
@@ -1071,7 +1089,6 @@ class MeetingService:
             yield link, directory, minutes
 
     def update_item(self, item_id, text, changes):
-        from meeting_assistant import save_minutes
         if not isinstance(changes, dict) or not changes:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
@@ -1102,16 +1119,10 @@ class MeetingService:
                     if value is not None and not isinstance(value, str):
                         raise ValueError(f'{name} must be text')
                     clean[name] = (value or '').strip()[:160] or None
-            if item['kind'] == 'task' and 'status' in clean:
-                # The notes of each meeting show the same status, so exports stay correct.
-                for link, directory, minutes in list(self._linked_minutes(item)):
-                    for mention in minutes['tasks']:
-                        if mention.get('item_id') == item_id:
-                            mention['status'] = clean['status']
-                    save_minutes(directory, minutes)
-                    link['seen']['status'] = clean['status']
             self.items.update(item_id, clean)
             self.items.save()
+            # The notes of each meeting show the same state, so exports and searches agree.
+            self._sync_linked({item_id})
             return dict(self.items.items[item_id])
 
     def delete_item(self, item_id, text):
@@ -1140,14 +1151,10 @@ class MeetingService:
                 for mention in minutes[field]:
                     if mention.get('item_id') == item_id:
                         mention['item_id'] = into_id
-                        if item['kind'] == 'task':
-                            mention['status'] = into['status']
                 save_minutes(directory, minutes)
             self.items.merge(item_id, into_id)
-            for link in into['links']:
-                if item['kind'] == 'task':
-                    link['seen']['status'] = into['status']
             self.items.save()
+            self._sync_linked({into_id})
             return dict(into)
 
     def resolve_link(self, meeting_id, field, index, text, action, item_id=None):

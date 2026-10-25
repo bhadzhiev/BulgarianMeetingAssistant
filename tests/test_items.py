@@ -99,7 +99,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(old['status'], 'proposed')
         minutes = self.minutes(first)
         minutes['decisions'][0]['review'] = 'verified'
-        self.service.edit(first, {'minutes': minutes})
+        self.service.edit(first, {'minutes': minutes, 'minutes_revision': self.service.detail(first)['minutes_revision']})
         self.assertEqual(self.service.item_list()['items'][0]['status'], 'accepted')
         second = self.meeting('2026-10-23T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е оптика, не LTE рутер')]))
         detail = self.resolve(second, 'decisions', 'replaces', old['id'])

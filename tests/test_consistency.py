@@ -112,7 +112,7 @@ class ConsistencyTests(unittest.TestCase):
         self.assertEqual([self.minutes(m)['decisions'][0]['review'] for m in (first, second)], ['verified', 'verified'])
         minutes = self.minutes(second)
         minutes['decisions'][0]['review'] = 'ai'
-        self.service.edit(second, {'minutes': minutes})
+        self.service.edit(second, {'minutes': minutes, 'minutes_revision': self.service.detail(second)['minutes_revision']})
         self.assertEqual(next(i for i in self.service.item_list()['items'] if i['id'] == decision_id)['status'], 'proposed')
         self.assertEqual(self.minutes(first)['decisions'][0]['review'], 'ai')
 

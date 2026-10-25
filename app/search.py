@@ -23,6 +23,7 @@ STOP_WORDS = {'какво', 'кога', 'кой', 'коя', 'кое', 'кои', 
 STAMP = re.compile(r'(\d{2,}):(\d{2}):(\d{2})')
 DECISION_QUESTION = re.compile(r'реш|договор|прие|decid|agree', re.IGNORECASE)
 MARK_START, MARK_END = '\x02', '\x03'
+INDEX_VERSION = 2  # 2: a registry row for each linked meeting
 
 
 def seconds(stamp):
@@ -82,14 +83,11 @@ def meeting_docs(meeting: dict, directory: Path) -> list[dict]:
 
 
 def registry_docs(items: list[dict], dates: dict) -> list[dict]:
-    docs = []
-    for item in items:
-        links = sorted((link for link in item['links'] if link['meeting_id'] in dates), key=lambda link: dates[link['meeting_id']])
-        if not links:
-            continue
-        docs.append(dict(kind=item['kind'], text=item['text'], speaker=item.get('owner'), meeting_id=links[-1]['meeting_id'],
-                         start=seconds(links[-1].get('evidence_timestamp')), status=item['status'], item_id=item['id']))
-    return docs
+    """One row for each meeting that mentions the item, so that a project filter finds it in any of them.
+    The search shows each item once."""
+    return [dict(kind=item['kind'], text=item['text'], speaker=item.get('owner'), meeting_id=link['meeting_id'],
+                 start=seconds(link.get('evidence_timestamp')), status=item['status'], item_id=item['id'])
+            for item in items for link in item['links'] if link['meeting_id'] in dates]
 
 
 class SearchIndex:
@@ -123,7 +121,7 @@ class SearchIndex:
                 if known.get(meeting['id']) != stamp:
                     self._replace(meeting['id'], stamp, meeting_docs(meeting, path), meeting['id'])
             dates = {m['id']: m.get('started_at') or m['created'] for m in meetings}
-            stamp = json.dumps([registry_stamp, sorted(dates.items())])
+            stamp = json.dumps([INDEX_VERSION, registry_stamp, sorted(dates.items())])
             if known.get('registry') != stamp:
                 self._replace('registry', stamp, registry_docs(registry, dates))
             for scope in set(known) - current - {'registry'}:
@@ -145,11 +143,16 @@ class SearchIndex:
         if meeting_ids is not None:
             where.append(f'meeting_id IN ({",".join("?" * len(meeting_ids))})')
             values += sorted(meeting_ids)
+        # Each item once: SQLite takes the other columns from the row with the best rank in its group.
         with self.lock:
             rows = self.db.execute(f'''
-                SELECT kind, meeting_id, start, ref, field, status, item_id, speaker, text,
-                       snippet(docs, 0, '{MARK_START}', '{MARK_END}', '…', 28), bm25(docs, 1.0, 0.4)
-                FROM docs WHERE {' AND '.join(where)} ORDER BY bm25(docs, 1.0, 0.4) LIMIT ?''', values + [limit]).fetchall()
+                WITH hits AS MATERIALIZED (
+                    SELECT kind, meeting_id, start, ref, field, status, item_id, speaker, text,
+                           snippet(docs, 0, '{MARK_START}', '{MARK_END}', '…', 28) AS snip, bm25(docs, 1.0, 0.4) AS rank,
+                           coalesce(item_id, 'row' || docs.rowid) AS item_key
+                    FROM docs WHERE {' AND '.join(where)})
+                SELECT kind, meeting_id, start, ref, field, status, item_id, speaker, text, snip, min(rank) AS best
+                FROM hits GROUP BY item_key ORDER BY best LIMIT ?''', values + [limit]).fetchall()
         return [dict(kind=kind, meeting_id=meeting_id, start=start, ref=ref, field=field, status=status, item_id=item_id,
                      speaker=speaker or None, text=text, snippet=snippet, score=round(-rank, 3))
                 for kind, meeting_id, start, ref, field, status, item_id, speaker, text, snippet, rank in rows]

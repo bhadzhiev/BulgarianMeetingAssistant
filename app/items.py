@@ -193,7 +193,7 @@ class Registry:
 
     def sync(self, meeting_id: str, minutes: dict | None) -> bool:
         """Bring the registry in line with one meeting's notes. Returns True when the notes changed."""
-        changed, present = False, set()
+        changed, present, primary = False, set(), set()
         for kind, field in FIELD.items():
             for mention in (minutes or {}).get(field, []):
                 item_id = mention.get('item_id')
@@ -201,8 +201,13 @@ class Registry:
                 if item_id and not item:
                     mention.pop('item_id')
                     changed = True
+                if item and item_id in primary:
+                    # A second mention of the same item in this meeting shows its state; only the first one is edited.
+                    changed |= self._reconcile(kind, item, mention)
+                    continue
                 if item:
                     present.add(item_id)
+                    primary.add(item_id)
                     link = next((link for link in item['links'] if link['meeting_id'] == meeting_id), None)
                     now_seen = seen(kind, mention)
                     if link is None:

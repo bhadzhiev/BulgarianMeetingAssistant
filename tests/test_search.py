@@ -69,7 +69,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(self.service.find('LTE', project=project), [])
         minutes = json.loads((self.service.library.directory(second) / 'minutes.json').read_text())
         minutes['open_questions'] = [dict(text='Колко струва тонерът?', evidence_timestamp='00:00:00')]
-        self.service.edit(second, {'minutes': minutes})
+        self.service.edit(second, {'minutes': minutes, 'minutes_revision': self.service.detail(second)['minutes_revision']})
         self.assertEqual([r['kind'] for r in self.service.find('тонерът')], ['question'])
         self.service.delete(second)
         self.assertEqual(self.service.find('тонерът'), [])

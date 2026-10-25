@@ -115,6 +115,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
         if url.path == '/api/backups':
             return self.respond(200, self.server.service.backups())
+        if url.path == '/api/find':
+            query = parse_qs(url.query)
+            value = lambda name: query.get(name, [''])[0]
+            return self.respond(200, self.server.service.find(value('q'), value('kind'), value('project')))
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
             return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
@@ -246,6 +250,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.restore_backup(body['name'])
             elif path == '/api/backups/reveal':
                 result = service.reveal_backup(body['name'])
+            elif path == '/api/ask':
+                result = service.ask(body['question'], body.get('project', ''), body.get('ai', True) is not False)
             elif path == '/api/projects/change':
                 result = service.change_scope(body['kind'], body['id'], body['action'], body.get('name'))
             elif path == '/api/marker':

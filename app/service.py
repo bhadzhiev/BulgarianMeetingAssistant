@@ -22,6 +22,7 @@ from . import diarization
 from . import backup
 from . import items
 from . import briefing
+from . import search
 from .projects import Projects
 from . import whisper
 from .live import LiveSession, read_json
@@ -35,6 +36,11 @@ DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model
                 whisper_vad=True, whisper_vocabulary='',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
+
+
+def time_stamp(value):
+    value = max(0, int(value))
+    return f'{value // 3600:02}:{value // 60 % 60:02}:{value % 60:02}'
 
 
 MARKER_KINDS = ('important', 'decision', 'check')
@@ -74,6 +80,7 @@ class MeetingService:
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
         self.projects = Projects(root / 'projects.json')
+        self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
@@ -725,6 +732,48 @@ class MeetingService:
                                     dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''))
             return dict(result, project_id=project['id'], series_id=series_id)
 
+    SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
+                     'transcript': {'transcript', 'draft'}}
+
+    def find(self, query, kind='', project='', limit=40):
+        """Passages that match, best first, each with its meeting and moment."""
+        if not isinstance(query, str) or len(query) > 500 or kind not in {'', *self.SEARCH_GROUPS} or not isinstance(project, str):
+            raise ValueError('Invalid search')
+        meetings = self.library.list()
+        with self.items.lock:
+            registry = [dict(item) for item in self.items.items.values()]
+        registry_path = self.library.root / 'items.json'
+        self.search_index.refresh(meetings, self.library.directory, registry,
+                                  str(registry_path.stat().st_mtime_ns) if registry_path.exists() else '')
+        by_id = {m['id']: m for m in meetings}
+        scope = {m['id'] for m in meetings if m.get('project_id') == project} if project else None
+        results = self.search_index.search(query, self.SEARCH_GROUPS.get(kind), scope, limit)
+        for result in results:
+            meeting = by_id.get(result['meeting_id'], {})
+            result.update(meeting_title=meeting.get('title', 'Deleted meeting'), meeting_date=meeting.get('started_at') or meeting.get('created', ''),
+                          timestamp=None if result['start'] is None else time_stamp(result['start']))
+        return results
+
+    def ask(self, question, project='', ai=True):
+        """An answer only from the passages that search finds, with a separate check for confirmed decisions."""
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError('Type a question')
+        results = self.find(question, project=project)
+        order = {'decision': 0, 'task': 1, 'transcript': 3, 'draft': 3}
+        sources = sorted(results, key=lambda r: order.get(r['kind'], 2))[:12]
+        decisions = [r for r in results if r['kind'] == 'decision']
+        result = dict(question=question.strip(), sources=sources, decision_question=bool(search.DECISION_QUESTION.search(question)),
+                      confirmed=[r for r in decisions if r['status'] == 'accepted'][:5],
+                      proposed=[r for r in decisions if r['status'] != 'accepted'][:5], ai=None, ai_error=None,
+                      provider=self.settings.get('summarizer', 'none'))
+        if sources and ai:
+            try:
+                result['ai'] = search.ai_answer(dict(self.settings), self.api_key, question.strip(), sources)
+            except Exception as exc:
+                message = str(exc)
+                result['ai_error'] = message.replace(self.api_key, '[redacted]') if self.api_key else message
+        return result
+
     def backups(self):
         return dict(folder=str(self.backup_dir), archives=backup.archives(self.backup_dir) if self.backup_dir.exists() else [])
 
@@ -1283,3 +1332,4 @@ class MeetingService:
             live.request_stop()
         for live in self.live_sessions.values():
             live.close()
+        self.search_index.close()

@@ -53,7 +53,7 @@ async function api(path,body) {
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
 function hasEdits() { return dirtyTranscript || dirtyNotes; }
 function leaveEdits() { return !hasEdits() || window.confirm('Leave without saving your corrections?'); }
-function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); }
+function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare','find']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); }
 function renderLibrary() {
  const query=$('search').value.toLocaleLowerCase();
  const meetings=state.meetings.filter(m=>!query||m.title.toLocaleLowerCase().includes(query));
@@ -730,6 +730,74 @@ function renderPrepare(data) {
  $('prepare-proposed').replaceChildren();
  if(data.proposed.length){const box=el('details','item-history');box.append(el('summary','','Not confirmed yet · '+data.proposed.length));for(const decision of data.proposed){const row=el('div','prepare-question');row.append(el('p','',decision.text),sources([decision.source]));box.append(row);}$('prepare-proposed').append(box);}
 }
+// Search returns passages; "Answer from sources" writes an answer only from them.
+const FIND_KINDS=[['','All'],['decisions','Decisions'],['tasks','Tasks'],['notes','Notes'],['transcript','Transcript']];
+const RESULT_GROUPS=[['Decisions',['decision']],['Tasks',['task']],['Notes',['summary','next_step','question','observation','marker']],['Transcript',['transcript','draft']],['Meetings',['meeting']]];
+const RESULT_LABELS={decision:'Decision',task:'Task',summary:'Summary',next_step:'Next step',question:'Question',observation:'Private observation',marker:'Marker',transcript:'Transcript',draft:'Live draft',meeting:'Meeting'};
+const STATUS_LABELS={accepted:'Accepted',proposed:'Proposed',superseded:'Replaced',open:'Open',done:'Done',pending:'Waits for review'};
+let findKind='';
+function highlighted(snippet) { const box=el('p','result-text'); snippet.split(/(\x02[^\x03]*\x03)/).forEach(part=>box.append(part.startsWith('\x02')?el('mark','',part.slice(1,-1)):document.createTextNode(part))); return box; }
+function resultRow(result) {
+ const row=el('div','result-row '+result.kind), head=el('div','result-head');
+ head.append(el('span','change-kind',RESULT_LABELS[result.kind]||result.kind));
+ if(result.status) head.append(el('span','decision-status '+result.status,STATUS_LABELS[result.status]||result.status));
+ if(result.speaker) head.append(el('span','hint',result.speaker));
+ row.append(head,highlighted(result.snippet));
+ const sources=el('div','item-meetings'); sources.append(sourceChip(result)); row.append(sources); return row;
+}
+function openFind(query) {
+ if(!leaveEdits()) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('find'); renderLibrary();
+ fillProjects($('find-project'),$('find-project').value,'All projects');
+ $('find-kinds').replaceChildren(...FIND_KINDS.map(([key,label])=>{const button=el('button',key===findKind?'selected':'',label);button.type='button';button.onclick=()=>{findKind=key;openFind($('find-query').value);};return button;}));
+ if(query!==undefined) $('find-query').value=query;
+ $('find-query').focus(); if($('find-query').value.trim()) perform(runFind);
+}
+async function runFind() {
+ const query=$('find-query').value.trim(); $('find-results').replaceChildren(); if(!query) return;
+ const results=await api('/api/find?'+new URLSearchParams({q:query,kind:findKind,project:$('find-project').value}));
+ if(!results.length){$('find-results').append(el('p','empty-content card','Nothing matches. Try fewer or other words.'));return;}
+ for(const [title,kinds] of RESULT_GROUPS) { const rows=results.filter(r=>kinds.includes(r.kind)); if(!rows.length) continue;
+  const card=el('div','card result-group'); card.append(el('h2','',title+' · '+rows.length),...rows.map(resultRow)); $('find-results').append(card); }
+}
+let askController=null;
+// The check for confirmed decisions and the passages come at once; the written answer can take minutes.
+async function runAsk() {
+ const question=$('find-query').value.trim(); if(!question) return;
+ askController?.abort(); const controller=askController=new AbortController();
+ const box=$('find-answer'), project=$('find-project').value; box.hidden=false; box.replaceChildren(el('p','hint','Searching…'));
+ const result=await api('/api/ask',{question,project,ai:false});
+ box.replaceChildren(el('p','eyebrow','ANSWER FROM YOUR MEETINGS'),el('h2','',result.question));
+ const list=entries=>{const wrap=el('div');for(const entry of entries){const row=el('div','prepare-question'),chips=el('div','item-meetings');chips.append(sourceChip(entry));row.append(el('p','',entry.text),chips);wrap.append(row);}return wrap;};
+ if(result.decision_question) {
+  const status=el('div','decision-check '+(result.confirmed.length?'ok':'none'));
+  status.append(el('strong','',result.confirmed.length?'✓ Confirmed decision found':'No confirmed decision found'));
+  box.append(status); if(result.confirmed.length) box.append(list(result.confirmed));
+  if(result.proposed.length) box.append(el('p','hint','Proposed or waiting for review, not confirmed:'),list(result.proposed));
+ }
+ const written=el('div','ai-answer'); box.append(written); await runFind();
+ if(!result.sources.length){written.append(el('p','hint','Nothing in your meetings matches this question.'));return;}
+ if(result.provider==='none'){written.append(el('p','hint','Choose a notes provider in Settings → Notes & AI to get a written answer. The passages below are the sources.'));return;}
+ const waiting=el('p','hint'), stop=el('button','quiet','Stop waiting'), started=Date.now(); stop.type='button'; stop.onclick=()=>controller.abort();
+ const tick=()=>{waiting.textContent='Writing the answer from '+result.sources.length+' passages · '+Math.round((Date.now()-started)/1000)+' s. A local model can take several minutes.';};
+ tick(); const timer=setInterval(tick,1000); written.append(waiting,stop);
+ try {
+  const response=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,project}),signal:controller.signal});
+  const full=await response.json(); if(!response.ok) throw new Error(full.error||'Request failed');
+  written.replaceChildren();
+  if(full.ai?.found){written.append(el('p','',full.ai.answer));const cites=el('div','item-meetings');cites.append(el('span','hint','Sources'));
+   for(const number of full.ai.cited){const chip=sourceChip(full.sources[number-1]);chip.textContent='['+number+'] '+chip.textContent;cites.append(chip);}written.append(cites);}
+  else if(full.ai) written.append(el('p','hint','The found passages do not answer this question.'));
+  else if(full.ai_error) written.append(el('p','notice warning','No written answer: '+full.ai_error));
+ } catch(e) {
+  if(e.name!=='AbortError') throw e;
+  written.replaceChildren(el('p','hint','You stopped waiting. The model server may still finish this request before it starts the next one.'));
+ } finally { clearInterval(timer); }
+}
+$('find-form').onsubmit=event=>{event.preventDefault();$('find-answer').hidden=true;perform(runFind);};
+$('find-ask').onclick=()=>perform(runAsk);
+$('find-project').onchange=()=>perform(runFind);
+$('open-find').onclick=()=>openFind();
+$('search').onkeydown=event=>{if(event.key==='Enter'&&$('search').value.trim()){event.preventDefault();openFind($('search').value.trim());}};
 async function poll() { try { state=await api('/api/state');renderState();if(!initialRouteHandled){initialRouteHandled=true;if(requestedMeeting&&/^[a-f0-9]{32}$/.test(requestedMeeting))await perform(()=>openMeeting(requestedMeeting,true));}if(view==='tasks') await loadTasks(); if(view==='detail'&&selected&&!hasEdits()) { const fresh=await api('/api/meetings/'+selected);const fingerprint=JSON.stringify(fresh);if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;renderDetail();} } }catch(e){$('connection').textContent='Disconnected · reopen the launcher';}finally{setTimeout(poll,1000);} }
 $('open-tasks').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
 $('open-analytics').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});

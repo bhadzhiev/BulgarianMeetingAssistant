@@ -8,6 +8,7 @@
   <button id="open-tasks" class="secondary wide tasks-link">✓ Tasks &amp; decisions <span id="tasks-badge" class="count-badge" hidden></span></button>
   <button id="open-analytics" class="secondary wide tasks-link">▥ Conversation analytics</button>
   <button id="open-prepare" class="secondary wide tasks-link">☰ Prepare me</button>
+  <button id="open-find" class="secondary wide tasks-link">⌕ Search &amp; ask</button>
   <label class="search-label" for="search">YOUR MEETINGS</label>
   <select id="project-filter" class="project-filter" aria-label="Show the meetings of a project"></select>
   <input id="search" type="search" placeholder="Search title or transcript…" aria-label="Search meetings">
@@ -61,6 +62,14 @@
       <div id="task-list" class="task-list"></div>
     </div>
     <p class="below-card">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p>
+  </section>
+  <section id="find" hidden>
+    <div class="heading"><p class="eyebrow">FIND THE ANSWER</p><h1>Search your meetings</h1><p class="subheading">Words also find their other forms. Put "exact words" in quotes.</p></div>
+    <form id="find-form" class="card find-card"><div class="input-row"><input id="find-query" type="search" maxlength="500" placeholder="What did we decide about the backup internet?" aria-label="Search or ask"><button class="primary" type="submit">Search</button><button id="find-ask" class="secondary" type="button">Answer from sources</button></div>
+      <div class="task-filters"><div id="find-kinds" class="segmented" role="group" aria-label="Show only"></div><select id="find-project" aria-label="Project"></select></div></form>
+    <div id="find-answer" class="card answer-card" hidden aria-live="polite"></div>
+    <div id="find-results" class="find-results"></div>
+    <p class="below-card">The answer uses only the passages that the search finds, and it cites them. With "Local · Configured API" notes, the question and passages stay on this Mac.</p>
   </section>
   <section id="prepare" hidden>
     <div class="heading"><p class="eyebrow">BEFORE THE NEXT MEETING</p><h1>Prepare me</h1><p id="prepare-summary" class="subheading">Choose a project or a series.</p></div>

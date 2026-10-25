@@ -115,6 +115,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
         if url.path == '/api/backups':
             return self.respond(200, self.server.service.backups())
+        if url.path == '/api/items':
+            return self.respond(200, self.server.service.item_list())
         if url.path == '/api/tasks':
             return self.respond(200, self.server.service.tasks())
         if url.path == '/api/trackers':
@@ -245,13 +247,19 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.add_marker(body['kind'], body.get('note', ''))
             elif path == '/api/stop':
                 result = service.stop()
+            elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}(/delete|/merge)?', path):
+                item_id, _, action = path[len('/api/items/'):].partition('/')
+                if action == 'delete': result = service.delete_item(item_id, body['text'])
+                elif action == 'merge': result = service.merge_items(item_id, body['into'])
+                else: result = service.update_item(item_id, body['text'], body['changes'])
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
                 elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
+                elif match[2] == 'link': result = service.resolve_link(match[1], body['field'], body['index'], body['text'], body['action'], body.get('item_id'))
                 elif match[2] == 'marker-delete': result = service.delete_marker(match[1], body['id'])
                 elif match[2] == 'notes-review': result = service.review_notes(match[1], body['action'], body.get('accept', []), body.get('revision', ''))
                 elif match[2] == 'title': result = service.generate_meeting_title(match[1])

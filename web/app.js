@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 let state, selected = null, detail = null, view = 'setup', dirtyTranscript = false, dirtyNotes = false;
 let lastFingerprint = '', lastLibrary = '', lastDevices = '', pending = false;
 let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = 'recording';
-let taskFilter = 'open', tasksData = [], lastTasks = '';
+let lastTasks = '';
 let analyticsData = null, trackersData = [];
 let notesEditing = false, questionFilter = 'open', questionLimit = 10;
 let requestedMeeting=new URLSearchParams(location.search).get('meeting'), initialRouteHandled=false, lastGoogleConnected=false;
@@ -72,8 +72,10 @@ async function openMeeting(id,force=false) {
 function renderState() {
  syncSpeakers();
  const summary=state.task_summary||{open:0,overdue:0};
- $('tasks-badge').hidden=!summary.open; $('tasks-badge').classList.toggle('late',summary.overdue>0);
- $('tasks-badge').textContent=summary.overdue?summary.overdue+' late':summary.open;
+ // Mentions that wait for a choice come first; then late tasks, then open tasks.
+ $('tasks-badge').hidden=!summary.open&&!summary.review; $('tasks-badge').classList.toggle('late',!summary.review&&summary.overdue>0); $('tasks-badge').classList.toggle('review',!!summary.review);
+ $('tasks-badge').textContent=summary.review?summary.review:summary.overdue?summary.overdue+' late':summary.open;
+ $('tasks-badge').title=summary.review?summary.review+' mentions wait for your review':summary.overdue?summary.overdue+' tasks are late':summary.open+' open tasks';
  $('connection').textContent=state.active?'● Recording workspace':'● Connected to this Mac';
  const signature=JSON.stringify(state.devices);
  if(signature!==lastDevices) { lastDevices=signature; const old=$('microphone').value; $('microphone').replaceChildren(); for(const d of state.devices) { const option=el('option','',d.name); option.value=d.id; $('microphone').append(option); } if(!state.devices.length){const option=el('option','','No microphone available');option.value='';$('microphone').append(option);} else { const preferred=state.devices.find(d=>String(d.id)===old)||state.devices.find(d=>/iphone/i.test(d.name)); if(preferred) $('microphone').value=preferred.id; } }
@@ -268,7 +270,12 @@ function noteSection(minutes,field,title,busy,hint) {
  const items=minutes[field]=minutes[field]||[];
  if(!notesEditing) {
   if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
-  else { const list=el('ul','note-list'); for(const item of items) { const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'); meta.append(reviewBadge(item,busy),sourceBlock(item.evidence_timestamp)); li.append(linkedText(el('p','note-text'),item.text),meta); list.append(li); } section.append(list); }
+  else { const list=el('ul','note-list'); items.forEach((item,index)=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&detail.items?.[item.item_id];
+   if(decision) meta.append(el('span','decision-status '+decision.status,DECISION_LABELS[decision.status]));
+   meta.append(reviewBadge(item,busy),sourceBlock(item.evidence_timestamp)); li.append(linkedText(el('p','note-text'),item.text),meta);
+   if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
+   if(field==='decisions'&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
+   list.append(li); }); section.append(list); }
   return section;
  }
  const list=el('div','item-editors'), stamps=[...new Set(detail.transcript.map(s=>time(s.start)))];
@@ -321,15 +328,22 @@ function proposalBanner(busy) {
  banner.append(button); return banner;
 }
 function taskRow(task,index,busy) {
- const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(task,today);
- const row=el('div','tracked-task '+kind), done=el('input'); done.type='checkbox'; done.checked=task.status==='done'; done.disabled=busy; done.setAttribute('aria-label','Mark task as done');
- done.onchange=()=>perform(async()=>{await api('/api/meetings/'+detail.id+'/task',{index,task:task.task,changes:{status:done.checked?'done':'open'}});await openMeeting(detail.id,true);});
+ if(task.link&&!task.item_id) return linkCard({meeting_id:detail.id,kind:'task',field:'tasks',index,mention:task,text:task.task,candidates:task.link.candidates},detail.item_meetings,detail.items||{});
+ // The persistent task holds the current state; the mention holds what this meeting said.
+ const item=detail.items?.[task.item_id], current=item||{text:task.task,owner:task.owner,deadline:task.deadline,due_date:task.due_date,status:task.status};
+ const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(current,today);
+ const row=el('div','tracked-task '+kind), done=el('input'); done.type='checkbox'; done.checked=current.status==='done'; done.disabled=busy; done.setAttribute('aria-label','Mark task as done');
+ done.onchange=()=>perform(async()=>{const status=done.checked?'done':'open';if(item)await changeItem(item,{status});else{await api('/api/meetings/'+detail.id+'/task',{index,task:task.task,changes:{status}});await openMeeting(detail.id,true);}});
  const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
- who.append(speakerBadge(el('span'),task.owner||''),el('span','',task.owner||'No owner'));
- meta.append(reviewBadge(task,busy),who,el('span','due-label '+kind,task.due_date&&task.status!=='done'?label+' · '+task.due_date:label));
- if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
+ who.append(speakerBadge(el('span'),current.owner||''),el('span','',current.owner||'No owner'));
+ meta.append(reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+current.due_date:label));
+ if(current.deadline) meta.append(el('span','hint','Said: '+current.deadline));
  if(task.evidence_timestamp) meta.append(sourceBlock(task.evidence_timestamp));
- main.append(el('p','tracked-text',task.task||'Untitled task'),meta); row.append(done,main); return row;
+ main.append(el('p','tracked-text',current.text||'Untitled task'));
+ if(item&&item.text!==task.task) main.append(el('p','hint said-here','Said here: '+task.task));
+ main.append(meta);
+ if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
+ row.append(done,main); return row;
 }
 function renderNotes(busy=false) {
  $('notes').replaceChildren();$('outcomes').replaceChildren();
@@ -508,59 +522,124 @@ function dueInfo(task,today) {
  if(days===0) return ['today','Due today'];
  return [days<=7?'soon':'later','Due in '+days+(days===1?' day':' days')];
 }
-async function loadTasks() { const fresh=await api('/api/tasks'); const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; tasksData=fresh; renderTasks(); }
+let itemKind='task', itemsData={items:[],pending:[],meetings:{}};
+const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'],['all','All']],decision:[['current','In force'],['proposed','Proposed'],['accepted','Accepted'],['superseded','Replaced'],['all','All']]};
+const statusFilter={task:'open',decision:'current'};
+const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
+const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
+const EVENT_LABELS={created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in'};
+function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
+function meetingChips(item,meetings,except) {
+ const box=el('div','item-meetings');
+ for(const link of item.links.filter(link=>link.meeting_id!==except).sort((a,b)=>(meetings[a.meeting_id]?.date||'').localeCompare(meetings[b.meeting_id]?.date||''))) {
+  const chip=el('button','meeting-chip','↗ '+meetingLabel(link.meeting_id,meetings)+(link.evidence_timestamp?' · '+link.evidence_timestamp:'')); chip.type='button'; chip.title='Open this meeting';
+  chip.onclick=()=>perform(async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}); box.append(chip);
+ }
+ return box;
+}
+function historyBlock(item,meetings) {
+ const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
+ for(const event of [...item.history].reverse()) {
+  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>(FIELD_LABELS[name]||name)+': '+(from??'—')+' → '+(to??'—')).join(' · ');
+  // A meeting event belongs to the meeting's date, not to the moment the app processed it.
+  const when=event.meeting_id&&meetings?.[event.meeting_id]?meetings[event.meeting_id].date:event.at;
+  const entry=el('li'); entry.append(el('span','history-date',new Date(when).toLocaleDateString(undefined,{day:'numeric',month:'short'})),
+   el('span','',(EVENT_LABELS[event.event]||event.event)+(event.meeting_id?' '+meetingLabel(event.meeting_id,meetings):'')+(changes?' · '+changes:'')+(event.by==='user'?' · by you':' · AI')));
+  list.append(entry);
+ }
+ box.append(list); return box;
+}
+async function refreshAfterItemChange() { lastTasks=''; if(view==='tasks') await loadTasks(); else if(view==='detail'&&selected) await openMeeting(selected,true); state=await api('/api/state'); renderState(); }
+async function changeItem(item,changes) { await api('/api/items/'+item.id,{text:item.text,changes}); await refreshAfterItemChange(); }
+// A new mention that looks like an existing item: the person decides, nothing is linked before that.
+function linkCard(entry,meetings,itemsById) {
+ const kind=entry.kind, mention=entry.mention, card=el('div','link-card'), head=el('div','link-head');
+ head.append(el('span','change-kind','Is this an existing '+kind+'?'),el('span','hint','From '+meetingLabel(entry.meeting_id,meetings)));
+ const details=kind==='task'?[mention.owner,mention.deadline&&'said: '+mention.deadline,mention.due_date].filter(Boolean):[];
+ card.append(head,el('p','link-text',entry.text+(details.length?' · '+details.join(' · '):'')));
+ const resolve=(action,itemId)=>perform(async()=>{await api('/api/meetings/'+entry.meeting_id+'/link',{field:entry.field,index:entry.index,text:entry.text,action,item_id:itemId});await refreshAfterItemChange();toast(action==='new'?'Added as a new '+kind:'Linked · the history shows this meeting');});
+ for(const candidate of entry.candidates) {
+  const item=itemsById[candidate.item_id]; if(!item) continue;
+  const row=el('div','link-candidate'), main=el('div'), actions=el('div','link-actions');
+  const facts=kind==='task'?[item.status==='done'?'Done':'Open',item.owner,item.due_date&&'due '+item.due_date]:[DECISION_LABELS[item.status]];
+  main.append(el('p','',item.text),el('span','hint',facts.filter(Boolean).join(' · ')+' · '+Math.round(candidate.score*100)+'% similar'),meetingChips(item,meetings));
+  const choices=kind==='task'?[['same','Same task · update','primary','Links this meeting. Owner, deadline and due date from the AI fill fields that you did not edit. The status stays.'],['duplicate','Duplicate','secondary','Links this meeting and changes nothing.']]
+   :[['same','Same decision','primary','Links this meeting to the decision.'],['replaces','Replaces it','secondary','Saves this as a new decision; the older one becomes replaced.']];
+  for(const [action,label,style,title] of choices){const button=el('button',style,label);button.type='button';button.title=title;button.onclick=()=>resolve(action,item.id);actions.append(button);}
+  row.append(main,actions); card.append(row);
+ }
+ const fresh=el('button','quiet','No, it is a new '+kind); fresh.type='button'; fresh.onclick=()=>resolve('new'); card.append(fresh);
+ return card;
+}
+function itemActions(item,row) {
+ const actions=el('div','tracked-actions'), edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
+ const main=row.querySelector('.tracked-main'), text=main.querySelector('.tracked-text');
+ edit.onclick=()=>{const box=el('textarea','tracked-edit'),bar=el('div','tracked-edit-bar'),save=el('button','primary','Save'),cancel=el('button','secondary','Cancel');let owner=null;
+  box.value=item.text;box.setAttribute('aria-label','Text');bar.append(save,cancel);
+  if(item.kind==='task'){owner=el('input','tracked-owner-input');owner.value=item.owner||'';owner.placeholder='Owner';owner.setAttribute('list','known-speakers');owner.setAttribute('aria-label','Owner');bar.prepend(owner);}
+  const close=()=>{box.replaceWith(text);bar.remove();actions.hidden=false;};
+  save.onclick=()=>{const value=box.value.trim();if(!value){box.focus();return;}const changes={};if(value!==item.text)changes.text=value;if(owner&&(owner.value.trim()||null)!==item.owner)changes.owner=owner.value.trim()||null;if(!Object.keys(changes).length){close();return;}save.disabled=true;perform(()=>changeItem(item,changes)).finally(()=>save.disabled=false);};
+  cancel.onclick=close;box.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))save.click();};
+  text.replaceWith(box);box.after(bar);actions.hidden=true;box.focus();};
+ merge.onclick=()=>{const others=itemsData.items.filter(other=>other.kind===item.kind&&other.id!==item.id);if(!others.length){toast('There is no other '+item.kind+' to merge with');return;}
+  const bar=el('div','tracked-edit-bar'),select=el('select'),go=el('button','primary','Merge'),cancel=el('button','secondary','Cancel');
+  select.setAttribute('aria-label','Merge into');select.append(option('Same as…',''),...others.map(other=>option(other.text.slice(0,100),other.id)));
+  go.onclick=()=>{if(!select.value)return;perform(async()=>{await api('/api/items/'+item.id+'/merge',{into:select.value});await refreshAfterItemChange();toast('Merged · both histories are kept');});};
+  cancel.onclick=()=>{bar.remove();actions.hidden=false;};bar.append(select,go,cancel);main.append(bar);actions.hidden=true;};
+ remove.onclick=()=>{if(confirm('Delete this '+item.kind+' everywhere?\n\n'+item.text+'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.')))perform(async()=>{await api('/api/items/'+item.id+'/delete',{text:item.text});await refreshAfterItemChange();toast('Deleted');});};
+ actions.append(edit,merge,remove); return actions;
+}
+function globalTaskRow(item,today) {
+ const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), done=el('input'), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+ done.type='checkbox';done.checked=item.status==='done';done.setAttribute('aria-label','Mark task as done');done.onchange=()=>perform(()=>changeItem(item,{status:done.checked?'done':'open'}));
+ who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
+ const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
+ meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline));
+ main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings));
+ row.append(done,main); row.append(itemActions(item,row)); return row;
+}
+function decisionRow(item,byId) {
+ const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
+ meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status]));
+ if(item.superseded_by&&byId[item.superseded_by]) meta.append(el('span','hint','Replaced by: '+byId[item.superseded_by].text));
+ for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
+ const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:['accepted','Restore']}[item.status];
+ const change=el('button','secondary small-action',next[1]);change.type='button';change.onclick=()=>perform(()=>changeItem(item,{status:next[0]}));meta.append(change);
+ main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings));
+ row.append(el('span'),main); row.append(itemActions(item,row)); return row;
+}
+async function loadTasks() { const fresh=await api('/api/items'); const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
 function renderTasks() {
- const today=state.task_summary?.today||new Date().toISOString().slice(0,10);
- const open=tasksData.filter(t=>t.status==='open'), late=open.filter(t=>t.due_date&&t.due_date<today);
- const week=open.filter(t=>t.due_date&&t.due_date>=today&&daysBetween(today,t.due_date)<=7);
- $('tasks-summary').textContent=open.length+' open · '+late.length+' overdue · '+week.length+' due in the next 7 days';
- const owner=$('task-owner').value, owners=[...new Set(tasksData.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+ const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
+ const tasks=itemsData.items.filter(item=>item.kind==='task'), decisions=itemsData.items.filter(item=>item.kind==='decision');
+ const open=tasks.filter(t=>t.status==='open'), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending;
+ $('tasks-summary').textContent=open.length+' open tasks · '+late.length+' overdue · '+decisions.filter(d=>d.status!=='superseded').length+' decisions in force'+(pending.length?' · '+pending.length+' to review':'');
+ for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.classList.toggle('selected',button.dataset.kind===itemKind); button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
+ const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
+ if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
+ const filter=statusFilter[itemKind];
+ $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=el('button',key===filter?'selected':'',label);button.type='button';button.onclick=()=>{statusFilter[itemKind]=key;renderTasks();};return button;}));
+ $('task-owner').hidden=itemKind!=='task';
+ const owner=$('task-owner').value, owners=[...new Set(tasks.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
  $('task-owner').value=[...$('task-owner').options].some(o=>o.value===owner)?owner:'';
- for(const button of document.querySelectorAll('[data-filter]')) button.classList.toggle('selected',button.dataset.filter===taskFilter);
- const rows=tasksData.filter(t=>taskFilter==='all'||(taskFilter==='done'?t.status==='done':t.status==='open'&&(taskFilter==='open'||t.due_date&&t.due_date<today)))
+ const latest=item=>item.links.map(link=>meetings[link.meeting_id]?.date||'').sort().at(-1)||'';
+ let rows;
+ if(itemKind==='task') rows=tasks.filter(t=>filter==='all'||(filter==='done'?t.status==='done':t.status==='open'&&(filter==='open'||t.due_date&&t.due_date<today)))
   .filter(t=>!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:t.owner===$('task-owner').value))
-  .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||b.meeting_date.localeCompare(a.meeting_date));
+  .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||latest(b).localeCompare(latest(a)));
+ else rows=decisions.filter(d=>filter==='all'||(filter==='current'?d.status!=='superseded':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
  $('task-list').replaceChildren();
- if(!rows.length) $('task-list').append(el('p','empty-content',tasksData.length?'No tasks match this filter.':'No tasks yet. Generate notes for a meeting to collect its tasks here.'));
- for(const task of rows) {
-  const [kind,label]=dueInfo(task,today);
-  const row=el('div','tracked-task '+kind);
-  const done=el('input');done.type='checkbox';done.checked=task.status==='done';done.setAttribute('aria-label','Mark task as done');
-  done.onchange=()=>perform(()=>updateTask(task,{status:done.checked?'done':'open'}));
-  const main=el('div','tracked-main'),text=el('p','tracked-text',task.task);main.append(text);
-  const edit=el('button','quiet','Edit'),remove=el('button','quiet danger-text','Delete'),actions=el('div','tracked-actions');actions.append(edit,remove);
-  edit.onclick=()=>{const box=el('textarea','tracked-edit');box.value=task.task;box.setAttribute('aria-label','Task text');const save=el('button','primary','Save'),cancel=el('button','secondary','Cancel'),bar=el('div','tracked-edit-bar');bar.append(save,cancel);
-   const close=()=>{box.replaceWith(text);bar.remove();actions.hidden=false;};
-   save.onclick=()=>{const value=box.value.trim();if(!value){box.focus();return;}if(value===task.task){close();return;}save.disabled=true;perform(()=>updateTask(task,{task:value})).finally(()=>save.disabled=false);};
-   cancel.onclick=close;box.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))save.click();};
-   text.replaceWith(box);box.after(bar);actions.hidden=true;box.focus();};
-  remove.onclick=()=>{if(confirm('Delete this task from "'+task.meeting_title+'"?\n\n'+task.task))perform(()=>deleteTask(task));};
-  const meta=el('div','tracked-meta');
-  const who=el('span','tracked-owner');who.append(speakerBadge(el('span'),task.owner||''),el('span','',task.owner||'No owner'));
-  const due=el('input');due.type='date';due.value=task.due_date||'';due.setAttribute('aria-label','Due date');
-  due.onchange=()=>perform(()=>updateTask(task,{due_date:due.value||null}));
-  meta.append(who,el('span','due-label '+kind,label),due);
-  if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
-  const source=el('button','quiet tracked-source','↗ '+withDate(task.meeting_title,task.meeting_date)+' · '+task.evidence_timestamp);source.title='Open the meeting';
-  source.onclick=()=>perform(async()=>{await openMeeting(task.meeting_id);switchTab('outcomes');});
-  meta.append(source);main.append(meta);row.append(done,main,actions);$('task-list').append(row);
- }
+ const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
+ if(!rows.length) $('task-list').append(el('p','empty-content',(itemKind==='task'?tasks:decisions).length?'Nothing matches this filter.':empty));
+ for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
-async function deleteTask(task) {
- await api('/api/meetings/'+task.meeting_id+'/delete-task',{index:task.index,task:task.task});
- lastTasks='';await loadTasks();state=await api('/api/state');renderState();toast('Task deleted');
-}
-async function updateTask(task,changes) {
- await api('/api/meetings/'+task.meeting_id+'/task',{index:task.index,task:task.task,changes});
- lastTasks='';await loadTasks();state=await api('/api/state');renderState();
-}
+for(const button of document.querySelectorAll('[data-kind]')) button.onclick=()=>{itemKind=button.dataset.kind;renderTasks();};
 async function poll() { try { state=await api('/api/state');renderState();if(!initialRouteHandled){initialRouteHandled=true;if(requestedMeeting&&/^[a-f0-9]{32}$/.test(requestedMeeting))await perform(()=>openMeeting(requestedMeeting,true));}if(view==='tasks') await loadTasks(); if(view==='detail'&&selected&&!hasEdits()) { const fresh=await api('/api/meetings/'+selected);const fingerprint=JSON.stringify(fresh);if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;renderDetail();} } }catch(e){$('connection').textContent='Disconnected · reopen the launcher';}finally{setTimeout(poll,1000);} }
 $('open-tasks').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
 $('open-analytics').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
-for(const button of document.querySelectorAll('[data-filter]')) button.onclick=()=>{taskFilter=button.dataset.filter;renderTasks();};
 $('task-owner').onchange=renderTasks;
 $('new-meeting').onclick=()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;renderLibrary();};
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};

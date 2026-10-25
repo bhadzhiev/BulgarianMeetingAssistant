@@ -102,3 +102,13 @@
 .detail-markers{margin:0 0 16px}.detail-markers h3{font-size:13px;margin:0 0 8px}
 .backup-list{margin:14px 0}.backup-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}.backup-row strong{display:block;font-size:13px}
 .backup-meta{font-size:12px;color:var(--muted)}.backup-meta.ok{color:var(--green)}.backup-meta.bad{color:var(--red)}.backup-actions{display:flex;gap:6px;flex:none}.backup-actions button{font-size:12px;padding:7px 12px}#backup-folder{font-size:11px;overflow-wrap:anywhere}
+.kind-switch{margin:0 0 16px}.kind-switch button{font-size:13px;padding:8px 16px}
+.badge-review,.count-badge.review{background:#f0b44a;color:#3d2a06}
+.link-review{margin-bottom:18px;border-color:#f0e0bd;background:#fffcf6}.link-review h2{font-size:16px;margin:0 0 4px}.link-review>.hint{margin-top:0}
+.link-card{border:1px solid #f0e0bd;background:#fffaf0;border-radius:10px;padding:12px 14px;margin:10px 0}.link-head{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.link-head .hint{margin:0;font-size:11px}
+.link-text{margin:4px 0 8px;font-weight:600;font-size:14px}.link-candidate{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 0;border-top:1px solid #f0e0bd}.link-candidate p{margin:0 0 3px;font-size:13px}
+.link-candidate .hint{margin:0;font-size:11px}.link-actions{display:flex;gap:6px;flex:none}.link-actions button{font-size:12px;padding:7px 12px;white-space:nowrap}.link-card>.quiet{padding:6px 0 0;font-size:12px}
+.item-meetings{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}.item-meetings>.hint{margin:0;font-size:11px}.meeting-chip{padding:3px 8px;font-size:11px;font-weight:500;background:#f2f5ef;color:var(--green);border-radius:6px}.meeting-chip:hover{background:#e3ecdf}
+.item-history{margin-top:6px;font-size:12px;color:var(--muted)}.item-history summary{cursor:pointer;font-size:11px}.item-history ol{list-style:none;padding:0;margin:6px 0 0}.item-history li{display:flex;gap:10px;padding:3px 0}.history-date{flex:none;width:52px;font-variant-numeric:tabular-nums}
+.decision-status{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;background:var(--light);color:var(--muted)}.decision-status.accepted{background:#eaf3e6;color:var(--green)}.decision-status.proposed{background:#fbf4e6;color:#8a5a12}.decision-status.superseded{background:#f1f1ef;color:#888;text-decoration:line-through}
+.tracked-task.decision.superseded .tracked-text{color:var(--muted);text-decoration:line-through}.small-action{font-size:11px;padding:4px 10px}.said-here{margin:-4px 0 6px}.tracked-owner-input{max-width:200px;font-size:12px;padding:7px 9px}

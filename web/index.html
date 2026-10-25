@@ -5,7 +5,7 @@
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="Meeting Assistant home"><span class="brand-icon">м</span><span>Meeting<br><strong>Assistant</strong></span></a>
   <button id="new-meeting" class="primary wide">＋ New meeting</button>
-  <button id="open-tasks" class="secondary wide tasks-link">✓ Tasks <span id="tasks-badge" class="count-badge" hidden></span></button>
+  <button id="open-tasks" class="secondary wide tasks-link">✓ Tasks &amp; decisions <span id="tasks-badge" class="count-badge" hidden></span></button>
   <button id="open-analytics" class="secondary wide tasks-link">▥ Conversation analytics</button>
   <label class="search-label" for="search">YOUR MEETINGS</label>
   <input id="search" type="search" placeholder="Search title or transcript…" aria-label="Search meetings">
@@ -50,12 +50,14 @@
     <p class="below-card">Keep the app running. Live captions appear during recording; final processing follows after you stop.</p>
   </section>
   <section id="tasks" hidden>
-    <div class="heading"><p class="eyebrow">FOLLOW-UP</p><h1>Tasks from all meetings</h1><p id="tasks-summary" class="subheading"></p></div>
+    <div class="heading"><p class="eyebrow">FOLLOW-UP</p><h1>Tasks and decisions</h1><p id="tasks-summary" class="subheading"></p></div>
+    <div class="segmented kind-switch" role="group" aria-label="Show tasks or decisions"><button type="button" data-kind="task" class="selected">Tasks</button><button type="button" data-kind="decision">Decisions</button></div>
+    <div id="link-review" class="card link-review" hidden></div>
     <div class="card">
-      <div class="task-filters"><div class="segmented" role="group" aria-label="Filter tasks by status"><button type="button" data-filter="open" class="selected">Open</button><button type="button" data-filter="overdue">Overdue</button><button type="button" data-filter="done">Done</button><button type="button" data-filter="all">All</button></div><select id="task-owner" aria-label="Filter tasks by owner"></select></div>
+      <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><select id="task-owner" aria-label="Filter tasks by owner"></select></div>
       <div id="task-list" class="task-list"></div>
     </div>
-    <p class="below-card">Tasks come from the notes of each meeting. Generate notes to add tasks. Changes here also change the meeting notes.</p>
+    <p class="below-card">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p>
   </section>
   <section id="analytics" hidden>
     <div class="heading"><p class="eyebrow">CONVERSATION INTELLIGENCE</p><h1>Analytics across meetings</h1><p id="analytics-summary" class="subheading">Talk time, topics and questions from saved analytics.</p></div>

@@ -54,28 +54,34 @@ class TaskTrackerTests(unittest.TestCase):
         return m['id']
     def test_tasks_from_all_meetings_and_overdue_summary(self):
         late=new_minutes();late['tasks'][0]['due_date']=(dt.date.today()-dt.timedelta(days=2)).isoformat()
-        first=self.meeting(late);second=self.meeting(OLD)
+        other=json.loads(json.dumps(OLD));other['tasks'][0].update(task='Резервирай зала',owner='Мария')
+        first=self.meeting(late);second=self.meeting(other)
         tasks=self.service.tasks()
-        self.assertEqual({t['meeting_id'] for t in tasks},{first,second})
+        self.assertEqual({t['links'][0]['meeting_id'] for t in tasks},{first,second})
         self.assertEqual(self.service.task_summary()['open'],2);self.assertEqual(self.service.task_summary()['overdue'],1)
         self.assertEqual(self.service.detail(second)['minutes']['tasks'][0]['status'],'open')
+        # The same task in a later meeting waits for review instead of becoming a second task.
+        self.meeting(OLD)
+        self.assertEqual((len(self.service.tasks()),self.service.task_summary()['review']),(2,1))
     def test_update_task_status_and_due_date(self):
         mid=self.meeting(OLD)
         self.service.update_task(mid,0,'Изпрати оферта',{'status':'done','due_date':'2026-11-02'})
         saved=json.loads((self.service.library.directory(mid)/'minutes.json').read_text())['tasks'][0]
         self.assertEqual((saved['status'],saved['due_date']),('done','2026-11-02'))
         self.assertEqual(self.service.task_summary()['open'],0)
+        self.assertEqual(self.service.tasks()[0]['due_date'],'2026-11-02')
     def test_edit_task_text(self):
         mid=self.meeting(OLD)
         result=self.service.update_task(mid,0,'Изпрати оферта',{'task':'  Изпрати нова оферта '})
-        self.assertEqual(result['task'],'Изпрати нова оферта');self.assertEqual(self.service.tasks()[0]['task'],'Изпрати нова оферта')
+        self.assertEqual(result['task'],'Изпрати нова оферта');self.assertEqual(self.service.tasks()[0]['text'],'Изпрати нова оферта')
+        self.assertIn('text',self.service.tasks()[0]['manual'])
         self.assertIn('Изпрати нова оферта',(self.service.library.directory(mid)/'minutes.md').read_text())
     def test_delete_task(self):
         minutes=new_minutes();minutes['tasks'].append(dict(minutes['tasks'][0],task='Втора задача'))
         mid=self.meeting(minutes)
         with self.assertRaisesRegex(ValueError,'changed'):self.service.delete_task(mid,0,'Втора задача')
         self.service.delete_task(mid,0,'Изпрати оферта')
-        self.assertEqual([t['task'] for t in self.service.tasks()],['Втора задача'])
+        self.assertEqual([t['text'] for t in self.service.tasks()],['Втора задача'])
         self.assertNotIn('Изпрати оферта',(self.service.library.directory(mid)/'minutes.md').read_text())
     def test_update_task_rejects_stale_index_and_other_fields(self):
         mid=self.meeting(OLD)
@@ -93,7 +99,7 @@ class TaskHTTPTests(unittest.TestCase):
     def test_task_routes(self):
         m=self.service.library.create('Route','in_person',{});directory=self.service.library.directory(m['id'])
         atomic_json(directory/'transcript.json',[dict(start=0,end=5,text='x',speaker=None)]);atomic_json(directory/'minutes.json',OLD)
-        status,body,_=self.request('/api/tasks');self.assertEqual(status,200);self.assertEqual(json.loads(body)[0]['task'],'Изпрати оферта')
+        status,body,_=self.request('/api/tasks');self.assertEqual(status,200);self.assertEqual(json.loads(body)[0]['text'],'Изпрати оферта')
         status,body,_=self.request('/api/meetings/'+m['id']+'/task',{'index':0,'task':'Изпрати оферта','changes':{'status':'done'}})
         self.assertEqual(status,200);self.assertEqual(json.loads(body)['status'],'done')
         self.assertIn('task_summary',json.loads(self.request('/api/state')[1]))

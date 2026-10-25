@@ -20,6 +20,7 @@ from . import correction
 from . import analytics as conversation
 from . import diarization
 from . import backup
+from . import items
 from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client
@@ -69,6 +70,8 @@ class MeetingService:
         for meeting in self.library.list():
             if meeting.get('title_status') == 'generating':
                 self.library.update(meeting['id'],title_status='pending')
+        self.items = items.Registry(root / 'items.json')
+        self._sync_all_items()
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -181,6 +184,14 @@ class MeetingService:
                                                        changes=notes.changes(meeting['minutes'], proposed))
                 except (OSError, ValueError):
                     pass
+            ids = set()
+            for field in items.FIELD.values():
+                for mention in (meeting['minutes'] or {}).get(field, []) if notes_valid else []:
+                    ids.add(mention.get('item_id'))
+                    ids.update(c.get('item_id') for c in (mention.get('link') or {}).get('candidates', []))
+            with self.items.lock:
+                meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
+            meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
             meeting['live'] = read_json(directory / 'live.json', None)
             meeting['markers'] = read_json(directory / 'markers.json', [])
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
@@ -504,6 +515,10 @@ class MeetingService:
                 message = message.replace(key, '[redacted]')
             self.library.update(meeting_id, status='error', error=message, progress='Processing failed — recording preserved')
         finally:
+            try:
+                self._sync_items(meeting_id)
+            except Exception as exc:
+                print(f'Task registry: {exc}', flush=True)
             with self.lock:
                 self.busy.discard(meeting_id)
             self._queue_metadata(meeting_id,enrich=True)
@@ -586,9 +601,11 @@ class MeetingService:
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
                 analytics_settings = dict(self.settings, models_dir=str(self.project / 'models'))
             if 'minutes' in body:
+                self._refresh_items()
                 source = json.loads((directory / 'transcript.json').read_text())
                 validate_minutes(body['minutes'], [TranscriptSegment(**s) for s in source])
                 save_minutes(directory, body['minutes'])
+                self._sync_items(meeting_id)
             if analytics_settings is None:
                 return self.detail(meeting_id)
             self.busy.add(meeting_id)
@@ -628,6 +645,7 @@ class MeetingService:
             if not proposal.exists() or revision != self._notes_revision(directory):
                 raise ValueError('These notes changed. Reload the meeting and review the new notes again.')
             if action == 'apply':
+                self._refresh_items()
                 current = json.loads((directory / 'minutes.json').read_text()) if (directory / 'minutes.json').exists() else None
                 if current is not None:
                     validate_minutes(current)
@@ -638,6 +656,9 @@ class MeetingService:
                 validate_minutes(result, [TranscriptSegment(**s) for s in source])
                 processing.archive(directory, ['minutes.json', 'minutes.md'])
                 save_minutes(directory, result)
+                proposal.unlink()
+                self._sync_items(meeting_id)
+                return self.detail(meeting_id)
             proposal.unlink()
             return self.detail(meeting_id)
 
@@ -796,37 +817,225 @@ class MeetingService:
                     available_speakers=available_speakers, available_topics=available_topics,
                     filters=dict(**{'from': from_date, 'to': to_date}, speaker=speaker, topic=topic))
 
-    def _meeting_tasks(self, meeting):
+    def _minutes(self, meeting_id):
+        """Validated notes of a meeting, cached until the file changes."""
         from meeting_assistant import validate_minutes
-        path = self.library.directory(meeting['id']) / 'minutes.json'
+        path = self.library.directory(meeting_id) / 'minutes.json'
         try:
             stamp = path.stat().st_mtime_ns
         except FileNotFoundError:
-            self.task_cache.pop(meeting['id'], None)
-            return []
-        cached = self.task_cache.get(meeting['id'])
+            self.task_cache.pop(meeting_id, None)
+            return None
+        cached = self.task_cache.get(meeting_id)
         if not cached or cached[0] != stamp:
             try:
                 minutes = json.loads(path.read_text())
                 validate_minutes(minutes)
-                cached = (stamp, minutes['tasks'])
             except (OSError, ValueError):
-                cached = (stamp, [])
-            self.task_cache[meeting['id']] = cached
-        when = meeting.get('started_at') or meeting['created']
-        return [dict(task, index=index, meeting_id=meeting['id'], meeting_title=meeting['title'], meeting_date=when)
-                for index, task in enumerate(cached[1])]
+                minutes = None
+            cached = self.task_cache[meeting_id] = (stamp, minutes)
+        return cached[1]
+
+    def _sync_items(self, meeting_id):
+        """Run after every change to a meeting's notes."""
+        from meeting_assistant import save_minutes, validate_minutes
+        with self.items.lock:
+            directory = self.library.directory(meeting_id)
+            minutes = None
+            if (directory / 'minutes.json').exists():
+                minutes = json.loads((directory / 'minutes.json').read_text())
+                validate_minutes(minutes)
+            if self.items.sync(meeting_id, minutes) and minutes is not None:
+                save_minutes(directory, minutes)
+            self.items.save()
+            path = directory / 'minutes.json'
+            self.items_synced[meeting_id] = path.stat().st_mtime_ns if path.exists() else None
+
+    def _refresh_items(self):
+        """Notes that changed outside the app (or before this version) reach the registry on the next read."""
+        meetings = self.library.list()
+        for meeting in sorted(meetings, key=lambda m: m.get('started_at') or m['created']):
+            if meeting['id'] in self.busy or meeting['id'] == self.active:
+                continue
+            path = self.library.directory(meeting['id']) / 'minutes.json'
+            stamp = path.stat().st_mtime_ns if path.exists() else None
+            if self.items_synced.get(meeting['id'], 'never') != stamp:
+                try:
+                    self._sync_items(meeting['id'])
+                except (OSError, ValueError) as exc:
+                    self.items_synced[meeting['id']] = stamp
+                    print(f'Task registry: {meeting["id"]}: {exc}', flush=True)
+        for meeting_id in set(self.items_synced) - {m['id'] for m in meetings}:
+            with self.items.lock:
+                self.items.sync(meeting_id, None)
+                self.items.save()
+            del self.items_synced[meeting_id]
+
+    def _sync_all_items(self):
+        # Oldest meetings first, so that a later mention links to the item that an earlier meeting created.
+        self.items_synced = {}
+        self._refresh_items()
+
+    def _meeting_refs(self):
+        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created']) for m in self.library.list()}
+
+    def pending_links(self, meetings=None):
+        """Mentions that may be an existing task or decision and wait for a person to choose."""
+        result = []
+        for meeting_id in meetings or [m['id'] for m in self.library.list()]:
+            minutes = self._minutes(meeting_id)
+            for kind, field in items.FIELD.items():
+                for index, mention in enumerate((minutes or {}).get(field, [])):
+                    if mention.get('link') and not mention.get('item_id'):
+                        candidates = [c for c in mention['link'].get('candidates', []) if c.get('item_id') in self.items.items]
+                        result.append(dict(meeting_id=meeting_id, kind=kind, field=field, index=index, mention=mention,
+                                           text=mention[items.MENTION[kind]['text']], candidates=candidates))
+        return result
+
+    def item_list(self):
+        with self.lock, self.items.lock:
+            self._refresh_items()
+            return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs())
 
     def tasks(self):
-        """Every task from every meeting's notes, for one tracking list."""
-        with self.lock:
-            return [task for meeting in self.library.list() for task in self._meeting_tasks(meeting)]
+        """Every persistent task, each once, however many meetings discussed it."""
+        with self.lock, self.items.lock:
+            self._refresh_items()
+            return [dict(item) for item in self.items.items.values() if item['kind'] == 'task']
 
     def task_summary(self):
         today = dt.date.today().isoformat()
         open_tasks = [t for t in self.tasks() if t['status'] == 'open']
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
-                    today=today)
+                    today=today, review=len(self.pending_links()))
+
+    def _linked_minutes(self, item):
+        """Each meeting that mentions the item, with its notes; busy meetings must wait."""
+        from meeting_assistant import validate_minutes
+        for link in item['links']:
+            meeting_id = link['meeting_id']
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('A meeting with this item is busy. Try again when processing finishes.')
+            directory = self.library.directory(meeting_id)
+            minutes = json.loads((directory / 'minutes.json').read_text())
+            validate_minutes(minutes)
+            yield link, directory, minutes
+
+    def update_item(self, item_id, text, changes):
+        from meeting_assistant import save_minutes
+        if not isinstance(changes, dict) or not changes:
+            raise ValueError('Nothing to change')
+        with self.lock, self.items.lock:
+            item = self.items.items.get(item_id)
+            if not item or item['text'] != text:
+                raise ValueError('This item changed. Reload the list and try again.')
+            allowed = {'text', 'owner', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+            if set(changes) - allowed:
+                raise ValueError('These fields cannot change here')
+            clean = {}
+            for name, value in changes.items():
+                if name == 'text':
+                    if not isinstance(value, str) or not value.strip():
+                        raise ValueError('The text cannot be empty')
+                    clean[name] = value.strip()[:1000]
+                elif name == 'status':
+                    if value not in (items.TASK_STATES if item['kind'] == 'task' else items.DECISION_STATES):
+                        raise ValueError('Invalid status')
+                    clean[name] = value
+                elif name == 'due_date':
+                    if value is not None:
+                        try:
+                            dt.date.fromisoformat(value)
+                        except (TypeError, ValueError):
+                            raise ValueError('Due date must be a date in YYYY-MM-DD format') from None
+                    clean[name] = value
+                else:
+                    if value is not None and not isinstance(value, str):
+                        raise ValueError(f'{name} must be text')
+                    clean[name] = (value or '').strip()[:160] or None
+            if item['kind'] == 'task' and 'status' in clean:
+                # The notes of each meeting show the same status, so exports stay correct.
+                for link, directory, minutes in list(self._linked_minutes(item)):
+                    for mention in minutes['tasks']:
+                        if mention.get('item_id') == item_id:
+                            mention['status'] = clean['status']
+                    save_minutes(directory, minutes)
+                    link['seen']['status'] = clean['status']
+            self.items.update(item_id, clean)
+            self.items.save()
+            return dict(self.items.items[item_id])
+
+    def delete_item(self, item_id, text):
+        """Remove a task or decision and its mentions from every meeting."""
+        from meeting_assistant import save_minutes
+        with self.lock, self.items.lock:
+            item = self.items.items.get(item_id)
+            if not item or item['text'] != text:
+                raise ValueError('This item changed. Reload the list and try again.')
+            field = items.FIELD[item['kind']]
+            for _, directory, minutes in list(self._linked_minutes(item)):
+                minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
+                save_minutes(directory, minutes)
+            self.items.remove(item_id)
+            self.items.save()
+            return dict(deleted=item_id)
+
+    def merge_items(self, item_id, into_id):
+        from meeting_assistant import save_minutes
+        with self.lock, self.items.lock:
+            item, into = self.items.items.get(item_id), self.items.items.get(into_id)
+            if not item or not into or item_id == into_id or item['kind'] != into['kind']:
+                raise ValueError('Choose another item of the same kind')
+            field = items.FIELD[item['kind']]
+            for _, directory, minutes in list(self._linked_minutes(item)):
+                for mention in minutes[field]:
+                    if mention.get('item_id') == item_id:
+                        mention['item_id'] = into_id
+                        if item['kind'] == 'task':
+                            mention['status'] = into['status']
+                save_minutes(directory, minutes)
+            self.items.merge(item_id, into_id)
+            for link in into['links']:
+                if item['kind'] == 'task':
+                    link['seen']['status'] = into['status']
+            self.items.save()
+            return dict(into)
+
+    def resolve_link(self, meeting_id, field, index, text, action, item_id=None):
+        """A person's answer to the question: is this mention an existing task or decision?"""
+        from meeting_assistant import save_minutes, validate_minutes
+        kind = {'tasks': 'task', 'decisions': 'decision'}.get(field)
+        if not kind or action not in ({'same', 'duplicate', 'new'} if kind == 'task' else {'same', 'replaces', 'new'}):
+            raise ValueError('Invalid choice')
+        with self.lock, self.items.lock:
+            if meeting_id == self.active or meeting_id in self.busy:
+                raise ValueError('Wait until processing finishes before changing the notes')
+            directory = self.library.directory(meeting_id)
+            minutes = json.loads((directory / 'minutes.json').read_text())
+            validate_minutes(minutes)
+            mentions = minutes[field]
+            if (type(index) is not int or not 0 <= index < len(mentions) or mentions[index][items.MENTION[kind]['text']] != text
+                    or not mentions[index].get('link')):
+                raise ValueError('These notes changed. Reload and try again.')
+            mention = mentions[index]
+            if action != 'new':
+                target = self.items.items.get(item_id)
+                if not target or target['kind'] != kind:
+                    raise ValueError('That item no longer exists. Reload and try again.')
+            if action == 'new':
+                mention['item_id'] = self.items.create(kind, mention, meeting_id)
+            elif action == 'replaces':
+                mention['item_id'] = self.items.replace(item_id, mention, meeting_id)
+            else:
+                self.items.link(item_id, kind, mention, meeting_id, ai_updates=action == 'same', duplicate=action == 'duplicate')
+                mention['item_id'] = item_id
+                if kind == 'task':
+                    mention['status'] = target['status']
+            mention.pop('link')
+            self.items.sync(meeting_id, minutes)
+            save_minutes(directory, minutes)
+            self.items.save()
+            return self.detail(meeting_id)
 
     def update_task(self, meeting_id, index, text, changes):
         if not isinstance(changes, dict) or not changes or set(changes) - {'task', 'status', 'due_date', 'owner'}:
@@ -855,6 +1064,7 @@ class MeetingService:
         with self.lock:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before changing tasks')
+            self._refresh_items()  # the registry must know the notes before this edit
             directory = self.library.directory(meeting_id)
             minutes = json.loads((directory / 'minutes.json').read_text())
             validate_minutes(minutes)
@@ -865,6 +1075,7 @@ class MeetingService:
             source = json.loads((directory / 'transcript.json').read_text())
             validate_minutes(minutes, [TranscriptSegment(**s) for s in source])
             save_minutes(directory, minutes)
+            self._sync_items(meeting_id)
             return result
 
     def save_speakers(self, names):
@@ -890,6 +1101,9 @@ class MeetingService:
                                                          expected_account=binding.get('account_id'))
             with self.lock:
                 self.library.delete(meeting_id)
+                with self.items.lock:
+                    self.items.sync(meeting_id, None)
+                    self.items.save()
                 self.live_sessions.pop(meeting_id, None)
         except Exception:
             self.automation.restore(meeting_id)

@@ -421,6 +421,17 @@ _CITED = re.compile(r"\s*[(\[](\d{2,}:\d{2}:\d{2})[)\]]")
 _STAMP = re.compile(r"\b(\d{2,}:\d{2}:\d{2})\b")
 
 
+# A mention in the notes points to its persistent task or decision, or waits for a person to link it.
+REGISTRY_KEYS = ("item_id", "link")
+
+
+def _check_registry_keys(mention: dict[str, Any]) -> None:
+    if "item_id" in mention and (not isinstance(mention["item_id"], str) or not re.fullmatch(r"[a-f0-9]{1,64}", mention["item_id"])):
+        raise ValueError("Invalid item ID")
+    if "link" in mention and (not isinstance(mention["link"], dict) or not isinstance(mention["link"].get("candidates"), list)):
+        raise ValueError("Invalid item link")
+
+
 def note_item(value: Any) -> Any:
     """Notes saved before sources existed are plain text; a cited "(00:12:03)" becomes the source."""
     if not isinstance(value, str):
@@ -447,13 +458,14 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
     for field in ITEM_FIELDS:
         minutes[field] = [note_item(item) for item in minutes[field]]
         for item in minutes[field]:
-            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review"}:
+            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review", *REGISTRY_KEYS}:
                 raise ValueError(f"{field} items need text and a source timestamp field")
             item.setdefault("review", "ai")
             if not isinstance(item["text"], str) or not item["text"].strip():
                 raise ValueError(f"{field} items need text")
             if item["review"] not in REVIEW_STATES:
                 raise ValueError("Review state must be ai or verified")
+            _check_registry_keys(item)
             stamp = item["evidence_timestamp"]
             if stamp is not None and (not isinstance(stamp, str) or not re.fullmatch(r"\d{2,}:\d{2}:\d{2}", stamp)):
                 raise ValueError("Invalid evidence timestamp")
@@ -461,13 +473,14 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
                 raise ValueError(f"Timestamp {stamp} does not reference a transcript segment")
     for task in minutes["tasks"]:
         core = {"task", "owner", "deadline", "evidence_timestamp"}
-        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status", "review"}:
+        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status", "review", *REGISTRY_KEYS}:
             raise ValueError("Invalid task fields")
         task.setdefault("due_date", None)
         task.setdefault("status", "open")
         task.setdefault("review", "ai")
         if task["review"] not in REVIEW_STATES:
             raise ValueError("Review state must be ai or verified")
+        _check_registry_keys(task)
         if task["status"] not in {"open", "done"}:
             raise ValueError("Task status must be open or done")
         if task["due_date"] is not None:

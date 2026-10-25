@@ -265,13 +265,33 @@ becomes the source moment. Other old statements show "No source moment" until yo
 Notes made before the task tracker still open. Their new sections are empty, and their tasks are open.
 Generate notes again to fill the new sections.
 
-Click **✓ Tasks** in the sidebar to see the tasks from all meetings in one list. The badge shows
-the number of open tasks, or the number of late tasks in red.
+Click **✓ Tasks & decisions** in the sidebar. Each task and decision appears **once**, however many
+meetings discussed it. The app keeps them in `meetings/items.json`, with:
 
-- Filter by **Open**, **Overdue**, **Done**, or **All**, and by owner.
-- Mark a task as done, or change its due date. The change is saved in the notes of that meeting.
-- Late tasks have a red mark. Tasks due today have an amber mark.
-- Click the meeting name to open its notes.
+- a permanent ID and the current state (text, owner, deadline, due date, status);
+- links to every meeting that discussed it, with the source moment;
+- a history: created, discussed again, changed (old → new), merged, replaced — by you or by the AI.
+
+Example: "Test the SAP permissions" is created on 19 Oct; on 23 Oct a meeting says "до петък", the due
+date changes, and the task stays open. The history shows both meetings.
+
+**New AI notes and existing items.** When new notes mention something that looks like an open task or a
+decision in force, nothing is linked automatically. **To review** cards (in this view and in the meeting)
+ask you to choose:
+
+- Tasks: **Same task · update** (new owner, deadline and due date fill the fields that you did not edit),
+  **Duplicate** (link only), or **new task**.
+- Decisions: **Same decision**, **Replaces it** (the older decision becomes *Replaced*), or **new decision**.
+
+The match is a text comparison of word stems and wording, not AI; a missed match can be fixed with
+**Merge…**, which keeps both histories. The AI never changes a status or a field that you edited.
+
+Decisions are **Proposed** until you accept them (checking a decision against its source also accepts it),
+**Accepted**, or **Replaced** by a newer decision. **Restore** brings a replaced decision back.
+
+- Filter tasks by **Open**, **Overdue**, **Done**, or **All**, and by owner; filter decisions by state.
+- Mark a task as done or change its due date. The status also changes in the notes of every linked meeting.
+- **Delete** removes the item from the notes of every meeting that mentions it.
 
 The app shows reminders only to you, in the app. It sends nothing to task owners.
 

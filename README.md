@@ -137,7 +137,10 @@ The original `recording.wav` and raw tracks stay unchanged. After successful tra
 `transcription.wav` holds the prepared 16 kHz mono audio with exactly the same number of samples.
 The playback selector switches between **Original recording** and **Prepared for transcription**;
 both are downloadable from Files. Metadata records the profile and source. Switching Off and
-successfully transcribing again uses the original and archives the previous prepared audio.
+successfully transcribing again uses the original and removes the prepared audio. The prepared audio
+takes about 115 MB per hour and can be made again from `recording.wav`, so `versions/` keeps only the
+metadata of an earlier preparation, and library archives leave `transcription.wav` out. A temporary
+prepared file that a crash leaves behind is removed when the app starts.
 If preparation or transcription fails, prior published output stays available and the temporary
 prepared file is removed. Fix the cause or choose Off before retrying; there is no silent fallback.
 

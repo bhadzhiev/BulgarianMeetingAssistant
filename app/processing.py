@@ -122,9 +122,11 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 atomic_json(directory / 'transcript.partial.json', [asdict(s) for s in segments])
         if not segments:
             raise ValueError('No speech was recognized. The recording is saved; try another model or provider.')
+        # transcription.wav is not archived: about 115 MB per hour, and recording.wav plus the profile in the
+        # archived metadata can produce it again.
         if archive(directory, ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json',
                                'minutes.md', 'minutes.proposed.json', 'analytics.json', 'speaker-timeline.json',
-                               'transcription.wav', 'transcript.metadata.json']):
+                               'transcript.metadata.json']):
             # Previous notes and analytics no longer refer to the current transcription.
             # The kept Whisper text belongs to the old transcription.
             for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:

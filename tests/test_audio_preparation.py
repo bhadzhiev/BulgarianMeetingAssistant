@@ -134,7 +134,27 @@ class AudioPreparationTests(unittest.TestCase):
             processing.transcribe(self.directory, dict(DEFAULTS, transcription='openai', audio_preparation='off'), lambda _: None, 'fake')
         np.testing.assert_array_equal(received[1], read_wav(self.directory / 'recording.wav'))
         self.assertFalse((self.directory / 'transcription.wav').exists())
-        self.assertEqual(next((self.directory / 'versions').glob('*/transcription.wav')).read_bytes(), published)
+        self.assertTrue(published)
+        # The derived audio is not copied into versions/; its profile is, through the archived metadata.
+        self.assertEqual(list((self.directory / 'versions').glob('*/transcription.wav')), [])
+        archived = json.loads(next((self.directory / 'versions').glob('*/transcript.metadata.json')).read_text())
+        self.assertEqual(archived['audio_preparation']['profile'], 'light')
+
+    def test_leftover_temporary_audio_is_removed_at_start_and_backups_skip_prepared_audio(self):
+        from app import backup
+        from app.storage import Library
+        library = Library(self.directory / 'library')
+        meeting = library.create('Среща', 'in_person', {})
+        folder = library.directory(meeting['id'])
+        write_wav(folder / 'recording.wav', np.zeros(RATE))
+        write_wav(folder / 'transcription.wav', np.zeros(RATE))
+        (folder / '.transcription-abc123.wav').write_bytes(b'interrupted preparation')
+        Library(self.directory / 'library')
+        self.assertEqual(list(folder.glob('.transcription-*')), [])
+        self.assertTrue((folder / 'transcription.wav').exists())
+        names = [name for name, _ in backup._library_files(self.directory / 'library', set())]
+        self.assertIn(meeting['id'] + '/recording.wav', names)
+        self.assertNotIn(meeting['id'] + '/transcription.wav', names)
 
     def test_local_whisper_receives_prepared_audio(self):
         self.signal()

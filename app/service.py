@@ -149,7 +149,8 @@ class MeetingService:
     def snapshot(self):
         with self.lock:
             try:
-                inputs = devices()
+                # Rescan only when no audio stream is open; a rescan would break a running stream.
+                inputs = devices(rescan=not self.active and not self.recorder and self.preview is None)
                 device_error = None
             except Exception as exc:
                 inputs, device_error = [], str(exc)
@@ -216,11 +217,23 @@ class MeetingService:
             self.preview = None
         self.preview_level = 0
 
-    def check_microphone(self, device):
+    @staticmethod
+    def _input_device(device, name=None):
+        """A rescan can renumber devices, so the name that the person chose decides."""
+        inputs = {d['id']: d for d in devices()}
+        chosen = inputs.get(int(device))
+        if name and (not chosen or chosen['name'] != name):
+            chosen = next((d for d in inputs.values() if d['name'] == name), None)
+        if not chosen:
+            raise ValueError('Select an available microphone')
+        return chosen['id']
+
+    def check_microphone(self, device, device_name=None):
         with self.lock:
             if self.active:
                 raise ValueError('A meeting is already recording')
             self._stop_preview()
+            device = self._input_device(device, device_name)
             self.preview_deadline = time.monotonic() + 10
             def callback(data, frames, timing, status):
                 samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768
@@ -234,14 +247,13 @@ class MeetingService:
                 raise
             return {'ok': True}
 
-    def start(self, title, mode, device, project_id=None, series_id=None):
+    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None):
         if mode not in {'in_person', 'online'}:
             raise ValueError('Choose an in-person or online meeting')
         if not isinstance(title, str):
             raise ValueError('Meeting title must be text')
         ffmpeg_path()
-        if int(device) not in {d['id'] for d in devices()}:
-            raise ValueError('Select an available microphone')
+        device = self._input_device(device, device_name)
         with self.lock:
             if self.active:
                 raise ValueError('A meeting is already recording')

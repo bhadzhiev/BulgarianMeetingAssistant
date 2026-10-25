@@ -135,20 +135,24 @@ class SearchIndex:
         expression = fts_query(query)
         if not expression:
             return []
+        if meeting_ids is not None and not meeting_ids:
+            return []
+        # The filters belong in the query, before the limit; filtering later can drop every match of a rare kind.
+        where, values = ['docs MATCH ?'], [expression]
+        if kinds:
+            where.append(f'kind IN ({",".join("?" * len(kinds))})')
+            values += sorted(kinds)
+        if meeting_ids is not None:
+            where.append(f'meeting_id IN ({",".join("?" * len(meeting_ids))})')
+            values += sorted(meeting_ids)
         with self.lock:
             rows = self.db.execute(f'''
                 SELECT kind, meeting_id, start, ref, field, status, item_id, speaker, text,
                        snippet(docs, 0, '{MARK_START}', '{MARK_END}', '…', 28), bm25(docs, 1.0, 0.4)
-                FROM docs WHERE docs MATCH ? ORDER BY bm25(docs, 1.0, 0.4) LIMIT 400''', (expression,)).fetchall()
-        results = []
-        for kind, meeting_id, start, ref, field, status, item_id, speaker, text, snippet, rank in rows:
-            if kinds and kind not in kinds or meeting_ids is not None and meeting_id not in meeting_ids:
-                continue
-            results.append(dict(kind=kind, meeting_id=meeting_id, start=start, ref=ref, field=field, status=status, item_id=item_id,
-                                speaker=speaker or None, text=text, snippet=snippet, score=round(-rank, 3)))
-            if len(results) >= limit:
-                break
-        return results
+                FROM docs WHERE {' AND '.join(where)} ORDER BY bm25(docs, 1.0, 0.4) LIMIT ?''', values + [limit]).fetchall()
+        return [dict(kind=kind, meeting_id=meeting_id, start=start, ref=ref, field=field, status=status, item_id=item_id,
+                     speaker=speaker or None, text=text, snippet=snippet, score=round(-rank, 3))
+                for kind, meeting_id, start, ref, field, status, item_id, speaker, text, snippet, rank in rows]
 
     def close(self):
         with self.lock:

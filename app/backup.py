@@ -18,9 +18,9 @@ import tarfile
 import tempfile
 
 FORMAT = 'meeting-assistant-backup'
-SHARED = ('settings.json', 'speakers.json', 'trackers.json')
+SHARED = ('settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json')
 ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}\.tar\.gz')
-MEMBER = re.compile(r'(?:settings|speakers|trackers|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
+MEMBER = re.compile(r'(?:settings|speakers|trackers|projects|items|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
 
 
@@ -149,7 +149,7 @@ def archive_path(destination: Path, name) -> Path:
     return destination / name
 
 
-def restore(archive_file: Path, library) -> dict:
+def restore(archive_file: Path, library, merge=None) -> dict:
     """Add the meetings that the library does not have. Existing meetings are never changed."""
     staging = Path(tempfile.mkdtemp(prefix='.restore-', dir=library.root))
     try:
@@ -172,6 +172,8 @@ def restore(archive_file: Path, library) -> dict:
                 library.save_trackers(library.trackers() + extra)
         except (OSError, ValueError, TypeError, AttributeError):
             pass
+        if merge:
+            merge(staging)  # data that the service owns: projects and the task registry
         return dict(restored=restored, skipped=skipped)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

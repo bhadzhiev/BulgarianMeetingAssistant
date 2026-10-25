@@ -215,6 +215,13 @@ class Registry:
             self._event(item, 'changed', None, applied, by='user')
         return item
 
+    def prune(self, meeting_ids: set[str]) -> None:
+        """Drop links to meetings that the library does not have, and items that are left with none."""
+        for item in list(self.items.values()):
+            item['links'] = [link for link in item['links'] if link['meeting_id'] in meeting_ids]
+            if not item['links']:
+                self.remove(item['id'])
+
     def merge(self, item_id: str, into_id: str) -> None:
         """Two items are the same thing; keep one with all links and history."""
         item, into = self.items[item_id], self.items[into_id]

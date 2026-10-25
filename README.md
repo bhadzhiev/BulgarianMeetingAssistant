@@ -295,6 +295,27 @@ Decisions are **Proposed** until you accept them (checking a decision against it
 
 The app shows reminders only to you, in the app. It sends nothing to task owners.
 
+### Projects, series and Prepare me
+
+Group meetings into **projects** (for example "DevOps" or "Client X") and recurring meetings into a
+**series** inside a project (for example "Weekly sync"). On a saved meeting, click **＋ Add to a project**
+under the title; choose an existing project and series or type a new name. A new recording can start in
+a project and series from the **A new meeting** form. The sidebar filter shows the meetings of one project.
+Manage names in **Settings → Projects**; deleting a project or series never deletes meetings.
+
+**☰ Prepare me** (or **Prepare the next meeting ›** on a meeting) shows, for a series or a whole project:
+
+- **Proposed agenda:** overdue tasks, questions that need a decision, open questions, tasks due in the
+  next 7 days, tasks without an owner or date, proposed decisions to confirm, and moments marked
+  "check later" in the last meeting. **Copy as text** copies it for an invitation or a chat.
+- **Open tasks** with owner, due date and the meeting where they were last discussed.
+- **Questions without a decision** from the last three meetings. A question asked again shows once,
+  with its newest source. A question that a later accepted decision may answer is marked, not hidden.
+- **Decisions in force:** accepted decisions, newest first, plus proposed decisions not confirmed yet.
+
+Every line links to its meeting and moment. Prepare me uses saved notes, tasks, decisions and markers;
+it does not run the AI again. Projects and series are stored in `meetings/projects.json`.
+
 ### Known speakers
 
 The app keeps one list of known speakers for all meetings in `meetings/speakers.json`.
@@ -327,7 +348,7 @@ local-versus-cloud quality evaluation; no provider quality ranking has been esta
 **Settings → Backup → Archive library now** writes `meetings-<date>-<time>.tar.gz` into
 `~/Documents/Meeting Assistant Backups` (change it with `desktop_app.py --backups <folder>`).
 The archive holds every meeting folder (audio, transcripts, notes, markers, `versions/`), known speakers,
-topic trackers and settings, plus a manifest with the size and SHA-256 of each file. A recording in
+topic trackers, projects, the task and decision registry and settings, plus a manifest with the size and SHA-256 of each file. A recording in
 progress is left out.
 
 After writing, the app runs a **restore test**: it extracts the archive into a temporary folder,

@@ -10,3 +10,7 @@ backups/
 google_oauth_client.json
 .idea/
 *.log
+build/
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

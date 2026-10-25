@@ -5,6 +5,50 @@ keep the audio, transcribe Bulgarian speech, and review editable meeting notes.
 
 ## Open the app
 
+### Native desktop app (Tauri, macOS Apple Silicon)
+
+The desktop wrapper opens the existing interface in its own window and owns one Python server.
+Closing the window or choosing Quit saves an active recording, stops live captions and exits the
+server. If the window process crashes, a private pipe closes and asks the server to shut down too.
+Reopening the desktop app focuses its existing window. It never replaces a running CLI server.
+An unrelated process using port 8765 causes a startup error instead of being stopped.
+
+Desktop data is separate from a source checkout, under
+`~/Library/Application Support/io.github.bhadzhiev.meeting-assistant/`: `meetings/`, `models/`
+and `backend.log`. Backend startup and runtime diagnostics are written to that log;
+the private readiness URL is not logged. Use Archive/Restore to bring saved meetings into the desktop library.
+Models download on first use. Local AI notes still use the independently running model server
+configured in Settings. The desktop app does not stop that server.
+
+Calendar meeting links currently open in the default browser, which does not share the desktop
+window's session cookie. Opening such a link can show "Open the app using its launcher" even when
+the desktop app is running. Open the meeting from the desktop library instead. Opening calendar
+links directly in the desktop window needs a future deep-link integration.
+
+For development, install Rust and run `scripts/run_desktop.sh`. It uses `.venv/bin/python` by
+default; `BMA_PYTHON` selects another interpreter. `BMA_DATA_DIR` selects an isolated data directory.
+The native audio helper must be built with `./build_native.sh` before testing online recording.
+
+To build a `.app`, use a packaging virtual environment with the normal requirements and PyInstaller,
+then install the Tauri CLI and run:
+
+```sh
+npm --prefix desktop ci
+python scripts/build_desktop.py
+```
+
+The result is under `desktop/src-tauri/target/release/bundle/macos/`. Add `--debug` for a development
+bundle. This packages Python, the web interface, Whisper libraries and the native audio helper.
+By default, ffmpeg/ffprobe must be installed on the target Mac (`brew install ffmpeg`). To package
+self-contained builds of those binaries, pass `--ffmpeg-dir <folder>`; check their redistribution
+licenses. Optional pyannote diarization dependencies must be included and validated separately.
+
+The initial build is for local testing. Distribution requires a stable signing identity,
+notarization and real microphone/ScreenCaptureKit permission checks on the final signed bundle.
+Force Quit and power loss still use the normal raw-audio recovery path. Interrupted AI jobs can
+be retried after reopening. The desktop controller allows up to 90 seconds for normal shutdown,
+then terminates only its own process group if it cannot finish.
+
 Double-click **Open Meeting Assistant.command** in Finder. It opens the interface in
 your normal browser; keep the launcher running while you record or process meetings.
 Double-clicking it again stops the older copy and starts the updated app, so code changes take effect.

@@ -52,6 +52,7 @@ MAX_AUDIO_BYTES = 4_000_000_000
 class MeetingService:
     def __init__(self, root: Path, project: Path, google=None, backup_dir: Path | None = None):
         self.project = project
+        self.models_dir = project / 'models'
         self.backup_dir = backup_dir or Path.home() / 'Documents' / 'Meeting Assistant Backups'
         self.library = Library(root)
         self.library.recover()
@@ -267,6 +268,8 @@ class MeetingService:
             return {'ok': True}
 
     def start(self, title, mode, device, project_id=None, series_id=None, device_name=None):
+        if self.closed.is_set():
+            raise ValueError('The app is closing')
         if mode not in {'in_person', 'online'}:
             raise ValueError('Choose an in-person or online meeting')
         if not isinstance(title, str):
@@ -277,7 +280,7 @@ class MeetingService:
             if self.active:
                 raise ValueError('A meeting is already recording')
             self._stop_preview()
-            settings = dict(self.settings, models_dir=str(self.project / 'models'))
+            settings = dict(self.settings, models_dir=str(self.models_dir))
             with self.projects.lock:
                 project_id = self.projects.ensure_project({'id': project_id} if project_id else None)
                 series_id = self.projects.ensure_series({'id': series_id} if series_id else None, project_id)
@@ -299,7 +302,7 @@ class MeetingService:
         segments = [TranscriptSegment(**s) for s in parsed['segments']]
         name = parsed['title'] or (Path(filename).stem if isinstance(filename, str) else '')
         with self.lock:
-            settings = dict(self.settings, models_dir=str(self.project / 'models'))
+            settings = dict(self.settings, models_dir=str(self.models_dir))
             meeting = self.library.create(name or '', 'imported', settings)
             changes = dict(status='ready', progress='Imported', duration=max(s.end for s in segments))
             if parsed['date']:
@@ -348,7 +351,7 @@ class MeetingService:
                 created = dt.datetime.fromtimestamp(modified_ms / 1000).astimezone()
             created = created or dt.datetime.now().astimezone()
             with self.lock:
-                settings = dict(self.settings, models_dir=str(self.project / 'models'))
+                settings = dict(self.settings, models_dir=str(self.models_dir))
                 # A blank name lets an AI title replace the file name; the file name is the fallback.
                 meeting = self.library.create('', 'audio', settings)
                 os.replace(staging / 'recording.wav', self.library.directory(meeting['id']) / 'recording.wav')
@@ -462,7 +465,7 @@ class MeetingService:
                 meeting = self.library.update(meeting_id, status='recorded', duration=duration,
                     error=failure, progress='Recording saved' if not failure else 'Stopped after an audio error; recording saved')
                 self.active, self.recorder = None, None
-                if meeting['settings']['auto_process'] and not failure:
+                if meeting['settings']['auto_process'] and not failure and not self.closed.is_set():
                     try:
                         self.process(meeting_id, 'all', use_saved=True)
                         processing_started = True
@@ -482,6 +485,8 @@ class MeetingService:
 
 
     def process(self, meeting_id, action, use_saved=False):
+        if self.closed.is_set():
+            raise ValueError('The app is closing')
         if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze'}:
             raise ValueError('Unknown processing action')
         with self.lock:
@@ -495,7 +500,7 @@ class MeetingService:
                     raise ValueError('An imported transcript has no audio to transcribe')
                 if action == 'all':
                     action = 'summarize'
-            settings = meeting['settings'] if use_saved else dict(self.settings, models_dir=str(self.project / 'models'))
+            settings = meeting['settings'] if use_saved else dict(self.settings, models_dir=str(self.models_dir))
             settings = migrate_settings(settings)
             # Processing retries do not opt old meetings into a different calendar or AI provider.
             for field in ['calendar_enabled','calendar_id','calendar_name','calendar_account','auto_title','title_provider','title_model']:
@@ -645,7 +650,7 @@ class MeetingService:
                 save_transcript(directory, segments)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
-                analytics_settings = dict(self.settings, models_dir=str(self.project / 'models'))
+                analytics_settings = dict(self.settings, models_dir=str(self.models_dir))
             if 'minutes' in body:
                 self._refresh_items()
                 source = json.loads((directory / 'transcript.json').read_text())
@@ -1340,13 +1345,13 @@ class MeetingService:
             except Exception as exc:
                 print(f'Monitor: {exc}', flush=True)
 
-    def close(self):
+    def close(self, finalize_recording=False):
         self.closed.set()
         self.automation.close()
         if self.start_thread and self.start_thread.is_alive():
             self.start_thread.join(timeout=35)
         if self.finish_thread and self.finish_thread.is_alive():
-            self.finish_thread.join(timeout=20)
+            self.finish_thread.join(timeout=None if finalize_recording else 20)
         with self.lock:
             self._stop_preview()
             if self.active and self.recorder:
@@ -1354,6 +1359,14 @@ class MeetingService:
                 self.recorder.stop()
                 self.library.update(self.active, status='interrupted', progress='Saved raw audio — recover on next launch',
                     ended_at=dt.datetime.now().astimezone().isoformat(),duration=self.recorder.clock.elapsed())
+                if finalize_recording:
+                    try:
+                        duration = render_recording(self.library.directory(self.active))
+                        self.library.update(self.active, status='recorded', duration=duration,
+                                            progress='Recording saved on exit', error=None)
+                    except Exception as exc:
+                        self.library.update(self.active, error=str(exc))
+                self.active, self.recorder = None, None
         for live in self.live_sessions.values():
             live.request_stop()
         for live in self.live_sessions.values():

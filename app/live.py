@@ -233,7 +233,8 @@ class LiveSession:
                 atomic_json(self.directory / 'live.json', state)
                 return
             with (self.directory / 'live-caption.log').open('w') as log:
-                process = subprocess.Popen([sys.executable, '-m', 'app.live',
+                command = [sys.executable, '--live-worker'] if getattr(sys, 'frozen', False) else [sys.executable, '-m', 'app.live']
+                process = subprocess.Popen(command + [
                     '--directory', str(self.directory), '--models-dir', self.settings['models_dir'],
                     '--model', self.settings['local_model'], '--prompt=' + self.prompt], cwd=self.project,
                     stdout=log, stderr=log)

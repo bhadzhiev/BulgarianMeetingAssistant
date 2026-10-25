@@ -230,9 +230,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/settings':
                 result = service.save_settings(body)
             elif path == '/api/check-mic':
-                result = service.check_microphone(body['device'])
+                result = service.check_microphone(body['device'], body.get('device_name'))
             elif path == '/api/start':
-                result = service.start(body.get('title', ''), body['mode'], body['device'])
+                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('device_name'))
             elif path == '/api/pause':
                 if type(body['paused']) is not bool:
                     raise ValueError('Invalid pause state')

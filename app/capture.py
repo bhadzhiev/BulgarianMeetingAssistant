@@ -26,7 +26,18 @@ def ffmpeg_path() -> str:
     return result
 
 
-def devices() -> list[dict]:
+RESCAN_SECONDS = 3
+_scanned = 0.0
+
+
+def devices(rescan: bool = False) -> list[dict]:
+    """Input devices. PortAudio keeps the list that it found at start, so a device that connects later,
+    such as an iPhone through Continuity, appears only after a rescan. Never rescan while a stream is open."""
+    global _scanned
+    if rescan and time.monotonic() - _scanned >= RESCAN_SECONDS:
+        sd._terminate()
+        sd._initialize()
+        _scanned = time.monotonic()
     return [dict(id=i, name=d['name'], rate=int(d['default_samplerate']))
             for i, d in enumerate(sd.query_devices()) if d['max_input_channels'] > 0]
 

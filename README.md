@@ -14,10 +14,16 @@ Reopening the desktop app focuses its existing window. It never replaces a runni
 An unrelated process using port 8765 causes a startup error instead of being stopped.
 
 Desktop data is separate from a source checkout, under
-`~/Library/Application Support/eu.linkin.bulgarian-meeting-assistant/`: `meetings/`, `models/`
-and `backend.log`. Use Archive/Restore to bring saved meetings into the desktop library.
+`~/Library/Application Support/io.github.bhadzhiev.meeting-assistant/`: `meetings/`, `models/`
+and `backend.log`. Backend startup and runtime diagnostics are written to that log;
+the private readiness URL is not logged. Use Archive/Restore to bring saved meetings into the desktop library.
 Models download on first use. Local AI notes still use the independently running model server
 configured in Settings. The desktop app does not stop that server.
+
+Calendar meeting links currently open in the default browser, which does not share the desktop
+window's session cookie. Opening such a link can show "Open the app using its launcher" even when
+the desktop app is running. Open the meeting from the desktop library instead. Opening calendar
+links directly in the desktop window needs a future deep-link integration.
 
 For development, install Rust and run `scripts/run_desktop.sh`. It uses `.venv/bin/python` by
 default; `BMA_PYTHON` selects another interpreter. `BMA_DATA_DIR` selects an isolated data directory.

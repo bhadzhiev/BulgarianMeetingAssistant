@@ -2,9 +2,10 @@
 
 Validated locally on Apple Silicon, 25 October 2026, with separate temporary meeting libraries.
 
-- Full Python regression suite: 249 tests passed. One subsequent ownership test also passed;
-  all four desktop lifecycle tests pass together.
-- `cargo check` and optimized Tauri app build passed.
+- Full Python regression suite after review corrections: 251 tests passed;
+  all five desktop lifecycle tests pass together.
+- `cargo check` and optimized Tauri app build passed. The rebuilt bundle uses
+  `io.github.bhadzhiev.meeting-assistant` as its identifier.
 - Frozen backend emits its private readiness event, serves loopback HTTP and exits on stdin
   shutdown or EOF. The frozen live-worker entry point accepts its own arguments.
 - Real native window loaded the existing UI and showed Connected to this Mac.
@@ -13,6 +14,8 @@ Validated locally on Apple Silicon, 25 October 2026, with separate temporary mee
 - Force-stopping an isolated native parent caused its backend to exit and remove `.running.json`.
 - A synthetic active recording was rendered to WAV on desktop shutdown, without starting AI work.
 - Desktop mode refused to replace an existing process that owned the library lock.
+- The frozen backend sent startup diagnostics to stderr while its readiness URL remained on
+  the private control pipe. Python and native stdout routing is also covered by a subprocess test.
 - The complete optimized app passed `codesign --verify --deep --strict` with a local ad-hoc signature.
 
 Not established by these checks: real microphone or ScreenCaptureKit permission grants in the signed

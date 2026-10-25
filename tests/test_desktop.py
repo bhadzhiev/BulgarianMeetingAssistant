@@ -49,6 +49,7 @@ class DesktopTests(unittest.TestCase):
                     # communicate closes stdin: EOF must work even without a shutdown command.
                     stdout, stderr = process.communicate(command, timeout=15)
                     self.assertEqual(process.returncode, 0, stderr.decode())
+                    self.assertEqual(len(stdout.splitlines()), 1)
                     ready = json.loads(stdout.splitlines()[0])
                     self.assertEqual(ready['event'], 'ready')
                     self.assertTrue(ready['url'].startswith('http://127.0.0.1:'))
@@ -76,3 +77,24 @@ class DesktopTests(unittest.TestCase):
             finally:
                 owner.terminate()
                 owner.wait(timeout=10)
+
+    def test_diagnostics_reach_stderr_without_leaking_the_ready_credential(self):
+        code = """
+import os
+from app.desktop import control_output, ready
+control = control_output()
+print('Task registry: startup diagnostic', flush=True)
+os.write(1, b'Native stdout diagnostic\\n')
+ready('http://127.0.0.1:1234/?token=private-test-token', control)
+print('Monitor: runtime diagnostic', flush=True)
+control.close()
+"""
+        result = subprocess.run([sys.executable, '-B', '-c', code], cwd=PROJECT,
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(len(result.stdout.splitlines()), 1)
+        self.assertEqual(json.loads(result.stdout)['event'], 'ready')
+        self.assertIn(b'Task registry: startup diagnostic', result.stderr)
+        self.assertIn(b'Native stdout diagnostic', result.stderr)
+        self.assertIn(b'Monitor: runtime diagnostic', result.stderr)
+        self.assertNotIn(b'private-test-token', result.stderr)

@@ -356,6 +356,10 @@ def main():
     parser.add_argument('--models', type=Path, help='Writable model cache outside the application bundle')
     parser.add_argument('--backups', type=Path, help='Folder for library archives (default: ~/Documents/Meeting Assistant Backups)')
     args = parser.parse_args()
+    control = None
+    if args.desktop_control:
+        from app.desktop import control_output
+        control = control_output()
     # One process per library, including when an alternate port is requested.
     import fcntl
     args.library.mkdir(parents=True, exist_ok=True)
@@ -382,7 +386,7 @@ def main():
     if args.desktop_control:
         from app.desktop import ready, watch_parent
         watch_parent(sys.stdin, lambda: stop(None, None))
-        ready(url)
+        ready(url, control)
     else:
         print(f'Meeting Assistant: {url}', flush=True)
     if not args.no_browser and not args.desktop_control:
@@ -394,6 +398,8 @@ def main():
         server.server_close()
         (args.library / '.running.json').unlink(missing_ok=True)
         lockfile.close()
+        if control is not None:
+            control.close()
 
 
 if __name__ == '__main__':

@@ -22,6 +22,8 @@ SHARED = ('settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'i
 ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}\.tar\.gz')
 MEMBER = re.compile(r'(?:settings|speakers|trackers|projects|items|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
+# Derived from recording.wav and the saved settings; large, and not needed to restore a meeting.
+DERIVED = {'transcription.wav'}
 
 
 class _Hashing:
@@ -45,7 +47,8 @@ def _library_files(root: Path, skip):
         for path in sorted(directory.rglob('*')):
             relative = path.relative_to(root)
             # Dot files are temporary files of a write in progress, not meeting data.
-            if path.is_file() and not path.is_symlink() and not any(part.startswith('.') for part in relative.parts):
+            if (path.is_file() and not path.is_symlink() and path.name not in DERIVED
+                    and not any(part.startswith('.') for part in relative.parts)):
                 yield relative.as_posix(), path
 
 

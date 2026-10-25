@@ -127,6 +127,32 @@ chosen microphone hears. ScreenCaptureKit reference:
 
 ## Transcription and notes
 
+**Audio preparation before final transcription** in Settings → Recording has two options:
+**Off** (default, including older meetings) and **Light**. Light removes low-frequency rumble,
+reduces steady noise gently, balances levels with gain capped at 2×, and limits output peaks.
+It does not remove pauses, change speed or promise to repair clipped or reverberant speech.
+Both local and cloud final transcription can use it; live captions are unchanged.
+
+The original `recording.wav` and raw tracks stay unchanged. After successful transcription,
+`transcription.wav` holds the prepared 16 kHz mono audio with exactly the same number of samples.
+The playback selector switches between **Original recording** and **Prepared for transcription**;
+both are downloadable from Files. Metadata records the profile and source. Switching Off and
+successfully transcribing again uses the original and removes the prepared audio. The prepared audio
+takes about 115 MB per hour and can be made again from `recording.wav`, so `versions/` keeps only the
+metadata of an earlier preparation, and library archives leave `transcription.wav` out. A temporary
+prepared file that a crash leaves behind is removed when the app starts.
+If preparation or transcription fails, prior published output stays available and the temporary
+prepared file is removed. Fix the cause or choose Off before retrying; there is no silent fallback.
+
+For online recordings with both raw tracks, only the microphone gets rumble removal, denoising
+and level balancing; system audio is resampled and mixed with it before the final limiter.
+Imported or older recordings without both raw tracks use the saved mixed recording instead.
+Processing is streamed through ffmpeg, so it does not hold the full recording in memory.
+
+Synthetic tests check sample count, alignment, rumble reduction, silence, separate-track handling
+and failure isolation. Recognition improvements on real Bulgarian meetings remain unmeasured;
+compare both modes using `benchmarks/README.md` before choosing Light as your usual setting.
+
 **Settings** controls the next recording and manual processing/retries. A recording keeps
 the settings it started with for automatic processing.
 

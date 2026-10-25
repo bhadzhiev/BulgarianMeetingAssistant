@@ -34,7 +34,7 @@ from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validat
 DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model='gpt-transcribe',
                 summarizer='none', llm_model='gpt-4.1-mini', transcript_correction='local',
                 local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', auto_process=True, live_transcription=True,
-                whisper_vad=True, whisper_vocabulary='',
+                whisper_vad=True, whisper_vocabulary='', audio_preparation='off',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
 
@@ -93,6 +93,8 @@ class MeetingService:
         if set(settings) - set(DEFAULTS):
             raise ValueError('Unknown setting')
         values = migrate_settings(dict(self.settings, **settings))
+        if values['audio_preparation'] not in {'off', 'light'}:
+            raise ValueError('Audio preparation must be Off or Light')
         values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
         if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:
             raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
@@ -210,7 +212,8 @@ class MeetingService:
             meeting['markers'] = read_json(directory / 'markers.json', [])
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
-                               'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'] if (directory / name).exists()]
+                               'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json',
+                               'transcription.wav'] if (directory / name).exists()]
             return meeting
 
     def _stop_preview(self):

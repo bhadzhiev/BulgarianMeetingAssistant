@@ -41,6 +41,10 @@ class Library:
         for leftover in [*self.root.glob('.deleted-*'), *self.root.glob('.upload-*'), *self.root.glob('.restore-*')]:
             if leftover.is_dir() and not leftover.is_symlink():
                 shutil.rmtree(leftover, ignore_errors=True)
+        # Audio preparation that a crash interrupted leaves a large temporary WAV in the meeting folder.
+        for leftover in self.root.glob('[0-9a-f]*/.transcription-*.wav'):
+            if leftover.is_file() and not leftover.is_symlink():
+                leftover.unlink(missing_ok=True)
 
     def directory(self, meeting_id: str) -> Path:
         if not re.fullmatch(r'[a-f0-9]{32}', meeting_id):

@@ -173,7 +173,7 @@ def restore(archive_file: Path, library, merge=None) -> dict:
         except (OSError, ValueError, TypeError, AttributeError):
             pass
         if merge:
-            merge(staging)  # data that the service owns: projects and the task registry
+            merge(staging, set(restored))  # data that the service owns: projects and the task registry
         return dict(restored=restored, skipped=skipped)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

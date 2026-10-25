@@ -186,6 +186,7 @@ class MeetingService:
                     validate_minutes(meeting['minutes'])  # adds fields that older notes lack
                 except ValueError:
                     notes_valid = False
+            meeting['minutes_revision'] = self._minutes_revision(directory)
             meeting['minutes_proposal'] = None
             if notes_valid and (directory / 'minutes.proposed.json').exists():
                 from meeting_assistant import validate_minutes
@@ -651,11 +652,12 @@ class MeetingService:
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
                 analytics_settings = dict(self.settings, models_dir=str(self.models_dir))
-            if 'minutes' in body:
+            if 'minutes' in body or 'minutes_fields' in body:
                 self._refresh_items()
                 source = json.loads((directory / 'transcript.json').read_text())
-                validate_minutes(body['minutes'], [TranscriptSegment(**s) for s in source])
-                save_minutes(directory, body['minutes'])
+                minutes = self._edited_minutes(directory, body)
+                validate_minutes(minutes, [TranscriptSegment(**s) for s in source])
+                save_minutes(directory, minutes)
                 self._sync_items(meeting_id)
             if analytics_settings is None:
                 return self.detail(meeting_id)
@@ -671,6 +673,13 @@ class MeetingService:
         finally:
             with self.lock:
                 self.busy.discard(meeting_id)
+
+    @staticmethod
+    def _minutes_revision(directory):
+        """The version of the saved notes; an edit must start from it."""
+        import hashlib
+        path = directory / 'minutes.json'
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
     @staticmethod
     def _notes_revision(directory):
@@ -809,7 +818,7 @@ class MeetingService:
         return dict(self.backups(), created=result, skipped_active=bool(skip))
 
     def restore_backup(self, name):
-        def merge(staging):
+        def merge(staging, restored):
             try:
                 with self.projects.lock:
                     self.projects.merge(json.loads((staging / 'projects.json').read_text()))
@@ -819,9 +828,12 @@ class MeetingService:
             try:
                 archived = json.loads((staging / 'items.json').read_text())['items']
                 with self.items.lock:
-                    # Items this library already has stay as they are; the archive adds the missing ones.
+                    # Only items of the meetings that this restore added come back, with only those links.
+                    # Items this library already has stay as they are.
                     for item_id, item in archived.items():
-                        self.items.items.setdefault(item_id, item)
+                        links = [link for link in item.get('links', []) if link.get('meeting_id') in restored]
+                        if links and item_id not in self.items.items:
+                            self.items.items[item_id] = dict(item, links=links)
                     self.items.prune({m['id'] for m in self.library.list()})
                     self.items.save()
             except (OSError, ValueError, KeyError, AttributeError):
@@ -840,6 +852,33 @@ class MeetingService:
         import subprocess
         subprocess.run(['/usr/bin/open', '-R', str(backup.archive_path(self.backup_dir, name))], check=False, timeout=10)
         return {'ok': True}
+
+    NOTE_FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations')
+
+    def _edited_minutes(self, directory, body):
+        """The notes after an edit. A copy that is older than the saved notes must not undo newer changes:
+        only the sections that the person changed are applied, and only if nobody changed them meanwhile."""
+        from meeting_assistant import validate_minutes
+        revision, current_revision = body.get('minutes_revision'), self._minutes_revision(directory)
+        if 'minutes_fields' not in body:
+            if current_revision is not None and revision != current_revision:
+                raise ValueError('These notes changed after you opened them. Reload the meeting and try again.')
+            return body['minutes']
+        fields, base = body['minutes_fields'], body.get('minutes_base')
+        if not isinstance(fields, dict) or not fields or set(fields) - set(self.NOTE_FIELDS) or not isinstance(base, dict):
+            raise ValueError('Invalid notes change')
+        if current_revision is None:
+            raise ValueError('These notes no longer exist. Reload the meeting.')
+        current = json.loads((directory / 'minutes.json').read_text())
+        validate_minutes(current)
+        canonical = lambda value: json.dumps(value, sort_keys=True, ensure_ascii=False)
+        if revision != current_revision:
+            changed = [field for field in fields if canonical(current.get(field, [])) != canonical(base.get(field, []))]
+            if changed:
+                raise ValueError('These sections changed after you opened the notes: ' + ', '.join(changed).replace('_', ' ')
+                                 + '. Reload the meeting; your edits stay on the screen so that you can copy them.')
+        current.update(fields)
+        return current
 
     def save_trackers(self, trackers):
         return dict(trackers=self.library.save_trackers(trackers))
@@ -1153,9 +1192,13 @@ class MeetingService:
                 raise ValueError('Choose another item of the same kind')
             field = items.FIELD[item['kind']]
             for _, directory, minutes in list(self._linked_minutes(item)):
-                for mention in minutes[field]:
-                    if mention.get('item_id') == item_id:
-                        mention['item_id'] = into_id
+                if any(mention.get('item_id') == into_id for mention in minutes[field]):
+                    # This meeting already mentions the item that stays; the other mention is the same thing.
+                    minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
+                else:
+                    for mention in minutes[field]:
+                        if mention.get('item_id') == item_id:
+                            mention['item_id'] = into_id
                 save_minutes(directory, minutes)
             self.items.merge(item_id, into_id)
             self.items.save()

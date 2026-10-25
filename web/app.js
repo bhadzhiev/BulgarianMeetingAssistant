@@ -272,12 +272,21 @@ function sourceBlock(stamp) {
  if(segment) { const quote=el('button','quote',(segment.speaker?segment.speaker+': ':'')+'“'+segment.text+'”'); quote.type='button'; quote.title='Show in the transcript'; quote.onclick=()=>showMoment(stamp); box.append(quote); }
  return box;
 }
-async function saveMinutes() { detail=await api('/api/meetings/'+selected+'/edit',{minutes:detail.minutes}); dirtyNotes=false; lastFingerprint=JSON.stringify(detail); renderDetail(); }
+let notesBase=null;
+const NOTE_FIELDS=['summary','decisions','next_steps','needs_decision','tasks','open_questions','observations'];
+// Send only the sections that changed, with how they looked before. The server refuses a section that
+// someone else changed meanwhile, so an older copy never undoes newer changes.
+async function saveMinutes(base) {
+ const fields={}, before={};
+ for(const field of NOTE_FIELDS) if(JSON.stringify(detail.minutes[field]||[])!==JSON.stringify(base[field]||[])){fields[field]=detail.minutes[field]||[];before[field]=base[field]||[];}
+ if(Object.keys(fields).length) detail=await api('/api/meetings/'+selected+'/edit',{minutes_fields:fields,minutes_base:before,minutes_revision:detail.minutes_revision});
+ dirtyNotes=false; notesBase=null; lastFingerprint=JSON.stringify(detail); renderDetail();
+}
 function reviewBadge(item,busy) {
  const checked=item.review==='verified', badge=el('button','review-badge'+(checked?' verified':''),checked?'✓ Checked':'AI suggestion');
  badge.type='button'; badge.disabled=busy||notesEditing;
  badge.title=checked?'You checked this against the source. Click to undo.':'Not checked yet. Click after you check it against the source.';
- badge.onclick=()=>perform(async()=>{const previous=item.review;item.review=checked?'ai':'verified';try{await saveMinutes();}catch(e){item.review=previous;throw e;}});
+ badge.onclick=()=>perform(async()=>{const base=structuredClone(detail.minutes),previous=item.review;item.review=checked?'ai':'verified';try{await saveMinutes(base);}catch(e){item.review=previous;throw e;}});
  return badge;
 }
 function noteSection(minutes,field,title,busy,hint) {
@@ -823,7 +832,7 @@ async function refresh(changed) {
   if(view==='tasks') await loadTasks();
   if(view==='detail'&&selected&&!hasEdits()&&(!changed||changed.includes(selected))) {
    const fresh=await api('/api/meetings/'+selected); const fingerprint=JSON.stringify(fresh);
-   if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;renderDetail();}
+   if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;if(notesEditing)notesBase=structuredClone(fresh.minutes);renderDetail();}
   }
  } catch(e) { $('connection').textContent='Disconnected · reopen the launcher'; }
  finally { refreshing=false; if(refreshPending){const next=pendingChanged;refreshPending=false;pendingChanged=[];refresh(next);} }
@@ -888,9 +897,9 @@ $('pause').onclick=()=>perform(()=>api('/api/pause',{paused:state.active.status!
 for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
 $('edit-title').onclick=()=>perform(async()=>{const title=await ask('Meeting name',{value:detail.title,ok:'Rename'});if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
 $('save-transcript').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript});dirtyTranscript=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Transcript corrections saved');});
-$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());notesEditing=false;try{await saveMinutes();}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');});
+$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());notesEditing=false;try{await saveMinutes(notesBase);}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');});
 for(const name of ['notes','outcomes']) {
- $('edit-'+name).onclick=()=>{notesEditing=true;renderNotes(false);};
+ $('edit-'+name).onclick=()=>{notesBase=structuredClone(detail.minutes);notesEditing=true;renderNotes(false);};
  $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!(await ask('Discard your changes to the notes?',{ok:'Discard',danger:true})))return;notesEditing=false;await openMeeting(selected,true);});
 }
 $('reanalyze').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});

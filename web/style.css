@@ -112,3 +112,12 @@
 .item-history{margin-top:6px;font-size:12px;color:var(--muted)}.item-history summary{cursor:pointer;font-size:11px}.item-history ol{list-style:none;padding:0;margin:6px 0 0}.item-history li{display:flex;gap:10px;padding:3px 0}.history-date{flex:none;width:52px;font-variant-numeric:tabular-nums}
 .decision-status{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;background:var(--light);color:var(--muted)}.decision-status.accepted{background:#eaf3e6;color:var(--green)}.decision-status.proposed{background:#fbf4e6;color:#8a5a12}.decision-status.superseded{background:#f1f1ef;color:#888;text-decoration:line-through}
 .tracked-task.decision.superseded .tracked-text{color:var(--muted);text-decoration:line-through}.small-action{font-size:11px;padding:4px 10px}.said-here{margin:-4px 0 6px}.tracked-owner-input{max-width:200px;font-size:12px;padding:7px 9px}
+.project-filter{font-size:12px;padding:8px 9px;margin:0 0 8px;background:#ffffff94}
+.scope-select select{flex:1}.detail-scope{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 0}.scope-chip{padding:3px 8px;font-size:12px;font-weight:600;color:var(--green);background:var(--light);border-radius:7px}.scope-chip:hover{background:#dce7d8}
+#scope-dialog{width:min(520px,95vw)}#scope-dialog input{margin-top:8px}
+.prepare-scope{margin-bottom:18px}.scope-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.scope-row label{font-size:11px;color:var(--muted)}.scope-row select{margin-top:4px}
+#prepare-content .card{margin-bottom:18px}#prepare-content h2{font-size:17px;margin:0 0 6px}
+.agenda{margin:0;padding-left:22px}.agenda li{padding:8px 0;border-top:1px solid #edf0e9;font-size:14px}.agenda li:first-child{border-top:0}.agenda-title{font-weight:600}
+.prepare-question{padding:10px 0;border-top:1px solid var(--line)}.prepare-question p{margin:2px 0 4px;font-size:14px}.prepare-question.maybe-answered>p:first-of-type{color:var(--muted)}
+.project-entry{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0}.scope-entry{display:flex;align-items:center;gap:6px;padding:4px 0}.scope-entry>:first-child{flex:1}.scope-entry.series{padding-left:16px;font-size:13px}.scope-entry button{font-size:12px;padding:4px 8px}
+@media(max-width:720px){.scope-row{grid-template-columns:1fr}}

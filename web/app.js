@@ -14,8 +14,8 @@ function option(text, value) { const node = el('option', '', text); node.value =
 function withDate(title, value) { const day = date(value); return title.includes(day) ? title : title + ' · ' + day; }
 function time(seconds) { seconds=Math.max(0,Math.floor(seconds||0)); return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(x=>String(x).padStart(2,'0')).join(':'); }
 function date(value) { return new Date(value).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
-function error(message) { const target=$('settings-dialog').open?$('settings-error'):$('review-dialog').open?$('review-error'):$('error'); target.textContent=message; target.hidden=false; }
-function clearError() { $('error').hidden=true; $('settings-error').hidden=true; $('review-error').hidden=true; }
+function error(message) { const target=$('settings-dialog').open?$('settings-error'):$('review-dialog').open?$('review-error'):$('scope-dialog').open?$('scope-error'):$('error'); target.textContent=message; target.hidden=false; }
+function clearError() { $('error').hidden=true; $('settings-error').hidden=true; $('review-error').hidden=true; $('scope-error').hidden=true; }
 function toast(message) { $('toast').textContent=message; $('toast').hidden=false; setTimeout(()=>$('toast').hidden=true,3000); }
 function knownSpeaker(name) { const key=(name||'').trim().toLocaleLowerCase(); return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
 function speakerTone(name) { let hash=0; for(const c of name.toLocaleLowerCase()) hash=(hash*31+c.codePointAt(0))>>>0; return 'tone-'+(hash%8); }
@@ -53,15 +53,16 @@ async function api(path,body) {
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
 function hasEdits() { return dirtyTranscript || dirtyNotes; }
 function leaveEdits() { return !hasEdits() || window.confirm('Leave without saving your corrections?'); }
-function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); }
+function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); }
 function renderLibrary() {
  const query=$('search').value.toLocaleLowerCase();
  const meetings=state.meetings.filter(m=>!query||m.title.toLocaleLowerCase().includes(query));
  // Server searches transcript content on demand; retain the regular status snapshot.
- const rows=query && window.searchResults ? window.searchResults : meetings;
+ const filter=$('project-filter').value;
+ const rows=(query && window.searchResults ? window.searchResults : meetings).filter(m=>!filter||(filter==='__none__'?!m.project_id:m.project_id===filter));
  const signature=JSON.stringify([rows,selected,view]); if(signature===lastLibrary) return; lastLibrary=signature;
  $('library').replaceChildren();
- if(!rows.length) $('library').append(el('p','empty-library',query?'No matching meetings.':'Your meetings will appear here.'));
+ if(!rows.length) $('library').append(el('p','empty-library',query||filter?'No matching meetings.':'Your meetings will appear here.'));
  for(const m of rows) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',(m.title.includes(date(m.created))?'':date(m.created)+' · ')+(statusNames[m.status]||m.status))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
 }
 async function openMeeting(id,force=false) {
@@ -71,6 +72,7 @@ async function openMeeting(id,force=false) {
 }
 function renderState() {
  syncSpeakers();
+ syncProjects();
  const summary=state.task_summary||{open:0,overdue:0};
  // Mentions that wait for a choice come first; then late tasks, then open tasks.
  $('tasks-badge').hidden=!summary.open&&!summary.review; $('tasks-badge').classList.toggle('late',!summary.review&&summary.overdue>0); $('tasks-badge').classList.toggle('review',!!summary.review);
@@ -178,6 +180,7 @@ function renderDetail() {
  $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
  const sync=d.calendar_sync; $('calendar-status').hidden=!sync;$('calendar-status').replaceChildren();
  if(sync){$('calendar-status').append(el('span','',sync.status==='synced'?'Saved in Google Calendar':sync.status==='error'?'Calendar sync needs attention: '+sync.error:'Calendar sync pending…'));if(sync.status==='synced'&&sync.html_link){const url=new URL(sync.html_link);if(url.protocol==='https:'&&['www.google.com','calendar.google.com'].includes(url.hostname)){const link=el('a','',' Open event ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';$('calendar-status').append(link);}}}
+ renderScope(d);
  $('generate-title').disabled=busy||d.title_status==='generating'||(!d.transcript.length&&!d.live?.segments?.length);
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
  $('sync-calendar').textContent=sync?.status==='synced'?'Update calendar event':'Sync to Google Calendar';
@@ -480,7 +483,7 @@ $('backup-now').onclick=()=>perform(async()=>{const button=$('backup-now');butto
  try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+result.created.meetings+' meetings'+(result.skipped_active?' · the recording in progress was left out':'');}
  catch(e){$('backup-status').textContent='';throw e;}finally{button.disabled=false;}});
 function showSettingsTab(name) {
- settingsTab=name; if(name==='backup') perform(loadBackups);
+ settingsTab=name; if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings();
  for(const tab of document.querySelectorAll('.settings-tabs button')) { const yes=tab.dataset.tab===name; tab.classList.toggle('selected',yes); tab.setAttribute('aria-selected',String(yes)); }
  for(const panel of document.querySelectorAll('.settings-panel')) panel.hidden=panel.dataset.tab!==name;
  document.querySelector('.settings-body').scrollTop=0;
@@ -549,7 +552,7 @@ function historyBlock(item,meetings) {
  }
  box.append(list); return box;
 }
-async function refreshAfterItemChange() { lastTasks=''; if(view==='tasks') await loadTasks(); else if(view==='detail'&&selected) await openMeeting(selected,true); state=await api('/api/state'); renderState(); }
+async function refreshAfterItemChange() { lastTasks=''; if(view==='tasks') await loadTasks(); else if(view==='prepare') await loadPrepare(); else if(view==='detail'&&selected) await openMeeting(selected,true); state=await api('/api/state'); renderState(); }
 async function changeItem(item,changes) { await api('/api/items/'+item.id,{text:item.text,changes}); await refreshAfterItemChange(); }
 // A new mention that looks like an existing item: the person decides, nothing is linked before that.
 function linkCard(entry,meetings,itemsById) {
@@ -635,6 +638,98 @@ function renderTasks() {
  for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
 for(const button of document.querySelectorAll('[data-kind]')) button.onclick=()=>{itemKind=button.dataset.kind;renderTasks();};
+// Projects group meetings; a series groups the meetings that repeat inside a project.
+let lastProjects='', prepareScope={project:'',series:''}, prepareData=null;
+const projectList=()=>state?.projects?.projects||[];
+const seriesOf=projectId=>(state?.projects?.series||[]).filter(series=>series.project_id===projectId);
+function fillProjects(select,value,none,extra=[]) { select.replaceChildren(option(none,''),...projectList().map(p=>option(p.name,p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
+function fillSeries(select,projectId,value,none,extra=[]) { select.replaceChildren(option(none,''),...seriesOf(projectId).map(s=>option(s.name,s.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; select.disabled=!projectId&&!extra.length; }
+function syncProjects() {
+ const signature=JSON.stringify(state.projects); if(signature===lastProjects) return; lastProjects=signature;
+ fillProjects($('project-filter'),$('project-filter').value,'All projects',projectList().length?[option('No project','__none__')]:[]); $('project-filter').hidden=!projectList().length;
+ fillProjects($('record-project'),$('record-project').value,'No project'); fillSeries($('record-series'),$('record-project').value,$('record-series').value,'No series');
+ $('record-prepare').disabled=!$('record-project').value;
+ if($('settings-dialog').open) renderProjectSettings();
+ if(view==='detail'&&detail) renderScope(detail);
+}
+$('project-filter').onchange=()=>{lastLibrary='';renderLibrary();};
+$('record-project').onchange=()=>{fillSeries($('record-series'),$('record-project').value,'','No series');$('record-prepare').disabled=!$('record-project').value;};
+$('record-prepare').onclick=()=>perform(()=>openPrepare($('record-project').value,$('record-series').value));
+function renderScope(d) {
+ const box=$('detail-scope'), project=projectList().find(p=>p.id===d.project_id), series=seriesOf(d.project_id).find(s=>s.id===d.series_id); box.replaceChildren();
+ const edit=el('button','quiet scope-chip',project?project.name+(series?' · '+series.name:'')+' ✎':'＋ Add to a project'); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
+ if(project){const prepare=el('button','quiet scope-chip','Prepare the next meeting ›');prepare.type='button';prepare.onclick=()=>perform(()=>openPrepare(d.project_id,d.series_id||''));box.append(prepare);}
+}
+function syncScopeSeries(value) {
+ const project=$('scope-project').value; $('scope-project-name').hidden=project!=='__new__';
+ fillSeries($('scope-series'),project==='__new__'?null:project,value,'No series',project?[option('New series…','__new__')]:[]);
+ $('scope-series').disabled=!project; $('scope-series-name').hidden=$('scope-series').value!=='__new__';
+}
+function openScopeDialog(d) {
+ clearError(); fillProjects($('scope-project'),d.project_id,'No project',[option('New project…','__new__')]); syncScopeSeries(d.series_id);
+ $('scope-project-name').value=''; $('scope-series-name').value=''; $('scope-dialog').showModal();
+}
+$('scope-project').onchange=()=>{syncScopeSeries('');if($('scope-project').value==='__new__')$('scope-project-name').focus();};
+$('scope-series').onchange=()=>{$('scope-series-name').hidden=$('scope-series').value!=='__new__';if(!$('scope-series-name').hidden)$('scope-series-name').focus();};
+$('scope-close').onclick=()=>$('scope-dialog').close();
+$('scope-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+ const projectValue=$('scope-project').value, seriesValue=$('scope-series').value;
+ const project=!projectValue?null:projectValue==='__new__'?{name:$('scope-project-name').value}:{id:projectValue};
+ const series=!projectValue||!seriesValue?null:seriesValue==='__new__'?{name:$('scope-series-name').value}:{id:seriesValue};
+ detail=await api('/api/meetings/'+selected+'/scope',{project,series}); lastFingerprint=JSON.stringify(detail);
+ state=await api('/api/state'); $('scope-dialog').close(); renderState(); renderDetail(); lastLibrary=''; renderLibrary(); toast('Saved');});};
+function renderProjectSettings() {
+ const list=$('project-list'); list.replaceChildren();
+ if(!projectList().length) list.append(el('p','empty-content','No projects yet. Open a saved meeting and choose ＋ Add to a project.'));
+ const row=(kind,entry)=>{const line=el('div','scope-entry '+kind),rename=el('button','quiet','Rename'),remove=el('button','quiet danger-text','Delete');rename.type=remove.type='button';
+  line.append(el(kind==='projects'?'strong':'span','',entry.name),rename,remove);
+  const change=async body=>{state.projects=(await api('/api/projects/change',Object.assign({kind,id:entry.id},body))).projects;lastProjects='';syncProjects();renderProjectSettings();};
+  rename.onclick=()=>perform(async()=>{const name=prompt('New name',entry.name);if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
+  remove.onclick=()=>perform(async()=>{if(confirm('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.'))await change({action:'delete'});});
+  return line;};
+ for(const project of projectList()) { const box=el('div','project-entry'); box.append(row('projects',project),...seriesOf(project.id).map(series=>row('series',series))); list.append(box); }
+}
+function sourceChip(source) {
+ const chip=el('button','meeting-chip','↗ '+withDate(source.meeting_title,source.meeting_date)+(source.timestamp?' · '+source.timestamp:'')); chip.type='button'; chip.title='Open the meeting at this moment';
+ chip.onclick=()=>perform(async()=>{await openMeeting(source.meeting_id);if(source.timestamp&&detail.transcript.length)showMoment(source.timestamp);else switchTab('outcomes');});
+ return chip;
+}
+async function openPrepare(projectId,seriesId) {
+ if(!leaveEdits()) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('prepare');
+ prepareScope={project:projectId||prepareScope.project||projectList()[0]?.id||'',series:projectId?seriesId||'':prepareScope.series};
+ renderLibrary(); await loadPrepare();
+}
+async function loadPrepare() {
+ fillProjects($('prepare-project'),prepareScope.project,'Choose a project'); fillSeries($('prepare-series'),prepareScope.project,prepareScope.series,'All meetings of the project');
+ $('prepare-empty').hidden=!!projectList().length; $('prepare-content').hidden=true;
+ if(!prepareScope.project){$('prepare-summary').textContent='Choose a project or a series.';return;}
+ prepareData=await api('/api/prepare?'+new URLSearchParams(prepareScope.series?{series:prepareScope.series}:{project:prepareScope.project})); renderPrepare(prepareData);
+}
+$('prepare-project').onchange=()=>{prepareScope={project:$('prepare-project').value,series:''};perform(loadPrepare);};
+$('prepare-series').onchange=()=>{prepareScope.series=$('prepare-series').value;perform(loadPrepare);};
+$('open-prepare').onclick=()=>perform(()=>openPrepare());
+$('copy-agenda').onclick=()=>perform(async()=>{await navigator.clipboard.writeText(prepareData.markdown);toast('Agenda copied · paste it into the invitation or a chat');});
+function renderPrepare(data) {
+ const last=data.meetings.at(-1);
+ $('prepare-summary').textContent=data.meetings.length?data.title+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+' · no meetings yet';
+ $('prepare-content').hidden=!data.meetings.length;
+ const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source));return box;};
+ $('prepare-agenda').replaceChildren(...data.agenda.map(entry=>{const item=el('li');item.append(el('span','agenda-title',entry.title));if(entry.sources.length)item.append(sources(entry.sources));return item;}));
+ const today=state.task_summary?.today||new Date().toISOString().slice(0,10);
+ $('prepare-tasks').replaceChildren(...(data.tasks.length?data.tasks.map(task=>{
+  const [kind,label]=dueInfo(Object.assign({status:'open'},task),today), row=el('div','tracked-task '+kind), done=el('input'), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+  done.type='checkbox'; done.setAttribute('aria-label','Mark task as done'); done.onchange=()=>perform(()=>changeItem({id:task.item_id,text:task.text},{status:'done'}));
+  who.append(speakerBadge(el('span'),task.owner||''),el('span','',task.owner||'No owner')); meta.append(who,el('span','due-label '+kind,task.due_date?label+' · '+task.due_date:label));
+  if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
+  main.append(el('p','tracked-text',task.text),meta,sources([task.source])); row.append(done,main); return row;}):[el('p','empty-content','No open tasks.')]));
+ $('prepare-questions').replaceChildren(...(data.questions.length?data.questions.map(question=>{
+  const row=el('div','prepare-question'); row.append(el('span','change-kind',question.kind==='decide'?'Needs a decision':'Open question'),el('p','',question.text),sources([question.source]));
+  if(question.maybe_answered_by){row.classList.add('maybe-answered');row.append(el('p','hint','A later decision may answer it: '+question.maybe_answered_by.text),sources([question.maybe_answered_by.source]));}
+  return row;}):[el('p','empty-content','No open questions in the last meetings.')]));
+ $('prepare-decisions').replaceChildren(...(data.decisions.length?data.decisions.map(decision=>{const row=el('div','prepare-question');row.append(el('p','',decision.text),sources([decision.source]));return row;}):[el('p','empty-content','No accepted decisions yet. Accept decisions in Tasks & decisions.')]));
+ $('prepare-proposed').replaceChildren();
+ if(data.proposed.length){const box=el('details','item-history');box.append(el('summary','','Not confirmed yet · '+data.proposed.length));for(const decision of data.proposed){const row=el('div','prepare-question');row.append(el('p','',decision.text),sources([decision.source]));box.append(row);}$('prepare-proposed').append(box);}
+}
 async function poll() { try { state=await api('/api/state');renderState();if(!initialRouteHandled){initialRouteHandled=true;if(requestedMeeting&&/^[a-f0-9]{32}$/.test(requestedMeeting))await perform(()=>openMeeting(requestedMeeting,true));}if(view==='tasks') await loadTasks(); if(view==='detail'&&selected&&!hasEdits()) { const fresh=await api('/api/meetings/'+selected);const fingerprint=JSON.stringify(fresh);if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;renderDetail();} } }catch(e){$('connection').textContent='Disconnected · reopen the launcher';}finally{setTimeout(poll,1000);} }
 $('open-tasks').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
 $('open-analytics').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
@@ -645,7 +740,7 @@ $('new-meeting').onclick=()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value)});toast('Microphone test started · 10 seconds');});
-$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value)});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
+$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),project_id:$('record-project').value||null,series_id:$('record-series').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
 async function importTranscript(text,filename) {
  const d=await api('/api/import',{text,filename});
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;

@@ -21,6 +21,8 @@ from . import analytics as conversation
 from . import diarization
 from . import backup
 from . import items
+from . import briefing
+from .projects import Projects
 from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client
@@ -71,6 +73,7 @@ class MeetingService:
             if meeting.get('title_status') == 'generating':
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
+        self.projects = Projects(root / 'projects.json')
         self._sync_all_items()
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
@@ -150,7 +153,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=self.library.list(), active=active, google=self.google.status(),
-                speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(),
+                speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
@@ -224,7 +227,7 @@ class MeetingService:
                 raise
             return {'ok': True}
 
-    def start(self, title, mode, device):
+    def start(self, title, mode, device, project_id=None, series_id=None):
         if mode not in {'in_person', 'online'}:
             raise ValueError('Choose an in-person or online meeting')
         if not isinstance(title, str):
@@ -237,8 +240,13 @@ class MeetingService:
                 raise ValueError('A meeting is already recording')
             self._stop_preview()
             settings = dict(self.settings, models_dir=str(self.project / 'models'))
+            with self.projects.lock:
+                project_id = self.projects.ensure_project({'id': project_id} if project_id else None)
+                series_id = self.projects.ensure_series({'id': series_id} if series_id else None, project_id)
             # Missing credentials never prevent saving a recording.
             meeting = self.library.create(title, mode, settings)
+            if project_id:
+                meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id)
             self.active = meeting['id']
             self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
             self.start_thread.start()
@@ -662,6 +670,49 @@ class MeetingService:
             proposal.unlink()
             return self.detail(meeting_id)
 
+    def set_scope(self, meeting_id, project=None, series=None):
+        """Put a meeting into a project and, if it repeats, into a series. Names create new entries."""
+        with self.lock, self.projects.lock:
+            self.library.get(meeting_id)
+            project_id = self.projects.ensure_project(project)
+            series_id = self.projects.ensure_series(series, project_id)
+            self.projects.save()
+            self.library.update(meeting_id, project_id=project_id, series_id=series_id)
+            return self.detail(meeting_id)
+
+    def change_scope(self, kind, entry_id, action, name=None):
+        """Rename or delete a project or series. Deleting never deletes meetings."""
+        if kind not in {'projects', 'series'} or action not in {'rename', 'delete'}:
+            raise ValueError('Invalid change')
+        with self.lock, self.projects.lock:
+            if action == 'rename':
+                self.projects.rename(kind, entry_id, name)
+            else:
+                removed = self.projects.delete(kind, entry_id)
+                for meeting in self.library.list():
+                    if kind == 'projects' and meeting.get('project_id') == entry_id:
+                        self.library.update(meeting['id'], project_id=None, series_id=None)
+                    elif meeting.get('series_id') in removed:
+                        self.library.update(meeting['id'], series_id=None)
+            self.projects.save()
+            return dict(projects=self.projects.data)
+
+    def prepare(self, project_id=None, series_id=None):
+        """Open tasks, questions, decisions and an agenda for the next meeting of a project or series."""
+        with self.lock, self.projects.lock:
+            series = self.projects.get('series', series_id) if series_id else None
+            project = self.projects.get('projects', series['project_id'] if series else project_id)
+            if not project or series_id and not series:
+                raise ValueError('Choose a project or a series')
+            meetings = [m for m in self.library.list() if (m.get('series_id') == series_id if series else m.get('project_id') == project['id'])]
+            self._refresh_items()
+            with self.items.lock:
+                registry = list(self.items.items.values())
+            result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
+                                    {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
+                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''))
+            return dict(result, project_id=project['id'], series_id=series_id)
+
     def backups(self):
         return dict(folder=str(self.backup_dir), archives=backup.archives(self.backup_dir) if self.backup_dir.exists() else [])
 
@@ -673,13 +724,31 @@ class MeetingService:
         return dict(self.backups(), created=result, skipped_active=bool(skip))
 
     def restore_backup(self, name):
-        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library)
+        def merge(staging):
+            try:
+                with self.projects.lock:
+                    self.projects.merge(json.loads((staging / 'projects.json').read_text()))
+                    self.projects.save()
+            except (OSError, ValueError, AttributeError):
+                pass
+            try:
+                archived = json.loads((staging / 'items.json').read_text())['items']
+                with self.items.lock:
+                    # Items this library already has stay as they are; the archive adds the missing ones.
+                    for item_id, item in archived.items():
+                        self.items.items.setdefault(item_id, item)
+                    self.items.prune({m['id'] for m in self.library.list()})
+                    self.items.save()
+            except (OSError, ValueError, KeyError, AttributeError):
+                pass
+        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge)
         with self.lock:
             for meeting_id in result['restored']:
                 # A meeting archived during a job comes back as interrupted, like after a crash.
                 if self.library.get(meeting_id)['status'] in {'starting', 'recording', 'paused', 'stopping', 'processing'}:
                     self.library.update(meeting_id, status='interrupted', progress='Restored from an archive',
                                         error='This meeting was busy when it was archived. Use Recover / Retry.')
+            self._refresh_items()
         return dict(self.backups(), **result)
 
     def reveal_backup(self, name):

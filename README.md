@@ -316,6 +316,30 @@ Manage names in **Settings → Projects**; deleting a project or series never de
 Every line links to its meeting and moment. Prepare me uses saved notes, tasks, decisions and markers;
 it does not run the AI again. Projects and series are stored in `meetings/projects.json`.
 
+### Search and ask
+
+**⌕ Search & ask** (or press **Enter** in the sidebar search box) finds the **passage**, not only the meeting:
+transcript segments with speaker and time, statements in the notes, markers, meeting names, and tasks and
+decisions with their current status. Matches are highlighted, and each result opens its meeting at that moment.
+
+- Words also find their other forms: words of six letters or more match by their first five letters, so
+  "резервния" finds "резервен". Put "exact words" in quotes to find a phrase.
+- Filter by **Decisions**, **Tasks**, **Notes** or **Transcript**, and by project.
+- The index is `meetings/search.db` (SQLite FTS5). It updates itself on the next search after a meeting
+  changes. It is derived data: archives leave it out, and the app builds it again when it is missing.
+
+**Answer from sources** answers a question such as "Какво решихме за резервния интернет?":
+
+1. At once, without AI, it shows whether a **confirmed** (accepted) decision matches, and lists proposed
+   decisions that are not confirmed. If there is none, it says **No confirmed decision found**.
+2. Then the notes provider (**Settings → Notes & AI**) writes a short answer from the 12 best passages only.
+   It must cite them; an answer without valid citations is not shown. For a decision without a confirmed
+   source, the model starts with „Не намирам потвърдено решение.“
+
+A local model can take several minutes; the answer shows the time and a **Stop waiting** button. A local
+model server may still finish a request after you stop waiting, before it starts the next one.
+With "Local · Configured API" notes, the question and passages stay on this Mac.
+
 ### Known speakers
 
 The app keeps one list of known speakers for all meetings in `meetings/speakers.json`.

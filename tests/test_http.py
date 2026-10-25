@@ -29,10 +29,19 @@ class HTTPTests(unittest.TestCase):
         return status,result,response_headers
     def test_api_rejects_unauthenticated_requests(self):
         self.assertEqual(self.request('/api/state',headers={})[0],403)
-    def test_launch_token_redirects_to_clean_url(self):
+    def test_launch_token_sets_the_session_in_a_same_origin_step(self):
+        # A native window opens the launch URL from another origin; WebKit then drops a Strict cookie.
         status,body,headers=self.request('/?token='+self.server.token,headers={})
+        self.assertEqual(status,200);self.assertNotIn('Set-Cookie',headers)
+        self.assertIn(b'http-equiv="refresh" content="0;url=/session?token='+self.server.token.encode(),body)
+        status,body,headers=self.request('/session?token='+self.server.token,headers={})
         self.assertEqual(status,303);self.assertEqual(headers['Location'],'/')
         self.assertIn('HttpOnly',headers['Set-Cookie']);self.assertIn('SameSite=Strict',headers['Set-Cookie'])
+        for path in ['/session?token=wrong','/session','/?token=wrong']:
+            status,body,headers=self.request(path,headers={})
+            self.assertEqual(status,403);self.assertNotIn('Set-Cookie',headers)
+        status,_,headers=self.request('/session?token='+self.server.token,headers={'Host':'evil.example'})
+        self.assertEqual(status,403);self.assertNotIn('Set-Cookie',headers)
     def test_foreign_origin_cannot_change_settings(self):
         headers=dict(self.headers,Origin='https://example.com')
         self.assertEqual(self.request('/api/settings',{},headers)[0],403)

@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import secrets
 import signal
+import sys
 import threading
 from urllib.parse import urlsplit, parse_qs, quote, unquote
 import webbrowser
@@ -20,6 +21,9 @@ from app.service import MeetingService
 from app.google_calendar import CalendarError
 
 PROJECT = Path(__file__).resolve().parent
+if getattr(sys, 'frozen', False):
+    import os
+    os.environ['PATH'] = str(PROJECT / 'bin') + os.pathsep + os.environ.get('PATH', '')
 EXPORTS = {'recording.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
 
 
@@ -348,6 +352,8 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--library', type=Path, default=PROJECT / 'meetings')
     parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--desktop-control', action='store_true', help='Private stdin/stdout channel for the native window')
+    parser.add_argument('--models', type=Path, help='Writable model cache outside the application bundle')
     parser.add_argument('--backups', type=Path, help='Folder for library archives (default: ~/Documents/Meeting Assistant Backups)')
     args = parser.parse_args()
     # One process per library, including when an alternate port is requested.
@@ -357,29 +363,43 @@ def main():
     try:
         fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
+        if args.desktop_control:
+            raise SystemExit('This meeting library is already open. Quit the other copy first.')
         # A new start replaces the old copy so that code changes take effect.
         stop_running_copy(args.library / '.app.lock')
         fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
     service = MeetingService(args.library, PROJECT, backup_dir=args.backups)
+    if args.models:
+        service.models_dir = args.models
     server = Server(('127.0.0.1', args.port), service)
     url = f'{server.origin}/?token={server.token}'
     from app.storage import atomic_json
     atomic_json(args.library / '.running.json', {'url': url})
-    print(f'Meeting Assistant: {url}', flush=True)
-    if not args.no_browser:
-        webbrowser.open(url)
     def stop(signum, frame):
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
+    if args.desktop_control:
+        from app.desktop import ready, watch_parent
+        watch_parent(sys.stdin, lambda: stop(None, None))
+        ready(url)
+    else:
+        print(f'Meeting Assistant: {url}', flush=True)
+    if not args.no_browser and not args.desktop_control:
+        webbrowser.open(url)
     try:
         server.serve_forever()
     finally:
-        service.close()
+        service.close(finalize_recording=args.desktop_control)
         server.server_close()
         (args.library / '.running.json').unlink(missing_ok=True)
         lockfile.close()
 
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1:2] == ['--live-worker']:
+        from app.live import main as live_main
+        sys.argv.pop(1)
+        live_main()
+    else:
+        main()

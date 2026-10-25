@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bulgarian Meeting Assistant",
+  "version": "0.1.0",
+  "identifier": "eu.linkin.bulgarian-meeting-assistant",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "windows": [{ "label": "main", "title": "Meeting Assistant", "width": 1200, "height": 820, "minWidth": 800, "minHeight": 600 }],
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" }
+  },
+  "bundle": { "active": true, "targets": ["app", "dmg"], "icon": ["icons/icon.icns"], "macOS": { "minimumSystemVersion": "13.0", "signingIdentity": "-", "infoPlist": "Info.plist", "entitlements": "Entitlements.plist" } }
+}

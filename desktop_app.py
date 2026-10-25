@@ -24,7 +24,7 @@ PROJECT = Path(__file__).resolve().parent
 if getattr(sys, 'frozen', False):
     import os
     os.environ['PATH'] = str(PROJECT / 'bin') + os.pathsep + os.environ.get('PATH', '')
-EXPORTS = {'recording.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
+EXPORTS = {'recording.wav', 'transcription.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
 
 
 class Server(ThreadingHTTPServer):
@@ -163,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
         match = re.fullmatch(r'/files/([a-f0-9]{32})/([a-z.-]+)', url.path)
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
-            return self.serve_file(path, download=match[2] != 'recording.wav')
+            return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
         assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])

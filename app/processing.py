@@ -14,6 +14,7 @@ import wave
 from .storage import atomic_json
 from .model_cache import ensure_model, ensure_vad_model
 from . import whisper
+from . import audio_preparation
 
 
 def upload_audio(audio: bytes, key: str, model: str) -> dict:
@@ -71,8 +72,10 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             print_timestamps=False, no_context=True, suppress_blank=True,
             suppress_non_speech_tokens=True, temperature=0, n_threads=6, **options)
     segments = []
+    audio_path = directory / 'recording.wav'
     try:
-        with wave.open(str(directory / 'recording.wav'), 'rb') as source:
+        audio_path, preparation = audio_preparation.prepare(directory, settings.get('audio_preparation', 'off'), progress)
+        with wave.open(str(audio_path), 'rb') as source:
             rate = source.getframerate()
             total = source.getnframes()
             if (rate, source.getnchannels(), source.getsampwidth()) != (16000, 1, 2):
@@ -120,21 +123,29 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         if not segments:
             raise ValueError('No speech was recognized. The recording is saved; try another model or provider.')
         if archive(directory, ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json',
-                               'minutes.md', 'minutes.proposed.json', 'analytics.json', 'speaker-timeline.json']):
+                               'minutes.md', 'minutes.proposed.json', 'analytics.json', 'speaker-timeline.json',
+                               'transcription.wav', 'transcript.metadata.json']):
             # Previous notes and analytics no longer refer to the current transcription.
             # The kept Whisper text belongs to the old transcription.
             for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:
                 (directory / name).unlink(missing_ok=True)
         save_transcript(directory, segments)
+        if preparation['profile'] == 'light':
+            os.replace(audio_path, directory / 'transcription.wav')
+        else:
+            (directory / 'transcription.wav').unlink(missing_ok=True)
         metadata = dict(provider=provider,
             model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
-            timestamps='segment' if provider == 'local' else 'approximate chunk boundaries')
+            timestamps='segment' if provider == 'local' else 'approximate chunk boundaries',
+            audio_preparation=preparation)
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None)
             if isinstance(vad, str):
                 metadata['vad_error'] = vad
         atomic_json(directory / 'transcript.metadata.json', metadata)
     finally:
+        if audio_path != directory / 'recording.wav':
+            audio_path.unlink(missing_ok=True)
         del model
         gc.collect()
 

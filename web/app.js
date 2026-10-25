@@ -93,6 +93,8 @@ function renderState() {
  lastGoogleConnected=!!state.google?.connected;
  if(state.active) {
   const a=state.active; $('recording-title').textContent=a.title; $('recording-mode').textContent=a.mode==='online'?'ONLINE · MAC AUDIO + MICROPHONE':'IN PERSON · MICROPHONE';
+  // A state snapshot can be older than the last live event; the timer never goes back.
+  if(lastLive?.meeting_id===a.id){a.duration=Math.max(a.duration||0,lastLive.duration);a.level=lastLive.level;}
   $('recording-status').textContent=statusNames[a.status]||a.status; $('timer').textContent=time(a.duration); $('recording-meter').value=a.level||0;
   const enabled=['recording','paused'].includes(a.status); $('pause').disabled=$('stop').disabled=!enabled;
   $('pause').textContent=a.status==='paused'?'▶ Resume':'Ⅱ Pause'; $('recording-indicator').classList.toggle('paused',a.status!=='recording');
@@ -798,7 +800,43 @@ $('find-ask').onclick=()=>perform(runAsk);
 $('find-project').onchange=()=>perform(runFind);
 $('open-find').onclick=()=>openFind();
 $('search').onkeydown=event=>{if(event.key==='Enter'&&$('search').value.trim()){event.preventDefault();openFind($('search').value.trim());}};
-async function poll() { try { state=await api('/api/state');renderState();if(!initialRouteHandled){initialRouteHandled=true;if(requestedMeeting&&/^[a-f0-9]{32}$/.test(requestedMeeting))await perform(()=>openMeeting(requestedMeeting,true));}if(view==='tasks') await loadTasks(); if(view==='detail'&&selected&&!hasEdits()) { const fresh=await api('/api/meetings/'+selected);const fingerprint=JSON.stringify(fresh);if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;renderDetail();} } }catch(e){$('connection').textContent='Disconnected · reopen the launcher';}finally{setTimeout(poll,1000);} }
+// The server says when something changed; the tab loads data only then, and not at all while it is hidden.
+let events=null, refreshing=false, refreshPending=false, pendingChanged=[];
+// changed is the list of meetings that changed, or null for "anything may have changed".
+async function refresh(changed) {
+ if(refreshing){refreshPending=true;pendingChanged=pendingChanged===null||changed===null?null:[...pendingChanged,...changed];return;}
+ refreshing=true;
+ try {
+  state=await api('/api/state'); renderState();
+  if(!initialRouteHandled){initialRouteHandled=true;if(requestedMeeting&&/^[a-f0-9]{32}$/.test(requestedMeeting))await perform(()=>openMeeting(requestedMeeting,true));}
+  if(view==='tasks') await loadTasks();
+  if(view==='detail'&&selected&&!hasEdits()&&(!changed||changed.includes(selected))) {
+   const fresh=await api('/api/meetings/'+selected); const fingerprint=JSON.stringify(fresh);
+   if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;renderDetail();}
+  }
+ } catch(e) { $('connection').textContent='Disconnected · reopen the launcher'; }
+ finally { refreshing=false; if(refreshPending){const next=pendingChanged;refreshPending=false;pendingChanged=[];refresh(next);} }
+}
+let lastLive=null;
+function showLive(values) {
+ if(values.preview_level!==undefined){$('setup-meter').value=values.preview_level;return;}
+ lastLive=values;
+ if(!state?.active||state.active.id!==values.meeting_id) return;
+ state.active.duration=Math.max(state.active.duration||0,values.duration); state.active.level=values.level;
+ $('timer').textContent=time(state.active.duration); $('recording-meter').value=values.level||0;
+}
+function listen() {
+ if(events||document.hidden) return;
+ events=new EventSource('/api/events');
+ events.addEventListener('hello',()=>refresh(null));
+ events.addEventListener('state',event=>refresh(JSON.parse(event.data).changed));
+ events.addEventListener('live',event=>showLive(JSON.parse(event.data)));
+ events.onerror=()=>{ $('connection').textContent='Disconnected · reopen the launcher'; };
+}
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){events?.close();events=null;} else listen(); });
+// The microphone list is scanned only while the new-meeting form is visible.
+setInterval(()=>{ if(view!=='setup'||document.hidden||!state) return;
+ api('/api/devices').then(result=>{if(JSON.stringify(result.devices)!==JSON.stringify(state.devices)||result.device_error!==state.device_error){state.devices=result.devices;state.device_error=result.device_error;renderState();}}).catch(()=>{}); },3000);
 $('open-tasks').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
 $('open-analytics').onclick=()=>perform(async()=>{if(!leaveEdits())return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
@@ -894,6 +932,6 @@ $('generate-title').onclick=()=>perform(async()=>{await api('/api/meetings/'+sel
 $('sync-calendar').onclick=()=>perform(async()=>{await api('/api/meetings/'+selected+'/calendar',{});toast('Calendar sync queued');await openMeeting(selected,true);});
 $('forget-key').onclick=()=>perform(async()=>{await api('/api/settings',{api_key:''});state.api_key_configured=false;$('key-state').textContent='';$('forget-key').disabled=true;toast('API key removed from app memory');});
 window.addEventListener('beforeunload',event=>{if(state?.active||hasEdits()){event.preventDefault();event.returnValue='';}});
-poll();
+listen();
 
 $('load-local-models').onclick=()=>perform(async()=>{const button=$('load-local-models');button.disabled=true;$('local-ai-status').textContent='Connecting…';try{const result=await api('/api/local-ai/models',{base_url:$('local-ai-base-url').value.trim()});$('local-ai-models').replaceChildren(...result.models.map(id=>{const option=document.createElement('option');option.value=id;return option;}));$('local-ai-status').textContent=result.models.length+' models available. Choose a text/chat model above; embedding models cannot generate notes.';if(result.models.length===1)$('local-ai-model').value=result.models[0];}catch(error){$('local-ai-status').textContent='Could not load models. Check the endpoint and server.';throw error;}finally{button.disabled=false;}});

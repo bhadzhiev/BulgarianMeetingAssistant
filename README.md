@@ -29,6 +29,12 @@ interface stay in process memory, are never returned by the API or stored in mee
 and can be forgotten in Settings. A key supplied in the environment is loaded again on restart.
 Do not share the launch URL: it grants access to this local app session.
 
+The tab does not ask the app for news every second. It keeps one connection (server-sent events), and the
+app tells it when a meeting, the notes or the settings change; only then does the tab load data. During a
+recording or a microphone test, the timer and the level arrive on the same connection. A hidden tab closes
+the connection and loads the current state when you show it again. The microphone list is scanned only
+while the new-meeting form is open.
+
 ## Record an in-person meeting
 
 1. Connect your iPhone as a macOS input device, or use the Mac microphone.

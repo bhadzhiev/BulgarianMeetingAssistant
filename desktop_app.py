@@ -115,6 +115,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
         if url.path == '/api/backups':
             return self.respond(200, self.server.service.backups())
+        if url.path == '/api/events':
+            return self.stream_events()
+        if url.path == '/api/devices':
+            return self.respond(200, self.server.service.input_devices())
         if url.path == '/api/find':
             query = parse_qs(url.query)
             value = lambda name: query.get(name, [''])[0]
@@ -151,6 +155,19 @@ class Handler(BaseHTTPRequestHandler):
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
+
+    def stream_events(self):
+        """Server-sent events: the tab keeps one connection and reloads only after a change."""
+        self.send_response(200)
+        self.headers_common()
+        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+        self.end_headers()
+        try:
+            for event, data in self.server.service.watcher.events():
+                self.wfile.write(f'event: {event}\ndata: {json.dumps(data)}\n\n'.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the tab closed or hid itself
 
     def serve_file(self, path, download=False):
         if not path.is_file() or path.is_symlink():

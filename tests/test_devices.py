@@ -31,10 +31,11 @@ class DeviceTests(unittest.TestCase):
             try:
                 with patch('app.service.devices', return_value=[]) as listed:
                     service.preview = object()
-                    service.snapshot()
+                    service.input_devices()
                     service.preview = None
+                    service.input_devices()
                     service.snapshot()
-                self.assertEqual([c.kwargs['rescan'] for c in listed.call_args_list], [False, True])
+                self.assertEqual([c.kwargs.get('rescan', False) for c in listed.call_args_list], [False, True, False])
                 renumbered = [dict(id=0, name='MacBook Air Microphone', rate=48000), dict(id=1, name='iPhone Microphone', rate=48000)]
                 with patch('app.service.devices', return_value=renumbered):
                     self.assertEqual(service._input_device(2, 'iPhone Microphone'), 1)

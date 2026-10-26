@@ -100,9 +100,24 @@ class ChatSync:
         return dict(connected=bool(google.get('capabilities',{}).get('chat') and account),account=google.get('account',''),
                     account_id=account,cached_accounts=accounts,states=states,job=job)
     def spaces(self):
+        """Known conversations with their cached participants and latest activity, newest first."""
         account=self._account()
         with closing(self.connect()) as db:
-            return [json.loads(row[0]) for row in db.execute('SELECT document FROM spaces WHERE account=? ORDER BY name',(account,))]
+            spaces=[json.loads(row[0]) for row in db.execute('SELECT document FROM spaces WHERE account=? ORDER BY name',(account,))]
+            stats={row[0]:dict(count=row[1],last=row[2]) for row in db.execute('SELECT space,count(*),max(date) FROM messages WHERE account=? GROUP BY space',(account,))}
+            people={}
+            for space,sender,count in db.execute("SELECT space,json_extract(summary,'$.sender'),count(*) FROM messages WHERE account=? GROUP BY space,2 ORDER BY 3 DESC",(account,)):
+                people.setdefault(space,[]).append(sender)
+        for space in spaces:
+            space.update(count=stats.get(space['name'],{}).get('count',0),last=stats.get(space['name'],{}).get('last') or 0,participants=people.get(space['name'],[]))
+        return sorted(spaces,key=lambda s:(-s['last'],s['label'].casefold()))
+    def conversation(self,space):
+        """The cached messages of one conversation in reading order, with their full text."""
+        if not isinstance(space,str) or not SPACE.fullmatch(space):raise ValueError('Invalid Chat space')
+        account=self._account()
+        with closing(self.connect()) as db:
+            rows=db.execute('SELECT document FROM messages WHERE account=? AND space=? ORDER BY date DESC LIMIT ?',(account,space,MAX_MESSAGES)).fetchall()
+        return [json.loads(row[0]) for row in reversed(rows)]
     def messages(self,space):
         if not isinstance(space,str) or not SPACE.fullmatch(space):raise ValueError('Invalid Chat space')
         account=self._account()

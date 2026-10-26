@@ -64,13 +64,13 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
                     if !active {
                         if let Some(window) = control_app.get_webview_window("main") {
                             let _ = window.request_user_attention(None);
-                            if !control_state.quitting.load(Ordering::SeqCst) { let _ = window.set_title("Meeting Assistant"); }
+                            if !control_state.quitting.load(Ordering::SeqCst) { let _ = window.set_title("Atlanta"); }
                         }
                     }
                 } else if value["event"] == "microphone" {
                     if let Some(window) = control_app.get_webview_window("main") {
                         let missing = value["missing"].as_bool().unwrap_or(false);
-                        let _ = window.set_title(if missing { "Microphone unavailable — recording has gaps" } else { "Meeting Assistant" });
+                        let _ = window.set_title(if missing { "Microphone unavailable — recording has gaps" } else { "Atlanta" });
                         let _ = window.request_user_attention(if missing { Some(tauri::UserAttentionType::Critical) } else { None });
                     }
                 }
@@ -85,7 +85,7 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
     if !state.quitting.load(Ordering::SeqCst) {
         let window = app.get_webview_window("main").ok_or("Window closed")?;
         window.navigate(url).map_err(|e| e.to_string())?;
-        let _ = window.set_title("Meeting Assistant");
+        let _ = window.set_title("Atlanta");
     }
     thread::spawn(move || {
         while !state.quitting.load(Ordering::SeqCst) {
@@ -139,7 +139,7 @@ fn main() {
             if let Some(app_menu) = menu.items()?.first().and_then(|item| item.as_submenu()) {
                 let last = app_menu.items()?.len().saturating_sub(1);
                 app_menu.remove_at(last)?;
-                app_menu.append(&MenuItem::with_id(app, "safe-quit", "Quit Meeting Assistant", true, Some("Cmd+Q"))?)?;
+                app_menu.append(&MenuItem::with_id(app, "safe-quit", "Quit Atlanta", true, Some("Cmd+Q"))?)?;
             }
             Ok(menu)
         })

@@ -1,5 +1,6 @@
 """One explicitly approved message per isolated, cancellable AI job."""
 import copy
+import re
 from pathlib import Path
 import secrets
 import tempfile
@@ -10,7 +11,7 @@ from .local_ai import complete_json, validate_base_url
 from .work_graph import WorkGraph, digest, proposal_fields
 from .work_items import WorkItemConflict, canonical
 
-VERSION = 1
+VERSION = 2
 MAX_INPUT = 20000
 TARGET_FIELDS = ('local_ai_base_url', 'local_ai_model', 'local_ai_format', 'local_ai_max_tokens', 'local_ai_reasoning')
 SCHEMA = dict(type='object', additionalProperties=False, required=['tasks'], properties=dict(tasks=dict(type='array',maxItems=20,
@@ -81,6 +82,11 @@ class GmailAI:
     def _target(self):
         target = {key:self.service.settings[key] for key in TARGET_FIELDS}
         target['local_ai_base_url'] = validate_base_url(target['local_ai_base_url'])
+        # Resolve Automatic before preview/consent, so the approved target is the
+        # exact request. Explicit Server default/Low/Medium/High remain unchanged.
+        if (target['local_ai_reasoning'] == 'default'
+                and re.search(r'(?:^|/)qwen3\.5(?:-|$)', target['local_ai_model'], re.I)):
+            target['local_ai_reasoning'] = 'none'
         return target
 
     def _preview(self, key, revision, message_id):
@@ -105,7 +111,8 @@ class GmailAI:
         with self.service.lock,self.service.items.lock:
             data = self._preview(key,revision,message_id)
             return dict(preview_token=data['token'],endpoint=data['target']['local_ai_base_url'],model=data['target']['local_ai_model'],
-                        account=data['account'],subject=data['message']['subject'],characters=len(canonical(data['message'])),cached=bool(self._completed(data['token'])))
+                        account=data['account'],subject=data['message']['subject'],characters=len(canonical(data['message'])),reasoning=data['target']['local_ai_reasoning'],
+                        max_tokens=data['target']['local_ai_max_tokens'],cached=bool(self._completed(data['token'])))
 
     def _completed(self, token):
         return next((event for event in self.service.items.data.get('activity',{}).values()
@@ -123,7 +130,8 @@ class GmailAI:
                 raise WorkItemConflict('The message or AI settings changed. Preview and approve again.')
             completed = self._completed(data['token'])
             if completed:
-                self.job=dict(running=False,status='reused',error=None,proposal_ids=completed['proposal_ids'])
+                self.job=dict(running=False,status='reused',error=None,proposal_ids=completed['proposal_ids'],
+                              job_id=data['token'],thread_id=key,message_id=message_id)
                 return self.status()
             graph=WorkGraph(self.service.items)
             pinned=graph.ingest(dict(provider='gmail',account=data['account'],external_id=key,
@@ -132,7 +140,8 @@ class GmailAI:
             consent=dict(job_id=run['job_id'],message_id=message_id,target=data['target'],revision=pinned['source_revision'])
             graph.ai_consent(pinned['source_id'],pinned['source_revision'],consent)
             self.cancel.clear()
-            self.job=dict(running=True,status='queued',error=None,endpoint=data['target']['local_ai_base_url'],model=data['target']['local_ai_model'])
+            self.job=dict(running=True,status='queued',error=None,endpoint=data['target']['local_ai_base_url'],model=data['target']['local_ai_model'],
+                          job_id=run['job_id'],thread_id=key,message_id=message_id)
             self.thread=threading.Thread(target=self._run,args=(run,),name='gmail-ai',daemon=True)
             self.thread.start()
             return self.status()
@@ -184,10 +193,18 @@ class GmailAI:
         except JobCancelled:
             with self.lock: self.job.update(running=False,status='cancelled; preview and approve again to retry',error=None)
         except Exception as exc:
-            error = ('Email AI output reached its limit. Increase the output limit or reduce reasoning in Settings, or use a manual proposal.'
-                     if str(exc).startswith('The model output was truncated.') else
-                     'Email AI analysis failed. Check the endpoint/model or use a shorter message. No automatic task acceptance occurred.')
-            with self.lock: self.job.update(running=False,status='error',error=error)
+            # Classify fixed error prefixes; never expose or log email/model text.
+            message = str(exc)
+            code, error = 'analysis_failed', 'Email AI analysis failed. Check the endpoint/model or use a shorter message. No automatic task acceptance occurred.'
+            if message.startswith('The model output was truncated.'):
+                code, error = 'output_limit', 'Email AI reached its output limit. Use Reasoning Off or increase the output limit in Settings, then preview and approve again.'
+            elif message.startswith('Local AI request failed.'):
+                code, error = 'endpoint_failed', 'The AI endpoint did not complete the request. Check that the selected model is loaded, the server is reachable and the response format is supported, then preview and approve again.'
+            elif message.startswith(('AI quote does not occur', 'Invalid extracted', 'Invalid email extraction', 'Invalid extracted task', 'Extracted ', 'due_date', 'Owner', 'Deadline')):
+                code, error = 'invalid_evidence', 'The AI result did not pass source-quote or task validation. No suggestions were saved. Try a different model or make a manual suggestion.'
+            elif message.startswith(('The model returned no text', 'The model must return', 'The AI endpoint returned', 'Could not extract', 'Expecting ')):
+                code, error = 'invalid_output', 'The AI returned an empty or invalid JSON answer. Check the response format or try another model; no suggestions were saved.'
+            with self.lock: self.job.update(running=False,status='error',error=error,error_code=code)
         finally:
             with self.service.lock,self.service.items.lock:
                 source=self.service.items.data.get('sources',{}).get(run['source_id'],{})

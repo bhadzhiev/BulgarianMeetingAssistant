@@ -21,6 +21,9 @@ LOGIN=re.compile(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}')
 REPO=re.compile(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}')
 FILTERS={'all':'','assigned':'assignee','created':'author','mentioned':'mentions'}
 PAGE_SIZE,MAX_ITEMS=20,200
+# The open-item overview reads GET /issues, which spans every repository that the token can read.
+OVERVIEW_PAGE_SIZE,OVERVIEW_MAX=100,300
+OVERVIEW_FILTERS={'all':'all','assigned':'assigned','created':'created','mentioned':'mentioned'}
 
 
 class GitHubError(RuntimeError):pass
@@ -90,7 +93,7 @@ class GitHubConnection:
             self.store.delete();self.bundle={};self.loaded=True;self.configured=False;self.path.unlink(missing_ok=True)
         return self.status()
     def get(self,resource,query=None,expected_account=None):
-        allowed=resource in {'/user','/search/issues'}
+        allowed=resource in {'/user','/issues','/search/issues'}
         if not allowed:
             match=re.fullmatch(r'/repos/([^/]+/[^/]+)(?:/(issues|pulls)/([1-9][0-9]*))?',resource)
             if not match:raise ValueError('Unsupported GitHub read endpoint')
@@ -163,8 +166,8 @@ class GitHubSync:
     def _save(self,account,repo,role,state,record=None):
         with closing(self.db()) as db,db:
             if record:
-                summary={k:record[k] for k in ('issue_id','repository_id','repository','number','kind','title','state','url','available','revision','fetched_at','assigned','created')}
-                db.execute('INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?,?,?)',(account,record['issue_id'],repo,record['kind'],record['number'],canonical(summary),canonical(record)))
+                summary={k:record.get(k) for k in ('issue_id','repository_id','repository','number','kind','title','state','url','available','revision','fetched_at','assigned','created','updated')}
+                db.execute('INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?,?,?)',(account,record['issue_id'],record['repository_id'],record['kind'],record['number'],canonical(summary),canonical(record)))
                 if state.get('generation'):db.execute('INSERT OR REPLACE INTO matches VALUES (?,?,?,?,?)',(account,repo,role,record['issue_id'],state['generation']))
             if role:db.execute('INSERT OR REPLACE INTO state VALUES (?,?,?,?)',(account,repo,role,canonical(state)))
     def status(self):
@@ -177,7 +180,8 @@ class GitHubSync:
         return dict(connection=connection,job=job,states=states,cached_accounts=accounts)
     def repos(self):
         account=self._account()
-        with closing(self.db()) as db:return [json.loads(row[0]) for row in db.execute('SELECT document FROM repos WHERE account=?',(account,))]
+        with closing(self.db()) as db:repos=[json.loads(row[0]) for row in db.execute('SELECT document FROM repos WHERE account=?',(account,))]
+        return sorted(repos,key=lambda r:r['full_name'].casefold())
     def listing(self,repo,role='all',kind='all'):
         if type(repo) is not int or repo<=0 or role not in FILTERS or kind not in {'all','issue','pull_request'}:raise ValueError('Invalid GitHub view')
         account=self._account();state=self._state(account,repo,role)
@@ -186,6 +190,63 @@ class GitHubSync:
                 (account,repo,role,state.get('generation',''))).fetchall()
         records=[json.loads(row[0]) for row in rows]
         return [r for r in records if (kind=='all' or r['kind']==kind) and (role!='assigned' or r['assigned']) and (role!='created' or r['created'])]
+    def overview(self,role='all',kind='all'):
+        """Open issues and pull requests from the last overview sync of this filter, newest change first."""
+        if role not in OVERVIEW_FILTERS or kind not in {'all','issue','pull_request'}:raise ValueError('Invalid GitHub view')
+        account=self._account();state=self._state(account,0,'open:'+role)
+        with closing(self.db()) as db:
+            rows=db.execute("SELECT o.summary FROM objects o JOIN matches m ON o.account=m.account AND o.id=m.id WHERE m.account=? AND m.repo=0 AND m.filter=? AND (? OR m.generation=?) ORDER BY json_extract(o.summary,'$.updated') DESC LIMIT ?",
+                (account,'open:'+role,not state.get('complete',False),state.get('generation',''),OVERVIEW_MAX)).fetchall()
+        records=[json.loads(row[0]) for row in rows]
+        return dict(items=[r for r in records if kind=='all' or r['kind']==kind],state={k:v for k,v in state.items() if k not in {'generation','pending','has_next'}})
+    def start_overview(self,role='all'):
+        if role not in OVERVIEW_FILTERS:raise ValueError('Invalid GitHub filter')
+        account=self._account()
+        with self.lock:
+            if self.thread and self.thread.is_alive():raise ValueError('A GitHub sync is already running')
+            if self.priority():raise ValueError('Stop recording/processing before syncing GitHub')
+            self.cancel.clear();self.job=dict(running=True,status='syncing',error=None)
+            self.thread=threading.Thread(target=self._run_overview,args=(account,role),daemon=True);self.thread.start()
+        return self.status()
+    def _run_overview(self,account,role):
+        try:
+            user=self._get(account,'/user')['data']
+            if str(user.get('id'))!=account or not LOGIN.fullmatch(user.get('login','')):raise GitHubError('GitHub user identity changed. Reconnect.')
+            with closing(self.db()) as db,db:db.execute('INSERT OR REPLACE INTO accounts VALUES (?,?)',(account,user['login']))
+            key='open:'+role;state=self._state(account,0,key)
+            if not state or state.get('complete') or 'page' not in state or state.get('login')!=user['login']:
+                state=dict(generation=uuid.uuid4().hex,complete=False,count=0,login=user['login'],page=1,pending=[],last_sync=state.get('last_sync'))
+                self._save(account,0,key,state)
+            while True:
+                if not state.get('pending') and 'has_next' not in state:
+                    result=self._get(account,'/issues',dict(filter=OVERVIEW_FILTERS[role],state='open',sort='updated',direction='desc',per_page=OVERVIEW_PAGE_SIZE,page=state['page']))
+                    rows=result['data']
+                    if not isinstance(rows,list) or len(rows)>OVERVIEW_PAGE_SIZE:raise ValueError('Invalid GitHub issue page')
+                    remaining=max(0,OVERVIEW_MAX-state['count'])
+                    state.update(pending=rows[:remaining],has_next=bool(result.get('has_next') or len(rows)>remaining))
+                    self._save(account,0,key,state)
+                for row in list(state['pending']):
+                    repository=row.get('repository')
+                    if not isinstance(repository,dict) or type(repository.get('id')) is not int or repository['id']<=0:raise ValueError('GitHub issue has no repository')
+                    repo=dict(id=repository['id'],full_name=repo_name(repository.get('full_name')))
+                    with closing(self.db()) as db,db:db.execute('INSERT OR REPLACE INTO repos VALUES (?,?,?)',(account,repo['id'],canonical(repo)))
+                    pull=self._get(account,f'/repos/{repo["full_name"]}/pulls/{row.get("number")}')['data'] if 'pull_request' in row else None
+                    record=item_record(row,repo,account,pull)
+                    with self.lock:
+                        self._check(account);self.on_item(account,record)
+                        state['pending'].pop(0);state['count']+=1
+                        # Source callbacks are idempotent; record, matches and remaining queue share this commit.
+                        self._save(account,0,key,state,record)
+                more=state.pop('has_next',False)
+                state.update(page=state['page']+1,complete=not more or state['count']>=OVERVIEW_MAX,
+                             limited=bool(more and state['count']>=OVERVIEW_MAX),last_sync=time.time())
+                self._save(account,0,key,state)
+                if state['complete']:break
+            with self.lock:self.job=dict(running=False,status='synced',error=None)
+        except InterruptedError as exc:
+            with self.lock:self.job=dict(running=False,status=str(exc),error=None)
+        except Exception as exc:
+            with self.lock:self.job=dict(running=False,status='error',error=str(exc) if isinstance(exc,GitHubError) else 'GitHub data could not be processed. Retry the sync.')
     def detail(self,key,expected_account=None):
         if type(key) is not int or key<=0:raise ValueError('Invalid GitHub object ID')
         account=self._account()

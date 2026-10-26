@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meeting Assistant</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
 <body>
 <aside class="sidebar">
-  <a class="brand" href="/" aria-label="Meeting Assistant home"><span class="brand-icon">м</span><span>Meeting<br><strong>Assistant</strong></span></a>
-  <button id="new-meeting" class="primary wide">＋ New meeting</button>
-  <button id="open-tasks" class="secondary wide tasks-link">✓ My Work <span id="tasks-badge" class="count-badge" hidden></span></button>
-  <button id="open-analytics" class="secondary wide tasks-link">▥ Conversation analytics</button>
-  <button id="open-prepare" class="secondary wide tasks-link">☰ Prepare me</button>
-  <button id="open-find" class="secondary wide tasks-link">⌕ Search &amp; ask</button>
+  <a class="brand" href="/" aria-label="Atlanta home"><span class="brand-icon">A</span><span><strong>Atlanta</strong><small>MEETING ASSISTANT</small></span></a>
+  <button id="new-meeting" class="primary wide"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New meeting</button>
+  <button id="open-tasks" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10"/></svg>My Work <span id="tasks-badge" class="count-badge" hidden></span></button>
+  <button id="open-analytics" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>Conversation analytics</button>
+  <button id="open-prepare" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8M6 8h12a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM9 13h6M9 16h4"/></svg>Prepare me</button>
+  <button id="open-find" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Search &amp; ask</button>
   <label class="search-label" for="search">YOUR MEETINGS</label>
   <select id="project-filter" class="project-filter" aria-label="Show the meetings of a project"></select>
   <input id="search" type="search" placeholder="Search title or transcript…" aria-label="Search meetings">
@@ -16,7 +16,7 @@
   <footer><span class="dot"></span> Saved on this Mac<button id="settings-open" class="quiet">Settings ↗</button></footer>
 </aside>
 <main>
-  <div class="topbar"><span>YOUR MEETING WORKSPACE</span><span id="connection">Connecting…</span></div>
+  <div class="topbar"><span>ATLANTA · YOUR MEETING WORKSPACE</span><span id="connection">Connecting…</span></div>
   <div id="error" class="error" role="alert" hidden></div>
   <section id="setup">
     <div class="heading"><p class="eyebrow">LESS NOTE-TAKING. MORE LISTENING.</p><h1>Be in the conversation.</h1><p class="subheading">Record your meeting. Come back to the details.</p></div>
@@ -58,31 +58,81 @@
   </section>
   <section id="tasks" hidden>
     <div class="heading"><p class="eyebrow">MY WORK · MEETINGS</p><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>
-    <label for="work-project">Project</label><select id="work-project"><option value="">All projects</option></select>
-    <div class="segmented kind-switch" role="group" aria-label="Show tasks or decisions"><button type="button" data-kind="task" class="selected">Tasks</button><button type="button" data-kind="decision">Decisions</button></div>
-    <details class="card work-section" id="gmail-panel"><summary>Gmail · read-only</summary>
-<p class="hint">Recent Inbox/Sent threads, last 30 days, up to 200 initially. Message text stays on this Mac unless you approve AI analysis of a selected message. The configured AI endpoint may be remote. No email writes. Needs reply and Waiting for follow the last message direction, not a confirmed commitment.</p>
-<p id="gmail-status" class="hint" role="status"></p><div class="work-actions"><button id="gmail-connect" class="secondary" type="button">Connect Gmail read-only</button><button id="gmail-refresh" class="secondary" type="button">Refresh connection</button><button id="gmail-sync" class="primary" type="button">Sync / Continue</button><button id="gmail-cancel" class="quiet" type="button">Cancel sync</button></div><a id="gmail-auth-link" hidden target="_blank" rel="noopener noreferrer">Continue Google sign-in ↗</a>
-<p id="gmail-ai-status" class="hint" role="status"></p><button id="gmail-ai-cancel" class="quiet" type="button" disabled>Cancel email AI analysis</button>
-<div id="gmail-filters" class="segmented"></div><div id="gmail-threads"></div><div id="gmail-detail"></div>
-<div class="work-actions"><select id="gmail-cache-account" aria-label="Cached Gmail account"></select><button id="gmail-clear" class="quiet" type="button">Clear local email cache</button></div><p class="hint">Clearing the cache keeps WorkItem source quotes and archives. Sign out of the shared Google account from Settings → Calendar.</p></details>
-    <details class="card work-section" id="chat-panel"><summary>Google Chat · read-only</summary>
-<p class="hint">Choose a conversation before syncing text. Recent window: 30 days, up to 200 messages per refresh, 20 per page. Messages stay on this Mac; no Chat AI analysis or message writes. Edits/deletions outside this bounded window need an individual message refresh.</p>
-<p id="chat-status" class="hint" role="status"></p><div class="work-actions"><button id="chat-connect" class="secondary" type="button">Connect Chat read-only</button><button id="chat-discover" class="secondary" type="button">Load spaces</button><button id="chat-connection" class="quiet" type="button">Refresh connection</button><button id="chat-cancel" class="quiet" type="button">Cancel Chat sync</button></div><a id="chat-auth-link" hidden target="_blank" rel="noopener noreferrer">Continue Google sign-in ↗</a>
-<label for="chat-space">Selected conversation</label><select id="chat-space"><option value="">Load spaces to choose a conversation</option></select><div class="work-actions"><button id="chat-sync" class="primary" type="button">Sync / Continue</button><button id="chat-restart" class="secondary" type="button">Restart recent window</button></div>
-<div id="chat-messages"></div><div id="chat-detail"></div><div class="work-actions"><select id="chat-cache-account" aria-label="Cached Chat account"></select><button id="chat-clear" class="quiet" type="button">Clear local Chat cache</button></div><p class="hint">Cache clearing keeps promoted source quotes and archives. Sign out of the shared Google account in Settings → Calendar. Empty DMs and system messages may not be listed.</p></details>
-    <details class="card work-section" id="github-panel"><summary>GitHub · read-only</summary><p class="hint">GitHub.com only. Use a fine-grained token limited to selected repositories, with Issues and Pull requests read-only (+ Metadata). Stored in macOS Keychain. This app uses GET only; it cannot inspect whether your token has extra permissions.</p>
-<label for="github-token">Fine-grained personal access token</label><input id="github-token" type="password" autocomplete="off" placeholder="github_pat_…"><div class="work-actions"><button id="github-connect" class="secondary" type="button">Connect GitHub</button><button id="github-disconnect" class="quiet" type="button">Disconnect locally</button><button id="github-connection" class="quiet" type="button">Refresh cached view</button></div><p id="github-status" class="hint" role="status"></p>
-<label for="github-repository">Selected repository (owner/name)</label><input id="github-repository" placeholder="owner/repository"><select id="github-repos" aria-label="Cached GitHub repositories"><option value="">Choose a cached repository…</option></select><div class="work-actions"><select id="github-filter" aria-label="GitHub personal filter"><option value="all">All</option><option value="assigned">Assigned to me</option><option value="created">Created by me</option><option value="mentioned">Mentioned</option></select><select id="github-kind" aria-label="GitHub item kind"><option value="all">Issues and PRs</option><option value="issue">Issues</option><option value="pull_request">Pull requests</option></select><button id="github-sync" class="primary" type="button">Sync / Continue</button><button id="github-restart" class="secondary" type="button">Restart filter refresh</button><button id="github-cancel" class="quiet" type="button">Cancel GitHub sync</button></div>
-<p class="hint">Up to 200 search matches per repository/filter refresh, 20 per page. Search indexing can lag or return incomplete results. GitHub status stays separate from the local task status. No AI export or GitHub writes.</p><div id="github-items"></div><div id="github-detail"></div><div class="work-actions"><select id="github-cache-account" aria-label="Cached GitHub account"></select><button id="github-clear" class="quiet" type="button">Clear local GitHub cache</button></div><p class="hint">Disconnect removes the local credential, not the token on GitHub. Clearing the cache keeps promoted source quotes and archives.</p></details>
-    <details class="card work-section" id="work-suggested"><summary>Suggested · source-backed proposals</summary><p class="hint">All sources · independent of the meeting project filter. Nothing changes until you accept or link.</p><div id="proposal-filters" class="segmented"></div><div id="proposal-list"></div></details>
-    <details class="card work-section"><summary>Questions</summary><button type="button" class="secondary" id="new-work-question">＋ New question</button><div id="work-questions"></div></details>
-    <div id="link-review" class="card link-review" hidden></div>
-    <div class="card">
-      <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><select id="task-owner" aria-label="Filter tasks by owner"></select></div>
-      <div id="task-list" class="task-list"></div>
+    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested">Suggested</button><button type="button" role="tab" data-work-tab="questions">Questions</button><span class="tab-gap" aria-hidden="true"></span><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
+    <div class="card work-panel" id="items-panel" role="tabpanel">
+      <div class="work-messages"><p class="hint">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p></div>
+      <div class="work-content">
+        <div id="source-filter" class="segmented source-filter" role="group" aria-label="Filter by source"></div>
+        <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><div class="work-actions"><select id="work-project" aria-label="Project"><option value="">All projects</option></select><select id="task-owner" aria-label="Filter tasks by owner"></select></div></div>
+        <div id="link-review" class="card link-review" hidden></div>
+        <div id="task-list" class="task-list"></div>
+      </div>
     </div>
-    <p class="below-card">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p>
+    <div class="card work-panel" id="work-suggested" role="tabpanel" hidden>
+      <div class="work-messages"><p class="hint">Source-backed proposals from all sources. The meeting project filter does not apply here. Nothing changes until you accept or link.</p></div>
+      <div class="work-content"><div id="proposal-filters" class="segmented"></div><div id="proposal-list"></div></div>
+    </div>
+    <div class="card work-panel" id="questions-panel" role="tabpanel" hidden>
+      <div class="work-messages"><p class="hint">Add a question, or accept a question proposal in Suggested.</p></div>
+      <div class="work-content"><div class="work-actions"><button type="button" class="secondary" id="new-work-question">＋ New question</button></div><div id="work-questions"></div></div>
+    </div>
+    <div class="card work-panel source-panel" id="gmail-panel" role="tabpanel" hidden>
+      <div class="source-bar">
+        <div class="source-id"><span class="source-mark src-gmail" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg></span><div><strong>Gmail</strong><span id="gmail-status" class="source-status" role="status"></span></div></div>
+        <div class="source-actions"><button id="gmail-ai-cancel" class="secondary" type="button" hidden>Stop email AI</button><button id="gmail-sync" class="primary" type="button">Sync</button>
+          <details class="menu"><summary aria-label="More Gmail actions">⋯</summary><div class="menu-items"><button id="gmail-refresh" type="button">Refresh connection</button><button id="gmail-cancel" type="button">Stop the sync</button><button id="gmail-connect-again" type="button">Reconnect Gmail</button></div></details></div>
+      </div>
+      <p id="gmail-notice" class="source-notice" role="status" hidden></p>
+      <div class="source-connect"><h3>Connect Gmail to see the threads that need you</h3><p class="hint">Read-only access. Atlanta reads recent Inbox and Sent threads from the last 30 days and keeps them on this Mac.</p><button id="gmail-connect" class="primary" type="button">Connect Gmail read-only</button><a id="gmail-auth-link" hidden target="_blank" rel="noopener noreferrer">Continue Google sign-in ↗</a></div>
+      <div class="source-work">
+        <div class="source-filters"><div id="gmail-filters" class="segmented" role="group" aria-label="Show threads"></div><input id="gmail-search" type="search" placeholder="Filter by sender or subject" aria-label="Filter threads"></div>
+        <div id="gmail-threads" class="source-list" role="listbox" aria-label="Email threads"></div>
+        <div id="gmail-detail" class="reader" aria-live="polite"></div>
+      </div>
+      <details class="source-about"><summary>About Gmail in Atlanta</summary>
+        <p class="hint">Read-only. Recent Inbox/Sent threads, last 30 days, up to 200 initially. Message text stays on this Mac unless you approve AI analysis of a selected message. The configured AI endpoint may be remote. No email writes. Needs reply and Waiting for follow the last message direction, not a confirmed commitment.</p>
+        <p class="hint">Clearing the cache keeps WorkItem source quotes and archives. Sign out of the shared Google account from Settings → Calendar.</p>
+        <div class="work-actions work-cache"><select id="gmail-cache-account" aria-label="Cached Gmail account"></select><button id="gmail-clear" class="danger" type="button">Clear local email cache</button></div>
+      </details>
+    </div>
+    <div class="card work-panel source-panel" id="chat-panel" role="tabpanel" hidden>
+      <div class="source-bar">
+        <div class="source-id"><span class="source-mark src-chat" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4z"/></svg></span><div><strong>Google Chat</strong><span id="chat-status" class="source-status" role="status"></span></div></div>
+        <div class="source-actions"><button id="chat-sync" class="primary" type="button">Sync conversation</button>
+          <details class="menu"><summary aria-label="More Chat actions">⋯</summary><div class="menu-items"><button id="chat-discover" type="button">Refresh conversation list</button><button id="chat-restart" type="button">Reload the last 30 days</button><button id="chat-cancel" type="button">Stop the sync</button><button id="chat-connection" type="button">Refresh connection</button><button id="chat-connect-again" type="button">Reconnect Chat</button></div></details></div>
+      </div>
+      <p id="chat-notice" class="source-notice" role="status" hidden></p>
+      <div class="source-connect"><h3>Connect Google Chat to read your conversations here</h3><p class="hint">Read-only access. Atlanta keeps the last 30 days of the conversations that you open on this Mac.</p><button id="chat-connect" class="primary" type="button">Connect Chat read-only</button><a id="chat-auth-link" hidden target="_blank" rel="noopener noreferrer">Continue Google sign-in ↗</a></div>
+      <div class="source-work">
+        <div class="source-filters"><input id="chat-search" type="search" placeholder="Filter conversations by name" aria-label="Filter conversations"></div>
+        <div id="chat-spaces" class="source-list" role="listbox" aria-label="Conversations"></div>
+        <div id="chat-detail" class="reader chat-reader" aria-live="polite"></div>
+      </div>
+      <details class="source-about"><summary>About Google Chat in Atlanta</summary>
+        <p class="hint">Read-only. Recent window: 30 days, up to 200 messages per conversation. Messages stay on this Mac; no Chat AI analysis or message writes. Edits and deletions outside this window need an individual message refresh. Empty DMs and system messages may not be listed.</p>
+        <p class="hint">Cache clearing keeps promoted source quotes and archives. Sign out of the shared Google account in Settings → Calendar.</p>
+        <div class="work-actions work-cache"><select id="chat-cache-account" aria-label="Cached Chat account"></select><button id="chat-clear" class="danger" type="button">Clear local Chat cache</button></div>
+      </details>
+    </div>
+    <div class="card work-panel source-panel" id="github-panel" role="tabpanel" hidden>
+      <div class="source-bar">
+        <div class="source-id"><span class="source-mark src-github" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 8v8M18 11c0 4-6 3-12 5"/></svg></span><div><strong>GitHub</strong><span id="github-status" class="source-status" role="status"></span></div></div>
+        <div class="source-actions"><button id="github-sync" class="primary" type="button">Sync</button>
+          <details class="menu"><summary aria-label="More GitHub actions">⋯</summary><div class="menu-items"><button id="github-cancel" type="button">Stop the sync</button><button id="github-connection" type="button">Refresh</button><button id="github-disconnect" class="danger-text" type="button">Disconnect on this Mac</button></div></details></div>
+      </div>
+      <p id="github-notice" class="source-notice" role="status" hidden></p>
+      <div class="source-connect"><h3>Connect GitHub to see every open issue and pull request</h3><p class="hint">Use a fine-grained personal access token with Issues and Pull requests read-only access. Atlanta stores it in the macOS Keychain.</p><div class="work-actions"><input id="github-token" type="password" autocomplete="off" placeholder="github_pat_…" aria-label="Fine-grained personal access token"><button id="github-connect" class="primary" type="button">Connect GitHub</button></div></div>
+      <div class="source-work">
+        <div class="source-filters"><div id="github-filters" class="segmented" role="group" aria-label="Whose items"></div><div id="github-kinds" class="segmented" role="group" aria-label="Item kind"></div><select id="github-repo-filter" aria-label="Repository"></select><input id="github-search" type="search" placeholder="Filter by title or number" aria-label="Filter issues"></div>
+        <div id="github-items" class="source-list" role="listbox" aria-label="Open issues and pull requests"></div>
+        <div id="github-detail" class="reader" aria-live="polite"></div>
+      </div>
+      <details class="source-about"><summary>About GitHub in Atlanta</summary>
+        <p class="hint">Read-only. GitHub.com only. Atlanta reads the open issues and pull requests that the token can see, up to 300 per filter, newest change first. It uses GET requests only and cannot inspect whether your token has extra permissions. GitHub status stays separate from the local task status. No AI export or GitHub writes.</p>
+        <p class="hint">Disconnect removes the local credential, not the token on GitHub. Clearing the cache keeps promoted source quotes and archives.</p>
+        <div class="work-actions work-cache"><select id="github-cache-account" aria-label="Cached GitHub account"></select><button id="github-clear" class="danger" type="button">Clear local GitHub cache</button></div>
+      </details>
+    </div>
   </section>
   <section id="find" hidden>
     <div class="heading"><p class="eyebrow">FIND THE ANSWER</p><h1>Search your meetings</h1><p class="subheading">Words also find their other forms. Put "exact words" in quotes.</p></div>
@@ -123,7 +173,8 @@
     <p id="processing-time" class="hint" role="status" hidden></p><button id="cancel-processing" class="secondary" type="button" hidden>Cancel processing</button>
     <div id="playback" class="card playback-card"><label id="audio-source-label" for="audio-source" hidden>Playback audio</label><select id="audio-source" aria-label="Playback audio" hidden><option value="recording.wav">Original recording</option></select><audio id="audio" controls preload="metadata"></audio><p id="audio-unavailable" class="hint" hidden>Recover the saved audio to enable playback.</p></div>
         <div class="tabs" role="tablist"><button id="tab-transcript" class="selected" role="tab" aria-selected="true">Transcript</button><button id="tab-outcomes" role="tab" aria-selected="false">Tasks &amp; decisions</button><button id="tab-notes" role="tab" aria-selected="false">Summary &amp; notes</button><button id="tab-analytics" role="tab" aria-selected="false">Analytics</button></div>
-    <div id="transcript-panel" class="card"><div class="card-heading"><h2>Every detail, in context.</h2><button id="save-transcript" class="secondary" disabled>Save corrections</button></div><p id="timestamp-note" class="hint"></p><p id="audio-preparation-status" class="hint" hidden></p><p id="correction-status" class="notice" hidden></p><div id="detail-markers" class="detail-markers" hidden></div><div id="speaker-review" class="speaker-review"></div><div id="speaker-legend" class="speaker-legend" aria-label="Speakers in this meeting" hidden></div><div id="transcript"></div><div id="saved-live-draft" hidden></div></div>
+    <div id="transcript-panel" class="card"><div class="card-heading"><h2>Every detail, in context.</h2><button id="save-transcript" class="secondary" disabled>Save corrections</button></div><p id="timestamp-note" class="hint"></p><p id="audio-preparation-status" class="hint" hidden></p><p id="correction-status" class="notice" hidden></p><div id="detail-markers" class="detail-markers" hidden></div><div id="speaker-review" class="speaker-review"></div><div id="speaker-legend" class="speaker-legend" aria-label="Speakers in this meeting" hidden></div><div id="transcript-refresh-status" hidden></div>
+        <div id="transcript"></div><div id="saved-live-draft" hidden></div></div>
     <div id="outcomes-panel" class="card" hidden><div class="card-heading"><h2>Decisions, tasks and next steps.</h2><div class="note-actions"><button id="edit-outcomes" class="secondary" type="button">Edit</button><button id="cancel-outcomes" class="quiet" type="button" hidden>Cancel</button><button id="save-outcomes" class="primary" type="button" hidden disabled>Save changes</button></div></div><div id="outcomes"></div></div>
     <div id="notes-panel" class="card" hidden><div class="card-heading"><h2>What matters next.</h2><div class="note-actions"><button id="edit-notes" class="secondary" type="button">Edit</button><button id="cancel-notes" class="quiet" type="button" hidden>Cancel</button><button id="save-notes" class="primary" type="button" hidden disabled>Save notes</button></div></div><div id="notes"></div></div>
     <div id="meeting-analytics-panel" class="card" hidden><div class="card-heading"><div><p class="eyebrow">TALK TIME · TOPICS · QUESTIONS</p><h2>Conversation analytics</h2></div><button id="reanalyze" class="secondary">Reanalyze</button></div><p id="diarization-status" class="notice warning" hidden></p><p id="meeting-analytics-error" class="notice warning" hidden></p><div id="meeting-analytics-content"></div><p class="hint">Talk time comes from offline speaker intervals and excludes silence. Topic hits link to transcript evidence.</p></div>
@@ -166,7 +217,7 @@
 <label for="local-ai-model">Local AI model</label><input id="local-ai-model" list="local-ai-models" required><datalist id="local-ai-models"></datalist>
 <button id="load-local-models" class="secondary" type="button">Load available models</button><p id="local-ai-status" class="hint" role="status"></p><div id="local-ai-model-list" class="model-list" role="list" aria-label="Available models"></div>
 <label for="local-ai-format">JSON response format</label><select id="local-ai-format"><option value="json_schema">JSON schema · recommended</option><option value="json_object">JSON object</option><option value="text">Prompt only · compatibility mode</option></select>
-<label for="local-ai-reasoning">Reasoning effort</label><select id="local-ai-reasoning"><option value="default">Automatic · Off for Qwen3.5 meeting tasks</option><option value="server">Server default · most compatible</option><option value="none">Off · faster extraction</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><p class="hint">Automatic turns reasoning off for Qwen3.5 notes, transcript correction and titles; other models and email analysis use the server default. Use Server default if your endpoint does not support reasoning_effort. Explicit Off/Low/Medium/High choices are kept.</p>
+<label for="local-ai-reasoning">Reasoning effort</label><select id="local-ai-reasoning"><option value="default">Automatic · Off for Qwen3.5 meeting tasks</option><option value="server">Server default · most compatible</option><option value="none">Off · faster extraction</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><p class="hint">Automatic turns reasoning off for Qwen3.5 notes, transcript correction and titles. Selected-email analysis previews its effective reasoning before approval. Other models use the server default. Use Server default if your endpoint does not support reasoning_effort. Explicit Off/Low/Medium/High choices are kept.</p>
 <label for="local-ai-max-tokens">Maximum output tokens</label><input id="local-ai-max-tokens" type="number" min="128" max="32768" step="1" required><p class="hint">Includes reasoning tokens on many servers. Truncated results are rejected; increase this limit or reduce reasoning if needed.</p>
 <p class="hint">One endpoint and model for local summaries, decisions, tasks, open questions and titles. Keep the model server running. Speech recognition and live captions use Whisper.</p>
 </fieldset>

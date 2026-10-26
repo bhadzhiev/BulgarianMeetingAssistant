@@ -643,6 +643,7 @@ class MeetingService:
             if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
                 with job.step('Meeting notes'):
                     self._execute('summarize', directory, settings, progress, key, self.library.speakers())
+                    self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
             if action != 'recover' and (directory / 'transcript.json').exists():
                 with job.step('Analytics'):
                     self._run_analytics(meeting_id, settings, progress)
@@ -725,6 +726,13 @@ class MeetingService:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before editing')
             directory = self.library.directory(meeting_id)
+            if 'refresh_notes' in body and (type(body['refresh_notes']) is not bool or 'transcript' not in body):
+                raise ValueError('Choose whether to refresh notes after saving a transcript')
+            if 'transcript' in body and 'transcript_revision' in body:
+                current = read_json(directory / 'transcript.json', [])
+                revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                if body['transcript_revision'] != revision:
+                    raise items.WorkItemConflict('The transcript changed. Reload before saving your corrections.')
             if 'speaker_name' in body and set(body) != {'speaker_name'}:
                 raise ValueError('Save other edits before naming speakers')
             if 'title' in body:
@@ -787,7 +795,14 @@ class MeetingService:
                                 if turn.get('speaker') in renames:
                                     turn['speaker'] = renames[turn['speaker']]
                             atomic_json(timeline_path, timeline)
+                changed = [vars(segment) for segment in old_segments] != [vars(segment) for segment in segments]
+                if changed:
+                    processing.archive(directory, ['transcript.json', 'transcript.md', 'transcript.srt', 'minutes.proposed.json'])
                 save_transcript(directory, segments)
+                if changed:
+                    # A draft derived from the previous transcript is no longer safe to apply.
+                    (directory / 'minutes.proposed.json').unlink(missing_ok=True)
+                    self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.json').exists(), notes_refresh_error=None)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
                 analytics_settings = dict(self.settings, models_dir=str(self.models_dir))
@@ -799,6 +814,14 @@ class MeetingService:
                 save_minutes(directory, minutes)
                 self._sync_items(meeting_id)
             if analytics_settings is None:
+                return self.detail(meeting_id)
+            if body.get('refresh_notes'):
+                # Queue one job for the saved text; its analytics run after the new notes.
+                # A queue failure must not hide the fact that the transcript was saved.
+                try:
+                    self.process(meeting_id, 'summarize')
+                except ValueError as exc:
+                    self.library.update(meeting_id, notes_refresh_error=str(exc))
                 return self.detail(meeting_id)
             self.busy.add(meeting_id)
         self._analyze_unlocked(meeting_id, analytics_settings)
@@ -824,7 +847,7 @@ class MeetingService:
     def _notes_revision(directory):
         import hashlib
         digest = hashlib.sha256()
-        for name in ['minutes.json', 'minutes.proposed.json']:
+        for name in ['minutes.json', 'minutes.proposed.json', 'transcript.json']:
             path = directory / name
             digest.update(path.read_bytes() if path.exists() else b'')
             digest.update(b'\0')
@@ -857,7 +880,13 @@ class MeetingService:
                 save_minutes(directory, result)
                 proposal.unlink()
                 self._sync_items(meeting_id)
+                self.library.update(meeting_id, notes_need_refresh=False, notes_refresh_error=None)
                 return self.detail(meeting_id)
+            # Dismissing a matching draft also confirms that the saved notes are current.
+            current = read_json(directory / 'minutes.json', None)
+            proposed = read_json(proposal, {})
+            if not notes.changes(current, proposed):
+                self.library.update(meeting_id, notes_need_refresh=False, notes_refresh_error=None)
             proposal.unlink()
             return self.detail(meeting_id)
 

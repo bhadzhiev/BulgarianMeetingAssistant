@@ -26,8 +26,10 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
 
 
+COLLECTIONS = ('sources', 'source_revisions', 'source_evidence', 'proposals', 'relationships', 'activity')
+
 def normalize(item):
-    states = {'task': {'open', 'done'}, 'decision': {'proposed', 'accepted', 'superseded'}}
+    states = {'task': {'open', 'done'}, 'decision': {'proposed', 'accepted', 'superseded'}, 'question': {'open', 'answered'}}
     if (item.get('kind') not in states or item.get('status') not in states[item['kind']]
             or not isinstance(item.get('text'), str) or not item['text'].strip()
             or not isinstance(item.get('id'), str) or not re.fullmatch(r'[a-f0-9]{1,64}', item['id'])
@@ -93,7 +95,7 @@ class WorkItemStore:
         export = self.export
         with closing(self.connect()) as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ValueError('This WorkItem database needs a newer app version')
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript('''
@@ -104,7 +106,10 @@ class WorkItemStore:
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, revision INTEGER NOT NULL, document TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS item_revisions (id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
                 INSERT OR IGNORE INTO item_revisions SELECT id, revision FROM work_items;
-                PRAGMA user_version=1;
+                CREATE TABLE IF NOT EXISTS graph_records (
+                    collection TEXT NOT NULL, id TEXT NOT NULL, document TEXT NOT NULL,
+                    PRIMARY KEY(collection,id));
+                PRAGMA user_version=2;
             ''')
             initialized = db.execute('SELECT initialized FROM registry_meta WHERE id=1').fetchone()[0]
         if not initialized:
@@ -137,7 +142,10 @@ class WorkItemStore:
             db.execute('BEGIN')
             revision = db.execute('SELECT revision FROM registry_meta WHERE id=1').fetchone()[0]
             records = db.execute('SELECT id, document FROM work_items ORDER BY rowid').fetchall()
-        data = dict(version=2, registry_revision=revision, items={key: json.loads(value) for key, value in records})
+            graph = {name: {} for name in COLLECTIONS}
+            for name, key, document in db.execute('SELECT collection,id,document FROM graph_records'):
+                graph[name][key] = json.loads(document)
+        data = dict(version=3, registry_revision=revision, items={key: json.loads(value) for key, value in records}, **graph)
         if not repair_export:
             return data, revision
         # A stale export can result from a crash after the database commit.
@@ -151,7 +159,7 @@ class WorkItemStore:
             if isinstance(exported, dict) and type(exported.get('registry_revision')) is int and exported['registry_revision'] > revision:
                 raise ValueError('items.json is newer than this database. Keep both files and restore a matching library.')
             if (isinstance(exported, dict) and exported.get('registry_revision') == revision
-                    and exported.get('items') != data['items']):
+                    and any(exported.get(name, {}) != data[name] for name in ('items', *COLLECTIONS))):
                 raise ValueError('items.json was edited outside the app. Keep that copy and reload from work-items.sqlite3.')
         if not self.export.exists() or exported != data:
             atomic_json(self.export, data)
@@ -169,6 +177,14 @@ class WorkItemStore:
             if key != item.get('id'):
                 raise ValueError('WorkItem ID does not match its registry key')
             prepared[key] = normalize(copy.deepcopy(item))
+        graph = {name: copy.deepcopy(data.get(name, {})) for name in COLLECTIONS}
+        from .work_graph import validate_graph
+        validate_graph(graph, prepared)
+        for item in prepared.values():
+            if any(key not in graph['source_evidence'] for key in item.get('source_evidence', [])):
+                raise ValueError('Missing WorkItem source evidence')
+            if item['kind'] == 'question' and item['status'] == 'answered' and not (item.get('answer') or '').strip():
+                raise ValueError('An answered question needs its answer')
         with closing(self.connect()) as db:
             try:
                 db.execute('BEGIN IMMEDIATE')
@@ -177,6 +193,7 @@ class WorkItemStore:
                     raise WorkItemConflict('Work items changed. Reload the list and try again.')
                 old = {key: (revision, json.loads(document)) for key, revision, document in
                        db.execute('SELECT id, revision, document FROM work_items')}
+                exported = None
                 if initialized and self.export.exists():
                     try:
                         exported = json.loads(self.export.read_text())
@@ -185,8 +202,13 @@ class WorkItemStore:
                     if (isinstance(exported, dict) and exported.get('registry_revision') == current
                             and exported.get('items') != {key: document for key, (_, document) in old.items()}):
                         raise WorkItemConflict('items.json was edited outside the app. Keep that copy and restore the generated export before editing.')
+                old_graph = {name: {} for name in COLLECTIONS}
+                for name, key, document in db.execute('SELECT collection,id,document FROM graph_records'):
+                    old_graph[name][key] = json.loads(document)
+                if initialized and isinstance(exported, dict) and exported.get('registry_revision') == current and any(exported.get(name, {}) != old_graph[name] for name in COLLECTIONS):
+                    raise WorkItemConflict('Work graph export changed outside the app.')
                 counters = dict(db.execute('SELECT id, revision FROM item_revisions'))
-                changed = not initialized or set(old) != set(prepared)
+                changed = not initialized or set(old) != set(prepared) or graph != old_graph
                 for key, item in prepared.items():
                     previous_revision, previous = old.get(key, (0, {}))
                     comparable = dict(item)
@@ -206,6 +228,10 @@ class WorkItemStore:
                         db.execute('INSERT OR REPLACE INTO item_revisions VALUES (?,?)', (key, item['revision']))
                 for key in old.keys() - prepared.keys():
                     db.execute('DELETE FROM work_items WHERE id=?', (key,))
+                if graph != old_graph:
+                    db.execute('DELETE FROM graph_records')
+                    db.executemany('INSERT INTO graph_records VALUES (?,?,?)',
+                        [(name, key, canonical(document)) for name in COLLECTIONS for key, document in graph[name].items()])
                 revision = current + int(changed)
                 db.execute('UPDATE registry_meta SET revision=?, initialized=1 WHERE id=1', (revision,))
                 db.commit()
@@ -215,7 +241,7 @@ class WorkItemStore:
         for key, item in prepared.items():
             data['items'][key].clear()
             data['items'][key].update(item)
-        data.update(version=2, registry_revision=revision)
+        data.update(version=3, registry_revision=revision, **graph)
         if changed or not self.export.exists():
             atomic_json(self.export, data)
         return revision

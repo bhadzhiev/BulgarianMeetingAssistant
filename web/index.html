@@ -58,6 +58,8 @@
     <div class="heading"><p class="eyebrow">MY WORK · MEETINGS</p><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>
     <label for="work-project">Project</label><select id="work-project"><option value="">All projects</option></select>
     <div class="segmented kind-switch" role="group" aria-label="Show tasks or decisions"><button type="button" data-kind="task" class="selected">Tasks</button><button type="button" data-kind="decision">Decisions</button></div>
+    <details class="card work-section" id="work-suggested"><summary>Suggested · source-backed proposals</summary><p class="hint">All sources · independent of the meeting project filter. Nothing changes until you accept or link.</p><div id="proposal-filters" class="segmented"></div><div id="proposal-list"></div></details>
+    <details class="card work-section"><summary>Questions</summary><button type="button" class="secondary" id="new-work-question">＋ New question</button><div id="work-questions"></div></details>
     <div id="link-review" class="card link-review" hidden></div>
     <div class="card">
       <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><select id="task-owner" aria-label="Filter tasks by owner"></select></div>

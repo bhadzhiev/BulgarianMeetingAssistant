@@ -142,6 +142,14 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
             return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
+        if url.path == '/api/chat':
+            return self.respond(200, self.server.service.chat.status())
+        if url.path == '/api/chat/spaces':
+            return self.respond(200, self.server.service.chat.spaces())
+        if url.path == '/api/chat/messages':
+            return self.respond(200, self.server.service.chat.messages(parse_qs(url.query).get('space',[''])[0]))
+        if url.path == '/api/chat/message':
+            return self.respond(200, self.server.service.chat.detail(parse_qs(url.query).get('name',[''])[0]))
         if url.path == '/api/gmail/ai':
             return self.respond(200, self.server.service.gmail_ai.status())
         if url.path == '/api/gmail':
@@ -273,6 +281,18 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.import_transcript(body['text'], body.get('filename', ''))
             elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
+            elif path == '/api/chat/discover':
+                result = service.chat.start('spaces',restart=body.get('restart',False))
+            elif path == '/api/chat/sync':
+                result = service.chat.start('messages',body['space'],body.get('restart',False))
+            elif path == '/api/chat/refresh':
+                result = service.chat.start('refresh',body['name'])
+            elif path == '/api/chat/cancel':
+                result = service.chat.stop()
+            elif path == '/api/chat/clear':
+                result = service.chat.clear(body['account'])
+            elif path == '/api/chat/propose':
+                result = service.chat_proposal(body['name'],body['revision'],body['title'])
             elif path == '/api/gmail/sync':
                 result = service.gmail.start()
             elif path == '/api/gmail/cancel':

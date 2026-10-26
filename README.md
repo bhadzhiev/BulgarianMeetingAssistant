@@ -360,7 +360,7 @@ Migration copies and archives retain earlier data until you remove those copies.
 
 The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
 the next stages. This foundation supports meeting tasks, decisions and questions.
-GitHub and Google Chat connections remain planned. The first Gmail connector is available below.
+GitHub remains planned. The Gmail and Google Chat read-only pilots are described below.
 
 **Suggested** stores source-backed proposals separately. **Accept** creates an item; **Link** attaches
 the quote to an existing item of the same kind without changing its text, owner or status. Dismiss,
@@ -548,6 +548,49 @@ no tasks. Clearing the email cache does not purge those snapshots.
 The connector and extraction flow are tested with synthetic Gmail responses and a local mock AI
 endpoint. Live consent, Workspace policy, a real mailbox sync and real-model extraction quality still
 need validation with the app owner's account. Broad background email analysis is not enabled.
+
+## Google Chat: selected conversations, read-only
+
+Open **My Work → Google Chat → Connect Chat read-only**. The shared Google connection requests
+`chat.spaces.readonly`, `chat.messages.readonly` and OpenID/email identity. Gmail and Calendar are
+not required for Chat-only sign-in; previously selected Google permissions are retained in explicit
+re-consent. Enable the Chat API in the OAuth project. Workspace policy or OAuth verification can
+still block access. This is user authentication, with no bot, service account, administrator search,
+send or edit permission. See [Chat authorization](https://developers.google.com/workspace/chat/authenticate-authorize).
+
+**Load spaces** fetches conversation metadata only. It reads at most 50 spaces per page and 200 per
+discovery cycle; use Load more until complete. Choose a conversation explicitly before **Sync /
+Continue** downloads message text. Named spaces use their names; DMs/group chats without a display
+name show their resource ID. Empty DMs/group chats and system membership messages are excluded by
+the provider. This view covers conversations the signed-in user can access, not the whole organization.
+
+Each message refresh cycle fixes a 30-day creation-time window and reads at most 200 messages,
+20 per page, newest first. Continue keeps that window/page token after interruption. Once complete,
+Sync starts a new recent-window refresh. **Restart recent window** discards only the unfinished
+cursor, keeping cached messages and source history. Cancel and recording/processing stop further
+work; an in-flight request can take up to 30 seconds. There is no automatic background polling,
+Workspace Events subscription or complete historical mirror.
+
+Open a cached message to see its sender, message/thread resource names, text and fetch time.
+**Refresh this message from Chat** checks that individual resource for edits or deletion, including
+older cached messages. Observed edits invalidate older pending proposals; deletion/403/404 makes
+its source unavailable without completing or reopening the WorkItem. Losing space access also
+removes cached text for that space. Prior pinned source snapshots and archives remain local.
+Absence from a capped refresh does not prove deletion; messages outside its range need an individual
+refresh. Old cache records can remain until cleared, and message lists show at most 200 entries.
+
+**Suggest a task from this message** creates a manual proposal with an exact quoted message and
+space/thread/message/sender references. Review it in Suggested, then Accept or Link to an existing
+item. This never sends or edits a Chat message. Cards, attachments and remote resources are not
+fetched or executed. Chat content is not sent to AI in this delivery; Gmail AI approval does not
+cover Chat. Quotes and known versions reflect the last observed API response, not a live check at
+the moment of acceptance.
+
+`chat-cache.sqlite3` is a rebuildable local cache excluded from library archives. Partitioning uses
+the verified Google user ID, so an email rename keeps the same cache. **Clear local Chat cache**
+can remove a cached identity after sign-out and keeps promoted WorkItem snapshots in the graph and
+archives. There is no automatic retention purge. All development tests use synthetic Chat responses;
+live Workspace consent, API access and real conversation sync still need account-owner validation.
 
 ## Archive and restore the library
 

@@ -105,8 +105,8 @@ function renderState() {
  $('meeting-title').placeholder=s.auto_title!==false?'Leave blank for an AI-generated title':'Meeting name (optional)';
  $('processing-name').textContent=(s.transcription==='local'?'Local Whisper':'OpenAI cloud')+' · '+(s.summarizer==='none'?'transcript only':s.summarizer==='local'?'local notes':'cloud notes');
  $('privacy-copy').textContent=privacy(s);
- if($('settings-dialog').open){renderGoogleStatus();if(state.google?.connected&&!lastGoogleConnected)perform(loadCalendars);}
- lastGoogleConnected=!!state.google?.connected;
+ if($('settings-dialog').open){renderGoogleStatus();if(calendarConnected()&&!lastGoogleConnected)perform(loadCalendars);}
+ lastGoogleConnected=calendarConnected();
  if(state.active) {
   const a=state.active; $('recording-title').textContent=a.title; $('recording-mode').textContent=a.mode==='online'?'ONLINE · MAC AUDIO + MICROPHONE':'IN PERSON · MICROPHONE';
   // A state snapshot can be older than the last live event; the timer never goes back.
@@ -558,7 +558,7 @@ function renderMarkdown(source) {
 async function openViewer(id,name) { const url='/files/'+id+'/'+name; const response=await fetch(url); if(!response.ok) throw new Error('Could not open '+name); $('viewer-title').textContent=name; $('viewer-download').href=url; $('viewer-download').download=name; $('viewer-body').innerHTML=renderMarkdown(await response.text()); $('viewer-body').scrollTop=0; $('viewer-dialog').showModal(); }
 $('viewer-close').onclick=()=>$('viewer-dialog').close();
 $('viewer-dialog').onclick=event=>{if(event.target===$('viewer-dialog'))$('viewer-dialog').close();};
-function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();if(state.google?.connected)perform(loadCalendars); }
+function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();if(calendarConnected())perform(loadCalendars); }
 function daysBetween(from,to) { return Math.round((Date.parse(to)-Date.parse(from))/86400000); }
 function dueInfo(task,today) {
  if(task.status==='done') return ['done','Done'];
@@ -676,6 +676,34 @@ function decisionRow(item,byId) {
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
 async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
+let mailView='needs_reply',mailTimer=null;
+async function loadMail(){
+ const status=await api('/api/gmail');
+ $('gmail-status').textContent=(status.connected?'Connected as '+status.account:'Gmail permission not connected')+' · '+status.count+' cached threads · '+status.job.status+(status.sync.last_sync?' · Last page saved '+new Date(status.sync.last_sync*1000).toLocaleString():'')+(status.sync.limited?' · Initial 200-thread limit reached':'')+(status.job.error?' · '+status.job.error:'');
+ $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-cancel').disabled=!status.job.running;
+ const accounts=$('gmail-cache-account'),selected=accounts.value;accounts.replaceChildren(...status.cached_accounts.map(a=>option(a,a)));if(status.cached_accounts.includes(selected))accounts.value=selected;
+ $('gmail-clear').disabled=status.job.running||!status.cached_accounts.length;
+ $('gmail-filters').replaceChildren();
+ for(const [value,label] of [['needs_reply','Needs reply'],['waiting','Waiting for'],['all','All cached']]){const b=el('button',mailView===value?'selected':'',label);b.onclick=()=>perform(async()=>{mailView=value;$('gmail-detail').replaceChildren();await loadMail();});$('gmail-filters').append(b);}
+ const list=$('gmail-threads');list.replaceChildren();
+ if(status.connected){const threads=await api('/api/gmail/threads?view='+mailView);for(const thread of threads){const b=el('button','mail-thread',thread.subject+' · '+thread.sender+' · '+new Date(thread.date).toLocaleDateString());b.onclick=()=>perform(()=>openMail(thread.id));list.append(b);}if(!threads.length)list.append(el('p','hint','No cached threads in this view. Choose Sync / Continue to fetch a page.'));}
+ if(mailTimer)clearTimeout(mailTimer);mailTimer=null;
+ if(status.job.running&&view==='tasks'&&$('gmail-panel').open)mailTimer=setTimeout(()=>perform(loadMail),2000);
+}
+async function openMail(key){
+ const thread=await api('/api/gmail/thread?id='+encodeURIComponent(key)),box=$('gmail-detail');box.replaceChildren(el('h3','',thread.subject),el('p','hint','Cached '+new Date(thread.fetched_at*1000).toLocaleString()+(thread.partial?' · Only the latest 100 messages are included':'')));
+ for(const message of thread.messages){const row=el('details','work-proposal');row.append(el('summary','',message.sender+' · '+new Date(message.date).toLocaleString()),el('p','mail-body',message.body||'No inline text body. Attachments are not fetched.'));
+  if(message.body){const b=el('button','secondary small-action','Suggest a task from this message');b.onclick=()=>perform(async()=>{const title=await ask('Task suggestion. Review the source quote in Suggested before accepting.',{ok:'Save suggestion',value:thread.subject});if(title===null)return;await api('/api/gmail/propose',{id:thread.id,revision:thread.revision,message_id:message.id,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('Proposal saved in Suggested · no task was accepted');});row.append(b);}box.append(row);
+ }
+}
+$('gmail-panel').ontoggle=()=>{if($('gmail-panel').open)perform(loadMail);else if(mailTimer){clearTimeout(mailTimer);mailTimer=null;}};
+$('gmail-refresh').onclick=()=>perform(loadMail);
+$('gmail-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail'});$('gmail-auth-link').href=result.authorization_url;$('gmail-auth-link').hidden=false;toast('Approve Gmail read-only access in your browser, then Refresh connection');});
+$('gmail-sync').onclick=()=>perform(async()=>{await api('/api/gmail/sync',{});await loadMail();});
+$('gmail-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/cancel',{});await loadMail();});
+$('gmail-clear').onclick=()=>perform(async()=>{const account=$('gmail-cache-account').value;if(await ask('Clear the local email cache for '+account+'? It can be synced again. WorkItem quotes and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/gmail/clear',{account});$('gmail-detail').replaceChildren();await loadMail();}});
+function calendarConnected(google=state?.google){return google?.capabilities?.calendar??!!google?.connected;}
+
 let proposalFilter='pending';
 async function graphAction(action,body){await api('/api/work/'+action,body);await refreshAfterItemChange();}
 function renderWorkGraph(){
@@ -1015,10 +1043,10 @@ $('settings-form').onsubmit=event=>{event.preventDefault();perform(async()=>{con
 function renderGoogleStatus() {
  const google=state.google||{};
  $('google-status').textContent=(google.connected?'Signed in as '+google.account:google.sign_in_available?'Not signed in. Sign in with your Google account to add meetings to your calendar.':'Google sign-in is not set up for this app yet. See README → Google Calendar, or use Advanced below.')+(google.error?' · '+google.error:'');
- $('google-connect').disabled=!google.sign_in_available;$('google-connect').textContent=google.connected?'Switch Google account':'Sign in with Google';$('google-disconnect').disabled=!google.connected;
+ $('google-connect').disabled=!google.sign_in_available;$('google-connect').textContent=google.connected?(calendarConnected(google)?'Switch Google account':'Connect Calendar permission'):'Sign in with Google';$('google-disconnect').disabled=!google.connected;
  if(!google.sign_in_available) $('google-advanced').open=true;
- $('refresh-calendars').disabled=!google.connected;
- $('sync-all-meetings').disabled=!state.settings.calendar_enabled||!google.connected;
+ $('refresh-calendars').disabled=!calendarConnected(google);
+ $('sync-all-meetings').disabled=!state.settings.calendar_enabled||!calendarConnected(google);
 }
 async function loadCalendars() {
  const selected=$('calendar-id').value||state.settings.calendar_id;

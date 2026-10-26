@@ -132,3 +132,5 @@
 .work-evidence{padding:10px 0;border-top:1px solid var(--line)}.work-evidence p{margin:5px 0;line-height:1.5;overflow-wrap:anywhere}.work-evidence button{text-align:left;white-space:normal;font-size:12px}
 
 .work-section{padding:20px;margin-bottom:18px}.work-section>summary{cursor:pointer;font-weight:600;margin-bottom:12px}.work-proposal{padding:16px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.work-proposal blockquote{margin:10px 0;padding:8px 12px;border-left:3px solid var(--line);white-space:pre-wrap}.work-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.work-actions select{max-width:320px}
+
+.mail-thread{display:block;text-align:left;width:100%;padding:12px;border-bottom:1px solid var(--line);background:transparent;overflow-wrap:anywhere}.mail-body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font-size:14px}

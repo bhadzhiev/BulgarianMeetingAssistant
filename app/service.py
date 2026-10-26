@@ -31,7 +31,8 @@ from .events import Watcher
 from .projects import Projects
 from . import whisper
 from .live import LiveSession, read_json
-from .google_calendar import GoogleCalendar, bundled_client
+from .google_calendar import GoogleCalendar, bundled_client, CalendarError
+from .gmail import GmailSync
 from .meeting_automation import MeetingAutomation
 from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
 
@@ -94,6 +95,7 @@ class MeetingService:
         self.projects = Projects(root / 'projects.json')
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
+        self.gmail = GmailSync(root, self.google, lambda: self.closed.is_set() or bool(self.active or self.busy), self._refresh_gmail_source)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -1211,6 +1213,36 @@ class MeetingService:
             self._refresh_items()
             return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs(), graph=WorkGraph(self.items).snapshot())
 
+    def _refresh_gmail_source(self, account, key, record):
+        with self.lock, self.items.lock:
+            if self.closed.is_set() or self.active or self.busy:
+                raise InterruptedError('paused for recording or processing')
+            status = self.google.status()
+            if status.get('account') != account or not status.get('capabilities', {}).get('gmail'):
+                raise CalendarError('The Google connection changed. Start sync again.')
+            graph = WorkGraph(self.items)
+            source = next((s for s in self.items.data.get('sources', {}).values()
+                if s['provider']=='gmail' and s['account']==account and s['external_id']==key), None)
+            if source:
+                if record:
+                    graph.ingest(dict(provider='gmail',account=account,external_id=key,
+                        revision=record['revision'],text=record['text']), [])
+                else:
+                    graph.availability(source['id'],source['current_revision'],False)
+
+    def gmail_proposal(self, key, revision, message_id, title):
+        with self.lock, self.items.lock:
+            record = self.gmail.detail(key)
+            if record['revision'] != revision:
+                raise items.WorkItemConflict('This email thread changed. Reopen it before proposing a task.')
+            message = next((m for m in record['messages'] if m['id']==message_id), None)
+            if not message or not message['body']:
+                raise ValueError('This message has no available text body')
+            account = self.google.status()['account']
+            return WorkGraph(self.items).ingest(dict(provider='gmail',account=account,external_id=key,
+                revision=record['revision'],text=record['text']),
+                [dict(kind='task',text=title,quote=message['body'][:10000],locator=dict(thread_id=key,message_id=message_id))])
+
     def work_graph_action(self, action, body):
         # The same service/registry lock order as meeting edits and backup snapshots.
         with self.lock, self.items.lock:
@@ -1553,6 +1585,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.gmail.close()
         for cancel in list(self.cancel_events.values()):
             cancel.set()
         self.automation.close()

@@ -295,13 +295,15 @@ class MeetingService:
                 raise
             return {'ok': True}
 
-    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None, fallback_device_name=''):
+    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None, fallback_device_name='', transcription_timing=None):
         if self.closed.is_set():
             raise ValueError('The app is closing')
         if mode not in {'in_person', 'online'}:
             raise ValueError('Choose an in-person or online meeting')
         if not isinstance(title, str):
             raise ValueError('Meeting title must be text')
+        if transcription_timing is not None and transcription_timing not in ('live', 'after'):
+            raise ValueError('Choose live captions or transcription after recording')
         ffmpeg_path()
         device = self._input_device(device, device_name)
         if not isinstance(fallback_device_name, str) or len(fallback_device_name) > 300:
@@ -314,6 +316,8 @@ class MeetingService:
             self._stop_preview()
             settings = dict(self.settings, models_dir=str(self.models_dir))
             settings['fallback_microphone'] = fallback_device_name
+            if transcription_timing is not None:
+                settings['live_transcription'] = transcription_timing == 'live'
             with self.projects.lock:
                 project_id = self.projects.ensure_project({'id': project_id} if project_id else None)
                 series_id = self.projects.ensure_series({'id': series_id} if series_id else None, project_id)

@@ -84,14 +84,20 @@ while the new-meeting form is open.
 1. Connect your iPhone as a macOS input device, or use the Mac microphone.
 2. Enter a name, select **In person**, and choose the microphone.
 3. Use **Test mic** for a ten-second level check. It does not save audio.
-4. Click **Start recording**. **Pause** discards audio until you resume and removes
+4. Choose **When to transcribe**: **After recording · no live captions** saves audio without
+   running live Whisper, or **Live captions + final transcript after recording** shows a draft
+   while you speak. Both modes use the full saved audio for the final pass; with Local transcription,
+   that pass uses Whisper. Enabled spelling correction runs afterwards. This choice applies only
+   to this meeting; Settings keeps the default for future meetings.
+   Click **Start recording**. **Pause** discards audio until you resume and removes
    the pause from the saved timeline.
 5. To mark a moment, press **1** (Important), **2** (Decision) or **3** (Check later), or click the
    buttons under the timer. Type a short note first if you want. Markers are saved in `markers.json`.
    After the meeting, **Moments you marked** at the top of the transcript plays each moment.
    Notes generation gets the markers as hints; the AI must still find the moment in the transcript.
 6. Click **Stop & save**. The meeting appears in the library immediately; processing
-   continues in the background when automatic processing is enabled.
+   continues in the background when automatic processing is enabled. Otherwise choose **Transcribe**
+   from the saved meeting. Disabling live captions does not disable the final transcription.
 
 For the iPhone: use the same Apple Account on both devices, enable Wi-Fi/Bluetooth and
 Continuity Camera, and confirm **iPhone Microphone** appears under macOS Sound → Input.

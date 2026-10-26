@@ -341,7 +341,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/check-mic':
                 result = service.check_microphone(body['device'], body.get('device_name'))
             elif path == '/api/start':
-                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('project_id'), body.get('series_id'), body.get('device_name'), body.get('fallback_device_name', ''))
+                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('project_id'), body.get('series_id'), body.get('device_name'), body.get('fallback_device_name', ''), transcription_timing=body.get('transcription_timing'))
             elif path == '/api/pause':
                 if type(body['paused']) is not bool:
                     raise ValueError('Invalid pause state')

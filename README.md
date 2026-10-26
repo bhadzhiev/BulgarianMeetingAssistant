@@ -500,7 +500,7 @@ These are direction-based candidates, not AI judgments that someone owes a reply
 read its cached text and fetch time. HTML becomes plain text; remote images, scripts and attachments
 are not fetched or rendered. A thread includes at most its latest 100 non-draft messages and local
 size limits apply. Matching threads can contain older messages. This version does not send, modify,
-label or draft email, and never sends email content to AI.
+label or draft email. Email content reaches an AI endpoint only through the selected-message approval below.
 
 **Suggest a task from this message** saves a manual proposal with a pinned source quote. Review it
 in Suggested, then Accept or Link. It does not extract commitments or dates automatically. Syncing a
@@ -515,9 +515,39 @@ cursor are excluded from library archives; promoted sources/proposals remain in 
 Incremental sync can grow the cache beyond the initial cap; lists show at most 200 threads. There is
 no automatic email retention purge or automatic background sync in this pilot.
 
-The connector is tested with synthetic Gmail responses. Live consent, Workspace policy and a real
-mailbox sync still need validation with the app owner's account. Automatic extraction with explicit
-per-source AI consent is a later delivery.
+### Analyze one email message with AI
+
+Open a cached message and choose **Analyze this message with AI**. Preview shows the account,
+subject, character count, configured API endpoint and model from **Settings → Notes & AI**. The
+endpoint can be remote, even when the provider is called local. **Cancel** sends nothing. **Approve
+and analyze** permits one request for that message revision and those settings; there is no cloud
+fallback and the OpenAI API key is not used for this feature.
+
+The worker receives only the selected body, sender, subject and message ID. It does not send the
+other messages in the thread or any meeting transcripts. Inputs are limited to 20,000 characters
+including metadata; larger messages need a manual proposal. Up to 20 candidate tasks can be returned.
+Quotes must occur verbatim in the selected body. Owners and deadlines must occur in that quote;
+`due_date` accepts only an explicit `YYYY-MM-DD` date in the quote. Relative dates remain literal
+text rather than guessed calendar dates. These checks do not prove that the AI understood the email;
+review the task and fields before **Accept** or **Link**.
+
+A successful run creates proposals only. Accept applies proposed owner/date fields to a new open
+task. Link adds evidence to the existing item and preserves its human text, owner, dates and status.
+Proposals, the replay checkpoint and consumed consent commit together. **Show saved analysis**
+reuses the exact message/settings result, including earlier Dismiss/Accept/Link states, without
+another AI request. A changed message or settings requires a new preview.
+
+**Cancel email AI analysis**, recording/processing, account/settings changes and source revocation
+stop the owned client worker; no new proposals are published from that cancelled run. Data already
+sent cannot be recalled, and an endpoint may continue computing after its client disconnects.
+Consent expires when the run ends and is revoked on restart/restore. Interrupted jobs never resume
+automatically. The private input pipe carries email text; it is not written to job argument files.
+Analyzed source snapshots remain local in the WorkItem graph and archives, even if the model finds
+no tasks. Clearing the email cache does not purge those snapshots.
+
+The connector and extraction flow are tested with synthetic Gmail responses and a local mock AI
+endpoint. Live consent, Workspace policy, a real mailbox sync and real-model extraction quality still
+need validation with the app owner's account. Broad background email analysis is not enabled.
 
 ## Archive and restore the library
 

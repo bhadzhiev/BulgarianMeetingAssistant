@@ -133,8 +133,10 @@ class GmailSync:
             else:
                 rows = db.execute('SELECT summary FROM threads WHERE account=? AND view=? ORDER BY date DESC LIMIT 200',(account,view)).fetchall()
         return [json.loads(row[0]) for row in rows]
-    def detail(self, key):
+    def detail(self, key, expected_account=None):
         account = self._account()
+        if expected_account is not None and account != expected_account:
+            raise CalendarError('The Google account changed. Reopen the email thread.')
         with closing(self.connect()) as db:
             row = db.execute('SELECT document FROM threads WHERE account=? AND id=?', (account,key)).fetchone()
         if not row: raise ValueError('This cached Gmail thread is unavailable. Sync again.')

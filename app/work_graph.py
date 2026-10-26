@@ -24,6 +24,22 @@ def now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+def proposal_fields(fields, quote):
+    if not isinstance(fields, dict) or set(fields) - {'owner', 'deadline', 'due_date'}:
+        raise ValueError('Invalid proposed task fields')
+    clean = {}
+    for name, value in fields.items():
+        if value is None:
+            continue
+        value = text(value, name, 160)
+        if value.casefold() not in quote.casefold():
+            raise ValueError('Owner and deadline fields must occur in the evidence quote')
+        if name == 'due_date' and dt.date.fromisoformat(value).isoformat() != value:
+            raise ValueError('Proposed due dates must be explicit ISO dates in the quote')
+        clean[name] = value
+    return clean
+
+
 def validate_graph(graph, items=None):
     """Validate portable graph records before any database mutation."""
     for collection in COLLECTIONS:
@@ -62,6 +78,10 @@ def validate_graph(graph, items=None):
                 or type(proposal.get('revision')) is not int or proposal['revision'] < 1):
             raise ValueError('Invalid proposal')
         text(proposal.get('text'), 'proposal text')
+        if proposal.get('fields'):
+            if proposal['kind'] != 'task':
+                raise ValueError('Only task proposals have owner/date fields')
+            proposal_fields(proposal['fields'], evidence[proposal['evidence_id']]['quote'])
         if proposal.get('snoozed_until'):
             if dt.date.fromisoformat(proposal['snoozed_until']).isoformat() != proposal['snoozed_until']:
                 raise ValueError('Invalid proposal snooze date')
@@ -100,7 +120,7 @@ class WorkGraph:
         key = uuid.uuid4().hex
         data['activity'][key] = dict(id=key, at=now(), actor='user', event=event, **values)
 
-    def ingest(self, source, suggestions):
+    def ingest(self, source, suggestions, after=None):
         """One immutable content revision + all proposals commit together, or none do.
 
         source/suggestions are untrusted data. Ingestion grants no AI-export permission.
@@ -121,8 +141,11 @@ class WorkGraph:
                 raise WorkItemConflict('An older source revision cannot replace the current one.')
             data['source_revisions'][revision_id] = dict(body, id=revision_id)
             # Consent stays explicit even if the same account is used for Calendar.
+            same = previous and previous['current_revision'] == revision_id
             data['sources'][source_id] = dict(identity, id=source_id, current_revision=revision_id,
-                                              available=True, ai_export_allowed=False)
+                available=True, ai_export_allowed=bool(same and previous.get('ai_export_allowed')))
+            if same and previous.get('ai_consent'):
+                data['sources'][source_id]['ai_consent'] = previous['ai_consent']
             for proposal in data['proposals'].values():
                 ev = data['source_evidence'][proposal['evidence_id']]
                 if proposal['state'] == 'pending' and ev['source_id'] == source_id and ev['source_revision'] != revision_id:
@@ -139,12 +162,37 @@ class WorkGraph:
                 ev_id = digest(ev)
                 data['source_evidence'][ev_id] = dict(ev, id=ev_id)
                 content = text(suggestion.get('text'), 'proposal text')
-                key = digest(dict(evidence_id=ev_id, kind=suggestion['kind'], text=content))
+                fields = proposal_fields(suggestion.get('fields', {}), quote)
+                if fields and suggestion['kind'] != 'task':
+                    raise ValueError('Only task proposals have owner/date fields')
+                proposal_identity = dict(evidence_id=ev_id, kind=suggestion['kind'], text=content)
+                if fields:
+                    proposal_identity['fields'] = fields
+                key = digest(proposal_identity)
                 if key not in data['proposals']:
                     data['proposals'][key] = dict(id=key, kind=suggestion['kind'], text=content, evidence_id=ev_id,
-                        state='pending', revision=1, snoozed_until=None, created=now())
+                        state='pending', revision=1, snoozed_until=None, created=now(), fields=fields)
+                    if suggestion.get('origin') == 'gmail_ai':
+                        data['proposals'][key]['origin'] = 'gmail_ai'
                 ids.append(key)
-            return dict(source_id=source_id, source_revision=revision_id, proposals=ids)
+            result = dict(source_id=source_id, source_revision=revision_id, proposals=ids)
+            if after:
+                after(data, result)
+            return result
+        return self._write(apply)
+
+    def ai_consent(self, source_id, source_revision, consent):
+        def apply(data):
+            source = data['sources'].get(source_id)
+            if not source or source['current_revision'] != source_revision or not source['available']:
+                raise WorkItemConflict('The source changed. Reopen the message before approving AI access.')
+            source['ai_export_allowed'] = consent is not None
+            if consent is None:
+                source.pop('ai_consent', None)
+            else:
+                source['ai_consent'] = consent
+            self._activity(data, 'source_ai_consent', source_id=source_id, allowed=consent is not None)
+            return source
         return self._write(apply)
 
     def availability(self, source_id, source_revision, available):
@@ -155,6 +203,9 @@ class WorkGraph:
             if not source or source['current_revision'] != source_revision:
                 raise WorkItemConflict('The source changed. Reload before changing availability.')
             source['available'] = available
+            if not available:
+                source['ai_export_allowed'] = False
+                source.pop('ai_consent', None)
             self._activity(data, 'source_availability', source_id=source_id, available=available)
             return source
         return self._write(apply)
@@ -178,6 +229,7 @@ class WorkGraph:
                     item = dict(id=target_id_value, kind=proposal['kind'], text=proposal['text'], status=KINDS[proposal['kind']],
                         managed_by='work_graph', links=[], source_evidence=[], created=now(), manual=[], history=[],
                         owner=None, deadline=None, due_date=None, supersedes=[], superseded_by=None)
+                    item.update(proposal.get('fields', {}))
                     data['items'][target_id_value] = item
                 else:
                     item = data['items'].get(target_id)

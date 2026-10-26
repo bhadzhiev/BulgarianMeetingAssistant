@@ -142,6 +142,8 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
             return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
+        if url.path == '/api/gmail/ai':
+            return self.respond(200, self.server.service.gmail_ai.status())
         if url.path == '/api/gmail':
             return self.respond(200, self.server.service.gmail.status())
         if url.path == '/api/gmail/threads':
@@ -275,7 +277,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.gmail.start()
             elif path == '/api/gmail/cancel':
                 result = service.gmail.stop()
+            elif path == '/api/gmail/ai/preview':
+                result = service.gmail_ai.preview(body['id'],body['revision'],body['message_id'])
+            elif path == '/api/gmail/ai/start':
+                result = service.gmail_ai.start(body['id'],body['revision'],body['message_id'],body.get('preview_token'),body.get('approved'))
+            elif path == '/api/gmail/ai/cancel':
+                result = service.gmail_ai.stop()
             elif path == '/api/gmail/clear':
+                service.gmail_ai.stop()
                 result = service.gmail.clear(body.get('account'))
             elif path == '/api/gmail/propose':
                 result = service.gmail_proposal(body['id'],body['revision'],body['message_id'],body['title'])

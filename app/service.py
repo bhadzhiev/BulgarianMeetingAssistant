@@ -33,6 +33,7 @@ from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client, CalendarError
 from .gmail import GmailSync
+from .gmail_ai import GmailAI
 from .meeting_automation import MeetingAutomation
 from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
 
@@ -96,6 +97,7 @@ class MeetingService:
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
         self.gmail = GmailSync(root, self.google, lambda: self.closed.is_set() or bool(self.active or self.busy), self._refresh_gmail_source)
+        self.gmail_ai = GmailAI(self)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -1232,13 +1234,15 @@ class MeetingService:
 
     def gmail_proposal(self, key, revision, message_id, title):
         with self.lock, self.items.lock:
-            record = self.gmail.detail(key)
+            account = self.gmail._account()
+            record = self.gmail.detail(key,expected_account=account)
             if record['revision'] != revision:
                 raise items.WorkItemConflict('This email thread changed. Reopen it before proposing a task.')
             message = next((m for m in record['messages'] if m['id']==message_id), None)
             if not message or not message['body']:
                 raise ValueError('This message has no available text body')
-            account = self.google.status()['account']
+            if self.google.status().get('account') != account:
+                raise items.WorkItemConflict('The Google account changed. Reopen the email thread.')
             return WorkGraph(self.items).ingest(dict(provider='gmail',account=account,external_id=key,
                 revision=record['revision'],text=record['text']),
                 [dict(kind='task',text=title,quote=message['body'][:10000],locator=dict(thread_id=key,message_id=message_id))])
@@ -1585,6 +1589,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.gmail_ai.close()
         self.gmail.close()
         for cancel in list(self.cancel_events.values()):
             cancel.set()

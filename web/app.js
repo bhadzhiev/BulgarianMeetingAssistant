@@ -676,9 +676,13 @@ function decisionRow(item,byId) {
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
 async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
-let mailView='needs_reply',mailTimer=null;
+let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false;
 async function loadMail(){
- const status=await api('/api/gmail');
+ const status=await api('/api/gmail'),ai=await api('/api/gmail/ai');
+ $('gmail-ai-status').textContent='Email AI: '+ai.status+(ai.endpoint?' · '+ai.endpoint+' · '+ai.model:'')+(ai.proposal_ids?' · '+ai.proposal_ids.length+' proposals':'')+(ai.error?' · '+ai.error:'');
+ $('gmail-ai-cancel').disabled=!ai.running;
+ if(mailAIWasRunning&&!ai.running){lastTasks='';await loadTasks();if(ai.proposal_ids?.length)$('work-suggested').open=true;}
+ mailAIWasRunning=ai.running;
  $('gmail-status').textContent=(status.connected?'Connected as '+status.account:'Gmail permission not connected')+' · '+status.count+' cached threads · '+status.job.status+(status.sync.last_sync?' · Last page saved '+new Date(status.sync.last_sync*1000).toLocaleString():'')+(status.sync.limited?' · Initial 200-thread limit reached':'')+(status.job.error?' · '+status.job.error:'');
  $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-cancel').disabled=!status.job.running;
  const accounts=$('gmail-cache-account'),selected=accounts.value;accounts.replaceChildren(...status.cached_accounts.map(a=>option(a,a)));if(status.cached_accounts.includes(selected))accounts.value=selected;
@@ -688,14 +692,24 @@ async function loadMail(){
  const list=$('gmail-threads');list.replaceChildren();
  if(status.connected){const threads=await api('/api/gmail/threads?view='+mailView);for(const thread of threads){const b=el('button','mail-thread',thread.subject+' · '+thread.sender+' · '+new Date(thread.date).toLocaleDateString());b.onclick=()=>perform(()=>openMail(thread.id));list.append(b);}if(!threads.length)list.append(el('p','hint','No cached threads in this view. Choose Sync / Continue to fetch a page.'));}
  if(mailTimer)clearTimeout(mailTimer);mailTimer=null;
- if(status.job.running&&view==='tasks'&&$('gmail-panel').open)mailTimer=setTimeout(()=>perform(loadMail),2000);
+ if((status.job.running||ai.running)&&view==='tasks'&&$('gmail-panel').open)mailTimer=setTimeout(()=>perform(loadMail),2000);
 }
 async function openMail(key){
  const thread=await api('/api/gmail/thread?id='+encodeURIComponent(key)),box=$('gmail-detail');box.replaceChildren(el('h3','',thread.subject),el('p','hint','Cached '+new Date(thread.fetched_at*1000).toLocaleString()+(thread.partial?' · Only the latest 100 messages are included':'')));
  for(const message of thread.messages){const row=el('details','work-proposal');row.append(el('summary','',message.sender+' · '+new Date(message.date).toLocaleString()),el('p','mail-body',message.body||'No inline text body. Attachments are not fetched.'));
-  if(message.body){const b=el('button','secondary small-action','Suggest a task from this message');b.onclick=()=>perform(async()=>{const title=await ask('Task suggestion. Review the source quote in Suggested before accepting.',{ok:'Save suggestion',value:thread.subject});if(title===null)return;await api('/api/gmail/propose',{id:thread.id,revision:thread.revision,message_id:message.id,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('Proposal saved in Suggested · no task was accepted');});row.append(b);}box.append(row);
+  if(message.body){const b=el('button','secondary small-action','Suggest a task from this message');b.onclick=()=>perform(async()=>{const title=await ask('Task suggestion. Review the source quote in Suggested before accepting.',{ok:'Save suggestion',value:thread.subject});if(title===null)return;await api('/api/gmail/propose',{id:thread.id,revision:thread.revision,message_id:message.id,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('Proposal saved in Suggested · no task was accepted');});row.append(b);const analyze=el('button','secondary small-action','Analyze this message with AI');analyze.onclick=()=>perform(()=>analyzeMail(thread,message));row.append(analyze);}box.append(row);
  }
 }
+async function analyzeMail(thread,message){
+ const body={id:thread.id,revision:thread.revision,message_id:message.id},preview=await api('/api/gmail/ai/preview',body);
+ const prompt=preview.cached?'Reuse the saved analysis for this exact message and AI settings? No new AI request will be sent. Existing review states stay unchanged.':'Send this selected email message to the AI endpoint below?\n\nAccount: '+preview.account+'\nSubject: '+preview.subject+'\nSize: '+preview.characters+' characters including sender and subject\nEndpoint: '+preview.endpoint+'\nModel: '+preview.model+'\n\nThis endpoint may be remote. Approval applies only to this message revision and these settings. Proposals require your later Accept/Link.';
+ if(!(await ask(prompt,{ok:preview.cached?'Show saved analysis':'Approve and analyze',cancel:'Cancel'})))return;
+ const result=await api('/api/gmail/ai/start',{...body,preview_token:preview.preview_token,approved:true});
+ mailAIWasRunning=!!result.running;
+ if(result.status==='reused'){await refreshAfterItemChange();$('work-suggested').open=true;toast('Saved analysis reused · review state kept');}
+ await loadMail();
+}
+$('gmail-ai-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/ai/cancel',{});await loadMail();});
 $('gmail-panel').ontoggle=()=>{if($('gmail-panel').open)perform(loadMail);else if(mailTimer){clearTimeout(mailTimer);mailTimer=null;}};
 $('gmail-refresh').onclick=()=>perform(loadMail);
 $('gmail-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail'});$('gmail-auth-link').href=result.authorization_url;$('gmail-auth-link').hidden=false;toast('Approve Gmail read-only access in your browser, then Refresh connection');});
@@ -715,7 +729,8 @@ function renderWorkGraph(){
  const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
  for(const p of proposals){
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
-  card.append(el('strong','',p.text),el('p','hint',p.kind+' · '+p.state+(p.snoozed_until?' · Snoozed until '+p.snoozed_until:'')));
+  card.append(el('strong','',p.text),el('p','hint',(p.origin==='gmail_ai'?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · Snoozed until '+p.snoozed_until:'')));
+  if(p.fields&&Object.keys(p.fields).length)card.append(el('p','hint',Object.entries(p.fields).map(([name,value])=>(name==='due_date'?'Due date':name==='owner'?'Owner':'Deadline')+': '+value).join(' · ')));
   if(ev){const quote=el('blockquote','',ev.quote);card.append(quote,el('p','hint',(source?source.provider+' · '+source.account+' · '+source.external_id:'Unavailable source')+' · saved revision '+ev.source_revision.slice(0,12)));}
   const actions=el('div','work-actions'),review=(action,extra={})=>graphAction('review',{id:p.id,revision:p.revision,action,...extra});
   const button=(label,run)=>{const b=el('button','secondary small-action',label);b.onclick=()=>perform(run);actions.append(b);};

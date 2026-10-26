@@ -130,7 +130,7 @@ previous answer remains in history. Automatic promotion of meeting open_question
 not enabled. General-source questions and proposals are global and independent of the meeting
 project filter. Source-linked items cannot be destructively deleted/merged through legacy controls;
 Dismiss keeps their history and IDs. New source records default to ai_export_allowed=false; there
-is no route in this delivery to authorize AI export.
+was no route in Part 2 to authorize AI export; selected-message approval is added below.
 
 Portable export version 3 contains every graph collection. Restore validates graph content before
 publishing meetings and commits its registry/graph merge together, preserving local records on ID
@@ -158,9 +158,42 @@ within local body/response/count limits; attachments are excluded. The cache is 
 from archives and can be cleared independently. Promoted source snapshots remain in graph archives.
 
 Needs reply/Waiting for are last-message direction heuristics. Message-to-task proposals are manual,
-with pinned quotes and existing Accept/Link review. No automatic commitment/deadline extraction,
-AI export, draft, send, label or mailbox modification is implemented. Existing promoted sources are
+with pinned quotes and existing Accept/Link review. The first pilot did not include AI extraction;
+selected-message extraction is described below. Draft, send, label and mailbox modification remain unsupported. Existing promoted sources are
 refreshed before a cache page is committed, so interruption retries are safe across the two stores.
 Unknown provider ordering, live mailbox validation, retention policy, Workspace deployment consent
 and automatic extraction remain explicit follow-ups. The Gmail permission itself is restricted; see
 [Google's scope classification](https://developers.google.com/workspace/gmail/api/auth/scopes).
+
+
+## Selected-message Gmail AI extraction
+
+`/api/gmail/ai/preview` computes a token from the account, pinned thread revision, selected message,
+extractor version and complete configured endpoint/model/format/token/reasoning settings. It makes
+no AI request and writes no consent. `/start` requires explicit boolean approval and the matching
+preview token. `/cancel` cancels the owned client worker. General read-only Gmail access and meeting
+AI settings never grant blanket permission to analyze email.
+
+Consent is scoped to one runtime job, message, source revision and target settings. Same-revision
+source ingestion preserves an active consent, while changed/unavailable source ingestion revokes it.
+Account, endpoint/settings and recording/processing changes invalidate the job. Restart/restore
+revokes persisted grants, and no interrupted AI export resumes. The source flag alone cannot start
+a job. Cache lookup binds the expected account before returning message content.
+
+The isolated worker uses the existing private pipe/guardian lifecycle. It has no tools, passes email
+as untrusted JSON data and sends only the selected body and sender/subject/ID, limited to 20,000
+characters. Parsing and source validation reject invented quotes and unquoted owner/date fields.
+Relative dates stay literal; canonical due_date requires an exact ISO date in the evidence. Up to 20
+task proposals are published; no item status or external system can change without review.
+
+Proposals include optional quoted fields. Accept copies them into a new open task; Link preserves
+existing fields/status. Proposals, completed-extraction activity and consumed consent share one
+SQLite commit. Exact same-input/settings/version retries reuse the completed proposal IDs and their
+review states; this is not semantic deduplication or a guarantee about unchanged server model weights.
+Any result with invalid evidence fails as a batch. Truncation produces a settings/input-limit error,
+not partial proposals or automatic recursive requests. Repeated analyses with changed wording still
+need human Link review. The source snapshot/replay metadata remains in portable export version 3.
+
+No real email or external model was used in development validation. Remaining manual checks include
+Workspace consent, real Gmail sync and extraction precision on consented reference messages. No
+bulk/background AI, cloud fallback, email writes or guessed normalized relative dates are enabled.

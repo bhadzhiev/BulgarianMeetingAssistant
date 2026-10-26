@@ -16,6 +16,9 @@ from .jobs import JobCancelled
 
 
 def execute(action, directory, settings, progress, key='', speakers=(), trackers=()):
+    if action == 'gmail_extract':
+        from .gmail_ai import extract
+        return extract(settings['gmail_ai_input'],settings,progress)
     from . import processing, correction, diarization, capture, analytics
     if action == 'transcribe':
         return processing.transcribe(directory, settings, progress, key, speakers)

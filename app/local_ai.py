@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
@@ -68,10 +69,16 @@ def complete_json(settings, messages, schema, name, timeout=600):
     if type(max_tokens) is not int or not 128 <= max_tokens <= 32768:
         raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
     reasoning = settings.get('local_ai_reasoning', 'default')
-    if reasoning not in {'default', 'none', 'low', 'medium', 'high'}:
+    if reasoning not in {'default', 'server', 'none', 'low', 'medium', 'high'}:
         raise ValueError('Invalid local AI reasoning effort')
+    # Qwen3.5 can consume the entire budget on thinking without returning JSON.
+    # Apply this task policy before requesting, not after a slow, empty response.
+    # Email extraction keeps its separately approved target settings unchanged.
+    if (reasoning == 'default' and name in {'meeting_minutes', 'transcript_correction', 'meeting_title'}
+            and isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I)):
+        reasoning = 'none'
     payload = dict(model=model, messages=messages, temperature=0, stream=False, max_tokens=max_tokens)
-    if reasoning != 'default':
+    if reasoning not in {'default', 'server'}:
         payload['reasoning_effort'] = reasoning
     if mode == 'json_schema':
         payload['response_format'] = {'type': 'json_schema', 'json_schema': {'name': name, 'strict': True, 'schema': schema}}
@@ -88,7 +95,13 @@ def complete_json(settings, messages, schema, name, timeout=600):
             # Splitting cannot help a model that spends the budget before it
             # starts its answer (for example, on reasoning alone).
             can_split = isinstance(content, str) and bool(content.strip())
-            raise OutputTruncatedError('The model output was truncated. Increase the output limit in Settings, reduce reasoning effort, or choose another model.', can_split=can_split)
+            detail = ('The answer exceeded the output limit.' if can_split else
+                      'The server returned no answer text before reaching the limit; reasoning may have used the budget.')
+            effort = 'server default' if reasoning in {'default', 'server'} else reasoning
+            raise OutputTruncatedError(f'The model output was truncated. {detail} '
+                f'Output limit: {max_tokens} tokens; reasoning: {effort}. '
+                'Choose Reasoning effort Off, increase the output limit, or choose another model in Settings. '
+                'The recording and previous results were kept.', can_split=can_split)
         content = choice['message']['content']
         if not isinstance(content, str) or not content.strip():
             raise ValueError('The model returned no text')

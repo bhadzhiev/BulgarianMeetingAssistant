@@ -245,7 +245,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
     # Cache only validated parts of an unfinished run. Settings, sources and
     # prompts must match exactly before a retry can reuse them. No API key is saved.
-    identity = dict(version=1, segments=[asdict(s) for s in segments],
+    identity = dict(version=2, segments=[asdict(s) for s in segments],
                     args={k: v for k, v in vars(args).items() if k != 'api_key'})
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     checkpoint = directory / '.notes-progress.json'

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build the desktop app and install it, or replace an installed copy.
-# Usage: scripts/install_desktop.sh [--debug] [--ffmpeg-dir DIR] [--without-diarization]
+# Usage: scripts/install_desktop.sh [--debug] [--ffmpeg-dir DIR] [--without-diarization] [--without-parakeet]
 # The build includes speaker diarization by default. --without-diarization leaves it out.
 # BMA_INSTALL_DIR selects the install folder (default /Applications).
 # BMA_BUILD_VENV selects the packaging virtual environment (default .venv-build).
@@ -13,16 +13,21 @@ build_venv="${BMA_BUILD_VENV:-$task_root/.venv-build}"
 
 profile=release
 diarization=yes
+parakeet=no
+[ "$(uname -sm)" != "Darwin arm64" ] || parakeet=yes
 for arg in "$@"; do
   shift
   case "$arg" in
     --debug) profile=debug ;;
     --without-diarization) diarization=no; continue ;;
     --with-diarization) continue ;;
+    --without-parakeet) parakeet=no; continue ;;
+    --with-parakeet) parakeet=yes; continue ;;
   esac
   set -- "$@" "$arg"
 done
 [ "$diarization" = yes ] && set -- "$@" --with-diarization
+[ "$parakeet" = yes ] && set -- "$@" --with-parakeet
 
 # A terminal or IDE that started before Rust was installed does not have rustup's folder on its PATH.
 if ! command -v cargo >/dev/null 2>&1; then
@@ -51,6 +56,11 @@ if [ "$diarization" = yes ]; then
 else
   "$build_venv/bin/python" -m pip install --quiet -r "$task_root/requirements.txt" \
     -c "$task_root/requirements.lock" pyinstaller
+fi
+
+if [ "$parakeet" = yes ]; then
+  echo "==> Include local Parakeet v3 (Apple Silicon)"
+  "$build_venv/bin/python" -m pip install --quiet -r "$task_root/requirements-parakeet.txt" -c "$task_root/requirements.lock"
 fi
 
 marker="$task_root/desktop/node_modules/.package-lock.json"

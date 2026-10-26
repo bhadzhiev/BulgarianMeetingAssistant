@@ -518,6 +518,27 @@ The app validates notes' structure and source timestamps, but factual correctnes
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
 
+## Local Parakeet v3 transcription (Apple Silicon)
+
+In **Settings → Recording → Transcription**, select **Local · Parakeet TDT 0.6B v3**
+for the final transcription. Whisper remains available; live captions always use the selected
+Whisper model. Existing settings do not change automatically.
+
+Parakeet v3 supports Bulgarian and English, with automatic language detection. Its Whisper
+vocabulary and VAD options do not apply. Compare the results on representative recordings before
+assuming better accuracy for Bulgarian with English technical terms. AI correction, notes and
+post-recording speaker separation remain separate steps.
+
+The Apple Silicon installer includes the runtime by default; `--without-parakeet` omits it.
+For a manual build, install `requirements-parakeet.txt` and add `--with-parakeet` to
+`build_desktop.py`. Intel Macs can continue using Whisper. The first transcription downloads
+model files from `mlx-community/parakeet-tdt-0.6b-v3` at a pinned revision into the app's models
+folder. Audio stays local. Long recordings use bounded, restartable chunks; original audio and
+previous transcript versions are retained. Parakeet's token boundaries provide word anchors for
+speaker alignment, rather than estimating word times from text length.
+The original [NVIDIA model](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) uses CC BY 4.0;
+the [Parakeet MLX runtime](https://github.com/senstella/parakeet-mlx) uses Apache 2.0.
+
 ## My Work: one place for meetings, Gmail, Chat and GitHub
 
 Every task, decision and proposal shows a coloured source chip: **Meeting**, **Gmail**, **Chat** or

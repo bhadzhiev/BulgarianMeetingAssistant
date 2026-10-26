@@ -728,10 +728,11 @@ class MeetingService:
             directory = self.library.directory(meeting_id)
             if 'refresh_notes' in body and (type(body['refresh_notes']) is not bool or 'transcript' not in body):
                 raise ValueError('Choose whether to refresh notes after saving a transcript')
-            if 'transcript' in body and 'transcript_revision' in body:
+            if 'transcript' in body:
+                # Like the notes: a copy without the current revision must not replace a newer transcript.
                 current = read_json(directory / 'transcript.json', [])
                 revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
-                if body['transcript_revision'] != revision:
+                if current and body.get('transcript_revision') != revision:
                     raise items.WorkItemConflict('The transcript changed. Reload before saving your corrections.')
             if 'speaker_name' in body and set(body) != {'speaker_name'}:
                 raise ValueError('Save other edits before naming speakers')
@@ -783,10 +784,16 @@ class MeetingService:
                             and not conversation.is_generic_speaker(new.speaker)
                             and new.speaker.strip() != old.speaker):
                         renames[old.speaker] = new.speaker.strip()
-                if renames:
-                    for segment in segments:
-                        if segment.speaker in renames:
-                            segment.speaker = renames[segment.speaker]
+                # A real name corrected on one segment moves only that segment's time, so talk time
+                # and questions keep the same speaker.
+                corrections = [(new.start, new.end, old.speaker, new.speaker.strip()) for old, new in zip(old_segments, segments)
+                               if old.speaker and new.speaker and old.speaker not in renames
+                               and not conversation.is_generic_speaker(old.speaker)
+                               and not conversation.is_generic_speaker(new.speaker) and new.speaker.strip() != old.speaker]
+                for segment in segments:
+                    if segment.speaker in renames:
+                        segment.speaker = renames[segment.speaker]
+                if renames or corrections:
                     for filename in ('speaker-timeline.json', 'speaker-turns.json'):
                         timeline_path = directory / filename
                         if timeline_path.exists():
@@ -794,6 +801,8 @@ class MeetingService:
                             for turn in timeline:
                                 if turn.get('speaker') in renames:
                                     turn['speaker'] = renames[turn['speaker']]
+                            for start, end, old_name, new_name in corrections:
+                                timeline = conversation.relabel_range(timeline, start, end, old_name, new_name)
                             atomic_json(timeline_path, timeline)
                 changed = [vars(segment) for segment in old_segments] != [vars(segment) for segment in segments]
                 if changed:
@@ -961,8 +970,10 @@ class MeetingService:
             raise ValueError('Type a question')
         results = self.find(question, project=project)
         order = {'decision': 0, 'task': 1, 'transcript': 3, 'draft': 3}
-        sources = sorted(results, key=lambda r: order.get(r['kind'], 2))[:12]
-        decisions = [r for r in results if r['kind'] == 'decision']
+        # A replaced decision is no longer in force: it is not proposed and it is not an answer source.
+        current = [r for r in results if not (r['kind'] == 'decision' and r['status'] == 'superseded')]
+        sources = sorted(current, key=lambda r: order.get(r['kind'], 2))[:12]
+        decisions = [r for r in current if r['kind'] == 'decision']
         result = dict(question=question.strip(), sources=sources, decision_question=bool(search.DECISION_QUESTION.search(question)),
                       confirmed=[r for r in decisions if r['status'] == 'accepted'][:5],
                       proposed=[r for r in decisions if r['status'] != 'accepted'][:5], ai=None, ai_error=None,
@@ -1003,11 +1014,24 @@ class MeetingService:
                     normalize(item)
         def merge(staging, restored):
             try:
-                with self.projects.lock:
-                    self.projects.merge(json.loads((staging / 'projects.json').read_text()))
-                    self.projects.save()
-            except (OSError, ValueError, AttributeError):
-                pass
+                archived_projects = json.loads((staging / 'projects.json').read_text())
+            except (OSError, ValueError):
+                archived_projects = {}
+            with self.projects.lock:
+                mapping = self.projects.merge(archived_projects if isinstance(archived_projects, dict) else {})
+                self.projects.save()
+                # A restored meeting follows its project by name, not only by ID.
+                for meeting_id in restored:
+                    meeting = self.library.get(meeting_id)
+                    project_id = mapping['projects'].get(meeting.get('project_id'), meeting.get('project_id'))
+                    series_id = mapping['series'].get(meeting.get('series_id'), meeting.get('series_id'))
+                    if not self.projects.get('projects', project_id):
+                        project_id = series_id = None
+                    series = self.projects.get('series', series_id)
+                    if not series or series['project_id'] != project_id:
+                        series_id = None
+                    if (project_id, series_id) != (meeting.get('project_id'), meeting.get('series_id')):
+                        self.library.update(meeting_id, project_id=project_id, series_id=series_id)
             try:
                 if not (staging / 'items.json').exists():
                     return
@@ -1151,15 +1175,19 @@ class MeetingService:
                           if not topic_key or str(row.get('id', '')).casefold() == topic_key or row.get('name', '').casefold() == topic_key]
             questions = [item for item in data.get('questions', [])
                          if not wanted_speaker or (item.get('speaker') or '').casefold() == wanted_speaker]
-            speaker_in_topics = any((hit.get('speaker') or '').casefold() == wanted_speaker
-                                    for row in topic_rows for hit in row.get('matches', []))
+            # With a speaker filter, a topic counts only the matches of that speaker.
+            hits = {id(row): [hit for hit in row.get('matches', [])
+                              if not wanted_speaker or (hit.get('speaker') or '').casefold() == wanted_speaker] for row in topic_rows}
+            if wanted_speaker:
+                topic_rows = [row for row in topic_rows if hits[id(row)]]
+            speaker_in_topics = bool(wanted_speaker and topic_rows)
             if wanted_speaker and not speaker_rows and not questions and not speaker_in_topics or topic_key and not topic_rows:
                 continue
             unanswered = sum(not item.get('answered', False) for item in questions)
             meetings.append(dict(id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
                                  talk_seconds=round(sum(row['talk_seconds'] for row in speaker_rows), 3),
                                  questions=len(questions), unanswered_questions=unanswered,
-                                 topic_matches=sum(len(row.get('matches', [])) for row in topic_rows)))
+                                 topic_matches=sum(len(hits[id(row)]) for row in topic_rows)))
             for row in speaker_rows:
                 name = row['speaker']
                 aggregate = speakers.setdefault(speaker_key(name, meeting), new_speaker(name, meeting))
@@ -1178,7 +1206,7 @@ class MeetingService:
             for row in topic_rows:
                 key = row.get('name', '').casefold()
                 aggregate = topics.setdefault(key, dict(id=row.get('id'), name=row.get('name'), matches=0, meetings=set()))
-                aggregate['matches'] += len(row.get('matches', []))
+                aggregate['matches'] += len(hits[id(row)])
                 aggregate['meetings'].add(meeting['id'])
         total_speech = round(sum(row['talk_seconds'] for row in speakers.values()), 3)
         speaker_rows = []
@@ -1545,6 +1573,8 @@ class MeetingService:
             if (revision is not None and (type(revision) is not int or revision != item.get('revision'))
                     or into_revision is not None and (type(into_revision) is not int or into_revision != into.get('revision'))):
                 raise items.WorkItemConflict('These items changed. Reload the list and try again.')
+            if self.items.replaces(item_id, into_id):
+                raise ValueError('One of these decisions replaces the other. They cannot be merged.')
             if self.items.has_graph_links(item_id):
                 raise ValueError('Dismiss this source-linked item to preserve its history')
             if self.items.has_graph_links(into_id):

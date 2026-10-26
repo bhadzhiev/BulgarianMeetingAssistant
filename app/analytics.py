@@ -25,6 +25,23 @@ def is_generic_speaker(name) -> bool:
     return isinstance(name, str) and bool(GENERIC_SPEAKER.fullmatch(name.strip()))
 
 
+def relabel_range(timeline, start, end, old, new) -> list[dict]:
+    """Give the part of the old speaker's turns inside [start, end] to the new speaker."""
+    result = []
+    for turn in timeline:
+        first, last = turn.get('start'), turn.get('end')
+        if (turn.get('speaker') != old or type(first) not in {int, float} or type(last) not in {int, float}
+                or last <= start or first >= end):
+            result.append(turn)
+            continue
+        if first < start:
+            result.append(dict(turn, end=start))
+        result.append(dict(turn, start=max(first, start), end=min(last, end), speaker=new))
+        if last > end:
+            result.append(dict(turn, start=end))
+    return result
+
+
 def clean_intervals(intervals) -> list[dict]:
     result = []
     for item in intervals or []:

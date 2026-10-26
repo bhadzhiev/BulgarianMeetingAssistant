@@ -201,7 +201,7 @@ class LifecycleTests(unittest.TestCase):
         with patch('app.processing.transcribe',side_effect=transcribe):
             self.service.process(mid,'transcribe');wait_for(lambda:mid not in self.service.busy)
         detail=self.service.detail(mid);detail['transcript'][0]['text']='Корекция'
-        self.service.edit(mid,{'transcript':detail['transcript']})
+        self.service.edit(mid,{'transcript':detail['transcript'],'transcript_revision':detail['transcript_revision']})
         self.assertEqual(self.service.detail(mid)['transcript'][0]['text'],'Корекция')
         self.assertEqual(self.service.library.get(mid)['status'],'ready')
 

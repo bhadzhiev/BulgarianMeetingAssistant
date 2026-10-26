@@ -495,8 +495,25 @@ Shared topic trackers are stored in `meetings/trackers.json`.
 Raw tracks are written continuously and synced approximately every second. A crash may lose
 the in-flight callback/queue; abrupt power failure can lose the latest unsynced data. The app
 never promises zero loss. No entire-meeting audio array is retained in memory during capture.
-A bounded writer queue stops recording explicitly if disk IO cannot keep up. Microphone gaps,
-disconnects, native helper exit, and PortAudio overflow become visible errors.
+A bounded writer queue stops recording explicitly if disk IO cannot keep up. A temporary microphone
+input overflow keeps recording and shows a warning: some audio was lost and gaps may be present.
+The overflow count is saved in `capture.json`. A disconnected or inactive microphone, no callbacks
+for five seconds, native helper exit, and other capture errors still stop recording and preserve audio.
+
+Notes use smaller transcript parts. If the local endpoint starts a JSON answer but truncates it,
+notes and transcript correction can split the failed part, with at most two splits per attempt.
+A model that exhausts its budget without starting an answer needs a different reasoning/output
+setting; the app does not repeat it through split requests. Completed, validated notes parts are
+saved in `.notes-progress.json` until the run succeeds. Retrying notes reuses them only when the
+transcript, model settings, speakers, date and markers match. Saved notes stay unchanged on failure.
+Transcript correction does not yet resume completed parts.
+
+For faster processing, start with `large-v3-turbo`, disable live captions if you do not need them,
+and turn off transcript correction and speaker diarization unless you need those extra stages.
+For the default Qwen model, try **Reasoning effort → Off** in **Settings → Notes & AI**;
+the server default can spend the output budget on reasoning before producing JSON. Other endpoints
+may require **Server default** for compatibility. These are explicit settings; updates do not replace
+your saved choices. Measure transcription quality on your own speech before choosing a smaller model.
 
 After an interrupted recording or job, reopen the app and select **Recover audio** to rebuild
 a playable WAV from raw tracks. Then **Transcribe** to retry. Recovery works without a finalized

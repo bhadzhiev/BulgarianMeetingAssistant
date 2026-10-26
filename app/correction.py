@@ -71,14 +71,30 @@ def correct(directory: Path, settings: dict, progress, api_key: str = '', speake
     names = '\n'.join(f'- {name}' for name in list(speakers)[:100])
     system = SYSTEM + (f'\nИзвестни участници:\n{names}' if names else '')
     changed = rejected = 0
-    for number, ids in enumerate(groups):
-        progress(f'AI correction of transcript · part {number + 1} of {len(groups)}')
+    split_attempts = 0
+
+    def ask_part(ids, depth=0):
+        nonlocal split_attempts
+        from .local_ai import OutputTruncatedError
         payload = [dict(id=i, text=segments[i].text) for i in ids]
-        result = ask(settings, [{'role': 'system', 'content': system},
-            {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}], schema(len(ids)), api_key)
+        try:
+            result = ask(settings, [{'role': 'system', 'content': system},
+                {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}], schema(len(ids)), api_key)
+        except OutputTruncatedError as exc:
+            if not exc.can_split or len(ids) < 2 or depth >= 2 or split_attempts >= 2:
+                raise
+            split_attempts += 1
+            progress('Output limit reached · splitting transcript correction')
+            middle = len(ids) // 2
+            return ask_part(ids[:middle], depth + 1) + ask_part(ids[middle:], depth + 1)
         items = result.get('segments') if isinstance(result, dict) else None
         if not isinstance(items, list) or [item.get('id') if isinstance(item, dict) else None for item in items] != ids:
             raise ValueError('The correction model changed the segment list. The Whisper transcript was kept.')
+        return items
+
+    for number, ids in enumerate(groups):
+        progress(f'AI correction of transcript · part {number + 1} of {len(groups)}')
+        items = ask_part(ids)
         for item in items:
             original = segments[item['id']].text
             text = item['text'].strip() if isinstance(item['text'], str) else item['text']

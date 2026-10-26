@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import gc
+import hashlib
 import io
 import json
 import os
@@ -159,7 +160,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
         raise ValueError('Transcribe the recording before generating notes')
     groups, group, length = [], [], 0
     for segment in segments:
-        if group and length + len(segment.text) > 10000:
+        if group and length + len(segment.text) > 4000:
             groups.append(group)
             group, length = [], 0
         group.append(segment)
@@ -178,13 +179,57 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     args.api_key = api_key
     args.speakers = list(speakers)
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
-    args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or None
+    from datetime import date
+    args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or date.today().isoformat()
     from .live import read_json
     args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
+    # Cache only validated parts of an unfinished run. Settings, sources and
+    # prompts must match exactly before a retry can reuse them. No API key is saved.
+    identity = dict(version=1, segments=[asdict(s) for s in segments],
+                    args={k: v for k, v in vars(args).items() if k != 'api_key'})
+    signature = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    checkpoint = directory / '.notes-progress.json'
+    saved = read_json(checkpoint, {})
+    parts = saved.get('parts', {}) if isinstance(saved, dict) and saved.get('signature') == signature else {}
+    if not isinstance(parts, dict):
+        parts = {}
+    saved_splits = saved.get('splits', []) if isinstance(saved, dict) and saved.get('signature') == signature else []
+    splits = {key for key in saved_splits if isinstance(key, str)} if isinstance(saved_splits, list) else set()
+    split_attempts = 0
     result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[])
-    for index, group in enumerate(groups):
-        progress(f'Generating notes · part {index + 1} of {len(groups)}')
-        minutes = generate_minutes(args, group)
+
+    def generate_part(group, label, depth=0):
+        nonlocal split_attempts
+        from .local_ai import OutputTruncatedError
+        key = hashlib.sha256(json.dumps([asdict(s) for s in group], sort_keys=True).encode()).hexdigest()
+        cached = parts.get(key)
+        if cached is not None:
+            try:
+                validate_minutes(cached, group)
+                progress(f'Reusing completed notes · part {label}')
+                return [cached]
+            except (ValueError, TypeError, KeyError):
+                parts.pop(key, None)
+        def split_part():
+            middle = len(group) // 2
+            return (generate_part(group[:middle], label + '.1', depth + 1)
+                    + generate_part(group[middle:], label + '.2', depth + 1))
+
+        if key in splits and len(group) > 1:
+            return split_part()
+        progress(f'Generating notes · part {label}')
+        try:
+            minutes = generate_minutes(args, group)
+        except OutputTruncatedError as exc:
+            # Keep the configured provider and reasoning preference. Bound retries
+            # even when the model spends its whole budget on internal reasoning.
+            if not exc.can_split or len(group) < 2 or depth >= 2 or split_attempts >= 2:
+                raise
+            split_attempts += 1
+            splits.add(key)
+            atomic_json(checkpoint, dict(signature=signature, parts=parts, splits=sorted(splits)))
+            progress(f'Output limit reached · splitting notes part {label}')
+            return split_part()
         stamps = {timestamp(s.start) for s in group}
         for field in ITEM_FIELDS:
             # A wrong source on a statement is dropped, not fatal: the statement then shows no source.
@@ -192,11 +237,18 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
                 if isinstance(item, dict) and item.get('evidence_timestamp') not in stamps:
                     item['evidence_timestamp'] = None
         validate_minutes(minutes, group)
-        for field in result:
-            result[field].extend(minutes[field])
+        parts[key] = minutes
+        atomic_json(checkpoint, dict(signature=signature, parts=parts, splits=sorted(splits)))
+        return [minutes]
+
+    for index, group in enumerate(groups):
+        for minutes in generate_part(group, f'{index + 1} of {len(groups)}'):
+            for field in result:
+                result[field].extend(minutes[field])
     validate_minutes(result, segments)
     if (directory / 'minutes.json').exists():
         # Saved notes may hold checked statements and manual edits; the new run waits for review.
         atomic_json(directory / 'minutes.proposed.json', result)
     else:
         save_minutes(directory, result)
+    checkpoint.unlink(missing_ok=True)

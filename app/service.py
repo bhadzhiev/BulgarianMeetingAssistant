@@ -467,6 +467,7 @@ class MeetingService:
             duration = render_recording(self.library.directory(meeting_id))
             with self.lock:
                 meeting = self.library.update(meeting_id, status='recorded', duration=duration,
+                    warnings=list(getattr(recorder, 'warnings', [])),
                     error=failure, progress='Recording saved' if not failure else 'Stopped after an audio error; recording saved')
                 self.active, self.recorder = None, None
                 if meeting['settings']['auto_process'] and not failure and not self.closed.is_set():
@@ -1387,6 +1388,9 @@ class MeetingService:
                                 self.stop(error)
                             else:
                                 self.recorder.checkpoint()
+                                warnings = getattr(self.recorder, 'warnings', [])
+                                if warnings != self.library.get(self.active).get('warnings', []):
+                                    self.library.update(self.active, warnings=list(warnings))
                 self.automation.retry_pending()
             except Exception as exc:
                 print(f'Monitor: {exc}', flush=True)

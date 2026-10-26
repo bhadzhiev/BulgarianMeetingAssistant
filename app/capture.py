@@ -130,6 +130,7 @@ class Recorder:
         self.clock = Clock()
         self.level = 0.0
         self.warnings = []
+        self.input_overflows = 0
         self.stream = None
         self.writer = None
         self.system = None
@@ -147,7 +148,12 @@ class Recorder:
         self.last_frame = time.monotonic()
         if status:
             # Do not perform console or disk IO in the PortAudio callback.
-            self.fatal = f'Microphone reported lost audio: {status}'
+            if status.input_overflow:
+                # A callback still arrived. Preserve its audio and let ADC timing
+                # account for the gap instead of ending the whole meeting.
+                self.input_overflows += 1
+            else:
+                self.fatal = f'Microphone reported lost audio: {status}'
         if self.clock.paused_at is not None:
             self.level = 0
             return
@@ -216,6 +222,9 @@ class Recorder:
 
     def checkpoint(self):
         self.info['duration'] = self.clock.elapsed()
+        self.info['input_overflows'] = self.input_overflows
+        if self.input_overflows:
+            self.warnings = [f'Microphone dropped audio {self.input_overflows} time(s). Recording continued; gaps may be present.']
         self.info['checkpoint_at'] = dt.datetime.now().astimezone().isoformat()
         atomic_json(self.directory / 'capture.json', self.info)
 

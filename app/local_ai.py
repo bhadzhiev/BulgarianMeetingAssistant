@@ -9,6 +9,14 @@ DEFAULT_BASE_URL = 'http://localhost:1235/v1'
 DEFAULT_MODEL = 'qwen3.5-9b'
 
 
+class OutputTruncatedError(ValueError):
+    """The endpoint exhausted its output budget; callers may split the input."""
+
+    def __init__(self, message, can_split=True):
+        super().__init__(message)
+        self.can_split = can_split
+
+
 def validate_base_url(value):
     if not isinstance(value, str) or len(value) > 2048 or any(c.isspace() or ord(c) < 32 for c in value):
         raise ValueError('Enter an HTTP API base URL, for example http://localhost:1235/v1')
@@ -76,7 +84,11 @@ def complete_json(settings, messages, schema, name, timeout=600):
     try:
         choice = response['choices'][0]
         if choice.get('finish_reason') == 'length':
-            raise ValueError('The model output was truncated. Increase the output limit in Settings, reduce reasoning effort, or choose another model.')
+            content = choice.get('message', {}).get('content')
+            # Splitting cannot help a model that spends the budget before it
+            # starts its answer (for example, on reasoning alone).
+            can_split = isinstance(content, str) and bool(content.strip())
+            raise OutputTruncatedError('The model output was truncated. Increase the output limit in Settings, reduce reasoning effort, or choose another model.', can_split=can_split)
         content = choice['message']['content']
         if not isinstance(content, str) or not content.strip():
             raise ValueError('The model returned no text')

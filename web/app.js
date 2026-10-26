@@ -110,6 +110,7 @@ function renderState() {
   const enabled=['recording','paused'].includes(a.status); $('pause').disabled=$('stop').disabled=!enabled;
   $('pause').textContent=a.status==='paused'?'▶ Resume':'Ⅱ Pause'; $('recording-indicator').classList.toggle('paused',a.status!=='recording');
   $('recording-help').textContent=a.status==='starting'?'Preparing audio capture. macOS may request recording permission.':a.status==='paused'?'Paused. Audio during the pause is discarded.':a.status==='stopping'?'Finishing audio files. Please keep the app open.':'Audio is being saved continuously on this Mac.';
+  if(a.warnings?.length) $('recording-help').textContent+=' '+a.warnings.join(' ');
   renderLive(a);
   renderMarkerList($('marker-list'),a.markers||[],false);
   if(view==='setup') { selected=a.id; show('recording'); }

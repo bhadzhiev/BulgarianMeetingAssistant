@@ -360,7 +360,7 @@ Migration copies and archives retain earlier data until you remove those copies.
 
 The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
 the next stages. This foundation supports meeting tasks, decisions and questions.
-GitHub remains planned. The Gmail and Google Chat read-only pilots are described below.
+The Gmail, Google Chat and GitHub read-only pilots are described below.
 
 **Suggested** stores source-backed proposals separately. **Accept** creates an item; **Link** attaches
 the quote to an existing item of the same kind without changing its text, owner or status. Dismiss,
@@ -591,6 +591,53 @@ the verified Google user ID, so an email rename keeps the same cache. **Clear lo
 can remove a cached identity after sign-out and keeps promoted WorkItem snapshots in the graph and
 archives. There is no automatic retention purge. All development tests use synthetic Chat responses;
 live Workspace consent, API access and real conversation sync still need account-owner validation.
+
+## GitHub: selected repositories, read-only
+
+Open **My Work → GitHub**. Create a **fine-grained personal access token** for the selected repositories
+with **Issues: Read-only**, **Pull requests: Read-only** and the required metadata access, then Connect.
+The app verifies the account with GitHub and stores the token in a separate macOS Keychain entry.
+It does not reuse `gh` credentials or environment tokens. The token input clears after submission;
+status, settings, archives and command arguments never include it. Token creation, organization
+approval and SSO remain GitHub/account-owner setup. See
+[GitHub token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
+The app cannot introspect all token permissions; its own adapter only makes GET requests.
+
+Enter **owner/repository**, select **All**, **Assigned to me**, **Created by me** or **Mentioned**, then
+**Sync / Continue**. Each action handles at most 20 search matches and at most 200 per repository/filter
+refresh. Each filter has its own cached result set and restartable queue; choose Issues/PRs to narrow
+the display. Search qualifiers handle mentions, including indexed comments, instead of guessing from
+cached body text. Search indexing can lag or report incomplete results. This is not a full mirror,
+a transactionally frozen GitHub search or a webhook subscription; absence from the capped results
+never proves deletion. **Restart filter refresh** starts a new result generation, preserving sources.
+
+Open an item to read its cached Markdown as plain text and fetch time. PR states distinguish open,
+closed without merge and merged; the PR detail is checked separately from the issue representation.
+The cache uses the issue database ID returned by the Issues API for both issues and PRs, with the PR
+ID retained separately. These IDs differ, as noted in
+[GitHub's issue API](https://docs.github.com/en/rest/issues/issues). Stable source IDs survive repository
+renames, although redirects are deliberately not followed with credentials: enter the current
+repository path and restart its refresh. Login changes during a page sequence also need a restart.
+
+**Suggest a task from this issue / PR** stores a quote and repository/number/kind references in
+Suggested. Accept creates a new open local task; Link attaches evidence and preserves existing human
+fields/status. GitHub remains authoritative for the remote issue/PR state. A close or merge never
+silently completes or reopens the local task. Observed source changes invalidate older pending
+proposals; individual **Refresh this issue / PR** rechecks the object. Access loss blocks new
+acceptance and clears cached text; historical quotes remain. Rate limits halt without inferring
+that the repository was deleted. There are no GitHub writes, AI exports, comments, diffs, code reads
+or automatic task executions in this pilot.
+
+The indexed `github-cache.sqlite3` is per verified GitHub user ID and excluded from library archives;
+promoted sources remain in the portable WorkItem graph. Lists show at most 200 matches for the current
+filter generation. Cache records can accumulate across filters/refreshes until cleared. Clear cache
+can remove an old identity after disconnect and keeps source snapshots/archives. **Disconnect locally**
+removes the local Keychain credential; revoke the token separately on GitHub if needed. Cancelling,
+recording/processing and account changes stop further work, with an in-flight request taking up to
+30 seconds. No automatic background sync, OAuth app registration or GitHub Enterprise host is supported.
+
+Tests use synthetic GitHub data and an in-memory token store. Real token permissions/organization
+approval, live repository behavior and actual Keychain prompts still need account-owner validation.
 
 ## Archive and restore the library
 

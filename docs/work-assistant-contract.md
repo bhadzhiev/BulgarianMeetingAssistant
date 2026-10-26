@@ -230,3 +230,38 @@ names are labels, not identity proof. DM/group labels can be resource IDs, and a
 to what the signed-in user and Workspace policy allow. Chat has no AI consent route or extraction,
 no writes, no Events subscription, no bot/admin visibility and no automatic retention purge. Live
 account consent and real Chat behavior remain unverified; tests use synthetic responses only.
+
+
+## GitHub read-only pilot
+
+GitHub.com uses an explicitly supplied fine-grained PAT stored in a separate Keychain service.
+Identity is verified through GET /user; caches/source accounts use its stable numeric ID. No `gh`
+credential or environment token is imported. Only known user/repository/issue/PR/search GET paths are
+allowed; credential-bearing requests do not follow redirects or response links. The UI documents
+minimal selected-repository permissions, which the app cannot independently introspect.
+
+Explicit owner/repository selection and verified current login produce bounded All/assignee/author/
+mentions search queries. Each repository/filter has a generation, fixed upper update bound, page
+counter and durable item-ID queue, capped at 20/page and 200/refresh. Search can be incomplete, lag
+or shift as objects change; there is no claim of snapshot isolation or a full mirror. Personal
+mentions use server search rather than body-only heuristics. Retrieved objects are validated against
+the selected repository and expected issue ID. See [search](https://docs.github.com/en/rest/search/search)
+and [issues](https://docs.github.com/en/rest/issues/issues).
+
+The issue database ID is canonical for both issues and PRs; the separate PR database ID and head/
+merge SHAs are metadata. PR details distinguish merged from closed-unmerged. A source's `remote`
+metadata records GitHub-owned state separately from the WorkItem's user-owned status. Accept creates
+an open local task regardless of external closed/merged state; Link never overwrites its fields or
+status. Explicit completion/binding policy remains a later feature. Same-version reads do not rewrite
+the graph, and repository rename creates a new content revision without replacing source identity.
+
+Only manual promotion creates sources/evidence/proposals. Observed text/state changes stale pending
+proposals; 403/404 access failures mark affected sources unavailable rather than changing canonical
+status. Rate-limit errors are not treated as deletion. Cache/source updates use cache -> service ->
+registry lock order with no network under recording controls. Portable snapshots retain sources,
+quotes and remote-state metadata, not credentials or the rebuildable cache. Disconnect clears local
+credentials only; local caches/archives and token revocation are separate actions.
+
+No actual GitHub token/repository, Keychain prompt or organization approval was used in development.
+There are no external writes, AI export, code/diff/comment indexing, webhooks, auto-completion,
+automatic background sync or Enterprise host support in this delivery.

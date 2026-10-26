@@ -51,7 +51,7 @@ class GmailOAuthTests(unittest.TestCase):
     def test_gmail_only_consent_does_not_request_calendar_or_call_calendar_api(self):
         url,status=self.connect()
         self.assertEqual(parse_qs(urlsplit(url).query)['scope'],[GMAIL_SCOPE])
-        self.assertEqual(status['capabilities'],dict(calendar=False,gmail=True))
+        self.assertEqual(status['capabilities'],dict(calendar=False,gmail=True,chat=False))
         self.assertFalse(any('/calendar/' in call[0] for call in self.calls))
         self.assertNotIn('synthetic-access',str(status));self.assertNotIn('synthetic-refresh',str(status))
         self.assertEqual(self.store.value['scopes'],[GMAIL_SCOPE])
@@ -60,7 +60,7 @@ class GmailOAuthTests(unittest.TestCase):
         self.granted=set(SCOPES)|{GMAIL_SCOPE}
         url,status=self.connect()
         self.assertEqual(set(parse_qs(urlsplit(url).query)['scope'][0].split()),self.granted)
-        self.assertEqual(status['capabilities'],dict(calendar=True,gmail=True))
+        self.assertEqual(status['capabilities'],dict(calendar=True,gmail=True,chat=False))
     def test_partial_consent_keeps_previous_credentials(self):
         self.google.bundle.update(account_id='synthetic@example.invalid',refresh_token='old-refresh')
         before=copy.deepcopy(self.google.bundle)

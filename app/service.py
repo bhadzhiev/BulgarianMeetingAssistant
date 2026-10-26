@@ -34,6 +34,7 @@ from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client, CalendarError
 from .gmail import GmailSync
 from .gmail_ai import GmailAI
+from .google_chat import ChatSync
 from .meeting_automation import MeetingAutomation
 from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
 
@@ -98,6 +99,8 @@ class MeetingService:
         self._sync_all_items()
         self.gmail = GmailSync(root, self.google, lambda: self.closed.is_set() or bool(self.active or self.busy), self._refresh_gmail_source)
         self.gmail_ai = GmailAI(self)
+        self.chat = ChatSync(root,self.google,lambda:self.closed.is_set() or bool(self.active or self.busy),
+                             self._refresh_chat_message,self._chat_unavailable)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -1215,6 +1218,47 @@ class MeetingService:
             self._refresh_items()
             return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs(), graph=WorkGraph(self.items).snapshot())
 
+    def _refresh_chat_message(self, account, record):
+        with self.lock,self.items.lock:
+            if self.closed.is_set() or self.active or self.busy:
+                raise InterruptedError('paused for recording or processing')
+            if self.google.status().get('chat_account_id')!=account:
+                raise CalendarError('The Chat account changed. Sync again.')
+            source=next((s for s in self.items.data['sources'].values()
+                if s['provider']=='google_chat' and s['account']==account and s['external_id']==record['name']),None)
+            if source:
+                graph=WorkGraph(self.items)
+                if record['available'] and record['body']:
+                    graph.ingest(dict(provider='google_chat',account=account,external_id=record['name'],
+                                      revision=record['revision'],text=record['body']),[])
+                else:graph.availability(source['id'],source['current_revision'],False)
+
+    def _chat_unavailable(self,account,resource):
+        with self.lock,self.items.lock:
+            if self.google.status().get('chat_account_id')!=account:
+                raise CalendarError('The Chat account changed. Sync again.')
+            graph=WorkGraph(self.items)
+            def apply(data):
+                for source in data['sources'].values():
+                    if (source['provider']=='google_chat' and source['account']==account and
+                        (source['external_id'].startswith(resource) if resource.endswith('/') else source['external_id']==resource)):
+                        source.update(available=False,ai_export_allowed=False);source.pop('ai_consent',None)
+                graph._activity(data,'chat_source_unavailable',account=account,resource=resource)
+            graph._write(apply)
+
+    def chat_proposal(self,name,revision,title):
+        # Match the cache writer lock order: cache -> service -> registry.
+        with self.chat.lock,self.lock,self.items.lock:
+            account=self.chat._account()
+            record=self.chat.detail(name,expected_account=account)
+            if not record['available'] or not record['body']:
+                raise ValueError('This Chat message has no available text to quote')
+            if record['revision']!=revision or self.google.status().get('chat_account_id')!=account:
+                raise items.WorkItemConflict('The Chat message/account changed. Reopen it before proposing a task.')
+            return WorkGraph(self.items).ingest(dict(provider='google_chat',account=account,external_id=name,
+                revision=revision,text=record['body']),[dict(kind='task',text=title,quote=record['body'][:10000],
+                locator=dict(space=record['space'],thread=record['thread'],message=name,sender_id=record['sender_id'],created=record['date']))])
+
     def _refresh_gmail_source(self, account, key, record):
         with self.lock, self.items.lock:
             if self.closed.is_set() or self.active or self.busy:
@@ -1589,6 +1633,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.chat.close()
         self.gmail_ai.close()
         self.gmail.close()
         for cancel in list(self.cancel_events.values()):

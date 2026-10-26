@@ -718,6 +718,40 @@ $('gmail-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/cancel',{}
 $('gmail-clear').onclick=()=>perform(async()=>{const account=$('gmail-cache-account').value;if(await ask('Clear the local email cache for '+account+'? It can be synced again. WorkItem quotes and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/gmail/clear',{account});$('gmail-detail').replaceChildren();await loadMail();}});
 function calendarConnected(google=state?.google){return google?.capabilities?.calendar??!!google?.connected;}
 
+let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false;
+async function loadChat(){
+ const status=await api('/api/chat');
+ if(chatAccount!==status.account_id){chatMessage='';chatSpace='';$('chat-detail').replaceChildren();chatAccount=status.account_id;}
+ $('chat-status').textContent=(status.connected?'Connected as '+status.account:'Chat permission not connected')+' · '+status.job.status+(status.job.error?' · '+status.job.error:'');
+ const spaces=status.connected?await api('/api/chat/spaces'):[],select=$('chat-space');select.replaceChildren(option('Choose a conversation…',''),...spaces.map(s=>option(s.label+' · '+s.type,s.name)));if(spaces.some(s=>s.name===chatSpace))select.value=chatSpace;else chatSpace='';
+ const discovery=status.states['']||{};
+ $('chat-discover').textContent=discovery.complete?'Refresh spaces':discovery.page?'Load more spaces':'Load spaces';$('chat-discover').disabled=!status.connected||status.job.running;
+ $('chat-sync').disabled=$('chat-restart').disabled=!status.connected||!chatSpace||status.job.running;$('chat-cancel').disabled=!status.job.running;
+ const cache=$('chat-cache-account'),old=cache.value;cache.replaceChildren(...status.cached_accounts.map(a=>option(a.label+' · '+a.id.slice(0,8),a.id)));if(status.cached_accounts.some(a=>a.id===old))cache.value=old;$('chat-clear').disabled=status.job.running||!status.cached_accounts.length;
+ const list=$('chat-messages');list.replaceChildren();
+ if(chatSpace){const sync=status.states[chatSpace]||{};list.append(el('p','hint',(sync.last_sync?'Last page saved '+new Date(sync.last_sync*1000).toLocaleString():'No saved page yet')+(sync.limited?' · 200-message limit reached; this is not a full conversation mirror':'')+(discovery.limited?' · Space discovery is limited to 200 conversations':'')));
+  const messages=await api('/api/chat/messages?space='+encodeURIComponent(chatSpace));for(const m of messages){const b=el('button','mail-thread',(m.available?m.excerpt||'No plain text available':'Message unavailable/deleted')+' · '+m.sender+' · '+(m.date?new Date(m.date*1000).toLocaleString():m.name));b.onclick=()=>perform(()=>openChatMessage(m.name));list.append(b);}if(!messages.length)list.append(el('p','hint','No cached messages. Sync the selected conversation.'));
+ }
+ if(chatWasRunning&&!status.job.running){lastTasks='';await loadTasks();if(chatMessage)await openChatMessage(chatMessage);}
+ chatWasRunning=status.job.running;
+ if(chatTimer)clearTimeout(chatTimer);chatTimer=null;if(status.job.running&&view==='tasks'&&$('chat-panel').open)chatTimer=setTimeout(()=>perform(loadChat),1500);
+}
+async function openChatMessage(name){
+ const m=await api('/api/chat/message?name='+encodeURIComponent(name));chatMessage=name;const box=$('chat-detail');box.replaceChildren(el('h3','',m.sender),el('p','hint',m.name+' · '+(m.thread||'No thread reference')),el('p','hint','Cached '+new Date(m.fetched_at*1000).toLocaleString()),el('p','mail-body',m.available?m.body||'No plain text available. Cards and attachments are not fetched.':'Message unavailable or deleted. Earlier WorkItem source quotes are retained.'));
+ const refresh=el('button','secondary small-action','Refresh this message from Chat');refresh.onclick=()=>perform(async()=>{const result=await api('/api/chat/refresh',{name:m.name});chatWasRunning=true;await loadChat();});box.append(refresh);
+ if(m.available&&m.body){const b=el('button','secondary small-action','Suggest a task from this message');b.onclick=()=>perform(async()=>{const title=await ask('Task proposal from this Chat message',{ok:'Save suggestion',value:m.body.slice(0,120)});if(title===null)return;await api('/api/chat/propose',{name:m.name,revision:m.revision,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('Chat proposal saved · review it before Accept/Link');});box.append(b);}
+}
+async function chatAction(path,body={}){const result=await api('/api/chat/'+path,body);chatWasRunning=true;await loadChat();}
+$('chat-panel').ontoggle=()=>{if($('chat-panel').open)perform(loadChat);else if(chatTimer){clearTimeout(chatTimer);chatTimer=null;}};
+$('chat-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'chat'});$('chat-auth-link').href=result.authorization_url;$('chat-auth-link').hidden=false;toast('Approve Chat read-only permission in your browser, then Refresh connection');});
+$('chat-connection').onclick=()=>perform(loadChat);
+$('chat-discover').onclick=()=>perform(()=>chatAction('discover'));
+$('chat-space').onchange=()=>{chatSpace=$('chat-space').value;chatMessage='';$('chat-detail').replaceChildren();perform(loadChat);};
+$('chat-sync').onclick=()=>perform(()=>chatAction('sync',{space:chatSpace}));
+$('chat-restart').onclick=()=>perform(()=>chatAction('sync',{space:chatSpace,restart:true}));
+$('chat-cancel').onclick=()=>perform(()=>chatAction('cancel'));
+$('chat-clear').onclick=()=>perform(async()=>{const account=$('chat-cache-account').value;if(await ask('Clear this local Chat account cache? Promoted WorkItem source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/chat/clear',{account});chatMessage='';$('chat-detail').replaceChildren();await loadChat();}});
+
 let proposalFilter='pending';
 async function graphAction(action,body){await api('/api/work/'+action,body);await refreshAfterItemChange();}
 function renderWorkGraph(){

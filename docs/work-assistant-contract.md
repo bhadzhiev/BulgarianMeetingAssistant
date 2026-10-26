@@ -197,3 +197,36 @@ need human Link review. The source snapshot/replay metadata remains in portable 
 No real email or external model was used in development validation. Remaining manual checks include
 Workspace consent, real Gmail sync and extraction precision on consented reference messages. No
 bulk/background AI, cloud fallback, email writes or guessed normalized relative dates are enabled.
+
+
+## Google Chat read-only pilot
+
+Chat is the next source after Gmail. Its explicit user-consent capability requests read-only spaces
+and messages plus OpenID/email identity, preserving existing selected Google grants. Chat-only login
+does not request Calendar or Gmail. The verified Google subject ID partitions caches/source account
+keys; display email is a label. The GET adapter accepts only space/message resources and verifies
+that returned messages and threads belong to the selected space.
+
+Authenticated `/api/chat` routes expose local status/cache reads, metadata discovery, selected-space
+sync, individual resource refresh, cancel, cache clearing and manual task proposals. Discovery reads
+50 metadata records/page, capped at 200/cycle. Message polling uses a fixed 30-day creation-time
+interval, newest first, 20/page and 200/cycle. A durable parsed-message queue and page token let a
+failed source update retry without skipping messages. Only explicit user actions trigger network
+reads. Full recent refresh is repeated rather than claiming an updateTime delta that the list API
+does not support. See [list messages](https://developers.google.com/workspace/chat/api/reference/rest/v1/spaces.messages/list)
+and [list spaces](https://developers.google.com/workspace/chat/api/reference/rest/v1/spaces/list).
+
+Stable message resource names and content-derived revisions become WorkGraph sources only on manual
+promotion. Evidence locators keep space/thread/message and sender IDs. Observed edits stale earlier
+pending proposals; deletion or lost access blocks future acceptance while retaining historical
+quotes and canonical item status. Whole-space permission loss clears cached message text and marks
+its promoted sources unavailable. Cache/source publication follows cache -> service -> registry
+lock order, with no network request under recording controls. There is no inference of deletion from
+absence in a capped page, and old sources outside the recent window need explicit refresh.
+
+The Chat cache is indexed, permission 0600, per verified identity and excluded from archives.
+Promoted graph snapshots remain portable and clearing the cache does not purge them. Sender display
+names are labels, not identity proof. DM/group labels can be resource IDs, and access remains limited
+to what the signed-in user and Workspace policy allow. Chat has no AI consent route or extraction,
+no writes, no Events subscription, no bot/admin visibility and no automatic retention purge. Live
+account consent and real Chat behavior remain unverified; tests use synthetic responses only.

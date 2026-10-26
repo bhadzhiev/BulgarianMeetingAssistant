@@ -602,7 +602,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--local-ai-model", default="qwen3.5-9b", help="Shared local text AI model ID")
     parser.add_argument("--local-ai-format", choices=["json_schema", "json_object", "text"], default="json_schema")
     parser.add_argument("--local-ai-max-tokens", type=int, default=4096)
-    parser.add_argument("--local-ai-reasoning", choices=["default", "none", "low", "medium", "high"], default="default")
+    parser.add_argument("--local-ai-reasoning", choices=["default", "server", "none", "low", "medium", "high"], default="default")
     parser.add_argument("--no-final", action="store_true", help="Stop after live transcription")
     return parser
 

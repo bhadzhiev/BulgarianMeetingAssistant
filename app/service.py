@@ -118,7 +118,7 @@ class MeetingService:
         values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
         if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:
             raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
-        if values['local_ai_reasoning'] not in {'default', 'none', 'low', 'medium', 'high'}:
+        if values['local_ai_reasoning'] not in {'default', 'server', 'none', 'low', 'medium', 'high'}:
             raise ValueError('Invalid local AI reasoning effort')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid local AI response format')

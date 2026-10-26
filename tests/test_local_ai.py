@@ -44,16 +44,73 @@ class LocalAITests(unittest.TestCase):
                 if mode!='text':self.assertEqual(payload['response_format']['type'],mode)
 
     def test_reasoning_and_output_limits_are_shared(self):
-        for effort in ['default','none','low','medium','high']:
+        for effort in ['default','server','none','low','medium','high']:
             settings=dict(DEFAULTS,local_ai_reasoning=effort,local_ai_max_tokens=8192)
             with patch('meeting_assistant.post_json',return_value=response({'ok':True})) as post:
                 complete_json(settings,[],SCHEMA,'test')
                 payload=post.call_args.args[1]
                 self.assertEqual(payload['max_tokens'],8192)
-                if effort=='default':self.assertNotIn('reasoning_effort',payload)
+                if effort in {'default','server'}:self.assertNotIn('reasoning_effort',payload)
                 else:self.assertEqual(payload['reasoning_effort'],effort)
         for limit in [True,0,127,32769,'4096']:
             with self.assertRaises(ValueError):complete_json(dict(DEFAULTS,local_ai_max_tokens=limit),[],SCHEMA,'test')
+
+    def test_automatic_qwen_meeting_tasks_disable_reasoning_before_first_request(self):
+        from app import correction
+        # Reproduce a server that exhausts its budget on thinking unless disabled.
+        def server(url, payload, **kwargs):
+            if payload.get('reasoning_effort') != 'none':
+                return {'choices': [{'finish_reason': 'length', 'message': {'content': None,
+                    'reasoning_content': 'thinking'}}]}
+            name = payload['response_format']['json_schema']['name']
+            if name == 'meeting_minutes':
+                return response(NOTES)
+            if name == 'transcript_correction':
+                return response({'segments': json.loads(payload['messages'][1]['content'])})
+            return response({'title': 'Оферта за новия сайт'})
+        settings = dict(DEFAULTS, summarizer='local')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original = [dict(start=0,end=10,text='Иван ще изпрати оферта до петък.',speaker=None)]
+            (root/'transcript.json').write_text(json.dumps(original))
+            with patch('meeting_assistant.post_json', side_effect=server) as post:
+                correction.correct(root, settings, lambda _: None)
+                summarize(root, settings, lambda _: None)
+                self.assertEqual(generate_title(root, settings, '')[0], 'Оферта за новия сайт')
+            self.assertEqual(post.call_count, 3)  # No wasted reasoning-only retries.
+            self.assertEqual(json.loads((root/'transcript.json').read_text()), original)
+            self.assertTrue((root/'minutes.json').is_file())
+            self.assertEqual(settings['local_ai_reasoning'], 'default')
+
+    def test_automatic_policy_is_scoped_to_qwen_meeting_tasks(self):
+        for model, name, disabled in [
+            ('Qwen3.5-9B', 'meeting_minutes', True),
+            ('mlx-community/Qwen3.5-9B-4bit', 'transcript_correction', True),
+            ('qwen3.5-9b', 'meeting_title', True),
+            ('other-model', 'meeting_minutes', False),
+            ('not-qwen3.5-9b', 'meeting_minutes', False),
+            ('qwen3.5-9b', 'gmail_tasks', False),
+            ('qwen3.5-9b', 'meeting_answer', False),
+        ]:
+            with self.subTest(model=model, name=name), patch('meeting_assistant.post_json', return_value=response({})) as post:
+                complete_json(dict(DEFAULTS, local_ai_model=model), [], SCHEMA, name)
+                payload = post.call_args.args[1]
+                self.assertEqual(payload.get('reasoning_effort'), 'none' if disabled else None)
+                self.assertEqual(payload['model'], model)
+                self.assertEqual(payload['max_tokens'], 4096)
+
+    def test_explicit_reasoning_is_never_overridden_or_retried(self):
+        from app.local_ai import OutputTruncatedError
+        empty = {'choices': [{'finish_reason': 'length', 'message': {'content': None}}]}
+        for effort in ['server', 'none', 'low', 'medium', 'high']:
+            with self.subTest(effort=effort), patch('meeting_assistant.post_json', return_value=empty) as post:
+                with self.assertRaisesRegex(OutputTruncatedError, 'no answer text') as caught:
+                    complete_json(dict(DEFAULTS, local_ai_reasoning=effort), [], SCHEMA, 'meeting_minutes')
+                self.assertEqual(post.call_count, 1)
+                self.assertFalse(caught.exception.can_split)
+                self.assertIn('4096 tokens', str(caught.exception))
+                self.assertIn('server default' if effort == 'server' else 'reasoning: ' + effort, str(caught.exception))
+                self.assertEqual(post.call_args.args[1].get('reasoning_effort'), None if effort == 'server' else effort)
 
     def test_failures_do_not_fall_back_to_cloud(self):
         with patch('meeting_assistant.post_json',side_effect=URLError('offline')) as post:
@@ -100,10 +157,11 @@ class LocalAITests(unittest.TestCase):
             service=MeetingService(root,PROJECT)
             try:
                 self.assertEqual(service.settings['summarizer'],'local')
-                service.save_settings({'local_ai_base_url':'http://localhost:9999/v1/','local_ai_model':'other'})
+                service.save_settings({'local_ai_base_url':'http://localhost:9999/v1/','local_ai_model':'other','local_ai_reasoning':'server'})
                 saved=json.loads((root/'settings.json').read_text())
                 self.assertEqual(saved['local_ai_base_url'],'http://localhost:9999/v1')
                 self.assertEqual(saved['local_ai_model'],'other')
+                self.assertEqual(saved['local_ai_reasoning'],'server')
                 for invalid in ['bogus',None]:
                     with self.assertRaises(ValueError):service.save_settings({'local_ai_format':invalid})
             finally:service.close()

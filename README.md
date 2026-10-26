@@ -183,8 +183,10 @@ the settings it started with for automatic processing.
   Keep your model server running. It must accept unauthenticated requests on this endpoint.
   JSON schema is the default; choose JSON object or Prompt only if your server needs it.
   All modes still validate generated notes and task evidence timestamps before saving.
-  Reasoning effort defaults to the server setting; choose **Off** for faster extraction
-  when the server supports `reasoning_effort`. The shared maximum output defaults to
+  Reasoning effort defaults to **Automatic**: Qwen3.5 notes, transcript correction and titles
+  send `reasoning_effort=none` before the first request. Other models and email analysis
+  keep the server default. Explicit Off/Low/Medium/High choices are kept. Choose
+  **Server default** if your endpoint does not accept `reasoning_effort`. The shared maximum output defaults to
   4096 tokens (including reasoning on many servers). Truncated responses are rejected.
   Local requests allow up to 10 minutes for slower inference.
   Requests never fall back to a cloud provider. A remote base URL sends transcript text
@@ -755,10 +757,12 @@ still exceed those sizes.
 
 For faster processing, start with `large-v3-turbo`, disable live captions if you do not need them,
 and turn off transcript correction and speaker diarization unless you need those extra stages.
-For the default Qwen model, try **Reasoning effort → Off** in **Settings → Notes & AI**;
-the server default can spend the output budget on reasoning before producing JSON. Other endpoints
-may require **Server default** for compatibility. These are explicit settings; updates do not replace
-your saved choices. Measure transcription quality on your own speech before choosing a smaller model.
+For the default Qwen3.5 model, **Reasoning effort → Automatic** (including previously saved
+`default`) turns reasoning off for notes, transcript correction and titles. The server default can
+spend the output budget on thinking before producing JSON, even for a short meeting. Choose
+**Server default** to explicitly leave reasoning to the endpoint, or **Off** to disable it for all
+local AI features. Explicit Low/Medium/High choices are not overridden. Truncation errors distinguish
+an empty answer from a partial answer and report the requested output budget and reasoning setting. Measure transcription quality on your own speech before choosing a smaller model.
 
 After an interrupted recording or job, reopen the app and select **Recover audio** to rebuild
 a playable WAV from raw tracks. Then **Transcribe** to retry. Recovery works without a finalized

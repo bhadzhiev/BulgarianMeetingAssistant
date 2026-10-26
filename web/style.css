@@ -8,8 +8,8 @@
 .live-segment.provisional p{color:#748078;font-style:italic}.live-provisional{grid-column:2;font-size:10px;color:var(--muted)}
 .live-disclaimer,.live-empty{font-size:11px;color:var(--muted);line-height:1.7}.live-disclaimer{border-top:1px solid var(--line);padding-top:13px;margin-bottom:0}
 #saved-live-draft h3{font-size:14px}#saved-live-draft{margin-top:20px}
-#recording:has(.live-card) .recording-card{padding:25px}#recording:has(.live-card) #timer{font-size:46px;margin:8px 0}
-#recording:has(.live-card) #recording-help{margin:10px 0 20px}
+#recording:has(.live-card:not([hidden])) .recording-card{padding:25px}#recording:has(.live-card:not([hidden])) #timer{font-size:46px;margin:8px 0}
+#recording:has(.live-card:not([hidden])) #recording-help{margin:10px 0 20px}
 
 .settings-section{border-top:1px solid var(--line);padding-top:18px;margin-top:28px}.settings-section legend{font-size:15px;padding-right:12px}.google-actions{display:flex;gap:10px;align-items:center;margin:15px 0}#google-auth-link{font-size:12px;color:var(--green)}#google-client-file{font-size:11px;padding:10px}#calendar-status a{color:var(--green);font-weight:600}#title-status{margin-top:-8px;margin-bottom:16px}#calendar-status{overflow-wrap:anywhere}
 

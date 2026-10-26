@@ -31,6 +31,7 @@
       <label for="microphone">Microphone</label><div class="input-row"><select id="microphone" required><option value="">Loading microphones…</option></select><button id="check-mic" type="button" class="secondary">Test mic</button></div>
       <div class="meter-row"><meter id="setup-meter" min="0" max="1" value="0" aria-label="Microphone level"></meter><span id="mic-hint">Test your microphone before recording</span></div>
       <label for="fallback-microphone">Backup microphone (optional)</label><select id="fallback-microphone"><option value="">Retry the selected microphone only</option></select><p class="hint">If the selected microphone disconnects, use only the backup you choose here. Missing audio stays a marked gap. For a wireless iPhone, keep it locked; unlocking or answering a call can pause its microphone.</p>
+      <label for="transcription-timing">When to transcribe</label><select id="transcription-timing" aria-describedby="transcription-timing-help"><option value="after">After recording · no live captions</option><option value="live">Live captions + final transcript after recording</option></select><p id="transcription-timing-help" class="hint"></p>
       <label for="record-project">Project and series (optional)</label><div class="input-row scope-select"><select id="record-project" aria-label="Project"></select><select id="record-series" aria-label="Series"></select><button id="record-prepare" type="button" class="secondary" disabled>Prepare me</button></div><p class="hint">Create projects and series from a saved meeting: ＋ Add to a project.</p>
       <div class="processing-summary"><span class="small-icon">✦</span><div><strong id="processing-name">Local transcription</strong><p id="privacy-copy">Audio and transcripts stay on this Mac.</p></div><button type="button" id="settings-inline" class="quiet">Change</button></div>
       <div class="start-row"><p>Make sure everyone knows<br>the meeting is being recorded.</p><button id="start" class="primary" type="submit">● Start recording</button></div>
@@ -46,13 +47,14 @@
   <section id="recording" hidden>
     <div class="heading"><p class="eyebrow" id="recording-mode">MEETING IN PROGRESS</p><h1 id="recording-title">Recording</h1></div>
     <div class="card recording-card"><div id="recording-indicator" class="recording-indicator"><span></span><b id="recording-status">Recording</b></div><div id="timer">00:00:00</div><meter id="recording-meter" min="0" max="1" value="0" aria-label="Recording microphone level"></meter><p id="recording-help">Audio is being saved on this Mac.</p><div class="recording-controls"><button id="pause" class="secondary">Ⅱ Pause</button><button id="stop" class="primary">■ Stop & save</button></div><div class="marker-panel"><div class="marker-bar"><input id="marker-note" maxlength="300" autocomplete="off" placeholder="Short note (optional)" aria-label="Marker note"><button type="button" class="secondary" data-marker="important" title="Key 1">★ Important</button><button type="button" class="secondary" data-marker="decision" title="Key 2">✓ Decision</button><button type="button" class="secondary" data-marker="check" title="Key 3">? Check later</button></div><p class="hint">Mark a moment with keys 1, 2 and 3, or with the buttons. Your review after the meeting starts here.</p><div id="marker-list" class="marker-list" aria-live="polite"></div></div></div>
-    <div class="card live-card">
+    <p id="recording-transcription-plan" class="notice" hidden></p>
+    <div id="live-card" class="card live-card">
       <div class="card-heading"><h2>Live transcript</h2><span class="badge">DRAFT · BULGARIAN</span></div>
       <p id="live-status" class="hint" role="status">Preparing live captions…</p>
       <div id="live-transcript" class="live-transcript" role="log" aria-label="Live meeting transcript" aria-live="polite" aria-relevant="additions text"></div>
       <p class="live-disclaimer">Provisional text may change. The full recording is used for the final transcript.</p>
     </div>
-    <p class="below-card">Keep the app running. Live captions appear during recording; final processing follows after you stop.</p>
+    <p id="recording-next-step" class="below-card"></p>
   </section>
   <section id="tasks" hidden>
     <div class="heading"><p class="eyebrow">MY WORK · MEETINGS</p><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>

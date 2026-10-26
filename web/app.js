@@ -4,6 +4,7 @@ let desktopStatus='';
 function disconnectedMessage(){return desktopStatus||(state?.desktop_mode?'Disconnected · check the desktop app':'Disconnected · reopen the launcher');}
 let state, selected = null, detail = null, view = 'setup', dirtyTranscript = false, dirtyNotes = false;
 let lastFingerprint = '', lastLibrary = '', lastDevices = '', pending = false;
+let timingDefault = null;
 let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = 'recording';
 let lastTasks = '', itemEditing = false;
 let analyticsData = null, trackersData = [];
@@ -105,6 +106,7 @@ function renderState() {
  $('meeting-title').placeholder=s.auto_title!==false?'Leave blank for an AI-generated title':'Meeting name (optional)';
  $('processing-name').textContent=(s.transcription==='local'?'Local Whisper':'OpenAI cloud')+' · '+(s.summarizer==='none'?'transcript only':s.summarizer==='local'?'local notes':'cloud notes');
  $('privacy-copy').textContent=privacy(s);
+ renderTranscriptionTiming();
  if($('settings-dialog').open){renderGoogleStatus();if(calendarConnected()&&!lastGoogleConnected)perform(loadCalendars);}
  lastGoogleConnected=calendarConnected();
  if(state.active) {
@@ -153,9 +155,26 @@ function captionRow(segment, provisional=false, ended=false) {
  if(provisional) row.append(el('span','live-provisional',ended?'Unconfirmed draft':'Still speaking…'));
  return row;
 }
+function renderTranscriptionTiming(reset=false) {
+ if(!state)return;
+ const s=state.settings, preferred=s.live_transcription===false?'after':'live';
+ if(reset||timingDefault!==preferred){$('transcription-timing').value=preferred;timingDefault=preferred;}
+ const live=$('transcription-timing').value==='live';
+ $('transcription-timing-help').textContent=(live?'Whisper shows draft captions during the meeting. ':'Only audio is saved during the meeting; no live speech model runs. ')+
+  (s.auto_process?'After you stop, ':'When you choose Transcribe after saving, ')+
+  (s.transcription==='local'?'Whisper transcribes the full saved recording.':'the selected cloud provider transcribes the full saved recording.')+
+  ' Any enabled spelling correction runs after final transcription. This choice applies only to this meeting.';
+}
+$('transcription-timing').onchange=()=>renderTranscriptionTiming();
 function renderLive(active) {
  const live=active.live;
  const disabled=active.settings?.live_transcription===false;
+ $('live-card').hidden=disabled;
+ const final=active.settings?.transcription==='openai'?'the selected cloud provider':'Whisper';
+ const next=active.settings?.auto_process===false?'After saving, choose Transcribe to process the full recording with '+final+'.':'After you stop, '+final+' will transcribe the full saved recording.';
+ $('recording-transcription-plan').hidden=!disabled;
+ $('recording-transcription-plan').textContent='Audio only during this meeting · no live captions. '+next;
+ $('recording-next-step').textContent='Keep the app running. '+next+' Any enabled spelling correction follows final transcription.';
  const target=$('live-transcript');
  if(liveMeetingId!==active.id){liveMeetingId=active.id;liveSignature='';target.replaceChildren();}
  let message=disabled?'Live captions are switched off for this meeting.':live?.message||'Preparing local live captions…';
@@ -1075,12 +1094,12 @@ $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
 $('work-project').onchange=()=>renderTasks();
 $('task-owner').onchange=renderTasks;
-$('new-meeting').onclick=async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;renderLibrary();};
+$('new-meeting').onclick=async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;else renderTranscriptionTiming(true);renderLibrary();};
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent});toast('Microphone test started · 10 seconds');});
 $('microphone').onchange=()=>renderState();
-$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
+$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,transcription_timing:$('transcription-timing').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
 async function importTranscript(text,filename) {
  const d=await api('/api/import',{text,filename});
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;

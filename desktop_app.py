@@ -263,6 +263,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_saved_meetings()
             elif path == '/api/import':
                 result = service.import_transcript(body['text'], body.get('filename', ''))
+            elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability'}:
+                result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
             elif path == '/api/speakers':
                 result = service.save_speakers(body['speakers'])
             elif path == '/api/trackers':

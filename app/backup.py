@@ -180,11 +180,13 @@ def archive_path(destination: Path, name) -> Path:
     return destination / name
 
 
-def restore(archive_file: Path, library, merge=None, guard=None) -> dict:
+def restore(archive_file: Path, library, merge=None, guard=None, validate=None) -> dict:
     """Add the meetings that the library does not have. Existing meetings are never changed."""
     staging = Path(tempfile.mkdtemp(prefix='.restore-', dir=library.root))
     try:
         manifest = _extract(archive_file, staging)
+        if validate:
+            validate(staging)
         with (guard or nullcontext)():
             restored, skipped = [], []
             for meeting_id in manifest['meetings']:

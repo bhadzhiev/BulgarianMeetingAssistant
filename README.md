@@ -359,8 +359,21 @@ A stale edit from another window is rejected; cancel the editor to load the newe
 Migration copies and archives retain earlier data until you remove those copies.
 
 The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
-the next stages. This foundation supports meeting tasks and decisions. Gmail, Google Chat, GitHub,
-questions and the general proposal model are planned; this version does not connect to them.
+the next stages. This foundation supports meeting tasks and decisions. Gmail, Google Chat and GitHub
+external account connections are planned; this version does not connect to them.
+
+**Suggested** stores source-backed proposals separately. **Accept** creates an item; **Link** attaches
+the quote to an existing item of the same kind without changing its text, owner or status. Dismiss,
+Snooze and Restore keep proposals reachable. A changed or unavailable source blocks acceptance of
+its older proposal. **All** includes reviewed and stale proposals. Reprocessing an identical revision
+does not create another proposal or reset a dismissal. Automatic extraction from Gmail or Chat is
+not enabled yet.
+
+**Questions** holds personal open questions and questions accepted from proposals. Add a question,
+save an answer, or reopen it; the earlier answer stays in its history. Existing meeting-note open
+questions are not automatically imported into this list. Suggested and Questions cover all sources,
+independent of the meeting project filter. For source-linked items use Dismiss instead of Delete;
+proposal Link adds sources without merging away IDs or history.
 
 Example: "Test the SAP permissions" is created on 19 Oct; on 23 Oct a meeting says "до петък", the due
 date changes, and the task stays open. The history shows both meetings.
@@ -475,7 +488,10 @@ progress, a meeting being processed, or a meeting with a live-caption writer is 
 records these exclusions. A short lock pins a snapshot of the selected files; compression runs after
 that lock is released. This requires a library filesystem that supports hard links, such as APFS.
 The snapshot protects app writes that replace files atomically; external tools that modify files in
-place are outside this guarantee. The portable registry is `items.json`; live SQLite and WAL files
+place are outside this guarantee. The portable registry is `items.json`, including questions, pinned source revisions, quotations,
+proposals, relationships and activity. Restore keeps existing local records authoritative. Source
+quotes and earlier message revisions remain local until their library or archive copies are removed.
+Live SQLite and WAL files
 are not copied into the archive.
 
 After writing, the app runs a **restore test**: it extracts the archive into a temporary folder,

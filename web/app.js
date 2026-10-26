@@ -618,7 +618,8 @@ function linkCard(entry,meetings,itemsById) {
  return card;
 }
 function evidenceBlock(item,meetings){
- const snapshots=item.evidence||[],box=el('details','item-history');box.append(el('summary','','Sources · '+snapshots.length));
+ const snapshots=item.evidence||[],graphEvidence=(itemsData.graph?.source_evidence||[]).filter(e=>(item.source_evidence||[]).includes(e.id)),box=el('details','item-history');box.append(el('summary','','Sources · '+(snapshots.length+graphEvidence.length)));
+ for(const evidence of graphEvidence){const row=el('div','work-evidence'),source=itemsData.graph.sources.find(s=>s.id===evidence.source_id);row.append(el('small','hint','Saved source quote · '+(source?source.provider+' · '+source.external_id:'Unavailable source')+' · revision '+evidence.source_revision.slice(0,12)),el('p','',evidence.quote));box.append(row);}
  for(const evidence of [...snapshots].reverse()){
   const row=el('div','work-evidence'),main=el('div');main.append(el('small','hint',evidence.quote_kind==='meeting_note'?'Saved meeting note · historical wording':'Saved item text · source quote unavailable'),el('p','',evidence.quote));
   const source=el('button','quiet','↗ '+meetingLabel(evidence.source_id,meetings)+(evidence.timestamp?' · '+evidence.timestamp:''));source.type='button';source.disabled=!meetings[evidence.source_id];
@@ -675,8 +676,45 @@ function decisionRow(item,byId) {
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
 async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
+let proposalFilter='pending';
+async function graphAction(action,body){await api('/api/work/'+action,body);await refreshAfterItemChange();}
+function renderWorkGraph(){
+ const graph=itemsData.graph||{},today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
+ const sources=Object.fromEntries((graph.sources||[]).map(s=>[s.id,s])),evidence=Object.fromEntries((graph.source_evidence||[]).map(e=>[e.id,e]));
+ const filters=$('proposal-filters');filters.replaceChildren();
+ for(const value of ['pending','snoozed','dismissed','all']){const b=el('button',proposalFilter===value?'selected':'',value[0].toUpperCase()+value.slice(1));b.onclick=()=>{proposalFilter=value;renderWorkGraph();};filters.append(b);}
+ const list=$('proposal-list');list.replaceChildren();
+ const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
+ for(const p of proposals){
+  const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
+  card.append(el('strong','',p.text),el('p','hint',p.kind+' · '+p.state+(p.snoozed_until?' · Snoozed until '+p.snoozed_until:'')));
+  if(ev){const quote=el('blockquote','',ev.quote);card.append(quote,el('p','hint',(source?source.provider+' · '+source.account+' · '+source.external_id:'Unavailable source')+' · saved revision '+ev.source_revision.slice(0,12)));}
+  const actions=el('div','work-actions'),review=(action,extra={})=>graphAction('review',{id:p.id,revision:p.revision,action,...extra});
+  const button=(label,run)=>{const b=el('button','secondary small-action',label);b.onclick=()=>perform(run);actions.append(b);};
+  if(p.state==='pending'){
+   button('Accept',()=>review('accept'));
+   const select=el('select');select.setAttribute('aria-label','Link proposal to existing item');select.append(option('Link to existing…',''),...itemsData.items.filter(i=>i.kind===p.kind).map(i=>option(i.text,i.id)));actions.append(select);
+   button('Link',async()=>{const target=itemsData.items.find(i=>i.id===select.value);if(!target){toast('Choose an existing item');return;}await review('link',{target_id:target.id,target_revision:target.revision});});
+   button(p.snoozed_until?'Unsnooze':'Snooze',async()=>{if(p.snoozed_until)return review('snooze',{snoozed_until:null});const day=new Date();day.setDate(day.getDate()+1);const value=await ask('Snooze proposal until YYYY-MM-DD',{ok:'Snooze',value:day.toLocaleDateString('en-CA')});if(value!==null)await review('snooze',{snoozed_until:value});});
+   button('Dismiss',()=>review('dismiss'));
+  }else if(p.state==='dismissed')button('Restore',()=>review('restore'));
+  if(p.result_id)actions.append(el('span','hint','Item '+p.result_id));
+  card.append(actions);list.append(card);
+ }
+ if(!proposals.length)list.append(el('p','hint','No proposals match this filter.'));
+ const questions=$('work-questions');questions.replaceChildren();
+ for(const q of itemsData.items.filter(i=>i.kind==='question')){
+  const row=el('div','work-proposal');row.append(el('strong','',q.text),el('p','hint',q.status==='answered'?'Answered':'Open'));
+  if(q.answer)row.append(el('p','',q.answer));row.append(historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));
+  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b);questions.append(row);
+ }
+ if(!questions.children.length)questions.append(el('p','hint','No questions yet. Add one or accept a question proposal.'));
+}
+$('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New question',{ok:'Add question',value:''});if(value!==null)await graphAction('question',{text:value});});
+
 function renderTasks() {
  if(itemEditing)return;
+ renderWorkGraph();
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
  const project=$('work-project'), oldProject=project.value;
  project.replaceChildren(option('All projects',''),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));

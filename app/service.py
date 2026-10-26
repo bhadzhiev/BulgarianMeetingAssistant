@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from contextlib import contextmanager
+from .work_graph import WorkGraph, validate_graph
+from .work_items import COLLECTIONS, normalize
 import json
 import datetime as dt
 import os
@@ -903,6 +905,13 @@ class MeetingService:
             yield
 
     def restore_backup(self, name):
+        def validate(staging):
+            path = staging / 'items.json'
+            if path.exists():
+                portable = json.loads(path.read_text())
+                validate_graph({key: portable.get(key, {}) for key in COLLECTIONS}, portable['items'])
+                for item in portable['items'].values():
+                    normalize(item)
         def merge(staging, restored):
             try:
                 with self.projects.lock:
@@ -911,19 +920,27 @@ class MeetingService:
             except (OSError, ValueError, AttributeError):
                 pass
             try:
-                archived = json.loads((staging / 'items.json').read_text())['items']
+                if not (staging / 'items.json').exists():
+                    return
+                portable = json.loads((staging / 'items.json').read_text())
+                archived = portable['items']
+                graph_ids = {key for edge in portable.get('relationships', {}).values() for key in (edge['from_id'], edge['to_id'])}
                 with self.items.lock:
                     # Only items of the meetings that this restore added come back, with only those links.
                     # Items this library already has stay as they are.
                     for item_id, item in archived.items():
                         links = [link for link in item.get('links', []) if link.get('meeting_id') in restored]
-                        if links and item_id not in self.items.items:
+                        if (links or item.get('managed_by') == 'work_graph' or item.get('source_evidence') or item_id in graph_ids) and item_id not in self.items.items:
                             self.items.items[item_id] = dict(item, links=links)
+                    for collection in COLLECTIONS:
+                        for key, record in portable.get(collection, {}).items():
+                            self.items.data[collection].setdefault(key, record)
                     self.items.prune({m['id'] for m in self.library.list()})
                     self.items.save()
             except (OSError, ValueError, KeyError, AttributeError):
-                pass
-        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge, guard=self._snapshot_guard)
+                self.items.data, self.items.revision = self.items.store.load(repair_export=False)
+                raise
+        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge, guard=self._snapshot_guard, validate=validate)
         with self.lock:
             for meeting_id in result['restored']:
                 # A meeting archived during a job comes back as interrupted, like after a crash.
@@ -1192,7 +1209,25 @@ class MeetingService:
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
-            return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs())
+            return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs(), graph=WorkGraph(self.items).snapshot())
+
+    def work_graph_action(self, action, body):
+        # The same service/registry lock order as meeting edits and backup snapshots.
+        with self.lock, self.items.lock:
+            graph = WorkGraph(self.items)
+            if action == 'ingest':
+                return graph.ingest(body['source'], body['suggestions'])
+            if action == 'availability':
+                return graph.availability(body['source_id'], body['source_revision'], body['available'])
+            if action == 'review':
+                return graph.review(body['id'], body['revision'], body['action'],
+                    target_id=body.get('target_id'), target_revision=body.get('target_revision'),
+                    snoozed_until=body.get('snoozed_until'))
+            if action == 'question':
+                return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'))
+            if action == 'relate':
+                return graph.relate(body['from_id'], body['to_id'], body['kind'], body['from_revision'], body['to_revision'])
+            raise ValueError('Unknown work graph action')
 
     def tasks(self):
         """Every persistent task, each once, however many meetings discussed it."""
@@ -1224,6 +1259,8 @@ class MeetingService:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
+            if item and item['kind'] == 'question':
+                raise ValueError('Use question controls to answer or reopen this question')
             if not item or item['text'] != text:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
@@ -1280,7 +1317,11 @@ class MeetingService:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
-            field = items.FIELD[item['kind']]
+            if self.items.has_graph_links(item_id):
+                raise ValueError('Dismiss this source-linked item to preserve its history')
+            field = items.FIELD.get(item['kind'])
+            if field is None:
+                raise ValueError('Use question controls for this item')
             for _, directory, minutes in list(self._linked_minutes(item)):
                 minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
                 save_minutes(directory, minutes)
@@ -1297,7 +1338,13 @@ class MeetingService:
             if (revision is not None and (type(revision) is not int or revision != item.get('revision'))
                     or into_revision is not None and (type(into_revision) is not int or into_revision != into.get('revision'))):
                 raise items.WorkItemConflict('These items changed. Reload the list and try again.')
-            field = items.FIELD[item['kind']]
+            if self.items.has_graph_links(item_id):
+                raise ValueError('Dismiss this source-linked item to preserve its history')
+            if self.items.has_graph_links(into_id):
+                raise ValueError('Use proposal Link for source-linked items')
+            field = items.FIELD.get(item['kind'])
+            if field is None:
+                raise ValueError('Use question controls for this item')
             for _, directory, minutes in list(self._linked_minutes(item)):
                 if any(mention.get('item_id') == into_id for mention in minutes[field]):
                     # This meeting already mentions the item that stays; the other mention is the same thing.

@@ -248,13 +248,19 @@ class Registry:
                                                 for link in item['links']):
                 continue
             item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id or minutes is not None and link.get('detached')]
-            if item['links']:
+            if item['links'] or self.has_graph_links(item['id']):
                 self._event(item, 'removed', meeting_id, by='user')
             else:
                 self.remove(item['id'])
         return changed
 
+    def has_graph_links(self, item_id):
+        return bool(self.items[item_id].get('source_evidence') or any(item_id in (edge['from_id'], edge['to_id'])
+            for edge in self.data.get('relationships', {}).values()))
+
     def remove(self, item_id: str) -> None:
+        if self.has_graph_links(item_id):
+            raise ValueError('This item has work graph links. Dismiss it to keep its source history.')
         item = self.items.pop(item_id)
         for old_id in item.get('supersedes', []):
             old = self.items.get(old_id)
@@ -291,12 +297,14 @@ class Registry:
         """Drop links to meetings that the library does not have, and items that are left with none."""
         for item in list(self.items.values()):
             item['links'] = [link for link in item['links'] if link['meeting_id'] in meeting_ids]
-            if not item['links']:
+            if not item['links'] and item.get('managed_by') != 'work_graph' and not self.has_graph_links(item['id']):
                 self.remove(item['id'])
 
     def merge(self, item_id: str, into_id: str) -> None:
         """Two items are the same thing; keep one with all links and history."""
         item, into = self.items[item_id], self.items[into_id]
+        if item.get('source_evidence') or into.get('source_evidence'):
+            raise ValueError('Use proposal Link for items with work graph sources.')
         for link in item['links']:
             if not any(own['meeting_id'] == link['meeting_id'] for own in into['links']):
                 into['links'].append(link)

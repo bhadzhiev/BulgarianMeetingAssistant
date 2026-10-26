@@ -3,26 +3,29 @@
 Scope: one person, one local library, Google Workspace. Gmail is the first external connector,
 followed by Google Chat, GitHub, repository analysis and confirmed external actions.
 
-## First delivery
+## Deliveries
 
 This change establishes transactional storage for existing tasks and decisions, item revisions,
 stable meeting-note evidence snapshots and a meeting-based My Work view. It preserves existing
 meeting extraction and review behavior. It does not implement Gmail, Chat, GitHub, canonical
-questions or a standalone AI proposal engine. Those are separate deliveries below.
+questions or a standalone AI proposal engine in the first delivery.
+
+Part 2 adds canonical questions and local Source/Evidence/Proposal/Relationship APIs. Content
+revision, evidence, proposal and accepted item changes commit in the same SQLite transaction.
+The Suggested and Questions sections expose review and answers; external connectors remain disabled.
 
 ## Objects
 
-| Object | Contract | Initial implementation |
+| Object | Contract | Current implementation |
 | --- | --- | --- |
-| WorkItem | Stable ID; typed state; field authority; revision; personal disposition | Existing tasks and decisions, with unchanged IDs |
-| SourceLink | Provider + account + external ID; availability distinct from item state | Local meeting links; existing meeting_id remains compatible |
-| Evidence | Quote kind, locator and pinned revision; historical content stays separate from current state | Immutable meeting-note mention snapshots; explicitly not verbatim transcript quotes |
-| Proposal | Suggested change/link; evidence; Accept, Link, Dismiss, Snooze | Existing meeting link review stays; standalone proposal storage is next |
-| Relationship | same_as, derives_from, implements, supersedes, supports | Existing merge/replacement behavior; typed general relations are next |
-| Activity | Actor, event, before/after, source, time | Existing history retained |
+| WorkItem | Stable ID; typed state; field authority; revision; personal disposition | Existing tasks/decisions with unchanged IDs; manual/proposed questions |
+| SourceLink | Provider + account + external ID; availability distinct from item state | Meeting links stay compatible; generic sources use stable provider/account/external ID |
+| Evidence | Quote kind, locator and pinned revision; historical content stays separate from current state | Meeting-note snapshots plus exact quotes tied to immutable generic content revisions |
+| Proposal | Suggested change/link; evidence; Accept, Link, Dismiss, Snooze | Standalone local proposals with revision-checked Accept/Link/Dismiss/Snooze |
+| Relationship | same_as, derives_from, implements, supersedes, supports | Typed local relation API; existing meeting replacement stays separate |
+| Activity | Actor, event, before/after, source, time | Existing history plus proposal/question/relationship activity retained |
 
-Task states remain open/done. Decision states remain proposed/accepted/superseded. Questions need
-their own lifecycle in the next schema; a decision and the tasks that implement it stay separate.
+Task states remain open/done. Decision states remain proposed/accepted/superseded. Questions use open/answered and require an answer before becoming answered; a decision and the tasks that implement it stay separate.
 Deleting a replacement restores the previous decision's actual prior state, never an assumed acceptance.
 
 ## Field authority
@@ -37,7 +40,7 @@ Deleting a replacement restores the previous decision's actual prior state, neve
 
 ## Storage and migration
 
-`work-items.sqlite3` is canonical. Schema version 1 stores the task/decision documents and monotonic
+`work-items.sqlite3` is canonical. Schema version 2 stores graph records alongside the task/decision/question documents and monotonic
 item revisions in transactions. `items.json` is a generated, portable compatibility export, not another
 editable source of truth. The original import is retained as `items.before-sqlite.json`.
 
@@ -99,6 +102,40 @@ cancellable and resumable. Search indexes and derived caches must be rebuildable
 - WA-007: Gmail Workspace capability spike, then bounded Inbox/Sent sync and Needs reply/Waiting for/Suggested. No writes; verify capability and AI-export boundaries first.
 - WA-008: Chat, GitHub, repository index, then previewed and confirmed external actions, each as a separate connector delivery.
 
-The current PR targets WA-001/002/003/005. WA-004/006 complete the general model before Gmail ingestion.
+Part 1 delivered WA-001/002/003/005. Part 2 implements the local WA-004/006 foundation before Gmail ingestion.
+
+### Part 2 API and boundaries
+
+Authenticated local POST routes under `/api/work/` implement `ingest`, `review`, `question`,
+`relate` and `availability`. They never call an AI endpoint or an external service. `ingest` accepts
+one source revision and at most 100 proposals; invalid later evidence rolls back the entire batch.
+Source identity is provider/account/external_id; content versions are immutable. Reusing an external
+revision token with different content is rejected, as is replaying an older known version as current.
+Unknown revision ordering remains the future connector's responsibility. Quotes must occur in the
+pinned content. Locators are stored as data; they are not executed or opened automatically.
+
+Proposal identity hashes evidence/kind/text. Exact retries keep review state across restart; this is
+not fuzzy semantic deduplication. A newer source revision marks old pending proposals stale. Accept
+creates an open task/question or proposed decision. Link requires the current target item revision,
+adds evidence only and never updates owner, text or status. Proposal review also requires its own
+revision. Availability affects review, not the linked item's business status.
+
+Relationships support same_as/derives_from/implements/supersedes/supports; same_as is symmetric,
+and directed relationships reject cycles of their own type. These are explicit metadata links,
+not automatic merge, completion or decision-state commands. A full relation editor is a follow-up.
+The existing meeting replacement operation remains responsible for decision state.
+
+Questions are added manually or accepted as proposals. Answer/reopen uses item revisions; the
+previous answer remains in history. Automatic promotion of meeting open_questions is deliberately
+not enabled. General-source questions and proposals are global and independent of the meeting
+project filter. Source-linked items cannot be destructively deleted/merged through legacy controls;
+Dismiss keeps their history and IDs. New source records default to ai_export_allowed=false; there
+is no route in this delivery to authorize AI export.
+
+Portable export version 3 contains every graph collection. Restore validates graph content before
+publishing meetings and commits its registry/graph merge together, preserving local records on ID
+conflict. Like the previous delivery it is not a crash-atomic transaction across meeting files and
+SQLite. Content and historical revisions are retained locally and inside archives; automatic
+retention/purge controls and large-account ingestion performance remain later connector work.
 Physical iPhone recovery and speech throughput measurements remain manual validation work; passing
 synthetic tests does not complete those checks. No blocking product-scope questions remain for this slice.

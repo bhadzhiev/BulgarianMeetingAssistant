@@ -16,14 +16,23 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ffmpeg-dir', type=Path)
+    parser.add_argument('--with-diarization', action='store_true', help='Bundle installed pyannote/torch speaker dependencies')
     parser.add_argument('--debug', action='store_true', help='Build a development app bundle')
     args = parser.parse_args()
+    if args.with_diarization:
+        sys.path.insert(0, str(ROOT))
+        from app.diarization import availability
+        if not availability()['available']:
+            parser.error('Install requirements-diarization.txt in the packaging environment first')
     subprocess.run([str(ROOT / 'build_native.sh')], cwd=ROOT, check=True)
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
                '--name', 'meeting-backend', '--distpath', str(ROOT / 'build/desktop-backend'),
                '--workpath', str(ROOT / 'build/pyinstaller'), '--specpath', str(ROOT / 'build'),
                '--collect-all', 'pywhispercpp', '--collect-all', 'sounddevice',
                '--add-data', f'{ROOT / "web"}:web', '--add-binary', f'{ROOT / "bin/SystemAudio"}:bin']
+    if args.with_diarization:
+        for package in ('torch', 'torchaudio', 'torchcodec', 'pyannote.audio', 'pyannote.core', 'pyannote.pipeline'):
+            command.extend(['--collect-all', package])
     if args.ffmpeg_dir:
         for name in ('ffmpeg', 'ffprobe'):
             path = args.ffmpeg_dir / name

@@ -251,11 +251,20 @@ scores, and does not perform sentiment analysis.
 
 - **Offline speaker diarization and talk time.** After transcription, optional
   `pyannote/speaker-diarization-community-1` processing creates `speaker-timeline.json`.
-  Whisper segments receive the speaker with the greatest timeline overlap, with midpoint
-  fallback. Talk time is calculated from merged speaker intervals, not transcript lengths;
+  Local Whisper can retain experimental word-sized boundaries and split the final text at
+  speaker changes. The exclusive speaker turns align the text; the regular, overlapping timeline
+  remains the source for talk-time statistics. Old, cloud or edited transcripts without matching
+  word boundaries keep segment-overlap assignment; no word times are fabricated. Talk time is calculated from merged speaker intervals, not transcript lengths;
   silence is excluded. The view includes turns, talk percentage, longest monologue,
   average turn length, and question count. Overlapping intervals for the same speaker are
   merged first. Simultaneous speech by different speakers counts toward each speaker.
+- **Speaker review after the meeting.** Open the Transcript tab, find **Speakers · after recording**,
+  listen from an example and use **Apply name**. The name applies to that voice throughout this
+  meeting, with a transcript revision check to reject stale reviews. This does not identify the
+  same person in another meeting. Names already confirmed are not overwritten by a speaker retry.
+  **Identify speakers after recording** retries this stage without rerunning Whisper or correction.
+  Runtime/model errors appear next to the transcript; model dependencies are checked without
+  importing torch during recording. An installed runtime does not prove model access.
 - **Speaker renaming.** Changing a generic label such as `SPEAKER_00` to a person's name
   updates every matching segment and timeline interval in that meeting, then rebuilds its
   analytics. Generic IDs are not assumed to represent the same person in other meetings.
@@ -285,6 +294,21 @@ Accept the model's access conditions on Hugging Face if requested. The first mod
 download model files. Processing uses Apple MPS when available and otherwise CPU. Diarization
 or analytics failures do not mark an otherwise successful transcript/notes job as failed.
 Imported transcripts receive topic and question analytics but no invented talk-time data.
+For a desktop bundle, install the extras in the **packaging environment** and build with
+`python scripts/build_desktop.py --with-diarization`. Installing them in a separate venv does not
+add them to an already frozen application. The build includes pyannote/torch dependencies, not a
+Hugging Face credential or gated model weights. A local Hugging Face login (`hf auth login`) can
+provide model access; alternatively supply `HF_TOKEN` to the app process. The login needs access
+to the gated model and its required submodels. Credentials are never included in library archives.
+
+`transcript.before-speakers.json` keeps the pre-separation text, and `transcript.alignment.json`
+keeps native estimated word units. Both are included in library archives and downloadable Files.
+Retranscribing archives the old artifacts. Original segment starts remain available so existing
+notes keep their timestamp references. The worker reuses a private, rebuildable matplotlib cache
+outside meeting archives instead of rescanning macOS fonts on every speaker job. AI correction keeps a separate `transcript.raw.json`
+with the same turn layout for per-row restoration. Numbers, negations and known participant names
+are protected from AI rewrites; this is a guard, not proof of semantic equivalence.
+
 Real meeting diarization accuracy and MPS inference have not been measured by the automated
 suite; verify a short recording before relying on speaker statistics.
 
@@ -889,3 +913,15 @@ Google OAuth, token refresh, event writes, conflict handling, account changes, A
 and browser deep links are tested with isolated fakes. The production connection and
 macOS Keychain prompts require your actual client JSON, Google sign-in, and chosen calendar;
 no live event creation has been verified as part of this setup.
+
+### Compare Whisper accuracy locally
+
+Use `scripts/evaluate_whisper.py --audio /path/clip-source.wav --reference /path/human.txt
+--output /private/tmp/new-whisper-comparison --models-dir /path/models` on a representative clip.
+The default compares `large-v3-turbo` and `large-v3` on the first 120 seconds; `--start` and
+`--seconds` select the exact clip that the human reference describes. This runs local Whisper
+only, preserves the input and refuses an existing output directory. It may download missing
+Whisper models. The private output contains transcripts and `metrics.json` with word error rate
+(case-insensitive, punctuation ignored) and wall time including model loading/download. Use warm,
+already cached models when comparing speed. A lower error rate on one clip does not establish
+quality on every meeting. No AI correction or speaker processing changes the comparison.

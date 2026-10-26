@@ -120,10 +120,24 @@ class ProcessingWorker:
                     path.unlink(missing_ok=True)
 
 
+def configure_speaker_runtime(directory):
+    # PyInstaller gives matplotlib a fresh temp directory on every launch. That
+    # rescans all macOS fonts for every speaker worker, even though we never plot.
+    import hashlib
+    bundle = str(getattr(sys, '_MEIPASS', sys.prefix))
+    key = hashlib.sha256(bundle.encode()).hexdigest()[:12]
+    cache = Path(directory).parent / '.speaker-runtime-cache' / key
+    cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.environ['MPLCONFIGDIR'] = str(cache)
+    os.environ['MPLBACKEND'] = 'Agg'
+
+
 def main():
     from .desktop import control_output
     output = control_output()
     request = json.loads(sys.stdin.readline())
+    if request.get('action') == 'diarize':
+        configure_speaker_runtime(request['directory'])
     def parent():
         # The parent keeps stdin open. EOF means it died; do not orphan inference.
         sys.stdin.read()

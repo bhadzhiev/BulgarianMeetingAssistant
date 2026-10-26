@@ -7,6 +7,7 @@ let lastFingerprint = '', lastLibrary = '', lastDevices = '', pending = false;
 let timingDefault = null;
 let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = 'recording';
 let lastTasks = '', itemEditing = false;
+let speakerNaming=false;
 let analyticsData = null, trackersData = [];
 let notesEditing = false, questionFilter = 'open', questionLimit = 10;
 let requestedMeeting=new URLSearchParams(location.search).get('meeting'), initialRouteHandled=false, lastGoogleConnected=false;
@@ -43,6 +44,30 @@ function renderSpeakerLegend() {
  target.hidden=!counts.size;
  for(const [name,count] of counts) { const chip=el('span','speaker-chip'); chip.append(speakerBadge(el('span'),name),el('span','',name+' · '+count)); target.append(chip); }
 }
+function renderSpeakerReview(busy) {
+ const target=$('speaker-review');target.replaceChildren();
+ const hasAudio=detail.files.includes('recording.wav'), names=[...new Set(detail.transcript.map(s=>s.speaker).filter(Boolean))];
+ if(!detail.transcript.length)return;
+ target.append(el('h3','','Speakers · after recording'));
+ const runtime=state.diarization||{}, meta=detail.transcript_metadata?.speaker_alignment;
+ const description=el('p','hint',detail.diarization_error?'Speaker separation could not finish · '+detail.diarization_error:
+  meta?'Aligned using '+meta.method+'. Speaker boundaries are estimates; listen and confirm names.':
+  'Separate voices after the meeting, then listen to a sample and name each speaker. Names are not inferred from the participant list.');target.append(description);
+ if(hasAudio&&!runtime.available)target.append(el('p','notice warning',runtime.message||'Speaker model is not installed in this build.'));
+ if(hasAudio){const identify=el('button','secondary','Identify speakers after recording');identify.type='button';
+  identify.disabled=busy||!runtime.available||names.some(n=>!/^SPEAKER[ _-]?\d+$/i.test(n));
+  identify.title=names.some(n=>!/^SPEAKER[ _-]?\d+$/i.test(n))?'Confirmed participant names are kept; speaker separation will not overwrite them.':'';
+  identify.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+detail.id+'/process',{action:'speakers'});await openMeeting(detail.id,true);});target.append(identify);}
+ if(!names.length){target.append(el('p','hint',hasAudio?'No speaker labels yet. The transcript remains available.':'Speaker separation needs recorded audio. You can add labels manually.'));return;}
+ for(const name of names){
+  const sample=detail.transcript.find(s=>s.speaker===name), row=el('div','input-row speaker-review-row'), label=el('strong','',name), listen=el('button','quiet','Listen from '+time(sample.start));listen.type='button';listen.disabled=!hasAudio;
+  listen.onclick=()=>{$('audio').currentTime=sample.start;$('audio').play().catch(e=>error(e.message));};
+  const input=el('input');input.placeholder='Participant name';input.value=/^SPEAKER[ _-]?\d+$/i.test(name)?'':name;input.maxLength=120;input.setAttribute('list','known-speakers');input.setAttribute('aria-label','Participant name for '+name);input.disabled=busy;input.oninput=()=>{speakerNaming=true;};
+  const save=el('button','secondary','Apply name');save.type='button';save.disabled=busy;save.onclick=()=>perform(async()=>{if(dirtyTranscript||dirtyNotes||itemEditing){error('Save other corrections before naming speakers.');return;}if(!input.value.trim()){error('Enter a participant name.');return;}
+   detail=await api('/api/meetings/'+detail.id+'/edit',{speaker_name:{speaker:name,name:input.value.trim(),revision:detail.transcript_revision}});speakerNaming=false;lastFingerprint=JSON.stringify(detail);state=await api('/api/state');renderState();renderDetail();toast('Speaker name applied to this meeting');});
+  row.append(label,listen,input,save);target.append(row);
+ }
+}
 function renderSpeakerSettings() {
  const list=$('speaker-list'), names=state.speakers||[]; list.replaceChildren();
  if(!names.length) list.append(el('p','hint','No known speakers yet.'));
@@ -54,7 +79,7 @@ async function api(path,body) {
  const data=await response.json(); if(!response.ok) throw new Error(data.error || 'Request failed'); return data;
 }
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
-function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing; }
+function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming; }
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
 function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
  return new Promise(resolve=>{
@@ -66,7 +91,7 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
  });
 }
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
-async function leaveEdits() { const leave=!hasEdits()||await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'});if(leave&&itemEditing){setItemEditing(false);lastTasks='';}return leave; }
+async function leaveEdits() { const leave=!hasEdits()||await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'});if(leave)speakerNaming=false;if(leave&&itemEditing){setItemEditing(false);lastTasks='';}return leave; }
 function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare','find']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); }
 function renderLibrary() {
  const query=$('search').value.toLocaleLowerCase();
@@ -258,7 +283,7 @@ function renderDetail() {
  $('transcript').replaceChildren();
  if(!d.transcript.length) $('transcript').append(el('p','empty-content',d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));
  d.transcript.forEach((s,index)=>{ const row=el('div','segment');const seek=el('button','',time(s.start)+' ▶');seek.setAttribute('aria-label','Play from '+time(s.start));seek.onclick=()=>{ $('audio').currentTime=s.start; $('audio').play().catch(e=>error(e.message)); }; const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore Whisper text: '+original.text;restore.setAttribute('aria-label','Restore original Whisper text for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text);row.append(seek,content);$('transcript').append(row); });
- renderSpeakerLegend();
+ renderSpeakerLegend();renderSpeakerReview(busy);
  $('detail-markers').hidden=!d.markers?.length; $('detail-markers').replaceChildren();
  if(d.markers?.length){$('detail-markers').append(el('h3','','Moments you marked'));const list=el('div','marker-list');renderMarkerList(list,d.markers,true);$('detail-markers').append(list);}
  $('save-transcript').disabled=true; renderSavedDraft(d); renderNotes(busy); renderMeetingAnalytics(busy);
@@ -577,7 +602,7 @@ function renderMarkdown(source) {
 async function openViewer(id,name) { const url='/files/'+id+'/'+name; const response=await fetch(url); if(!response.ok) throw new Error('Could not open '+name); $('viewer-title').textContent=name; $('viewer-download').href=url; $('viewer-download').download=name; $('viewer-body').innerHTML=renderMarkdown(await response.text()); $('viewer-body').scrollTop=0; $('viewer-dialog').showModal(); }
 $('viewer-close').onclick=()=>$('viewer-dialog').close();
 $('viewer-dialog').onclick=event=>{if(event.target===$('viewer-dialog'))$('viewer-dialog').close();};
-function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();if(calendarConnected())perform(loadCalendars); }
+function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('diarization-runtime').textContent=state.diarization?.message||'Speaker separation is checked after recording.';$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();if(calendarConnected())perform(loadCalendars); }
 function daysBetween(from,to) { return Math.round((Date.parse(to)-Date.parse(from))/86400000); }
 function dueInfo(task,today) {
  if(task.status==='done') return ['done','Done'];

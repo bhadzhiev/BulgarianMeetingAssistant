@@ -107,6 +107,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             language='bg', translate=False, print_progress=False, print_realtime=False,
             print_timestamps=False, no_context=True, suppress_blank=True,
             suppress_non_speech_tokens=True, temperature=0, n_threads=6, **options)
+    word_alignment = provider == 'local' and settings.get('diarization_enabled', True)
     segments = []
     audio_path = directory / 'recording.wav'
     try:
@@ -120,7 +121,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             backend_version = version('pywhispercpp') if provider == 'local' else None
         except PackageNotFoundError:
             backend_version = 'unknown'
-        signature = hashlib.sha256(json.dumps(dict(version=1, backend_version=backend_version, audio=audio_digest(audio_path),
+        signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
             provider=provider, model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
             model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation), sort_keys=True).encode()).hexdigest()
         checkpoint = directory / '.transcription-progress.json'
@@ -153,9 +154,12 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 if provider == 'local':
                     audio = samples.astype(np.float32) / 32768
                     # The model keeps call parameters, so every call sets the prompt explicitly.
-                    timed = merge_segments(model.transcribe(audio, language='bg', no_context=True, initial_prompt=''), start)
+                    raw = model.transcribe(audio, language='bg', no_context=True, initial_prompt='',
+                        token_timestamps=word_alignment, max_len=1 if word_alignment else 0, split_on_word=word_alignment)
+                    timed = whisper.word_units(raw, start) if word_alignment else merge_segments(raw, start)
                     if prompt and timed:
-                        prompted = model.transcribe(audio, language='bg', no_context=True, initial_prompt=prompt)
+                        prompted = model.transcribe(audio, language='bg', no_context=True, initial_prompt=prompt,
+                            token_timestamps=False, max_len=0, split_on_word=False)
                         timed = whisper.apply_prompted_text(timed, ' '.join(clean_text(s.text) for s in prompted))
                     segments.extend(timed)
                 else:
@@ -181,17 +185,24 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         if not segments:
             checkpoint.unlink(missing_ok=True)
             raise ValueError('No speech was recognized. The recording is saved; try another model or provider.')
+        from .speaker_alignment import group_units, revision
+        units = [asdict(s) for s in segments] if word_alignment else None
+        if units:
+            segments = [TranscriptSegment(**s) for s in group_units(units)]
         progress('Publishing transcript')
         # transcription.wav is not archived: about 115 MB per hour, and recording.wav plus the profile in the
         # archived metadata can produce it again.
         if archive(directory, ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json',
                                'minutes.md', 'minutes.proposed.json', 'analytics.json', 'speaker-timeline.json',
-                               'transcript.metadata.json']):
+                               'transcript.metadata.json', 'transcript.alignment.json', 'speaker-turns.json', 'speaker-diarization.json', 'transcript.before-speakers.json']):
             # Previous notes and analytics no longer refer to the current transcription.
             # The kept Whisper text belongs to the old transcription.
-            for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:
+            for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json', 'transcript.alignment.json', 'speaker-turns.json', 'speaker-diarization.json', 'transcript.before-speakers.json']:
                 (directory / name).unlink(missing_ok=True)
         save_transcript(directory, segments)
+        if units:
+            atomic_json(directory / 'transcript.alignment.json', dict(version=1, source_revision=revision([asdict(s) for s in segments]),
+                method='whisper.cpp experimental word boundaries', units=units))
         if preparation['profile'] == 'light':
             os.replace(audio_path, directory / 'transcription.wav')
         else:
@@ -201,7 +212,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             timestamps='segment' if provider == 'local' else 'approximate chunk boundaries',
             audio_preparation=preparation, resumed_from_seconds=resumed_from)
         if provider == 'local':
-            metadata.update(vad=vad is True, prompt=prompt or None)
+            metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):
                 metadata['vad_error'] = vad
         atomic_json(directory / 'transcript.metadata.json', metadata)

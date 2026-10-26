@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from .work_graph import WorkGraph, validate_graph
 from .work_items import COLLECTIONS, normalize
 import json
+import hashlib
 import datetime as dt
 import os
 from pathlib import Path
@@ -187,7 +188,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=self.library.list(), active=active, google=self.google.status(),
-                desktop_mode=self.desktop_mode,
+                desktop_mode=self.desktop_mode, diarization=diarization.availability(),
                 speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
                 device_error=device_error, preview_level=self.preview_level,
@@ -211,6 +212,7 @@ class MeetingService:
                     validate_minutes(meeting['minutes'])  # adds fields that older notes lack
                 except ValueError:
                     notes_valid = False
+            meeting['transcript_revision'] = hashlib.sha256(json.dumps(meeting['transcript'], sort_keys=True).encode()).hexdigest()
             meeting['minutes_revision'] = self._minutes_revision(directory)
             meeting['minutes_proposal'] = None
             if notes_valid and (directory / 'minutes.proposed.json').exists():
@@ -237,7 +239,7 @@ class MeetingService:
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
                                'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json',
-                               'transcription.wav'] if (directory / name).exists()]
+                               'transcription.wav', 'transcript.before-speakers.json', 'transcript.alignment.json', 'speaker-turns.json'] if (directory / name).exists()]
             return meeting
 
     def _stop_preview(self):
@@ -527,7 +529,7 @@ class MeetingService:
     def process(self, meeting_id, action, use_saved=False):
         if self.closed.is_set():
             raise ValueError('The app is closing')
-        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze'}:
+        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze', 'speakers'}:
             raise ValueError('Unknown processing action')
         with self.lock:
             meeting = self.library.get(meeting_id)
@@ -536,7 +538,7 @@ class MeetingService:
             if meeting['mode'] == 'audio' and action == 'recover':
                 raise ValueError('An imported audio file has no raw tracks to recover')
             if meeting['mode'] == 'imported':
-                if action in {'transcribe', 'recover'}:
+                if action in {'transcribe', 'recover', 'speakers'}:
                     raise ValueError('An imported transcript has no audio to transcribe')
                 if action == 'all':
                     action = 'summarize'
@@ -555,6 +557,9 @@ class MeetingService:
                     raise ValueError('Choose Local API or OpenAI for transcript correction in Settings first')
                 if not (self.library.directory(meeting_id) / 'transcript.json').exists():
                     raise ValueError('Transcribe the recording before AI correction')
+            if action == 'speakers' and (not (self.library.directory(meeting_id) / 'transcript.json').exists()
+                    or not (self.library.directory(meeting_id) / 'recording.wav').exists()):
+                raise ValueError('A saved recording and final transcript are required for speaker separation')
             if action == 'reanalyze' and not (self.library.directory(meeting_id) / 'transcript.json').exists():
                 raise ValueError('Transcribe or import a meeting before running analytics')
             # Capture the key for this job; it is never persisted in metadata.
@@ -615,8 +620,8 @@ class MeetingService:
             if action in {'all', 'transcribe'}:
                 with job.step('Transcription'):
                     self._execute('transcribe', directory, settings, progress, key, self.library.speakers())
-            should_diarize = action in {'all', 'transcribe'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
-            if should_diarize and settings.get('diarization_enabled', True) and (directory / 'recording.wav').exists():
+            should_diarize = action in {'all', 'transcribe', 'speakers'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
+            if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
             if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
@@ -664,9 +669,30 @@ class MeetingService:
     def _run_diarization(self, meeting_id, directory, progress):
         from meeting_assistant import TranscriptSegment, save_transcript
         try:
-            timeline = self._execute('diarize', directory, self.settings, progress)
+            from .speaker_alignment import align
             source = json.loads((directory / 'transcript.json').read_text())
-            assigned = conversation.assign_speakers(source, timeline)
+            if any(s.get('speaker') and not conversation.is_generic_speaker(s['speaker']) for s in source):
+                raise ValueError('Existing speaker names were kept. Review them before running speaker separation again.')
+            timeline = self._execute('diarize', directory, self.settings, progress)
+            turns = read_json(directory / 'speaker-turns.json', timeline)
+            alignment = read_json(directory / 'transcript.alignment.json', None)
+            method = 'segment overlap'
+            try:
+                assigned = align(source, alignment, turns)
+                method = 'Whisper word boundaries and speaker turns'
+            except (ValueError, KeyError, TypeError):
+                # Old, cloud or edited transcripts have no trustworthy word alignment.
+                assigned = conversation.assign_speakers(source, turns)
+            if not (directory / 'transcript.before-speakers.json').exists():
+                atomic_json(directory / 'transcript.before-speakers.json', source)
+            # A correction snapshot may have a different segment layout; do not present it as row-aligned.
+            raw = directory / 'transcript.raw.json'
+            if raw.exists() and len(read_json(raw, [])) != len(assigned):
+                processing.archive(directory, ['transcript.raw.json'])
+                raw.unlink()
+            metadata = read_json(directory / 'transcript.metadata.json', {})
+            metadata['speaker_alignment'] = dict(method=method, experimental=True, names_confirmed=False)
+            atomic_json(directory / 'transcript.metadata.json', metadata)
             save_transcript(directory, [TranscriptSegment(**segment) for segment in assigned])
             self.library.update(meeting_id, diarization_error=None)
         except JobCancelled:
@@ -695,6 +721,8 @@ class MeetingService:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before editing')
             directory = self.library.directory(meeting_id)
+            if 'speaker_name' in body and set(body) != {'speaker_name'}:
+                raise ValueError('Save other edits before naming speakers')
             if 'title' in body:
                 if not isinstance(body['title'], str) or not body['title'].strip():
                     raise ValueError('Meeting title is required')
@@ -702,6 +730,23 @@ class MeetingService:
                 self.library.update(meeting_id, title=body['title'].strip()[:160],title_source='manual',
                     title_revision=current.get('title_revision',0)+1,title_status='manual',title_error=None)
                 self._queue_metadata(meeting_id)
+            requested_rename = None
+            if 'speaker_name' in body:
+                value = body['speaker_name']
+                if not isinstance(value, dict):
+                    raise ValueError('Choose a speaker and name')
+                path = directory / 'transcript.json'
+                current = read_json(path, [])
+                revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                if value.get('revision') != revision:
+                    raise items.WorkItemConflict('The transcript changed. Reload before naming speakers.')
+                old, name = value.get('speaker'), value.get('name')
+                if (not isinstance(old, str) or not any(s.get('speaker') == old for s in current)
+                        or not isinstance(name, str) or not name.strip() or len(name) > 120
+                        or any(ord(c) < 32 for c in name) or conversation.is_generic_speaker(name)):
+                    raise ValueError('Enter a participant name for an existing speaker')
+                requested_rename = (old, name.strip())
+                body = dict(body, transcript=[dict(s, speaker=name.strip()) if s.get('speaker') == old else s for s in current])
             if 'transcript' in body:
                 if not isinstance(body['transcript'], list) or len(body['transcript']) > 100000:
                     raise ValueError('Invalid transcript')
@@ -720,7 +765,7 @@ class MeetingService:
                         raise ValueError('Invalid transcript segment')
                     previous = s.start
                     segments.append(s)
-                renames = {}
+                renames = dict([requested_rename]) if requested_rename else {}
                 for old, new in zip(old_segments, segments):
                     if (conversation.is_generic_speaker(old.speaker) and new.speaker
                             and not conversation.is_generic_speaker(new.speaker)
@@ -730,13 +775,14 @@ class MeetingService:
                     for segment in segments:
                         if segment.speaker in renames:
                             segment.speaker = renames[segment.speaker]
-                    timeline_path = directory / 'speaker-timeline.json'
-                    if timeline_path.exists():
-                        timeline = json.loads(timeline_path.read_text())
-                        for turn in timeline:
-                            if turn.get('speaker') in renames:
-                                turn['speaker'] = renames[turn['speaker']]
-                        atomic_json(timeline_path, timeline)
+                    for filename in ('speaker-timeline.json', 'speaker-turns.json'):
+                        timeline_path = directory / filename
+                        if timeline_path.exists():
+                            timeline = json.loads(timeline_path.read_text())
+                            for turn in timeline:
+                                if turn.get('speaker') in renames:
+                                    turn['speaker'] = renames[turn['speaker']]
+                            atomic_json(timeline_path, timeline)
                 save_transcript(directory, segments)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))

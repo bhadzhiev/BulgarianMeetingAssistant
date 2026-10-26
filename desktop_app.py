@@ -25,7 +25,7 @@ PROJECT = Path(__file__).resolve().parent
 if getattr(sys, 'frozen', False):
     import os
     os.environ['PATH'] = str(PROJECT / 'bin') + os.pathsep + os.environ.get('PATH', '')
-EXPORTS = {'recording.wav', 'transcription.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
+EXPORTS = {'transcript.before-speakers.json', 'transcript.alignment.json', 'speaker-turns.json', 'recording.wav', 'transcription.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
 
 
 class Server(ThreadingHTTPServer):

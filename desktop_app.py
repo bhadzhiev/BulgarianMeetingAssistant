@@ -102,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
             # SameSite=Strict cookie. A refresh from this page makes the next step same-origin.
             target = '/session?token=' + quote(token)
             return self.respond(200, f'<!doctype html><meta http-equiv="refresh" content="0;url={target}">'
-                                     f'<title>Meeting Assistant</title><a href="{target}">Open Meeting Assistant</a>',
+                                     f'<title>Atlanta</title><a href="{target}">Open Atlanta</a>',
                                 'text/html; charset=utf-8')
         if url.path == '/session' and valid_token:
             self.send_response(303)
@@ -119,11 +119,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.server.service.google.complete({k:v[0] for k,v in parse_qs(url.query).items()})
                 self.server.service.google_connected()
-                message = 'You are signed in with Google. Return to Meeting Assistant to use the permissions you approved.'
+                message = 'You are signed in with Google. Return to Atlanta to use the permissions you approved.'
                 code = 200
             except Exception as exc:
                 message, code = str(exc), 400
-            return self.respond(code, '<!doctype html><html><head><title>Meeting Assistant · Google Calendar</title></head><body><h1>Meeting Assistant</h1><p>'+html.escape(message)+'</p><p><a href="/">Return to Meeting Assistant</a> or close this tab.</p></body></html>', 'text/html; charset=utf-8')
+            return self.respond(code, '<!doctype html><html><head><title>Atlanta · Google Calendar</title></head><body><h1>Atlanta</h1><p>'+html.escape(message)+'</p><p><a href="/">Return to Atlanta</a> or close this tab.</p></body></html>', 'text/html; charset=utf-8')
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return
@@ -146,6 +146,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.github.status())
         if url.path == '/api/github/repos':
             return self.respond(200, self.server.service.github.repos())
+        if url.path == '/api/github/overview':
+            query = parse_qs(url.query)
+            return self.respond(200, self.server.service.github.overview(query.get('filter', ['all'])[0], query.get('kind', ['all'])[0]))
         if url.path == '/api/github/items':
             query = parse_qs(url.query)
             return self.respond(200, self.server.service.github.listing(int(query.get('repo',['0'])[0]),query.get('filter',['all'])[0],query.get('kind',['all'])[0]))
@@ -155,6 +158,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.chat.status())
         if url.path == '/api/chat/spaces':
             return self.respond(200, self.server.service.chat.spaces())
+        if url.path == '/api/chat/conversation':
+            return self.respond(200, self.server.service.chat.conversation(parse_qs(url.query).get('space', [''])[0]))
         if url.path == '/api/chat/messages':
             return self.respond(200, self.server.service.chat.messages(parse_qs(url.query).get('space',[''])[0]))
         if url.path == '/api/chat/message':
@@ -295,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/github/disconnect':
                 service.github.stop()
                 result = service.github.connection.disconnect()
+            elif path == '/api/github/overview/sync':
+                result = service.github.start_overview(body.get('filter', 'all'))
             elif path == '/api/github/sync':
                 result = service.github.start(body['repository'],body.get('filter','all'),body.get('restart',False))
             elif path == '/api/github/refresh':

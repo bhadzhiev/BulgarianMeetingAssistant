@@ -109,6 +109,18 @@ class ChatSyncTests(unittest.TestCase):
         self.assertEqual((query['pageSize'],query['orderBy'],query['showDeleted']),(20,'createTime desc','true'))
         self.assertIn('AND',query['filter'])
         self.assertNotIn('body',self.chat.messages(SPACE)[0])
+    def test_conversation_reads_in_order_with_full_text_and_spaces_show_participants(self):
+        old=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(hours=1)).isoformat()
+        first=message(SPACE+'/messages/m0','First synthetic line.')
+        first['createTime']=old
+        self.google.handler=lambda resource,query:dict(spaces=[dict(name=SPACE,spaceType='DIRECT_MESSAGE')]) if resource=='spaces' else dict(messages=[message(),first])
+        self.run_sync('spaces','');self.run_sync()
+        conversation=self.chat.conversation(SPACE)
+        self.assertEqual([m['body'] for m in conversation],['First synthetic line.','Review synthetic backups.'])
+        space=self.chat.spaces()[0]
+        self.assertEqual((space['count'],space['participants']),(2,['Synthetic sender']))
+        self.assertGreater(space['last'],0)
+        with self.assertRaises(ValueError):self.chat.conversation('spaces/../x')
     def test_pagination_keeps_same_window_and_resumes_after_restart(self):
         def paged(resource,query):
             if query.get('pageToken'):return dict(messages=[message(SPACE+'/messages/m2')])

@@ -110,6 +110,25 @@ class SyncTests(unittest.TestCase):
             query=next(c[1]['q'] for c in reversed(self.connection.calls) if c[0]=='/search/issues')
             self.assertIn(qualifier+':synthetic-user',query);self.assertIn('repo:synthetic/repository',query)
             self.assertEqual(len(self.sync.listing(11,role)),2)
+    def test_overview_lists_open_items_from_every_repository_without_a_selection(self):
+        other=dict(id=12,full_name='synthetic/other')
+        def rows(path,query):
+            if path=='/user':return dict(data=dict(id=1,login='synthetic-user'))
+            if path=='/issues':
+                self.assertEqual((query['filter'],query['state'],query['per_page']),('assigned','open',100))
+                second=issue(7,707);second['url']='https://api.github.com/repos/synthetic/other/issues/7';second['updated_at']='2026-10-27T00:00:00Z'
+                return dict(data=[dict(issue(),repository=REPO),dict(second,repository=other),dict(issue(3,303,True),repository=REPO)],has_next=False)
+            if '/pulls/' in path:return dict(data=pull(3,'open',False))
+            raise AssertionError(path)
+        self.connection.handler=rows
+        self.sync.start_overview('assigned');self.sync.thread.join(5)
+        view=self.sync.overview('assigned')
+        self.assertEqual([r['repository'] for r in view['items']],['synthetic/other','synthetic/repository','synthetic/repository'])
+        self.assertTrue(view['state']['complete']);self.assertEqual(view['state']['count'],3)
+        self.assertEqual([r['number'] for r in self.sync.overview('assigned','pull_request')['items']],[3])
+        self.assertEqual({r['full_name'] for r in self.sync.repos()},{'synthetic/other','synthetic/repository'})
+        self.assertEqual(self.sync.overview('all')['items'],[])
+        with self.assertRaises(ValueError):self.sync.overview('everything')
     def test_partial_page_cap_and_fixed_query_limit(self):
         def many(path,query):
             if path=='/user':return dict(data=dict(id=1,login='synthetic-user'))

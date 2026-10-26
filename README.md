@@ -37,6 +37,13 @@ npm --prefix desktop ci
 python scripts/build_desktop.py
 ```
 
+To build and install (or reinstall) in one step, run `scripts/install_desktop.sh`. The script makes
+a packaging environment in `.venv-build`, installs the Tauri CLI, and builds the app. It then quits a
+running copy and replaces `/Applications/Bulgarian Meeting Assistant.app`. `BMA_INSTALL_DIR` selects
+another folder. The script accepts the same options as `build_desktop.py`. It also installs
+`requirements-diarization.txt` and builds with `--with-diarization` by default. Add
+`--without-diarization` for a smaller app without speaker separation.
+
 The result is under `desktop/src-tauri/target/release/bundle/macos/`. Add `--debug` for a development
 bundle. This packages Python, the web interface, Whisper libraries and the native audio helper.
 By default, ffmpeg/ffprobe must be installed on the target Mac (`brew install ffmpeg`). To package
@@ -190,7 +197,8 @@ the settings it started with for automatic processing.
   JSON schema is the default; choose JSON object or Prompt only if your server needs it.
   All modes still validate generated notes and task evidence timestamps before saving.
   Reasoning effort defaults to **Automatic**: Qwen3.5 notes, transcript correction and titles
-  send `reasoning_effort=none` before the first request. Other models and email analysis
+  send `reasoning_effort=none` before the first request. Selected-email analysis resolves Automatic
+  to Off for Qwen3.5 and shows the effective reasoning/output limit before approval. Other models
   keep the server default. Explicit Off/Low/Medium/High choices are kept. Choose
   **Server default** if your endpoint does not accept `reasoning_effort`. The shared maximum output defaults to
   4096 tokens (including reasoning on many servers). Truncated responses are rejected.
@@ -510,6 +518,23 @@ The app validates notes' structure and source timestamps, but factual correctnes
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
 
+## My Work: one place for meetings, Gmail, Chat and GitHub
+
+Every task, decision and proposal shows a coloured source chip: **Meeting**, **Gmail**, **Chat** or
+**GitHub**. Click a chip to open the source. **All sources** filters the task and decision lists.
+
+The Gmail, Chat and GitHub tabs use the same layout. The bar on top shows the connection and the sync
+state. A list of threads, conversations or issues comes next; arrow keys move through it. The open
+item fills a fixed-height reader below, with its actions under it. Rare actions (reconnect, stop,
+reload) are in the **⋯** menu. Explanations and cache clearing are under **About**.
+
+- **Gmail** shows the selected thread message by message, with **Suggest a task** and **Analyze with
+  AI** on each message.
+- **Chat** shows the conversation as a chat: sender names, times and day separators, newest at the
+  bottom. Select a message to suggest a task from it. The first visit loads the conversation list,
+  and the first open of a conversation syncs it. Direct messages are named after the other person.
+- **GitHub** lists every open issue and pull request without a repository choice. See below.
+
 ## Gmail: local read-only pilot
 
 Open **My Work → Gmail → Connect Gmail read-only**. Use the shared Google connection and approve
@@ -590,7 +615,7 @@ re-consent. Enable the Chat API in the OAuth project. Workspace policy or OAuth 
 still block access. This is user authentication, with no bot, service account, administrator search,
 send or edit permission. See [Chat authorization](https://developers.google.com/workspace/chat/authenticate-authorize).
 
-**Load spaces** fetches conversation metadata only. It reads at most 50 spaces per page and 200 per
+**Refresh conversation list** (in the **⋯** menu) fetches conversation metadata only. It reads at most 50 spaces per page and 200 per
 discovery cycle; use Load more until complete. Choose a conversation explicitly before **Sync /
 Continue** downloads message text. Named spaces use their names; DMs/group chats without a display
 name show their resource ID. Empty DMs/group chats and system membership messages are excluded by
@@ -624,7 +649,7 @@ can remove a cached identity after sign-out and keeps promoted WorkItem snapshot
 archives. There is no automatic retention purge. All development tests use synthetic Chat responses;
 live Workspace consent, API access and real conversation sync still need account-owner validation.
 
-## GitHub: selected repositories, read-only
+## GitHub: open issues and pull requests, read-only
 
 Open **My Work → GitHub**. Create a **fine-grained personal access token** for the selected repositories
 with **Issues: Read-only**, **Pull requests: Read-only** and the required metadata access, then Connect.
@@ -635,13 +660,17 @@ approval and SSO remain GitHub/account-owner setup. See
 [GitHub token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
 The app cannot introspect all token permissions; its own adapter only makes GET requests.
 
-Enter **owner/repository**, select **All**, **Assigned to me**, **Created by me** or **Mentioned**, then
-**Sync / Continue**. Each action handles at most 20 search matches and at most 200 per repository/filter
-refresh. Each filter has its own cached result set and restartable queue; choose Issues/PRs to narrow
-the display. Search qualifiers handle mentions, including indexed comments, instead of guessing from
-cached body text. Search indexing can lag or report incomplete results. This is not a full mirror,
-a transactionally frozen GitHub search or a webhook subscription; absence from the capped results
-never proves deletion. **Restart filter refresh** starts a new result generation, preserving sources.
+After Connect, the GitHub tab lists every open issue and pull request that the token can read, from all
+repositories (`GET /issues`, at most 300 per filter, newest change first). You do not choose a repository
+first. The first visit syncs the list. Choose **All open**, **Assigned to me**, **Created by me** or
+**Mentioning me**; each filter keeps its own result set. Narrow the list by kind, repository or text.
+**Sync** reads the list again. Open pull requests also read their PR record, so their revision matches
+a single-item refresh.
+
+The per-repository search sync (`/api/github/sync`) remains for compatibility. Each action handles at
+most 20 search matches and at most 200 per repository/filter refresh. Search indexing can lag or report
+incomplete results. This is not a full mirror or a webhook subscription; absence from the capped
+results never proves deletion.
 
 Open an item to read its cached Markdown as plain text and fetch time. PR states distinguish open,
 closed without merge and merged; the PR detail is checked separately from the issue representation.
@@ -925,3 +954,10 @@ Whisper models. The private output contains transcripts and `metrics.json` with 
 (case-insensitive, punctuation ignored) and wall time including model loading/download. Use warm,
 already cached models when comparing speed. A lower error rate on one clip does not establish
 quality on every meeting. No AI correction or speaker processing changes the comparison.
+
+Source sync and AI feedback: GitHub refresh keeps earlier cached items visible until the new
+refresh completes, and an interrupted page resumes from its saved queue. Cached results may be
+older while a refresh is incomplete. Recording/processing pauses further sync requests; choose
+Continue sync afterwards. Email AI shows progress and its result next to the selected message,
+including a successful analysis with zero task suggestions. Quote validation failures, endpoint
+failures and output-limit errors remain explicit and never auto-accept tasks.

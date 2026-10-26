@@ -236,8 +236,39 @@ function privacy(s) { let text=s.transcription==='openai'?'Audio is sent to Open
 function switchTab(name) {
  for(const [tab,panel] of [['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
 }
-function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=false; }
+function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=false; $('save-transcript').textContent=refreshNotesAfterEdit?'Save & update notes':'Save corrections'; }
 function markNotes() { dirtyNotes=true; $('save-notes').disabled=$('save-outcomes').disabled=false; }
+let transcriptEditing=false,refreshNotesAfterEdit=true;
+// Group only adjacent segments: a participant returning later starts a new turn.
+function transcriptTurns(segments) {
+ const turns=[];
+ segments.forEach((segment,index)=>{
+  const speaker=(segment.speaker||'').trim(), previous=turns[turns.length-1];
+  if(previous&&previous.speaker===speaker)previous.segments.push({segment,index});
+  else turns.push({speaker,segments:[{segment,index}]});
+ });
+ return turns;
+}
+function transcriptElement(index) { return $('transcript').querySelector('[data-segment-index="'+index+'"]'); }
+function renderTranscript(d,busy) {
+ const target=$('transcript');target.replaceChildren();
+ if(!d.transcript.length){target.append(el('p','empty-content',d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));return;}
+ const toolbar=el('div','transcript-view-actions'),toggle=el('button','quiet',transcriptEditing?'Read as dialogue':'Edit transcript');toggle.type='button';toggle.setAttribute('aria-pressed',String(transcriptEditing));toggle.onclick=()=>{transcriptEditing=!transcriptEditing;renderTranscript(detail,busy);};toolbar.append(toggle);target.append(toolbar);
+ if(transcriptEditing){
+ const choice=el('label','transcript-refresh-choice'),check=el('input');check.type='checkbox';check.checked=refreshNotesAfterEdit;check.disabled=busy;check.onchange=()=>{refreshNotesAfterEdit=check.checked;if(dirtyTranscript)markTranscript();};choice.append(check,document.createTextNode(' Update notes and tasks after saving'));toolbar.prepend(choice);
+ d.transcript.forEach((s,index)=>{ const row=el('div','segment');row.dataset.segmentIndex=String(index);const seek=el('button','',time(s.start)+' ▶');seek.setAttribute('aria-label','Play from '+time(s.start));seek.onclick=()=>{ $('audio').currentTime=s.start; $('audio').play().catch(e=>error(e.message)); }; const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore Whisper text: '+original.text;restore.setAttribute('aria-label','Restore original Whisper text for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text);row.append(seek,content);$('transcript').append(row); });
+ return;
+ }
+ for(const turn of transcriptTurns(d.transcript)) {
+  const row=el('article','dialogue-turn'),header=el('div','dialogue-heading'),first=turn.segments[0].segment;
+  const seek=el('button','quiet dialogue-time',time(first.start)+' ▶');seek.type='button';seek.setAttribute('aria-label','Play from '+time(first.start));seek.onclick=()=>{$('audio').currentTime=first.start;$('audio').play().catch(e=>error(e.message));};
+  header.append(speakerBadge(el('span'),turn.speaker),el('strong','',turn.speaker||'Unidentified speaker'),seek);
+  const text=el('p','dialogue-text');
+  for(const {segment,index} of turn.segments){if(text.childNodes.length)text.append(document.createTextNode(' '));const fragment=el('span','transcript-fragment',segment.text.trim());fragment.dataset.segmentIndex=String(index);text.append(fragment);}
+  row.append(header,text);target.append(row);
+ }
+}
+
 function renderDetail() {
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
  $('detail-title').textContent=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=statusNames[d.status]||d.status;
@@ -279,14 +310,12 @@ function renderDetail() {
  $('summarize').disabled=busy||!d.transcript.length; $('summarize').textContent=d.minutes?'Generate new AI notes':'Generate notes';
  $('process').textContent=d.transcript.length?'Transcribe again':'Transcribe';
  placeActions(d);
- $('timestamp-note').textContent=d.transcript_metadata?.timestamps==='approximate chunk boundaries'?'Cloud timestamps mark approximate audio chunks. Click a time to listen.':'Click a timestamp to listen. Correct the text or add a speaker label below.';
- $('transcript').replaceChildren();
- if(!d.transcript.length) $('transcript').append(el('p','empty-content',d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));
- d.transcript.forEach((s,index)=>{ const row=el('div','segment');const seek=el('button','',time(s.start)+' ▶');seek.setAttribute('aria-label','Play from '+time(s.start));seek.onclick=()=>{ $('audio').currentTime=s.start; $('audio').play().catch(e=>error(e.message)); }; const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore Whisper text: '+original.text;restore.setAttribute('aria-label','Restore original Whisper text for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text);row.append(seek,content);$('transcript').append(row); });
+ $('timestamp-note').textContent=d.transcript_metadata?.timestamps==='approximate chunk boundaries'?'Cloud timestamps mark approximate audio chunks. Click a time to listen.':'Consecutive speech is grouped by participant. Click a time to listen; choose Edit transcript to make corrections.';
+ renderTranscript(d,busy);
  renderSpeakerLegend();renderSpeakerReview(busy);
  $('detail-markers').hidden=!d.markers?.length; $('detail-markers').replaceChildren();
  if(d.markers?.length){$('detail-markers').append(el('h3','','Moments you marked'));const list=el('div','marker-list');renderMarkerList(list,d.markers,true);$('detail-markers').append(list);}
- $('save-transcript').disabled=true; renderSavedDraft(d); renderNotes(busy); renderMeetingAnalytics(busy);
+ $('save-transcript').disabled=!dirtyTranscript||busy;$('save-transcript').textContent=dirtyTranscript&&refreshNotesAfterEdit?'Save & update notes':'Save corrections';renderTranscriptRefresh(busy); renderSavedDraft(d); renderNotes(busy); renderMeetingAnalytics(busy);
 }
 const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','delete-meeting'];
 // One clear next step is a button; the other actions wait in the More menu.
@@ -303,13 +332,13 @@ function stampSeconds(stamp) { const [h,m,sec]=stamp.split(':').map(Number); ret
 function showMoment(stamp) {
  const seconds=stampSeconds(stamp); let index=detail.transcript.findIndex(s=>time(s.start)===stamp);
  if(index<0) index=detail.transcript.findIndex(s=>s.end>=seconds);
- switchTab('transcript'); const row=$('transcript').children[index];
+ switchTab('transcript'); const row=transcriptElement(index);
  if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
  if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
 }
 function showSeconds(seconds) {
  let index=-1; detail.transcript.forEach((segment,i)=>{if(segment.start<=seconds+0.5)index=i;});
- switchTab('transcript'); const row=$('transcript').children[Math.max(0,index)];
+ switchTab('transcript'); const row=transcriptElement(Math.max(0,index));
  if(row&&detail.transcript.length){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
  if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
 }
@@ -410,6 +439,15 @@ function openReview() {
  $('review-dialog').showModal();
 }
 $('review-close').onclick=()=>$('review-dialog').close();
+function transcriptRefreshBanner(busy) {
+ const banner=el('div','notice proposal-banner'),button=el('button','secondary','Update notes & tasks');button.type='button';button.disabled=busy||dirtyTranscript||dirtyNotes||itemEditing;
+ banner.append(el('span','',detail.notes_refresh_error|| (busy?'Updating notes and tasks from the corrected transcript…':'The transcript changed. Notes and tasks need to be checked against the corrected text.')));
+ button.onclick=()=>perform(async()=>{if(state.settings.summarizer==='none'){openSettings('notes');return;}await api('/api/meetings/'+detail.id+'/process',{action:'summarize'});await openMeeting(detail.id,true);});banner.append(button);return banner;
+}
+function renderTranscriptRefresh(busy) {
+ const target=$('transcript-refresh-status');target.replaceChildren();target.hidden=!(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error);
+ if(!target.hidden)target.append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
+}
 function proposalBanner(busy) {
  const proposal=detail.minutes_proposal, count=proposal.changes.length, banner=el('div','notice proposal-banner');
  banner.append(el('span','',count?'New AI notes are ready · '+count+(count===1?' change':' changes')+' to review. Your saved notes have not changed.':'The new AI notes match your saved notes.'));
@@ -441,7 +479,7 @@ function renderNotes(busy=false) {
  for(const name of ['notes','outcomes']) { $('edit-'+name).hidden=notesEditing||!detail.minutes; $('edit-'+name).disabled=busy; $('save-'+name).hidden=$('cancel-'+name).hidden=!notesEditing; $('save-'+name).disabled=!dirtyNotes; }
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(el('p','empty-content','Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
- if(detail.minutes_proposal) for(const id of ['notes','outcomes']) $(id).append(proposalBanner(busy));
+ if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
  const section=el('section','note-section');section.append(el('h3','','Tasks'));
@@ -471,7 +509,7 @@ function shortDuration(seconds) {
 function metric(label,value) { const box=el('div','metric');box.append(el('strong','',String(value)),el('span','',label));return box; }
 function seekEvidence(item) {
  if(detail.files.includes('recording.wav')) { $('audio').currentTime=item.timestamp||0;$('audio').play().catch(e=>error(e.message));return; }
- switchTab('transcript');const row=$('transcript').children[item.segment_index];if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
+ switchTab('transcript');const row=transcriptElement(item.segment_index);if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
 }
 function speakerStats(target,rows,global=false) {
  target.replaceChildren();if(!rows.length){target.append(el('p','empty-content','No diarized speaker time is available. Imported transcripts only have topic and question analytics.'));return;}
@@ -612,7 +650,7 @@ function dueInfo(task,today) {
  if(days===0) return ['today','Due today'];
  return [days<=7?'soon':'later','Due in '+days+(days===1?' day':' days')];
 }
-let itemKind='task', itemsData={items:[],pending:[],meetings:{}};
+let itemKind='task', sourceFilter='', itemsData={items:[],pending:[],meetings:{}};
 const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']],decision:[['current','In force'],['proposed','Proposed'],['accepted','Accepted'],['superseded','Replaced'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']]};
 const statusFilter={task:'open',decision:'current'};
 const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
@@ -622,11 +660,15 @@ function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meetin
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
  for(const link of item.links.filter(link=>link.meeting_id!==except).sort((a,b)=>(meetings[a.meeting_id]?.date||'').localeCompare(meetings[b.meeting_id]?.date||''))) {
-  const chip=el('button','meeting-chip','↗ '+meetingLabel(link.meeting_id,meetings)+(link.evidence_timestamp?' · '+link.evidence_timestamp:'')); chip.type='button'; chip.title='Open this meeting';
-  chip.onclick=()=>perform(async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}); box.append(chip);
+  box.append(originChip('meeting',meetingLabel(link.meeting_id,meetings)+(link.evidence_timestamp?' · '+link.evidence_timestamp:''),async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}));
  }
  return box;
 }
+// The external sources (Gmail, Chat, GitHub) behind an item, from its saved source quotes.
+function itemSources(item){const graph=itemsData.graph||{},ids=new Set(item.source_evidence||[]),evidence=(graph.source_evidence||[]).filter(e=>ids.has(e.id));return [...new Map(evidence.map(e=>[e.source_id,(graph.sources||[]).find(s=>s.id===e.source_id)])).values()].filter(Boolean);}
+function sourceLabel(source){return source.remote?.authority==='github'?source.remote.repository+' #'+source.remote.number:'';}
+function itemProviders(item){return new Set([...(item.links.length?['meeting']:[]),...itemSources(item).map(s=>s.provider)]);}
+function sourceChips(item,meetings){const box=meetingChips(item,meetings);for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
  for(const event of [...item.history].reverse()) {
@@ -675,7 +717,7 @@ function evidenceBlock(item,meetings){
 function setItemEditing(active,row=null){
  itemEditing=active;
  for(const other of $('task-list').children)other.inert=active&&other!==row;
- for(const node of [...document.querySelectorAll('[data-kind]'),...$('status-filter').querySelectorAll('button'),$('work-project'),$('task-owner')])node.disabled=active;
+ for(const node of [...$('work-tabs').querySelectorAll('button'),...$('status-filter').querySelectorAll('button'),$('work-project'),$('task-owner')])node.disabled=active;
  if(active&&row)for(const node of row.querySelectorAll('input,button'))node.disabled=true;
 }
 function itemActions(item,row) {
@@ -706,7 +748,7 @@ function globalTaskRow(item,today) {
  who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
  meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline));
- main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
+ main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(done,main); row.append(itemActions(item,row)); return row;
 }
 function decisionRow(item,byId) {
@@ -716,118 +758,253 @@ function decisionRow(item,byId) {
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
  const change=el('button','secondary small-action',next[1]);change.type='button';change.onclick=()=>perform(()=>changeItem(item,{status:next[0]}));meta.append(change);
- main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
+ main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
 async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
-let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false;
+// Source identity: every item, proposal and inbox row names where it came from.
+const SOURCES={meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github']};
+function originChip(provider,label,open){
+ const chip=el(open?'button':'span','source-chip '+(SOURCES[provider]?.[1]||''));chip.append(el('i'),el('b','',SOURCES[provider]?.[0]||provider));
+ if(label)chip.append(el('span','',label));
+ if(open){chip.type='button';chip.title='Open the source';chip.onclick=()=>perform(open);}
+ return chip;
+}
+function relTime(ms){
+ if(!ms)return '';const minutes=Math.round((Date.now()-ms)/60000);
+ if(minutes<1)return 'now';if(minutes<60)return minutes+' min';if(minutes<24*60)return Math.round(minutes/60)+' h';
+ const day=new Date(ms);return day.toLocaleDateString(undefined,{day:'numeric',month:'short',...(day.getFullYear()!==new Date().getFullYear()?{year:'numeric'}:{})});
+}
+function dayLabel(ms){return new Date(ms).toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});}
+// A person in Gmail or Chat: initials on a colour that stays the same for the same name.
+function avatar(name){const node=el('span','speaker-badge '+speakerTone(name||'?'),initials(name||'?')||'?');node.title=name||'';return node;}
+function personName(from){const match=(from||'').match(/^\s*"?([^"<]+?)"?\s*</);return (match?match[1]:from||'Unknown').trim();}
+function jobText(job){return job.running?'Syncing…':{continue:'More to sync',synced:'Up to date',error:'Sync failed',idle:''}[job.status]??job.status;}
+// The bar on top of a source: who is connected, what the sync does, and any problem in plain words.
+function sourceState(name,connected,parts,problem){
+ $(name+'-panel').classList.toggle('disconnected',!connected);
+ $(name+'-status').textContent=connected?parts.filter(Boolean).join(' · '):'Not connected';
+ $(name+'-notice').hidden=!problem;$(name+'-notice').textContent=problem||'';
+}
+function sourceRow(selected,cells,onopen){
+ const row=el('button','source-row'+(selected?' selected':''));row.type='button';row.setAttribute('role','option');row.setAttribute('aria-selected',String(selected));
+ row.append(...cells);row.onclick=()=>perform(onopen);return row;
+}
+// Arrow keys move through a source list like in a mail client.
+function listKeys(list){list.onkeydown=event=>{if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;const rows=[...list.querySelectorAll('.source-row')],at=rows.indexOf(document.activeElement),next=rows[Math.max(0,Math.min(rows.length-1,at+(event.key==='ArrowDown'?1:-1)))];if(next){event.preventDefault();next.focus();next.click();}};}
+function emptyState(box,text){box.replaceChildren(el('p','source-empty',text));}
+function segmentedChoice(box,choices,current,choose){
+ box.replaceChildren(...choices.map(([value,label])=>{const b=el('button',value===current?'selected':'',label);b.type='button';b.onclick=()=>choose(value);return b;}));
+}
+function cacheAccounts(select,button,accounts,running){
+ const old=select.value;select.replaceChildren(...accounts.map(([label,value])=>option(label,value)));
+ if(accounts.some(a=>a[1]===old))select.value=old;button.disabled=running||!accounts.length;
+}
+async function openSource(source){
+ if(source.provider==='gmail'){showWorkTab('gmail');await openMail(source.external_id);}
+ else if(source.provider==='google_chat'){chatSpace=source.external_id.split('/messages/')[0];chatMessage=source.external_id;showWorkTab('chat');}
+ else if(source.provider==='github'){showWorkTab('github');await openGitHubItem(Number(source.external_id.split(':')[1]));}
+}
+
+let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false,mailThread='',mailThreads=[],mailAutoSynced=false,mailAIStatus={},mailAISeenJob='';
 async function loadMail(){
  const status=await api('/api/gmail'),ai=await api('/api/gmail/ai');
- $('gmail-ai-status').textContent='Email AI: '+ai.status+(ai.endpoint?' · '+ai.endpoint+' · '+ai.model:'')+(ai.proposal_ids?' · '+ai.proposal_ids.length+' proposals':'')+(ai.error?' · '+ai.error:'');
- $('gmail-ai-cancel').disabled=!ai.running;
- if(mailAIWasRunning&&!ai.running){lastTasks='';await loadTasks();if(ai.proposal_ids?.length)$('work-suggested').open=true;}
+ mailAIStatus=ai;
+ const aiText=ai.running?'Email AI is reading the approved message'+(ai.model?' with '+ai.model:'')+'…':ai.error?'Email AI: '+ai.error:['complete','reused'].includes(ai.status)?mailAIResultText(ai):'';
+ sourceState('gmail',status.connected,[status.account,status.count+' threads',jobText(status.job),status.sync.last_sync&&'updated '+relTime(status.sync.last_sync*1000),status.sync.limited&&'first 200 threads'],status.job.error||aiText);
+ $('gmail-ai-cancel').hidden=!ai.running;
+ if(!ai.running&&(mailAIWasRunning||(['complete','reused'].includes(ai.status)&&ai.job_id!==mailAISeenJob))){lastTasks='';await loadTasks();if(['complete','reused'].includes(ai.status)){mailAISeenJob=ai.job_id;toast(mailAIResultText(ai));}}
  mailAIWasRunning=ai.running;
- $('gmail-status').textContent=(status.connected?'Connected as '+status.account:'Gmail permission not connected')+' · '+status.count+' cached threads · '+status.job.status+(status.sync.last_sync?' · Last page saved '+new Date(status.sync.last_sync*1000).toLocaleString():'')+(status.sync.limited?' · Initial 200-thread limit reached':'')+(status.job.error?' · '+status.job.error:'');
- $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-cancel').disabled=!status.job.running;
- const accounts=$('gmail-cache-account'),selected=accounts.value;accounts.replaceChildren(...status.cached_accounts.map(a=>option(a,a)));if(status.cached_accounts.includes(selected))accounts.value=selected;
- $('gmail-clear').disabled=status.job.running||!status.cached_accounts.length;
- $('gmail-filters').replaceChildren();
- for(const [value,label] of [['needs_reply','Needs reply'],['waiting','Waiting for'],['all','All cached']]){const b=el('button',mailView===value?'selected':'',label);b.onclick=()=>perform(async()=>{mailView=value;$('gmail-detail').replaceChildren();await loadMail();});$('gmail-filters').append(b);}
- const list=$('gmail-threads');list.replaceChildren();
- if(status.connected){const threads=await api('/api/gmail/threads?view='+mailView);for(const thread of threads){const b=el('button','mail-thread',thread.subject+' · '+thread.sender+' · '+new Date(thread.date).toLocaleDateString());b.onclick=()=>perform(()=>openMail(thread.id));list.append(b);}if(!threads.length)list.append(el('p','hint','No cached threads in this view. Choose Sync / Continue to fetch a page.'));}
+ $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-sync').textContent=status.job.running?'Syncing…':status.job.status==='continue'?'Continue sync':'Sync';
+ $('gmail-cancel').disabled=!status.job.running;
+ cacheAccounts($('gmail-cache-account'),$('gmail-clear'),status.cached_accounts.map(a=>[a,a]),status.job.running);
+ // The first visit after connecting fetches the first page without an extra click.
+ if(status.connected&&!status.count&&!status.job.running&&!mailAutoSynced){mailAutoSynced=true;await api('/api/gmail/sync',{});return loadMail();}
+ segmentedChoice($('gmail-filters'),[['needs_reply','Needs reply'],['waiting','Waiting for'],['all','All']],mailView,value=>{mailView=value;perform(loadMail);});
+ mailThreads=status.connected?await api('/api/gmail/threads?view='+mailView):[];
+ renderMailList();renderMailAI();
+ if(!mailThread)emptyState($('gmail-detail'),mailThreads.length?'Choose a thread above to read it here.':'');
  if(mailTimer)clearTimeout(mailTimer);mailTimer=null;
- if((status.job.running||ai.running)&&view==='tasks'&&$('gmail-panel').open)mailTimer=setTimeout(()=>perform(loadMail),2000);
+ if((status.job.running||ai.running)&&view==='tasks'&&workTab==='gmail')mailTimer=setTimeout(()=>perform(loadMail),2000);
 }
+function renderMailList(){
+ const query=$('gmail-search').value.trim().toLocaleLowerCase(),list=$('gmail-threads');const focused=list.contains(document.activeElement);
+ const rows=mailThreads.filter(t=>!query||(t.subject+' '+t.sender).toLocaleLowerCase().includes(query));
+ list.replaceChildren(...rows.map(t=>sourceRow(t.id===mailThread,[el('span','row-tag '+t.view,t.view==='waiting'?'Waiting':'Reply'),el('strong','row-who',personName(t.sender)),el('span','row-title',t.subject),el('span','row-when',relTime(t.date))],()=>openMail(t.id))));
+ if(focused)list.querySelector('.selected')?.focus();
+ if(!rows.length)emptyState(list,mailThreads.length?'No thread matches this filter.':'No threads in this view. Choose Sync to fetch the latest page.');
+}
+$('gmail-search').oninput=renderMailList;listKeys($('gmail-threads'));
 async function openMail(key){
- const thread=await api('/api/gmail/thread?id='+encodeURIComponent(key)),box=$('gmail-detail');box.replaceChildren(el('h3','',thread.subject),el('p','hint','Cached '+new Date(thread.fetched_at*1000).toLocaleString()+(thread.partial?' · Only the latest 100 messages are included':'')));
- for(const message of thread.messages){const row=el('details','work-proposal');row.append(el('summary','',message.sender+' · '+new Date(message.date).toLocaleString()),el('p','mail-body',message.body||'No inline text body. Attachments are not fetched.'));
-  if(message.body){const b=el('button','secondary small-action','Suggest a task from this message');b.onclick=()=>perform(async()=>{const title=await ask('Task suggestion. Review the source quote in Suggested before accepting.',{ok:'Save suggestion',value:thread.subject});if(title===null)return;await api('/api/gmail/propose',{id:thread.id,revision:thread.revision,message_id:message.id,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('Proposal saved in Suggested · no task was accepted');});row.append(b);const analyze=el('button','secondary small-action','Analyze this message with AI');analyze.onclick=()=>perform(()=>analyzeMail(thread,message));row.append(analyze);}box.append(row);
+ const thread=await api('/api/gmail/thread?id='+encodeURIComponent(key)),box=$('gmail-detail');mailThread=key;renderMailList();
+ const head=el('div','reader-head');head.append(el('h3','',thread.subject),el('p','hint',thread.messages.length+' messages · cached '+relTime(thread.fetched_at*1000)+(thread.partial?' · only the latest 100 messages':'')));
+ const body=el('div','reader-body');
+ for(const message of thread.messages){
+  const card=el('article','mail-message'+(message.sent?' sent':'')),top=el('div','message-top');card.dataset.threadId=thread.id;card.dataset.messageId=message.id;
+  top.append(avatar(personName(message.sender)),el('strong','',personName(message.sender)),el('span','hint',new Date(message.date).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})));
+  card.append(top,el('p','message-text',message.body||'No inline text body. Attachments are not fetched.'));
+  if(message.body){
+   const actions=el('div','message-actions'),suggest=el('button','secondary small-action','Suggest a task'),analyze=el('button','quiet small-action','Analyze with AI');
+   suggest.onclick=()=>perform(async()=>{const title=await ask('Task suggestion. Review the source quote in Suggested before accepting.',{ok:'Save suggestion',value:thread.subject});if(title===null)return;await api('/api/gmail/propose',{id:thread.id,revision:thread.revision,message_id:message.id,title});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
+   const status=el('p','hint gmail-message-ai-status');status.hidden=true;status.setAttribute('role','status');
+   suggest.type=analyze.type='button';analyze.dataset.messageAi='';
+   analyze.onclick=()=>perform(()=>analyzeMail(thread,message,analyze,status));actions.append(suggest,analyze);card.append(actions,status);
+  }
+  body.append(card);
+ }
+ box.replaceChildren(head,body);renderMailAI();body.scrollTop=body.scrollHeight;
+}
+function mailAIResultText(ai){const count=ai.proposal_ids?.length||0;return count?count+' AI suggestions are waiting in Suggested.':'Analysis complete. No supported task commitments were found; no suggestions were created.';}
+function renderMailAI(){
+ for(const card of $('gmail-detail').querySelectorAll('.mail-message')){
+  const button=card.querySelector('[data-message-ai]'),note=card.querySelector('.gmail-message-ai-status');if(!button||!note)continue;
+  const selected=card.dataset.threadId===mailAIStatus.thread_id&&card.dataset.messageId===mailAIStatus.message_id;
+  button.disabled=!!mailAIStatus.running;button.textContent=selected&&mailAIStatus.running?'Analyzing…':'Analyze with AI';button.setAttribute('aria-busy',String(selected&&!!mailAIStatus.running));
+  note.hidden=!selected;if(!selected)continue;
+  const complete=['complete','reused'].includes(mailAIStatus.status);
+  note.replaceChildren(document.createTextNode(mailAIStatus.running?'Analyzing the approved message…':mailAIStatus.error|| (complete?mailAIResultText(mailAIStatus):mailAIStatus.status||'')));
+  if(complete&&mailAIStatus.proposal_ids?.length){const open=el('button','quiet small-action','View suggestions');open.type='button';open.onclick=()=>showWorkTab('suggested');note.append(' ',open);}
  }
 }
-async function analyzeMail(thread,message){
+async function analyzeMail(thread,message,button,note){
+ if(button){button.disabled=true;button.textContent='Preparing analysis…';}if(note){note.hidden=false;note.textContent='Preparing the message-specific AI approval…';}
+ try{
  const body={id:thread.id,revision:thread.revision,message_id:message.id},preview=await api('/api/gmail/ai/preview',body);
- const prompt=preview.cached?'Reuse the saved analysis for this exact message and AI settings? No new AI request will be sent. Existing review states stay unchanged.':'Send this selected email message to the AI endpoint below?\n\nAccount: '+preview.account+'\nSubject: '+preview.subject+'\nSize: '+preview.characters+' characters including sender and subject\nEndpoint: '+preview.endpoint+'\nModel: '+preview.model+'\n\nThis endpoint may be remote. Approval applies only to this message revision and these settings. Proposals require your later Accept/Link.';
- if(!(await ask(prompt,{ok:preview.cached?'Show saved analysis':'Approve and analyze',cancel:'Cancel'})))return;
+ const prompt=preview.cached?'Reuse the saved analysis for this exact message and AI settings? No new AI request will be sent. Existing review states stay unchanged.':'Send this selected email message to the AI endpoint below?\n\nAccount: '+preview.account+'\nSubject: '+preview.subject+'\nSize: '+preview.characters+' characters including sender and subject\nEndpoint: '+preview.endpoint+'\nModel: '+preview.model+'\nReasoning: '+preview.reasoning+' · Output limit: '+preview.max_tokens+' tokens\n\nThis endpoint may be remote. Approval applies only to this message revision and these settings. Proposals require your later Accept/Link.';
+ if(!(await ask(prompt,{ok:preview.cached?'Show saved analysis':'Approve and analyze',cancel:'Cancel'}))){if(note)note.hidden=true;return;}
  const result=await api('/api/gmail/ai/start',{...body,preview_token:preview.preview_token,approved:true});
  mailAIWasRunning=!!result.running;
- if(result.status==='reused'){await refreshAfterItemChange();$('work-suggested').open=true;toast('Saved analysis reused · review state kept');}
+ if(result.status==='reused'){await refreshAfterItemChange();toast('Saved analysis reused · review state kept');}
  await loadMail();
+ }catch(exc){if(note){note.hidden=false;note.textContent=exc.message;}throw exc;}finally{if(button){button.disabled=!!mailAIStatus.running;button.textContent=mailAIStatus.running?'Analyzing…':'Analyze with AI';}}
 }
+async function gmailConnect(){const result=await api('/api/calendar/connect',{capability:'gmail'});$('gmail-auth-link').href=result.authorization_url;$('gmail-auth-link').hidden=false;toast('Approve Gmail read-only access in your browser, then come back here');}
 $('gmail-ai-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/ai/cancel',{});await loadMail();});
-$('gmail-panel').ontoggle=()=>{if($('gmail-panel').open)perform(loadMail);else if(mailTimer){clearTimeout(mailTimer);mailTimer=null;}};
 $('gmail-refresh').onclick=()=>perform(loadMail);
-$('gmail-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail'});$('gmail-auth-link').href=result.authorization_url;$('gmail-auth-link').hidden=false;toast('Approve Gmail read-only access in your browser, then Refresh connection');});
+$('gmail-connect').onclick=$('gmail-connect-again').onclick=()=>perform(gmailConnect);
 $('gmail-sync').onclick=()=>perform(async()=>{await api('/api/gmail/sync',{});await loadMail();});
 $('gmail-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/cancel',{});await loadMail();});
-$('gmail-clear').onclick=()=>perform(async()=>{const account=$('gmail-cache-account').value;if(await ask('Clear the local email cache for '+account+'? It can be synced again. WorkItem quotes and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/gmail/clear',{account});$('gmail-detail').replaceChildren();await loadMail();}});
+$('gmail-clear').onclick=()=>perform(async()=>{const account=$('gmail-cache-account').value;if(await ask('Clear the local email cache for '+account+'? It can be synced again. WorkItem quotes and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/gmail/clear',{account});mailThread='';$('gmail-detail').replaceChildren();await loadMail();}});
 function calendarConnected(google=state?.google){return google?.capabilities?.calendar??!!google?.connected;}
 
-let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false;
+let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false,chatSpaces=[],chatSelf='',chatDiscovered=false;const chatAutoSynced=new Set();
+const CHAT_TYPES={DIRECT_MESSAGE:'Direct',GROUP_CHAT:'Group',SPACE:'Space'};
+// Chat does not name the signed-in person. The name that appears in most conversations is almost certainly you.
+function guessChatSelf(spaces){const seen={};for(const s of spaces)for(const name of s.participants)seen[name]=(seen[name]||0)+1;const [name,count]=Object.entries(seen).sort((a,b)=>b[1]-a[1])[0]||[];return count>=2?name:'';}
+function chatLabel(space){if(!space.label.startsWith('spaces/'))return space.label;const others=space.participants.filter(n=>n!==chatSelf);return others.join(', ')||(space.participants.length?space.participants.join(', '):'Direct message');}
+async function chatAction(path,body={}){await api('/api/chat/'+path,body);chatWasRunning=true;await loadChat();}
 async function loadChat(){
  const status=await api('/api/chat');
- if(chatAccount!==status.account_id){chatMessage='';chatSpace='';$('chat-detail').replaceChildren();chatAccount=status.account_id;}
- $('chat-status').textContent=(status.connected?'Connected as '+status.account:'Chat permission not connected')+' · '+status.job.status+(status.job.error?' · '+status.job.error:'');
- const spaces=status.connected?await api('/api/chat/spaces'):[],select=$('chat-space');select.replaceChildren(option('Choose a conversation…',''),...spaces.map(s=>option(s.label+' · '+s.type,s.name)));if(spaces.some(s=>s.name===chatSpace))select.value=chatSpace;else chatSpace='';
+ if(chatAccount!==status.account_id){chatMessage='';chatSpace=chatSpace&&chatAccount===''?chatSpace:'';chatAccount=status.account_id;}
  const discovery=status.states['']||{};
- $('chat-discover').textContent=discovery.complete?'Refresh spaces':discovery.page?'Load more spaces':'Load spaces';$('chat-discover').disabled=!status.connected||status.job.running;
- $('chat-sync').disabled=$('chat-restart').disabled=!status.connected||!chatSpace||status.job.running;$('chat-cancel').disabled=!status.job.running;
- const cache=$('chat-cache-account'),old=cache.value;cache.replaceChildren(...status.cached_accounts.map(a=>option(a.label+' · '+a.id.slice(0,8),a.id)));if(status.cached_accounts.some(a=>a.id===old))cache.value=old;$('chat-clear').disabled=status.job.running||!status.cached_accounts.length;
- const list=$('chat-messages');list.replaceChildren();
- if(chatSpace){const sync=status.states[chatSpace]||{};list.append(el('p','hint',(sync.last_sync?'Last page saved '+new Date(sync.last_sync*1000).toLocaleString():'No saved page yet')+(sync.limited?' · 200-message limit reached; this is not a full conversation mirror':'')+(discovery.limited?' · Space discovery is limited to 200 conversations':'')));
-  const messages=await api('/api/chat/messages?space='+encodeURIComponent(chatSpace));for(const m of messages){const b=el('button','mail-thread',(m.available?m.excerpt||'No plain text available':'Message unavailable/deleted')+' · '+m.sender+' · '+(m.date?new Date(m.date*1000).toLocaleString():m.name));b.onclick=()=>perform(()=>openChatMessage(m.name));list.append(b);}if(!messages.length)list.append(el('p','hint','No cached messages. Sync the selected conversation.'));
- }
- if(chatWasRunning&&!status.job.running){lastTasks='';await loadTasks();if(chatMessage)await openChatMessage(chatMessage);}
+ sourceState('chat',status.connected,[status.account,jobText(status.job),discovery.limited&&'first 200 conversations'],status.job.error);
+ chatSpaces=status.connected?await api('/api/chat/spaces'):[];chatSelf=guessChatSelf(chatSpaces);
+ $('chat-cancel').disabled=!status.job.running;$('chat-discover').disabled=$('chat-restart').disabled=!status.connected||status.job.running;
+ $('chat-discover').textContent=discovery.complete||!discovery.page?'Refresh conversation list':'Load more conversations';
+ cacheAccounts($('chat-cache-account'),$('chat-clear'),status.cached_accounts.map(a=>[a.label+' · '+a.id.slice(0,8),a.id]),status.job.running);
+ if(status.connected&&!chatSpaces.length&&!status.job.running&&!chatDiscovered){chatDiscovered=true;return chatAction('discover');}
+ if(chatSpace&&!chatSpaces.some(s=>s.name===chatSpace))chatSpace='';
+ const sync=status.states[chatSpace]||{};
+ $('chat-sync').disabled=!status.connected||!chatSpace||status.job.running;$('chat-sync').textContent=status.job.running?'Syncing…':sync.page?'Load older messages':'Sync conversation';
+ renderChatList();
+ if(chatSpace&&!sync.last_sync&&!status.job.running&&!chatAutoSynced.has(chatSpace)){chatAutoSynced.add(chatSpace);return chatAction('sync',{space:chatSpace});}
+ if(chatSpace)await renderConversation(sync);else emptyState($('chat-detail'),chatSpaces.length?'Choose a conversation above to read it here.':'');
+ if(chatWasRunning&&!status.job.running){lastTasks='';await loadTasks();}
  chatWasRunning=status.job.running;
- if(chatTimer)clearTimeout(chatTimer);chatTimer=null;if(status.job.running&&view==='tasks'&&$('chat-panel').open)chatTimer=setTimeout(()=>perform(loadChat),1500);
+ if(chatTimer)clearTimeout(chatTimer);chatTimer=null;if(status.job.running&&view==='tasks'&&workTab==='chat')chatTimer=setTimeout(()=>perform(loadChat),1500);
 }
-async function openChatMessage(name){
- const m=await api('/api/chat/message?name='+encodeURIComponent(name));chatMessage=name;const box=$('chat-detail');box.replaceChildren(el('h3','',m.sender),el('p','hint',m.name+' · '+(m.thread||'No thread reference')),el('p','hint','Cached '+new Date(m.fetched_at*1000).toLocaleString()),el('p','mail-body',m.available?m.body||'No plain text available. Cards and attachments are not fetched.':'Message unavailable or deleted. Earlier WorkItem source quotes are retained.'));
- const refresh=el('button','secondary small-action','Refresh this message from Chat');refresh.onclick=()=>perform(async()=>{const result=await api('/api/chat/refresh',{name:m.name});chatWasRunning=true;await loadChat();});box.append(refresh);
- if(m.available&&m.body){const b=el('button','secondary small-action','Suggest a task from this message');b.onclick=()=>perform(async()=>{const title=await ask('Task proposal from this Chat message',{ok:'Save suggestion',value:m.body.slice(0,120)});if(title===null)return;await api('/api/chat/propose',{name:m.name,revision:m.revision,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('Chat proposal saved · review it before Accept/Link');});box.append(b);}
+function renderChatList(){
+ const query=$('chat-search').value.trim().toLocaleLowerCase(),list=$('chat-spaces');const focused=list.contains(document.activeElement);
+ const rows=chatSpaces.filter(s=>!query||chatLabel(s).toLocaleLowerCase().includes(query));
+ list.replaceChildren(...rows.map(s=>{const label=chatLabel(s);return sourceRow(s.name===chatSpace,[avatar(label),el('strong','row-who',label),el('span','row-tag',CHAT_TYPES[s.type]||'Chat'),el('span','row-title',s.count?s.count+' messages':'Not synced yet'),el('span','row-when',relTime(s.last*1000))],async()=>{chatSpace=s.name;chatMessage='';await loadChat();});}));
+ if(focused)list.querySelector('.selected')?.focus();
+ if(!rows.length)emptyState(list,chatSpaces.length?'No conversation matches this filter.':'No conversations yet. Open the ⋯ menu and choose Refresh conversation list.');
 }
-async function chatAction(path,body={}){const result=await api('/api/chat/'+path,body);chatWasRunning=true;await loadChat();}
-$('chat-panel').ontoggle=()=>{if($('chat-panel').open)perform(loadChat);else if(chatTimer){clearTimeout(chatTimer);chatTimer=null;}};
-$('chat-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'chat'});$('chat-auth-link').href=result.authorization_url;$('chat-auth-link').hidden=false;toast('Approve Chat read-only permission in your browser, then Refresh connection');});
+$('chat-search').oninput=renderChatList;listKeys($('chat-spaces'));
+async function renderConversation(sync){
+ const space=chatSpaces.find(s=>s.name===chatSpace),messages=await api('/api/chat/conversation?space='+encodeURIComponent(chatSpace)),box=$('chat-detail');
+ const head=el('div','reader-head');head.append(el('h3','',chatLabel(space)),el('p','hint',[space.participants.join(', '),(sync.last_sync?'synced '+relTime(sync.last_sync*1000):'not synced yet'),sync.limited&&'200-message limit'].filter(Boolean).join(' · ')));
+ const body=el('div','reader-body chat-body');let previous=null,day='';
+ for(const m of messages){
+  const stamp=m.date*1000,today=dayLabel(stamp);
+  if(today!==day){day=today;body.append(el('div','chat-day',today));previous=null;}
+  const grouped=previous&&previous.sender===m.sender&&stamp-previous.date*1000<5*60000;
+  const row=el('div','chat-msg'+(grouped?' grouped':'')+(m.sender===chatSelf?' mine':'')+(m.name===chatMessage?' selected':'')+(m.available?'':' gone'));row.tabIndex=0;row.dataset.name=m.name;
+  const text=el('p','message-text',m.available?m.body||'No plain text. Cards and attachments are not fetched.':'This message is unavailable or deleted.');
+  if(grouped)row.append(el('span','chat-time',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})),text);
+  else{const top=el('div','message-top');top.append(el('strong','',m.sender),el('span','hint',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})));const main=el('div');main.append(top,text);row.append(avatar(m.sender),main);}
+  row.onclick=()=>{chatMessage=m.name;for(const other of body.querySelectorAll('.chat-msg'))other.classList.toggle('selected',other===row);renderChatActions(m);};
+  row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.click();}};
+  body.append(row);previous=m;
+ }
+ if(!messages.length)body.append(el('p','source-empty','No messages in the last 30 days. Choose Sync conversation to check again.'));
+ const actions=el('div','reader-actions');
+ box.replaceChildren(head,body,actions);renderChatActions(messages.find(m=>m.name===chatMessage));
+ const chosen=body.querySelector('.chat-msg.selected');if(chosen)chosen.scrollIntoView({block:'center'});else body.scrollTop=body.scrollHeight;
+}
+function renderChatActions(m){
+ const bar=$('chat-detail').querySelector('.reader-actions');if(!bar)return;
+ if(!m){bar.replaceChildren(el('span','hint','Select a message to turn it into a task or to refresh it.'));return;}
+ const suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh this message');
+ suggest.disabled=!m.available||!m.body;
+ suggest.onclick=()=>perform(async()=>{const title=await ask('Task proposal from this Chat message',{ok:'Save suggestion',value:m.body.slice(0,120)});if(title===null)return;await api('/api/chat/propose',{name:m.name,revision:m.revision,title});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
+ refresh.onclick=()=>perform(()=>chatAction('refresh',{name:m.name}));
+ bar.replaceChildren(el('span','reader-quote',m.sender+': '+(m.body||'').slice(0,90)),suggest,refresh);
+}
+async function chatConnect(){const result=await api('/api/calendar/connect',{capability:'chat'});$('chat-auth-link').href=result.authorization_url;$('chat-auth-link').hidden=false;toast('Approve Chat read-only permission in your browser, then come back here');}
+$('chat-connect').onclick=$('chat-connect-again').onclick=()=>perform(chatConnect);
 $('chat-connection').onclick=()=>perform(loadChat);
 $('chat-discover').onclick=()=>perform(()=>chatAction('discover'));
-$('chat-space').onchange=()=>{chatSpace=$('chat-space').value;chatMessage='';$('chat-detail').replaceChildren();perform(loadChat);};
 $('chat-sync').onclick=()=>perform(()=>chatAction('sync',{space:chatSpace}));
 $('chat-restart').onclick=()=>perform(()=>chatAction('sync',{space:chatSpace,restart:true}));
 $('chat-cancel').onclick=()=>perform(()=>chatAction('cancel'));
-$('chat-clear').onclick=()=>perform(async()=>{const account=$('chat-cache-account').value;if(await ask('Clear this local Chat account cache? Promoted WorkItem source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/chat/clear',{account});chatMessage='';$('chat-detail').replaceChildren();await loadChat();}});
+$('chat-clear').onclick=()=>perform(async()=>{const account=$('chat-cache-account').value;if(await ask('Clear this local Chat account cache? Promoted WorkItem source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/chat/clear',{account});chatMessage='';chatSpace='';await loadChat();}});
 
-let ghAccount='',ghRepo=0,ghItem=0,ghRepos=[],ghTimer=null,ghWasRunning=false;
+let ghAccount='',ghItem=0,ghTimer=null,ghWasRunning=false,ghFilter='all',ghKind='all',ghItems=[],ghState={};const ghAutoSynced=new Set();
 async function loadGitHub(){
  const status=await api('/api/github'),connection=status.connection;
- if(ghAccount!==connection.account_id){ghAccount=connection.account_id;ghRepo=0;ghItem=0;$('github-detail').replaceChildren();$('github-repository').value='';}
- $('github-status').textContent=(connection.connected?'Connected as '+connection.login:'GitHub not connected')+' · '+status.job.status+(connection.error?' · '+connection.error:'')+(status.job.error?' · '+status.job.error:'');
- ghRepos=connection.connected?await api('/api/github/repos'):[];const chosen=ghRepos.find(r=>r.full_name.toLowerCase()===$('github-repository').value.trim().toLowerCase());if(chosen)ghRepo=chosen.id;
- $('github-repos').replaceChildren(option('Choose a cached repository…',''),...ghRepos.map(r=>option(r.full_name,String(r.id))));$('github-repos').value=ghRepo?String(ghRepo):'';
- $('github-sync').disabled=$('github-restart').disabled=!connection.connected||status.job.running;$('github-cancel').disabled=!status.job.running;$('github-disconnect').disabled=!connection.connected;
- const cache=$('github-cache-account'),old=cache.value;cache.replaceChildren(...status.cached_accounts.map(a=>option(a.login+' · '+a.id,a.id)));if(status.cached_accounts.some(a=>a.id===old))cache.value=old;$('github-clear').disabled=status.job.running||!status.cached_accounts.length;
- const list=$('github-items');list.replaceChildren();if(ghRepo&&connection.connected){const role=$('github-filter').value,sync=status.states[ghRepo+':'+role]||{};
-  list.append(el('p','hint',(sync.last_sync?'Last page saved '+new Date(sync.last_sync*1000).toLocaleString():'This filter has no completed page yet')+(sync.limited?' · 200-result limit reached':'')+(sync.incomplete?' · GitHub reported incomplete search results':'')));
-  const records=await api('/api/github/items?repo='+ghRepo+'&filter='+role+'&kind='+$('github-kind').value);for(const r of records){const b=el('button','mail-thread',r.repository+' #'+r.number+' · '+(r.kind==='issue'?'Issue':'PR')+' · '+r.title+' · '+(r.available?r.state:'Unavailable'));b.onclick=()=>perform(()=>openGitHubItem(r.issue_id));list.append(b);}if(!records.length)list.append(el('p','hint','No matches in this cached filter. Sync the selected repository/filter.'));
- }
+ if(ghAccount!==connection.account_id){ghAccount=connection.account_id;ghItem=0;ghAutoSynced.clear();$('github-detail').replaceChildren();}
+ const overview=connection.connected?await api('/api/github/overview?filter='+ghFilter):{items:[],state:{}};ghItems=overview.items;ghState=overview.state;
+ sourceState('github',connection.connected,['@'+connection.login,ghItems.length+' open',jobText(status.job),ghState.last_sync&&'updated '+relTime(ghState.last_sync*1000),ghState.limited&&'first 300'],connection.error||status.job.error);
+ $('github-sync').disabled=!connection.connected||status.job.running;$('github-sync').textContent=status.job.running?'Syncing…':ghState.complete===false?'Continue sync':'Sync';
+ $('github-cancel').disabled=!status.job.running;$('github-disconnect').disabled=!connection.connected;
+ cacheAccounts($('github-cache-account'),$('github-clear'),status.cached_accounts.map(a=>[a.login+' · '+a.id,a.id]),status.job.running);
+ // Each filter syncs by itself the first time that you open it.
+ if(connection.connected&&!ghState.last_sync&&!ghState.count&&!ghState.page&&!status.job.running&&!ghAutoSynced.has(ghFilter)&&!state?.active&&!(state?.meetings||[]).some(m=>m.status==='processing')){ghAutoSynced.add(ghFilter);await api('/api/github/overview/sync',{filter:ghFilter});ghWasRunning=true;return loadGitHub();}
+ segmentedChoice($('github-filters'),[['all','All open'],['assigned','Assigned to me'],['created','Created by me'],['mentioned','Mentioning me']],ghFilter,value=>{ghFilter=value;ghItem=0;perform(loadGitHub);});
+ renderGitHubKinds();
+ const repos=[...new Set(ghItems.map(r=>r.repository))].sort((a,b)=>a.localeCompare(b)),select=$('github-repo-filter'),old=select.value;
+ select.replaceChildren(option('All repositories · '+ghItems.length,''),...repos.map(name=>option(name+' · '+ghItems.filter(r=>r.repository===name).length,name)));select.value=repos.includes(old)?old:'';
+ renderGitHubList();
+ if(!ghItem)emptyState($('github-detail'),ghItems.length?'Choose an issue or a pull request above to read it here.':'');
  if(ghWasRunning&&!status.job.running){lastTasks='';await loadTasks();if(ghItem)await openGitHubItem(ghItem);}ghWasRunning=status.job.running;
- if(ghTimer)clearTimeout(ghTimer);ghTimer=null;if(status.job.running&&view==='tasks'&&$('github-panel').open)ghTimer=setTimeout(()=>perform(loadGitHub),1500);
+ if(ghTimer)clearTimeout(ghTimer);ghTimer=null;if(status.job.running&&view==='tasks'&&workTab==='github')ghTimer=setTimeout(()=>perform(loadGitHub),1500);
 }
+function renderGitHubKinds(){segmentedChoice($('github-kinds'),[['all','All'],['issue','Issues'],['pull_request','PRs']],ghKind,value=>{ghKind=value;renderGitHubKinds();renderGitHubList();});}
+function renderGitHubList(){
+ const query=$('github-search').value.trim().toLocaleLowerCase(),repo=$('github-repo-filter').value,list=$('github-items');const focused=list.contains(document.activeElement);
+ const rows=ghItems.filter(r=>(ghKind==='all'||r.kind===ghKind)&&(!repo||r.repository===repo)&&(!query||(r.title+' #'+r.number).toLocaleLowerCase().includes(query)));
+ list.replaceChildren(...rows.map(r=>sourceRow(r.issue_id===ghItem,[el('span','row-tag '+(r.kind==='issue'?'issue':'pr'),r.kind==='issue'?'Issue':'PR'),el('span','row-who',r.repository.split('/')[1]),el('strong','row-title','#'+r.number+' '+r.title),el('span','row-when',relTime(Date.parse(r.updated)))],()=>openGitHubItem(r.issue_id))));
+ if(focused)list.querySelector('.selected')?.focus();
+ if(!rows.length)emptyState(list,ghItems.length?'No item matches this filter.':ghState.last_sync?'Nothing open here. Good news.':'Syncing the open items…');
+}
+$('github-search').oninput=$('github-repo-filter').onchange=renderGitHubList;listKeys($('github-items'));
 async function openGitHubItem(key){
- const r=await api('/api/github/item?id='+key);ghItem=key;const box=$('github-detail');box.replaceChildren(el('h3','',r.repository+' #'+r.number+' · '+r.title),el('p','hint','GitHub '+(r.kind==='issue'?'issue':'PR')+' state: '+r.state+' · '+(r.available?'Cached '+new Date(r.fetched_at*1000).toLocaleString():'Source unavailable')),el('p','hint','Local task status remains independent.'),el('p','mail-body',r.available?r.body||'No body text. The title can be quoted.':'Access or source unavailable. Historical WorkItem quotes remain.'));
- const link=el('a','','Open on GitHub ↗');link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';box.append(link);
- const refresh=el('button','secondary small-action','Refresh this issue / PR');refresh.onclick=()=>perform(async()=>{await api('/api/github/refresh',{id:key});ghWasRunning=true;await loadGitHub();});box.append(refresh);
- if(r.available){const b=el('button','secondary small-action','Suggest a task from this issue / PR');b.onclick=()=>perform(async()=>{const title=await ask('Task proposal from GitHub. Remote status does not set the task status.',{ok:'Save suggestion',value:r.title});if(title===null)return;await api('/api/github/propose',{id:key,revision:r.revision,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('GitHub proposal saved · review Accept/Link');});box.append(b);}
+ const r=await api('/api/github/item?id='+key);ghItem=key;renderGitHubList();
+ const head=el('div','reader-head'),title=el('h3','',r.title),meta=el('p','hint',r.repository+' #'+r.number+' · '+(r.kind==='issue'?'Issue':'Pull request')+' · '+r.state+' · '+(r.available?'cached '+relTime(r.fetched_at*1000):'source unavailable'));head.append(title,meta);
+ const body=el('div','reader-body');body.append(el('p','message-text',r.available?r.body||'No description.':'Access or source unavailable. Historical WorkItem quotes remain.'));
+ const actions=el('div','reader-actions'),suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh'),link=el('a','secondary small-action button-link','Open on GitHub ↗');
+ link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';suggest.disabled=!r.available;
+ suggest.onclick=()=>perform(async()=>{const value=await ask('Task proposal from GitHub. The GitHub status does not set the task status.',{ok:'Save suggestion',value:r.title});if(value===null)return;await api('/api/github/propose',{id:key,revision:r.revision,title:value});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
+ refresh.onclick=()=>perform(async()=>{await api('/api/github/refresh',{id:key});ghWasRunning=true;await loadGitHub();});
+ actions.append(el('span','reader-quote','Local task status stays independent of GitHub.'),suggest,refresh,link);
+ $('github-detail').replaceChildren(head,body,actions);
 }
-async function githubSync(restart=false){await api('/api/github/sync',{repository:$('github-repository').value.trim(),filter:$('github-filter').value,restart});ghWasRunning=true;await loadGitHub();}
-$('github-panel').ontoggle=()=>{if($('github-panel').open)perform(loadGitHub);else if(ghTimer){clearTimeout(ghTimer);ghTimer=null;}};
 $('github-connect').onclick=()=>perform(async()=>{const token=$('github-token').value.trim();try{await api('/api/github/connect',{token});await loadGitHub();}finally{$('github-token').value='';}});
-$('github-disconnect').onclick=()=>perform(async()=>{await api('/api/github/disconnect',{});await loadGitHub();});
+$('github-disconnect').onclick=()=>perform(async()=>{if(!(await ask('Remove the GitHub token from this Mac? The token stays valid on GitHub until you revoke it there.',{ok:'Disconnect',danger:true})))return;await api('/api/github/disconnect',{});await loadGitHub();});
 $('github-connection').onclick=()=>perform(loadGitHub);
-$('github-sync').onclick=()=>perform(()=>githubSync());$('github-restart').onclick=()=>perform(()=>githubSync(true));
+$('github-sync').onclick=()=>perform(async()=>{await api('/api/github/overview/sync',{filter:ghFilter});ghWasRunning=true;await loadGitHub();});
 $('github-cancel').onclick=()=>perform(async()=>{await api('/api/github/cancel',{});await loadGitHub();});
-$('github-repository').onchange=()=>{ghRepo=ghRepos.find(r=>r.full_name.toLowerCase()===$('github-repository').value.trim().toLowerCase())?.id||0;ghItem=0;$('github-detail').replaceChildren();perform(loadGitHub);};
-$('github-repos').onchange=()=>{const repo=ghRepos.find(r=>r.id===Number($('github-repos').value));if(repo){$('github-repository').value=repo.full_name;ghRepo=repo.id;}ghItem=0;$('github-detail').replaceChildren();perform(loadGitHub);};
-for(const id of ['github-filter','github-kind'])$(id).onchange=()=>{ghItem=0;$('github-detail').replaceChildren();perform(loadGitHub);};
 $('github-clear').onclick=()=>perform(async()=>{if(await ask('Clear the local GitHub cache for the selected account? Promoted source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/github/clear',{account:$('github-cache-account').value});ghItem=0;$('github-detail').replaceChildren();await loadGitHub();}});
 
 let proposalFilter='pending';
@@ -838,17 +1015,19 @@ function renderWorkGraph(){
  const filters=$('proposal-filters');filters.replaceChildren();
  for(const value of ['pending','snoozed','dismissed','all']){const b=el('button',proposalFilter===value?'selected':'',value[0].toUpperCase()+value.slice(1));b.onclick=()=>{proposalFilter=value;renderWorkGraph();};filters.append(b);}
  const list=$('proposal-list');list.replaceChildren();
+ const waiting=(graph.proposals||[]).filter(p=>p.state==='pending'&&(!p.snoozed_until||p.snoozed_until<=today)).length;$('work-tabs').querySelector('[data-work-tab=suggested]').textContent='Suggested'+(waiting?' · '+waiting:'');
  const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
  for(const p of proposals){
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
-  card.append(el('strong','',p.text),el('p','hint',(p.origin==='gmail_ai'?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · Snoozed until '+p.snoozed_until:'')));
+  const top=el('div','proposal-top');top.append(source?originChip(source.provider,sourceLabel(source),()=>openSource(source)):originChip('','Unavailable source'),el('span','hint',(p.origin==='gmail_ai'?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · snoozed until '+p.snoozed_until:'')));
+  card.append(top,el('strong','proposal-text',p.text));
   if(p.fields&&Object.keys(p.fields).length)card.append(el('p','hint',Object.entries(p.fields).map(([name,value])=>(name==='due_date'?'Due date':name==='owner'?'Owner':'Deadline')+': '+value).join(' · ')));
   if(source?.remote?.authority==='github')card.append(el('p','hint','GitHub '+(source.remote.kind==='pull_request'?'PR':'issue')+' state: '+source.remote.state+' · local task status is independent'+(!source.available?' · Source unavailable':'')));
-  if(ev){const quote=el('blockquote','',ev.quote);card.append(quote,el('p','hint',(source?source.provider+' · '+source.account+' · '+source.external_id:'Unavailable source')+' · saved revision '+ev.source_revision.slice(0,12)));}
+  if(ev){const quote=el('blockquote','',ev.quote);card.append(quote,el('p','hint',(source?source.account:'Unavailable source')+' · saved revision '+ev.source_revision.slice(0,12)));}
   const actions=el('div','work-actions'),review=(action,extra={})=>graphAction('review',{id:p.id,revision:p.revision,action,...extra});
   const button=(label,run)=>{const b=el('button','secondary small-action',label);b.onclick=()=>perform(run);actions.append(b);};
   if(p.state==='pending'){
-   button('Accept',()=>review('accept'));
+   button('Accept',()=>review('accept'));actions.lastChild.className='primary small-action';
    const select=el('select');select.setAttribute('aria-label','Link proposal to existing item');select.append(option('Link to existing…',''),...itemsData.items.filter(i=>i.kind===p.kind).map(i=>option(i.text,i.id)));actions.append(select);
    button('Link',async()=>{const target=itemsData.items.find(i=>i.id===select.value);if(!target){toast('Choose an existing item');return;}await review('link',{target_id:target.id,target_revision:target.revision});});
    button(p.snoozed_until?'Unsnooze':'Snooze',async()=>{if(p.snoozed_until)return review('snooze',{snoozed_until:null});const day=new Date();day.setDate(day.getDate()+1);const value=await ask('Snooze proposal until YYYY-MM-DD',{ok:'Snooze',value:day.toLocaleDateString('en-CA')});if(value!==null)await review('snooze',{snoozed_until:value});});
@@ -880,11 +1059,12 @@ function renderTasks() {
  const open=tasks.filter(t=>t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
  $('tasks-summary').textContent=open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':'');
- for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.classList.toggle('selected',button.dataset.kind===itemKind); button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
+ for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
  const filter=statusFilter[itemKind];
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=el('button',key===filter?'selected':'',label);button.type='button';button.onclick=()=>{statusFilter[itemKind]=key;renderTasks();};return button;}));
+ segmentedChoice($('source-filter'),[['','All sources'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;renderTasks();});
  $('task-owner').hidden=itemKind!=='task';
  const owner=$('task-owner').value, owners=[...new Set(tasks.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
@@ -896,12 +1076,24 @@ function renderTasks() {
   .filter(t=>!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:t.owner===$('task-owner').value))
   .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||latest(b).localeCompare(latest(a)));
  else rows=decisions.filter(personal).filter(d=>['all','snoozed','dismissed'].includes(filter)||(filter==='current'?d.status==='accepted':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
+ if(sourceFilter)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
  $('task-list').replaceChildren();
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
  if(!rows.length) $('task-list').append(el('p','empty-content',(itemKind==='task'?tasks:decisions).length?'Nothing matches this filter.':empty));
  for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
-for(const button of document.querySelectorAll('[data-kind]')) button.onclick=()=>{itemKind=button.dataset.kind;renderTasks();};
+// My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
+const WORK_PANELS={task:'items-panel',decision:'items-panel',suggested:'work-suggested',questions:'questions-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
+let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?localStorage.getItem('work-tab'):'task';}catch{}
+function showWorkTab(tab){
+ workTab=tab;try{localStorage.setItem('work-tab',tab);}catch{}
+ for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab;button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
+ for(const id of new Set(Object.values(WORK_PANELS)))$(id).hidden=id!==WORK_PANELS[tab];
+ for(const timer of [mailTimer,chatTimer,ghTimer])if(timer)clearTimeout(timer);mailTimer=chatTimer=ghTimer=null;
+ if(tab==='task'||tab==='decision'){itemKind=tab;renderTasks();}
+ else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(loadGitHub);
+}
+for(const button of $('work-tabs').querySelectorAll('button')) button.onclick=()=>showWorkTab(button.dataset.workTab);
 // Projects group meetings; a series groups the meetings that repeat inside a project.
 let lastProjects='', prepareScope={project:'',series:''}, prepareData=null;
 const projectList=()=>state?.projects?.projects||[];
@@ -1113,12 +1305,14 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden){events?.c
 // The microphone list is scanned only while the new-meeting form is visible.
 setInterval(()=>{ if(view!=='setup'||document.hidden||!state) return;
  api('/api/devices').then(result=>{if(JSON.stringify(result.devices)!==JSON.stringify(state.devices)||result.device_error!==state.device_error){state.devices=result.devices;state.device_error=result.device_error;renderState();}}).catch(()=>{}); },3000);
-$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();renderLibrary();});
+$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('tasks');lastTasks='';await loadTasks();showWorkTab(workTab);renderLibrary();});
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
 $('work-project').onchange=()=>renderTasks();
 $('task-owner').onchange=renderTasks;
+// Transcript rows grow with their text instead of showing an inner scroll bar.
+document.addEventListener('input',event=>{const area=event.target;if(area.matches?.('.segment textarea')){area.style.height='auto';area.style.height=area.scrollHeight+2+'px';}});
 $('new-meeting').onclick=async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;else renderTranscriptionTiming(true);renderLibrary();};
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
@@ -1154,7 +1348,7 @@ $('import-paste-button').onclick=()=>perform(async()=>{$('import-paste-button').
 $('pause').onclick=()=>perform(()=>api('/api/pause',{paused:state.active.status!=='paused'}));$('stop').onclick=()=>perform(()=>api('/api/stop',{}));
 for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
 $('edit-title').onclick=()=>perform(async()=>{const title=await ask('Meeting name',{value:detail.title,ok:'Rename'});if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
-$('save-transcript').onclick=()=>perform(async()=>{detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript});dirtyTranscript=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Transcript corrections saved');});
+$('save-transcript').onclick=()=>perform(async()=>{if(dirtyNotes||itemEditing||speakerNaming){error('Save other edits before updating the transcript.');return;}detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript,transcript_revision:detail.transcript_revision,refresh_notes:refreshNotesAfterEdit});dirtyTranscript=false;transcriptEditing=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast(detail.notes_refresh_error?'Transcript saved. Notes update needs attention.':detail.status==='processing'?'Transcript saved · updating notes and tasks':'Transcript corrections saved');});
 $('save-notes').onclick=$('save-outcomes').onclick=()=>perform(async()=>{for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());notesEditing=false;try{await saveMinutes(notesBase);}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');});
 for(const name of ['notes','outcomes']) {
  $('edit-'+name).onclick=()=>{notesBase=structuredClone(detail.minutes);notesEditing=true;renderNotes(false);};

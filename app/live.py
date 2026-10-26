@@ -199,6 +199,7 @@ class LiveSession:
         self.settings, self.slot = settings, slot
         self.stopping = threading.Event()
         self.thread = None
+        self.stop_reason = None
 
     def start(self):
         atomic_json(self.directory / 'live.json', dict(status='waiting',
@@ -210,7 +211,9 @@ class LiveSession:
     def snapshot(self):
         return read_json(self.directory / 'live.json', {})
 
-    def request_stop(self):
+    def request_stop(self, reason=None):
+        if reason:
+            self.stop_reason = reason
         self.stopping.set()
         atomic_text(self.directory / '.live-stop', '')
 
@@ -267,6 +270,10 @@ class LiveSession:
                 process.wait()
             if acquired:
                 self.slot.release()
+            if self.stop_reason:
+                state = self.snapshot()
+                state.update(status='stopped', message=self.stop_reason)
+                atomic_json(self.directory / 'live.json', state)
 
 
 def main():

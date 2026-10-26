@@ -15,6 +15,7 @@ import numpy as np
 import sounddevice as sd
 
 from .storage import atomic_json
+from .power import RecordingPower
 
 
 def ffmpeg_path() -> str:
@@ -138,14 +139,26 @@ class Recorder:
         self.stop_lock = threading.Lock()
         self.on_frame = None
         self.stopped = False
+        self.recovering = threading.Event()
+        self.recovery_thread = None
+        self.power = RecordingPower()
+        self.fallback_name = ''
+        self.input_name = sd.query_devices(device).get('name', str(device))
+        self.primary_name = self.input_name
+        self.input_status = 'connected'
         self.last_frame = time.monotonic()
+        self.last_audio_end = 0.0
         self.rate = int(sd.query_devices(device)['default_samplerate'])
         self.info = dict(microphone_rate=self.rate, system_rate=48000, mode=mode,
                          duration=0, origin=self.clock.origin)
         atomic_json(directory / 'capture.json', self.info)
 
     def _callback(self, data, frames, timing, status):
+        if getattr(self, 'stopped', False):
+            return
         self.last_frame = time.monotonic()
+        if getattr(self, 'input_status', 'connected') != 'connected':
+            self.input_status = 'connected'
         if status:
             # Do not perform console or disk IO in the PortAudio callback.
             if status.input_overflow:
@@ -162,6 +175,11 @@ class Recorder:
         # PortAudio provides ADC and callback times in its own shared clock.
         latency = max(0, timing.currentTime - timing.inputBufferAdcTime)
         position = round((self.clock.elapsed() - latency) * self.rate)
+        self.last_audio_end = max(getattr(self, 'last_audio_end', 0), (max(0, position) + frames) / self.rate)
+        gaps = getattr(self, 'info', {}).get('input_gaps', [])
+        if gaps and gaps[-1].get('end') is None:
+            gaps[-1]['end'] = round(max(gaps[-1]['start'], max(0, position) / self.rate), 3)
+            gaps[-1]['resumed_with'] = self.input_name
         saved = bytes(data)
         self.writer.append(position, saved)
         if self.on_frame:
@@ -197,6 +215,12 @@ class Recorder:
                 self.system.stdin.flush()
             self.stream.start()
             self.last_frame = time.monotonic()
+            try:
+                self.power.start()
+            except OSError:
+                self.warnings.append('Could not prevent idle sleep. Keep this Mac awake during recording.')
+            self.recovery_thread = threading.Thread(target=self._watch_input, name='microphone-recovery', daemon=True)
+            self.recovery_thread.start()
         except Exception:
             self.stop()
             raise
@@ -208,9 +232,67 @@ class Recorder:
             return self.writer.error
         if self.system and self.system.poll() is not None and not self.stopped:
             return 'System audio capture stopped unexpectedly. Saved audio is preserved.'
-        if self.stream and (not self.stream.active or time.monotonic() - self.last_frame > 5):
+        if not getattr(self, 'recovery_thread', None) and self.stream and (not self.stream.active or time.monotonic() - self.last_frame > 5):
             return 'Microphone disconnected or stopped delivering audio. Saved audio is preserved.'
         return None
+
+    def _watch_input(self):
+        """Retry the chosen device; switch only to an explicitly chosen fallback.
+
+        Never restart PortAudio while a stream is open. The writer and recording
+        clock stay alive, so gaps remain silence at their original positions.
+        """
+        next_attempt = 0.0
+        while not self.recovering.wait(1):
+            try:
+                if self.stopped or self.fatal or (self.writer and self.writer.error):
+                    return
+                if self.stream and self.stream.active and time.monotonic() - self.last_frame <= 5:
+                    continue
+                if self.input_status == 'connected':
+                    self.input_status = 'missing'
+                    self.level = 0
+                    self.info.setdefault('input_gaps', []).append(dict(start=round(min(self.clock.elapsed(), self.last_audio_end), 3), end=None))
+                if time.monotonic() < next_attempt:
+                    continue
+                next_attempt = time.monotonic() + 3
+                with self.stop_lock:
+                    if self.stopped:
+                        return
+                    if self.stream:
+                        try:
+                            self.stream.abort()
+                        finally:
+                            self.stream.close()
+                            self.stream = None
+                    inputs = devices(rescan=True)
+                    names = [self.fallback_name, self.primary_name] if self.fallback_name else [self.primary_name]
+                    if self.input_status == 'reconnecting':
+                        # An opened device that delivered no callbacks must not
+                        # keep a healthy permitted alternative from being tried.
+                        names.sort(key=lambda name: name == self.input_name)
+                    for name in names:
+                        matches = [d for d in inputs if name and d['name'] == name]
+                        if len(matches) != 1:
+                            continue
+                        chosen = matches[0]
+                        try:
+                            self.input_name = chosen['name']
+                            self.input_status = 'reconnecting'
+                            self.stream = sd.RawInputStream(device=chosen['id'], samplerate=self.rate,
+                                blocksize=round(self.rate * .03), channels=1, dtype='int16', callback=self._callback)
+                            self.stream.start()
+                            self.last_frame = time.monotonic()
+                            break
+                        except Exception:
+                            if self.stream:
+                                self.stream.close()
+                                self.stream = None
+                            self.input_status = 'missing'
+            except Exception:
+                # A retry must not take down the durable writer or system audio.
+                self.input_status = 'missing'
+                self.level = 0
 
     def pause(self, paused: bool):
         when = self.clock.pause(paused)
@@ -223,19 +305,34 @@ class Recorder:
     def checkpoint(self):
         self.info['duration'] = self.clock.elapsed()
         self.info['input_overflows'] = self.input_overflows
+        self.warnings = [w for w in self.warnings if not w.startswith('Microphone dropped audio')]
         if self.input_overflows:
-            self.warnings = [f'Microphone dropped audio {self.input_overflows} time(s). Recording continued; gaps may be present.']
+            self.warnings.append(f'Microphone dropped audio {self.input_overflows} time(s). Recording continued; gaps may be present.')
+        if getattr(self, 'input_status', 'connected') != 'connected':
+            warning = 'Microphone unavailable. Retrying the selected microphone; this part of the recording has no microphone audio.'
+            if warning not in self.warnings:
+                self.warnings.append(warning)
+        else:
+            self.warnings = [w for w in self.warnings if not w.startswith('Microphone unavailable.')]
+        gaps = self.info.get('input_gaps', [])
+        if gaps and not any(w.startswith('Microphone connection was interrupted') for w in self.warnings):
+            self.warnings.append('Microphone connection was interrupted. Check the marked gaps in the recording.')
+        self.info.update(input_status=getattr(self, 'input_status', 'connected'), microphone_name=getattr(self, 'input_name', ''))
         self.info['checkpoint_at'] = dt.datetime.now().astimezone().isoformat()
         atomic_json(self.directory / 'capture.json', self.info)
 
     def stop(self):
+        self.recovering.set()
         with self.stop_lock:
             self._stop()
+        if self.recovery_thread:
+            self.recovery_thread.join(timeout=2)
 
     def _stop(self):
         if self.stopped:
             return
         self.stopped = True
+        self.power.close()
         self.clock.pause(True)
         try:
             if self.stream:

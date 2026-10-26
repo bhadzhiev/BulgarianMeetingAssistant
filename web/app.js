@@ -1,5 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
+let desktopStatus='';
+function disconnectedMessage(){return desktopStatus||(state?.desktop_mode?'Disconnected · check the desktop app':'Disconnected · reopen the launcher');}
 let state, selected = null, detail = null, view = 'setup', dirtyTranscript = false, dirtyNotes = false;
 let lastFingerprint = '', lastLibrary = '', lastDevices = '', pending = false;
 let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = 'recording';
@@ -89,9 +91,12 @@ function renderState() {
  $('tasks-badge').hidden=!summary.open&&!summary.review; $('tasks-badge').classList.toggle('late',!summary.review&&summary.overdue>0); $('tasks-badge').classList.toggle('review',!!summary.review);
  $('tasks-badge').textContent=summary.review?summary.review:summary.overdue?summary.overdue+' late':summary.open;
  $('tasks-badge').title=summary.review?summary.review+' mentions wait for your review':summary.overdue?summary.overdue+' tasks are late':summary.open+' open tasks';
- $('connection').textContent=state.active?'● Recording workspace':'● Connected to this Mac';
+ $('connection').textContent=desktopStatus|| (state.active?'● Recording workspace':'● Connected to this Mac');
  const signature=JSON.stringify(state.devices);
  if(signature!==lastDevices) { lastDevices=signature; const oldName=$('microphone').selectedOptions[0]?.textContent; $('microphone').replaceChildren(); for(const d of state.devices) { const option=el('option','',d.name); option.value=d.id; $('microphone').append(option); } if(!state.devices.length){const option=el('option','','No microphone available');option.value='';$('microphone').append(option);} else { const preferred=state.devices.find(d=>d.name===oldName)||state.devices.find(d=>/iphone/i.test(d.name)); if(preferred) $('microphone').value=preferred.id; } }
+ const backup=$('fallback-microphone'), previousBackup=backup.value, primaryName=$('microphone').selectedOptions[0]?.textContent;
+ backup.replaceChildren(option('Retry the selected microphone only',''),...state.devices.filter(d=>d.name!==primaryName).map(d=>option(d.name,d.name)));
+ if([...backup.options].some(o=>o.value===previousBackup))backup.value=previousBackup;
  $('start').disabled=!!state.active||!state.devices.length||pending;
  $('check-mic').disabled=!!state.active||!state.devices.length;
  $('setup-meter').value=state.preview_level;
@@ -107,10 +112,12 @@ function renderState() {
   // A state snapshot can be older than the last live event; the timer never goes back.
   if(lastLive?.meeting_id===a.id){a.duration=Math.max(a.duration||0,lastLive.duration);a.level=lastLive.level;}
   $('recording-status').textContent=statusNames[a.status]||a.status; $('timer').textContent=time(a.duration); $('recording-meter').value=a.level||0;
+  if(a.microphone_status&&a.microphone_status!=='connected')$('recording-status').textContent='Microphone unavailable · retrying';
   const enabled=['recording','paused'].includes(a.status); $('pause').disabled=$('stop').disabled=!enabled;
   $('pause').textContent=a.status==='paused'?'▶ Resume':'Ⅱ Pause'; $('recording-indicator').classList.toggle('paused',a.status!=='recording');
   $('recording-help').textContent=a.status==='starting'?'Preparing audio capture. macOS may request recording permission.':a.status==='paused'?'Paused. Audio during the pause is discarded.':a.status==='stopping'?'Finishing audio files. Please keep the app open.':'Audio is being saved continuously on this Mac.';
   if(a.warnings?.length) $('recording-help').textContent+=' '+a.warnings.join(' ');
+  if(a.microphone_name)$('recording-help').textContent+=' Input: '+a.microphone_name+'.';
   renderLive(a);
   renderMarkerList($('marker-list'),a.markers||[],false);
   if(view==='setup') { selected=a.id; show('recording'); }
@@ -199,6 +206,12 @@ function renderDetail() {
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
  $('sync-calendar').textContent=sync?.status==='synced'?'Update calendar event':'Sync to Google Calendar';
  // The status badge already says Ready; the bar is only for progress and extra advice.
+ $('cancel-processing').hidden=d.status!=='processing';
+ $('cancel-processing').disabled=!!d.processing_cancel_requested;
+ $('cancel-processing').textContent=d.processing_cancel_requested?'Cancelling…':'Cancel processing';
+ renderProcessingTime();
+ const gaps=$('capture-gaps');gaps.replaceChildren();gaps.hidden=!d.input_gaps?.length;
+ if(d.input_gaps?.length){gaps.append(el('p','','Microphone audio is missing in these intervals:'));for(const gap of d.input_gaps){const seek=el('button','quiet',time(gap.start)+'–'+time(gap.end??d.duration)+' · Play');seek.onclick=()=>{$('audio').currentTime=gap.start;$('audio').play().catch(e=>error(e.message));};gaps.append(seek);}}
  $('job-progress').textContent=d.progress||''; $('job-progress').hidden=!d.progress||d.progress===statusNames[d.status]||['Imported','Recording saved','Audio imported'].includes(d.progress); $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
  const prepared=d.files.includes('transcription.wav'), selector=$('audio-source'), sameMeeting=$('audio').dataset.meeting===d.id;
  const source=prepared&&sameMeeting&&selector.value==='transcription.wav'?'transcription.wav':'recording.wav';
@@ -823,6 +836,20 @@ async function runAsk() {
   written.replaceChildren(el('p','hint','You stopped waiting. The model server may still finish this request before it starts the next one.'));
  } finally { clearInterval(timer); }
 }
+
+function renderProcessingTime(){
+ if(!detail||view!=='detail')return;
+ const d=detail, active=d.status==='processing', now=Date.now()/1000;
+ const elapsed=active&&d.processing_started_at?Math.max(0,now-d.processing_started_at):d.processing_elapsed||0;
+ const timings=Object.entries(d.processing_timings||{}).map(([name,seconds])=>name+': '+time(seconds));
+ $('processing-time').hidden=!d.processing_stage;
+ $('processing-time').textContent=d.processing_stage+' · '+time(elapsed)+(active&&d.processing_stage_started_at?' · this stage '+time(Math.max(0,now-d.processing_stage_started_at)):'')+(timings.length?' · '+timings.join(' · '):'');
+}
+setInterval(()=>{if(!document.hidden)renderProcessingTime();},1000);
+window.addEventListener('desktop-status',event=>{desktopStatus=String(event.detail||'');$('connection').textContent=desktopStatus;error(desktopStatus);});
+$('cancel-processing').onclick=()=>perform(async()=>{await api('/api/meetings/'+selected+'/cancel',{});toast('Cancellation requested');await openMeeting(selected,true);});
+$('fast-profile').onclick=()=>{$('provider').value='local';$('local-model').value='large-v3-turbo';$('live-enabled').checked=false;$('transcript-correction').value='none';$('diarization-enabled').checked=false;if(/qwen3\.5/i.test($('local-ai-model').value))$('local-ai-reasoning').value='none';settingsFields();toast('Faster settings selected. Save settings to apply.');};
+
 $('find-form').onsubmit=event=>{event.preventDefault();$('find-answer').hidden=true;perform(runFind);};
 $('find-ask').onclick=()=>perform(runAsk);
 $('find-project').onchange=()=>perform(runFind);
@@ -842,7 +869,7 @@ async function refresh(changed) {
    const fresh=await api('/api/meetings/'+selected); const fingerprint=JSON.stringify(fresh);
    if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;if(notesEditing)notesBase=structuredClone(fresh.minutes);renderDetail();}
   }
- } catch(e) { $('connection').textContent='Disconnected · reopen the launcher'; }
+ } catch(e) { $('connection').textContent=disconnectedMessage(); }
  finally { refreshing=false; if(refreshPending){const next=pendingChanged;refreshPending=false;pendingChanged=[];refresh(next);} }
 }
 let lastLive=null;
@@ -859,7 +886,7 @@ function listen() {
  events.addEventListener('hello',()=>refresh(null));
  events.addEventListener('state',event=>refresh(JSON.parse(event.data).changed));
  events.addEventListener('live',event=>showLive(JSON.parse(event.data)));
- events.onerror=()=>{ $('connection').textContent='Disconnected · reopen the launcher'; };
+ events.onerror=()=>{ $('connection').textContent=disconnectedMessage(); };
 }
 document.addEventListener('visibilitychange',()=>{ if(document.hidden){events?.close();events=null;} else listen(); });
 // The microphone list is scanned only while the new-meeting form is visible.
@@ -874,7 +901,8 @@ $('new-meeting').onclick=async()=>{if(!(await leaveEdits()))return;dirtyTranscri
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent});toast('Microphone test started · 10 seconds');});
-$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,project_id:$('record-project').value||null,series_id:$('record-series').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
+$('microphone').onchange=()=>renderState();
+$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
 async function importTranscript(text,filename) {
  const d=await api('/api/import',{text,filename});
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;

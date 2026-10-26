@@ -6,6 +6,24 @@ import os
 import sys
 import threading
 
+_output_lock = threading.Lock()
+
+
+def activity(active, output):
+    with _output_lock:
+        try:
+            print(json.dumps({'event': 'recording', 'active': bool(active)}), file=output, flush=True)
+        except (BrokenPipeError, OSError):
+            pass  # The parent EOF watcher owns shutdown.
+
+
+def microphone_health(missing, output):
+    with _output_lock:
+        try:
+            print(json.dumps({'event': 'microphone', 'missing': bool(missing)}), file=output, flush=True)
+        except (BrokenPipeError, OSError):
+            pass
+
 
 def watch_parent(stream, shutdown):
     """Quit on an explicit command or EOF, including when the window process crashes."""

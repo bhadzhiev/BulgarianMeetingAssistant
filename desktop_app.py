@@ -269,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/check-mic':
                 result = service.check_microphone(body['device'], body.get('device_name'))
             elif path == '/api/start':
-                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('project_id'), body.get('series_id'), body.get('device_name'))
+                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('project_id'), body.get('series_id'), body.get('device_name'), body.get('fallback_device_name', ''))
             elif path == '/api/pause':
                 if type(body['paused']) is not bool:
                     raise ValueError('Invalid pause state')
@@ -294,10 +294,11 @@ class Handler(BaseHTTPRequestHandler):
                 elif action == 'merge': result = service.merge_items(item_id, body['into'])
                 else: result = service.update_item(item_id, body['text'], body['changes'])
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
+                elif match[2] == 'cancel': result = service.cancel_processing(match[1])
                 elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
                 elif match[2] == 'scope': result = service.set_scope(match[1], body.get('project'), body.get('series'))
@@ -381,7 +382,13 @@ def main():
         # A new start replaces the old copy so that code changes take effect.
         stop_running_copy(args.library / '.app.lock')
         fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    service = MeetingService(args.library, PROJECT, backup_dir=args.backups)
+    from app.worker import ProcessingWorker
+    service = MeetingService(args.library, PROJECT, backup_dir=args.backups, step_runner=ProcessingWorker(PROJECT))
+    service.desktop_mode = args.desktop_control
+    if control is not None:
+        from app.desktop import activity, microphone_health
+        service.activity_changed = lambda active: activity(active, control)
+        service.health_changed = lambda missing: microphone_health(missing, control)
     if args.models:
         service.models_dir = args.models
     server = Server(('127.0.0.1', args.port), service)
@@ -416,5 +423,8 @@ if __name__ == '__main__':
         from app.live import main as live_main
         sys.argv.pop(1)
         live_main()
+    elif sys.argv[1:2] == ['--processing-worker']:
+        from app.worker import main as worker_main
+        worker_main()
     else:
         main()

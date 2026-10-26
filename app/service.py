@@ -15,6 +15,7 @@ import sounddevice as sd
 
 from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
 from .storage import Library, atomic_json, atomic_text
+from .jobs import Job, JobCancelled
 from . import processing
 from . import correction
 from . import analytics as conversation
@@ -50,7 +51,7 @@ MAX_AUDIO_BYTES = 4_000_000_000
 
 
 class MeetingService:
-    def __init__(self, root: Path, project: Path, google=None, backup_dir: Path | None = None):
+    def __init__(self, root: Path, project: Path, google=None, backup_dir: Path | None = None, step_runner=None):
         self.project = project
         self.models_dir = project / 'models'
         self.backup_dir = backup_dir or Path.home() / 'Documents' / 'Meeting Assistant Backups'
@@ -71,6 +72,12 @@ class MeetingService:
         self.live_sessions = {}
         self.busy = set()
         self.processing_slot = threading.Semaphore(1)
+        self.step_runner = step_runner
+        self.cancel_events = {}
+        self.processing_threads = {}
+        self.desktop_mode = False
+        self.activity_changed = lambda active: None
+        self.health_changed = lambda missing: None
         self.task_cache = {}
         self.analytics_cache = {}
         self.preview = None
@@ -160,11 +167,14 @@ class MeetingService:
                 inputs, device_error = [], str(exc)
             active = self.library.get(self.active) if self.active else None
             if active and self.recorder:
-                active.update(duration=self.recorder.clock.elapsed(), level=self.recorder.level)
+                active.update(duration=self.recorder.clock.elapsed(), level=self.recorder.level,
+                              microphone_status=getattr(self.recorder, 'input_status', 'connected'),
+                              microphone_name=getattr(self.recorder, 'input_name', ''))
                 live = self.live_sessions.get(self.active)
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=self.library.list(), active=active, google=self.google.status(),
+                desktop_mode=self.desktop_mode,
                 speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
                 device_error=device_error, preview_level=self.preview_level,
@@ -209,6 +219,7 @@ class MeetingService:
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
             meeting['live'] = read_json(directory / 'live.json', None)
+            meeting['input_gaps'] = read_json(directory / 'capture.json', {}).get('input_gaps', [])
             meeting['markers'] = read_json(directory / 'markers.json', [])
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
@@ -271,7 +282,7 @@ class MeetingService:
                 raise
             return {'ok': True}
 
-    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None):
+    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None, fallback_device_name=''):
         if self.closed.is_set():
             raise ValueError('The app is closing')
         if mode not in {'in_person', 'online'}:
@@ -280,11 +291,16 @@ class MeetingService:
             raise ValueError('Meeting title must be text')
         ffmpeg_path()
         device = self._input_device(device, device_name)
+        if not isinstance(fallback_device_name, str) or len(fallback_device_name) > 300:
+            raise ValueError('Choose an available fallback microphone')
+        if fallback_device_name and not any(d['name'] == fallback_device_name and d['id'] != device for d in devices()):
+            raise ValueError('Choose another available microphone as fallback')
         with self.lock:
             if self.active:
                 raise ValueError('A meeting is already recording')
             self._stop_preview()
             settings = dict(self.settings, models_dir=str(self.models_dir))
+            settings['fallback_microphone'] = fallback_device_name
             with self.projects.lock:
                 project_id = self.projects.ensure_project({'id': project_id} if project_id else None)
                 series_id = self.projects.ensure_series({'id': series_id} if series_id else None, project_id)
@@ -293,6 +309,7 @@ class MeetingService:
             if project_id:
                 meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id)
             self.active = meeting['id']
+            self.activity_changed(True)
             self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
             self.start_thread.start()
             return meeting
@@ -378,6 +395,7 @@ class MeetingService:
         recorder = None
         try:
             recorder = Recorder(self.library.directory(meeting_id), device, mode, self.project / 'bin/SystemAudio')
+            recorder.fallback_name = self.library.get(meeting_id)['settings'].get('fallback_microphone', '')
             with self.lock:
                 self.recorder = recorder
             recorder.start()
@@ -386,6 +404,7 @@ class MeetingService:
                 with self.lock:
                     self.library.update(meeting_id, status='interrupted', progress='App closed — saved audio can be recovered')
                     self.active, self.recorder = None, None
+                    self.activity_changed(False)
                 return
             with self.lock:
                 self.library.update(meeting_id, status='recording', progress='Recording',started_at=dt.datetime.now().astimezone().isoformat())
@@ -410,6 +429,7 @@ class MeetingService:
             with self.lock:
                 self.library.update(meeting_id, status='error', error=str(exc), progress='Recording could not start')
                 self.active, self.recorder = None, None
+                self.activity_changed(False)
 
     def add_marker(self, kind, note=''):
         """Mark this moment of the recording, so that the review after the meeting starts here."""
@@ -470,6 +490,7 @@ class MeetingService:
                     warnings=list(getattr(recorder, 'warnings', [])),
                     error=failure, progress='Recording saved' if not failure else 'Stopped after an audio error; recording saved')
                 self.active, self.recorder = None, None
+                self.activity_changed(False)
                 if meeting['settings']['auto_process'] and not failure and not self.closed.is_set():
                     try:
                         self.process(meeting_id, 'all', use_saved=True)
@@ -485,6 +506,7 @@ class MeetingService:
                 self.library.update(meeting_id, status='interrupted', error=str(exc),
                                     progress='Raw audio saved — use Recover / Retry')
                 self.active, self.recorder = None, None
+                self.activity_changed(False)
         finally:
             self._queue_metadata(meeting_id,enrich=not processing_started)
 
@@ -530,63 +552,112 @@ class MeetingService:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
             self.busy.add(meeting_id)
             self.library.update(meeting_id, status='processing', error=None, settings=settings, progress='Queued for processing')
-            threading.Thread(target=self._process, args=(meeting_id, action, settings, key), daemon=True).start()
+            self.cancel_events[meeting_id] = threading.Event()
+            self.library.update(meeting_id, processing_cancel_requested=False, processing_stage='Queued',
+                                processing_started_at=time.time(), processing_stage_started_at=time.time(),
+                                processing_timings={}, processing_elapsed=0)
+            if self.active and self.active in self.live_sessions:
+                self.live_sessions[self.active].request_stop('Live captions paused to process a saved meeting. Audio recording continues.')
+            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key), daemon=True)
+            self.processing_threads[meeting_id] = thread
+            thread.start()
             return {'id': meeting_id, 'status': 'processing'}
 
+    def cancel_processing(self, meeting_id):
+        with self.lock:
+            self.library.get(meeting_id)
+            cancel = self.cancel_events.get(meeting_id)
+            if cancel is None or meeting_id not in self.busy:
+                raise ValueError('No processing job is running for this meeting')
+            cancel.set()
+            self.library.update(meeting_id, processing_cancel_requested=True, progress='Cancelling processing…')
+            return {'id': meeting_id, 'cancel_requested': True}
+
+    def _execute(self, action, directory, settings, progress, key='', speakers=(), trackers=()):
+        if self.step_runner:
+            return self.step_runner.run(action, directory, settings, progress, key, speakers, trackers,
+                                        cancel=self.cancel_events.get(directory.name))
+        # In-process embedding uses the same dispatcher; progress checks cancel
+        # between chunks. The desktop launcher supplies an isolated worker.
+        from .worker import execute
+        return execute(action, directory, settings, progress, key, speakers, trackers)
+
     def _process(self, meeting_id, action, settings, key):
+        cancel = self.cancel_events.setdefault(meeting_id, threading.Event())
+        job = Job(cancel, lambda **changes: self.library.update(meeting_id, **changes))
+        acquired = False
         try:
-            with self.processing_slot:
-                directory = self.library.directory(meeting_id)
-                progress = lambda message: self.library.update(meeting_id, progress=message)
-                imported = self.library.get(meeting_id)['mode'] == 'imported'
-                if action != 'reanalyze' and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
-                    progress('Recovering saved audio')
-                    duration = render_recording(directory)
+            with job.step('Queued'):
+                while not self.processing_slot.acquire(timeout=.1):
+                    job.check()
+                acquired = True
+                job.check()
+            directory = self.library.directory(meeting_id)
+            progress = job.update
+            imported = self.library.get(meeting_id)['mode'] == 'imported'
+            if action != 'reanalyze' and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
+                with job.step('Recovering audio'):
+                    duration = self._execute('recover', directory, settings, progress)
                     self.library.update(meeting_id, duration=duration)
-                if action in {'all', 'transcribe'}:
-                    processing.transcribe(directory, settings, progress, key, self.library.speakers())
-                should_diarize = action in {'all', 'transcribe'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
-                if should_diarize and settings.get('diarization_enabled', True) and (directory / 'recording.wav').exists():
+            if action in {'all', 'transcribe'}:
+                with job.step('Transcription'):
+                    self._execute('transcribe', directory, settings, progress, key, self.library.speakers())
+            should_diarize = action in {'all', 'transcribe'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
+            if should_diarize and settings.get('diarization_enabled', True) and (directory / 'recording.wav').exists():
+                with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
-                if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
-                    try:
-                        correction.correct(directory, settings, progress, key, speakers=self.library.speakers())
+            if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
+                try:
+                    with job.step('Transcript correction'):
+                        self._execute('correct', directory, settings, progress, key, self.library.speakers())
                         self.library.update(meeting_id, correction_error=None)
-                    except Exception as exc:
-                        if action == 'correct':
-                            raise
-                        # A failed clean-up must not block notes; the Whisper transcript stays.
-                        message = str(exc).replace(key, '[redacted]') if key else str(exc)
-                        self.library.update(meeting_id, correction_error=message)
-                if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
-                    processing.summarize(directory, settings, progress, key, speakers=self.library.speakers())
-                if action != 'recover' and (directory / 'transcript.json').exists():
+                except JobCancelled:
+                    raise
+                except Exception as exc:
+                    if action == 'correct':
+                        raise
+                    message = str(exc).replace(key, '[redacted]') if key else str(exc)
+                    self.library.update(meeting_id, correction_error=message)
+            if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
+                with job.step('Meeting notes'):
+                    self._execute('summarize', directory, settings, progress, key, self.library.speakers())
+            if action != 'recover' and (directory / 'transcript.json').exists():
+                with job.step('Analytics'):
                     self._run_analytics(meeting_id, settings, progress)
-                self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
-                                    error=None, progress='Ready')
+            job.check()
+            self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
+                                error=None, progress='Ready', processing_stage='Complete')
+        except JobCancelled:
+            directory = self.library.directory(meeting_id)
+            self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
+                error=None, progress='Processing cancelled — saved audio and completed checkpoints are preserved', processing_stage='Cancelled')
         except Exception as exc:
-            # Never include request objects, headers, or keys in persisted errors.
-            message = str(exc)
-            if key:
-                message = message.replace(key, '[redacted]')
-            self.library.update(meeting_id, status='error', error=message, progress='Processing failed — recording preserved')
+            message = str(exc).replace(key, '[redacted]') if key else str(exc)
+            self.library.update(meeting_id, status='error', error=message, processing_stage='Failed',
+                                progress='Processing failed — recording preserved')
         finally:
+            if acquired:
+                self.processing_slot.release()
             try:
                 self._sync_items(meeting_id)
             except Exception as exc:
                 print(f'Task registry: {exc}', flush=True)
             with self.lock:
                 self.busy.discard(meeting_id)
-            self._queue_metadata(meeting_id,enrich=True)
+                self.cancel_events.pop(meeting_id, None)
+                self.processing_threads.pop(meeting_id, None)
+            self._queue_metadata(meeting_id, enrich=not cancel.is_set())
 
     def _run_diarization(self, meeting_id, directory, progress):
         from meeting_assistant import TranscriptSegment, save_transcript
         try:
-            timeline = diarization.diarize(directory, progress)
+            timeline = self._execute('diarize', directory, self.settings, progress)
             source = json.loads((directory / 'transcript.json').read_text())
             assigned = conversation.assign_speakers(source, timeline)
             save_transcript(directory, [TranscriptSegment(**segment) for segment in assigned])
             self.library.update(meeting_id, diarization_error=None)
+        except JobCancelled:
+            raise
         except Exception as exc:
             # Diarization is optional; transcription and notes must still succeed.
             self.library.update(meeting_id, diarization_error=str(exc))
@@ -594,10 +665,11 @@ class MeetingService:
     def _run_analytics(self, meeting_id, settings, progress=lambda message: None):
         try:
             progress('Building conversation analytics')
-            result = conversation.analyze(self.library.directory(meeting_id), settings,
-                                          self.library.trackers(), progress)
+            result = self._execute('analytics', self.library.directory(meeting_id), settings, progress, trackers=self.library.trackers())
             self.library.update(meeting_id, analytics_error=result.get('semantic_error'))
             return result
+        except JobCancelled:
+            raise
         except Exception as exc:
             # Keep an earlier valid analytics file and never fail the transcript job.
             self.library.update(meeting_id, analytics_error=str(exc))
@@ -1389,14 +1461,22 @@ class MeetingService:
                             else:
                                 self.recorder.checkpoint()
                                 warnings = getattr(self.recorder, 'warnings', [])
-                                if warnings != self.library.get(self.active).get('warnings', []):
-                                    self.library.update(self.active, warnings=list(warnings))
+                                changes = dict(warnings=list(warnings),
+                                    microphone_status=getattr(self.recorder, 'input_status', 'connected'),
+                                    microphone_name=getattr(self.recorder, 'input_name', ''))
+                                meeting = self.library.get(self.active)
+                                if any(meeting.get(k) != v for k, v in changes.items()):
+                                    self.library.update(self.active, **changes)
+                                    if meeting.get('microphone_status', 'connected') != changes['microphone_status']:
+                                        self.health_changed(changes['microphone_status'] != 'connected')
                 self.automation.retry_pending()
             except Exception as exc:
                 print(f'Monitor: {exc}', flush=True)
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        for cancel in list(self.cancel_events.values()):
+            cancel.set()
         self.automation.close()
         if self.start_thread and self.start_thread.is_alive():
             self.start_thread.join(timeout=35)
@@ -1421,4 +1501,6 @@ class MeetingService:
             live.request_stop()
         for live in self.live_sessions.values():
             live.close()
+        for thread in list(self.processing_threads.values()):
+            thread.join(timeout=3)
         self.search_index.close()

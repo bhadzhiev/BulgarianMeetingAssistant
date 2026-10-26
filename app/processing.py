@@ -3,14 +3,17 @@ from __future__ import annotations
 from dataclasses import asdict
 import gc
 import hashlib
+from importlib.metadata import PackageNotFoundError, version
 import io
 import json
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
 import urllib.request
 import uuid
 import wave
+import time
 
 from .storage import atomic_json
 from .model_cache import ensure_model, ensure_vad_model
@@ -47,11 +50,42 @@ def archive(directory: Path, names) -> Path | None:
     return previous
 
 
+def audio_digest(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def transcription_checkpoint(path, signature, total, rate):
+    from meeting_assistant import TranscriptSegment
+    try:
+        saved = json.loads(path.read_text())
+        cursor = saved['cursor']
+        if saved['signature'] != signature or type(cursor) is not int or not 0 <= cursor <= total:
+            return 0, []
+        segments = [TranscriptSegment(**s) for s in saved['segments']]
+        previous = 0
+        for segment in segments:
+            if (type(segment.start) not in {int, float} or type(segment.end) not in {int, float}
+                or not math.isfinite(segment.start) or not math.isfinite(segment.end)
+                or not previous <= segment.start <= segment.end <= cursor / rate + 1
+                or not isinstance(segment.text, str) or not segment.text.strip()
+                or segment.speaker is not None and not isinstance(segment.speaker, str)):
+                return 0, []
+            previous = segment.start
+        return cursor, segments
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0, []
+
+
 def transcribe(directory: Path, settings: dict, progress, api_key: str = '', speakers=()) -> None:
     import numpy as np
     from meeting_assistant import TranscriptSegment, clean_text, merge_segments, save_transcript
     provider = settings['transcription']
     model = None
+    model_path = None
     vad = prompt = None
     if provider == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before processing with cloud transcription.')
@@ -68,6 +102,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 # Voice detection only improves quality; transcription continues without it.
                 vad = f'unavailable: {exc}'
         prompt = whisper.build_prompt(settings.get('whisper_vocabulary', ''), speakers)
+        progress('Loading local Whisper model into memory')
         model = Model(model_path, models_dir=str(Path(settings['models_dir'])),
             language='bg', translate=False, print_progress=False, print_realtime=False,
             print_timestamps=False, no_context=True, suppress_blank=True,
@@ -76,12 +111,30 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
     audio_path = directory / 'recording.wav'
     try:
         audio_path, preparation = audio_preparation.prepare(directory, settings.get('audio_preparation', 'off'), progress)
+        progress('Checking saved transcription progress')
+        model_stat = None
+        if model_path and Path(model_path).is_file():
+            stat = Path(model_path).stat()
+            model_stat = [str(model_path), stat.st_size, stat.st_mtime_ns]
+        try:
+            backend_version = version('pywhispercpp') if provider == 'local' else None
+        except PackageNotFoundError:
+            backend_version = 'unknown'
+        signature = hashlib.sha256(json.dumps(dict(version=1, backend_version=backend_version, audio=audio_digest(audio_path),
+            provider=provider, model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
+            model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation), sort_keys=True).encode()).hexdigest()
+        checkpoint = directory / '.transcription-progress.json'
         with wave.open(str(audio_path), 'rb') as source:
             rate = source.getframerate()
             total = source.getnframes()
             if (rate, source.getnchannels(), source.getsampwidth()) != (16000, 1, 2):
                 raise ValueError('Processing requires a 16 kHz mono PCM recording')
-            cursor = 0
+            cursor, segments = transcription_checkpoint(checkpoint, signature, total, rate)
+            resumed_from = cursor / rate
+            if cursor:
+                source.setpos(cursor)
+                progress(f'Resuming transcription from {int(cursor / rate)} seconds')
+            first_cursor, inference_started = cursor, time.monotonic()
             while cursor < total:
                 # Bound memory and cloud request size. Prefer a quiet boundary in the last 5s.
                 raw = source.readframes(min(rate * 60, total - cursor))
@@ -121,8 +174,14 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                         segments.append(TranscriptSegment(start, end, text.strip()))
                 cursor += count
                 atomic_json(directory / 'transcript.partial.json', [asdict(s) for s in segments])
+                atomic_json(checkpoint, dict(signature=signature, cursor=cursor, segments=[asdict(s) for s in segments]))
+                processed = cursor - first_cursor
+                eta = (total - cursor) * (time.monotonic() - inference_started) / max(1, processed)
+                progress(f'Transcribing {int(100 * cursor / max(1, total))}% · {provider} · about {int(eta)}s left')
         if not segments:
+            checkpoint.unlink(missing_ok=True)
             raise ValueError('No speech was recognized. The recording is saved; try another model or provider.')
+        progress('Publishing transcript')
         # transcription.wav is not archived: about 115 MB per hour, and recording.wav plus the profile in the
         # archived metadata can produce it again.
         if archive(directory, ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json',
@@ -140,12 +199,13 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         metadata = dict(provider=provider,
             model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
             timestamps='segment' if provider == 'local' else 'approximate chunk boundaries',
-            audio_preparation=preparation)
+            audio_preparation=preparation, resumed_from_seconds=resumed_from)
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None)
             if isinstance(vad, str):
                 metadata['vad_error'] = vad
         atomic_json(directory / 'transcript.metadata.json', metadata)
+        checkpoint.unlink(missing_ok=True)
     finally:
         if audio_path != directory / 'recording.wav':
             audio_path.unlink(missing_ok=True)

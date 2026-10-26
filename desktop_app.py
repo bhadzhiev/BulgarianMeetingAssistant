@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, parse_qs, quote, unquote
 import webbrowser
 
 from app.service import MeetingService
+from app.work_items import WorkItemConflict
 from app.google_calendar import CalendarError
 
 PROJECT = Path(__file__).resolve().parent
@@ -78,6 +79,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.get()
+        except WorkItemConflict as exc:
+            self.respond(409, {'error': str(exc)})
         except (ValueError, KeyError, TypeError) as exc:
             self.respond(400, {'error': str(exc)})
         except CalendarError as exc:
@@ -290,9 +293,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.stop()
             elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}(/delete|/merge)?', path):
                 item_id, _, action = path[len('/api/items/'):].partition('/')
-                if action == 'delete': result = service.delete_item(item_id, body['text'])
-                elif action == 'merge': result = service.merge_items(item_id, body['into'])
-                else: result = service.update_item(item_id, body['text'], body['changes'])
+                if type(body.get('revision')) is not int:
+                    raise ValueError('Reload the item list before making changes')
+                if action == 'delete': result = service.delete_item(item_id, body['text'], body['revision'])
+                elif action == 'merge':
+                    if type(body.get('into_revision')) is not int:
+                        raise ValueError('Reload both items before merging')
+                    result = service.merge_items(item_id, body['into'], body['revision'], body['into_revision'])
+                else: result = service.update_item(item_id, body['text'], body['changes'], body['revision'])
             else:
                 match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope)', path)
                 if not match:
@@ -314,6 +322,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, result)
         except FileNotFoundError:
             self.respond(404, {'error': 'Meeting not found'})
+        except WorkItemConflict as exc:
+            self.respond(409, {'error': str(exc)})
         except (ValueError, KeyError, TypeError) as exc:
             self.respond(400, {'error': str(exc)})
         except Exception as exc:

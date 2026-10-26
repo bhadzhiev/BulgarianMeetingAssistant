@@ -226,7 +226,7 @@ From a saved meeting you can:
 
 - Play the recording or click a transcript timestamp to seek.
 - Read the notes as lists. Click a timestamp in the notes to see that moment in the transcript.
-- Tick a task as done directly in **Tasks & decisions**.
+- Tick a task as done directly in **My Work**.
 - Correct transcript text and manually label speakers, then **Save corrections**.
 - Choose speakers from the shared list of known speakers. Known speakers show a coloured badge.
 - Delete the meeting with **More ▾ → Delete meeting**. You can also delete its Google Calendar event.
@@ -341,12 +341,26 @@ becomes the source moment. Other old statements show "No source moment" until yo
 Notes made before the task tracker still open. Their new sections are empty, and their tasks are open.
 Generate notes again to fill the new sections.
 
-Click **✓ Tasks & decisions** in the sidebar. Each task and decision appears **once**, however many
-meetings discussed it. The app keeps them in `meetings/items.json`, with:
+Click **✓ My Work** in the sidebar. Each task and decision appears **once**, however many
+meetings discussed it. Filter by project, owner and status. Snooze or dismiss an item without changing
+its task or decision status; use **Snoozed** or **Dismissed** to bring it back. **In force** shows only
+accepted decisions. **Sources** keeps earlier meeting-note wording, separate from the current item text.
+These are note snapshots, not independently verified transcript quotations.
+
+The app keeps the registry in `meetings/work-items.sqlite3`, with:
 
 - a permanent ID and the current state (text, owner, deadline, due date, status);
 - links to every meeting that discussed it, with the source moment;
 - a history: created, discussed again, changed (old → new), merged, replaced — by you or by the AI.
+
+On first launch, the app migrates `items.json` and keeps `items.before-sqlite.json`. IDs, history and
+manual edits survive. `items.json` remains a generated portable export; do not edit it by hand.
+A stale edit from another window is rejected; cancel the editor to load the newer version.
+Migration copies and archives retain earlier data until you remove those copies.
+
+The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
+the next stages. This foundation supports meeting tasks and decisions. Gmail, Google Chat, GitHub,
+questions and the general proposal model are planned; this version does not connect to them.
 
 Example: "Test the SAP permissions" is created on 19 Oct; on 23 Oct a meeting says "до петък", the due
 date changes, and the task stays open. The history shows both meetings.
@@ -453,11 +467,16 @@ local-versus-cloud quality evaluation; no provider quality ranking has been esta
 
 ## Archive and restore the library
 
-**Settings → Backup → Archive library now** writes `meetings-<date>-<time>.tar.gz` into
+**Settings → Backup → Archive library now** writes `meetings-<date>-<time>-<unique suffix>.tar.gz` into
 `~/Documents/Meeting Assistant Backups` (change it with `desktop_app.py --backups <folder>`).
 The archive holds every meeting folder (audio, transcripts, notes, markers, `versions/`), known speakers,
 topic trackers, projects, the task and decision registry and settings, plus a manifest with the size and SHA-256 of each file. A recording in
-progress is left out.
+progress, a meeting being processed, or a meeting with a live-caption writer is left out. The archive
+records these exclusions. A short lock pins a snapshot of the selected files; compression runs after
+that lock is released. This requires a library filesystem that supports hard links, such as APFS.
+The snapshot protects app writes that replace files atomically; external tools that modify files in
+place are outside this guarantee. The portable registry is `items.json`; live SQLite and WAL files
+are not copied into the archive.
 
 After writing, the app runs a **restore test**: it extracts the archive into a temporary folder,
 compares every file with the manifest, and opens the folder as a library with every meeting.

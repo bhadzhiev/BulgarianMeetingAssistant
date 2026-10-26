@@ -16,10 +16,12 @@ import re
 import shutil
 import tarfile
 import tempfile
+import uuid
+from contextlib import contextmanager, nullcontext
 
 FORMAT = 'meeting-assistant-backup'
 SHARED = ('settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json')
-ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}\.tar\.gz')
+ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}(?:-[a-f0-9]{8})?\.tar\.gz')
 MEMBER = re.compile(r'(?:settings|speakers|trackers|projects|items|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
 # Derived from recording.wav and the saved settings; large, and not needed to restore a meeting.
@@ -52,14 +54,40 @@ def _library_files(root: Path, skip):
                 yield relative.as_posix(), path
 
 
-def create(root: Path, destination: Path, skip=()) -> dict:
+@contextmanager
+def snapshot(root, skip=(), guard=None):
+    """Pin atomic file versions under the application's short mutation lock.
+
+    Compression runs after releasing it. Active writers must be excluded;
+    completed PCM/WAV files are immutable and metadata uses atomic replacement.
+    """
+    with tempfile.TemporaryDirectory(prefix='.snapshot-', dir=root) as temp:
+        frozen = Path(temp)
+        with (guard or nullcontext)():
+            excluded = set(skip() if callable(skip) else skip)
+            for member, path in _library_files(root, excluded):
+                target = frozen / member
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(path, target)
+                except OSError as exc:
+                    raise ValueError('Cannot freeze the backup snapshot. The library needs a filesystem with hard-link support.') from exc
+        yield frozen, excluded
+
+
+def create(root: Path, destination: Path, skip=(), guard=None) -> dict:
+    with snapshot(root, skip, guard) as (frozen, excluded):
+        return _create_snapshot(frozen, destination, excluded)
+
+
+def _create_snapshot(root: Path, destination: Path, excluded=()) -> dict:
     destination.mkdir(parents=True, exist_ok=True)
-    name = 'meetings-' + dt.datetime.now().strftime('%Y%m%d-%H%M%S') + '.tar.gz'
+    name = 'meetings-' + dt.datetime.now().strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8] + '.tar.gz'
     partial = destination / ('.' + name + '.partial')
     files, meetings = {}, set()
     try:
         with tarfile.open(partial, 'w:gz', compresslevel=1) as archive:
-            for member, path in _library_files(root, set(skip)):
+            for member, path in _library_files(root, set()):
                 info = archive.gettarinfo(str(path), arcname=member)
                 with path.open('rb') as handle:
                     reader = _Hashing(handle)
@@ -68,7 +96,7 @@ def create(root: Path, destination: Path, skip=()) -> dict:
                 if '/' in member:
                     meetings.add(member.split('/')[0])
             manifest = json.dumps(dict(format=FORMAT, version=1, created=dt.datetime.now().astimezone().isoformat(),
-                                       meetings=sorted(meetings), files=files), ensure_ascii=False, indent=2).encode()
+                                       meetings=sorted(meetings), skipped_meetings=sorted(excluded), files=files), ensure_ascii=False, indent=2).encode()
             info = tarfile.TarInfo('manifest.json')
             info.size, info.mtime = len(manifest), int(dt.datetime.now().timestamp())
             archive.addfile(info, io.BytesIO(manifest))
@@ -79,7 +107,7 @@ def create(root: Path, destination: Path, skip=()) -> dict:
     finally:
         partial.unlink(missing_ok=True)
     _save_report(destination / name, result)
-    return dict(result, name=name)
+    return dict(result, name=name, skipped_meetings=sorted(excluded))
 
 
 def _extract(archive_path: Path, target: Path) -> dict:
@@ -152,31 +180,32 @@ def archive_path(destination: Path, name) -> Path:
     return destination / name
 
 
-def restore(archive_file: Path, library, merge=None) -> dict:
+def restore(archive_file: Path, library, merge=None, guard=None) -> dict:
     """Add the meetings that the library does not have. Existing meetings are never changed."""
     staging = Path(tempfile.mkdtemp(prefix='.restore-', dir=library.root))
     try:
         manifest = _extract(archive_file, staging)
-        restored, skipped = [], []
-        for meeting_id in manifest['meetings']:
-            if (library.root / meeting_id).exists():
-                skipped.append(meeting_id)
-            else:
-                os.replace(staging / meeting_id, library.root / meeting_id)
-                restored.append(meeting_id)
-        try:
-            library.add_speakers(json.loads((staging / 'speakers.json').read_text()))
-        except (OSError, ValueError):
-            pass
-        try:
-            known = {tracker['id'] for tracker in library.trackers()}
-            extra = [tracker for tracker in json.loads((staging / 'trackers.json').read_text()) if tracker.get('id') not in known]
-            if extra:
-                library.save_trackers(library.trackers() + extra)
-        except (OSError, ValueError, TypeError, AttributeError):
-            pass
-        if merge:
-            merge(staging, set(restored))  # data that the service owns: projects and the task registry
+        with (guard or nullcontext)():
+            restored, skipped = [], []
+            for meeting_id in manifest['meetings']:
+                if (library.root / meeting_id).exists():
+                    skipped.append(meeting_id)
+                else:
+                    os.replace(staging / meeting_id, library.root / meeting_id)
+                    restored.append(meeting_id)
+            try:
+                library.add_speakers(json.loads((staging / 'speakers.json').read_text()))
+            except (OSError, ValueError):
+                pass
+            try:
+                known = {tracker['id'] for tracker in library.trackers()}
+                extra = [tracker for tracker in json.loads((staging / 'trackers.json').read_text()) if tracker.get('id') not in known]
+                if extra:
+                    library.save_trackers(library.trackers() + extra)
+            except (OSError, ValueError, TypeError, AttributeError):
+                pass
+            if merge:
+                merge(staging, set(restored))  # data that the service owns: projects and the task registry
         return dict(restored=restored, skipped=skipped)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

@@ -5,7 +5,7 @@
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="Meeting Assistant home"><span class="brand-icon">м</span><span>Meeting<br><strong>Assistant</strong></span></a>
   <button id="new-meeting" class="primary wide">＋ New meeting</button>
-  <button id="open-tasks" class="secondary wide tasks-link">✓ Tasks &amp; decisions <span id="tasks-badge" class="count-badge" hidden></span></button>
+  <button id="open-tasks" class="secondary wide tasks-link">✓ My Work <span id="tasks-badge" class="count-badge" hidden></span></button>
   <button id="open-analytics" class="secondary wide tasks-link">▥ Conversation analytics</button>
   <button id="open-prepare" class="secondary wide tasks-link">☰ Prepare me</button>
   <button id="open-find" class="secondary wide tasks-link">⌕ Search &amp; ask</button>
@@ -55,7 +55,8 @@
     <p class="below-card">Keep the app running. Live captions appear during recording; final processing follows after you stop.</p>
   </section>
   <section id="tasks" hidden>
-    <div class="heading"><p class="eyebrow">FOLLOW-UP</p><h1>Tasks and decisions</h1><p id="tasks-summary" class="subheading"></p></div>
+    <div class="heading"><p class="eyebrow">MY WORK · MEETINGS</p><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>
+    <label for="work-project">Project</label><select id="work-project"><option value="">All projects</option></select>
     <div class="segmented kind-switch" role="group" aria-label="Show tasks or decisions"><button type="button" data-kind="task" class="selected">Tasks</button><button type="button" data-kind="decision">Decisions</button></div>
     <div id="link-review" class="card link-review" hidden></div>
     <div class="card">

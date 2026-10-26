@@ -5,7 +5,7 @@ function disconnectedMessage(){return desktopStatus||(state?.desktop_mode?'Disco
 let state, selected = null, detail = null, view = 'setup', dirtyTranscript = false, dirtyNotes = false;
 let lastFingerprint = '', lastLibrary = '', lastDevices = '', pending = false;
 let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = 'recording';
-let lastTasks = '';
+let lastTasks = '', itemEditing = false;
 let analyticsData = null, trackersData = [];
 let notesEditing = false, questionFilter = 'open', questionLimit = 10;
 let requestedMeeting=new URLSearchParams(location.search).get('meeting'), initialRouteHandled=false, lastGoogleConnected=false;
@@ -53,7 +53,7 @@ async function api(path,body) {
  const data=await response.json(); if(!response.ok) throw new Error(data.error || 'Request failed'); return data;
 }
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
-function hasEdits() { return dirtyTranscript || dirtyNotes; }
+function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing; }
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
 function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
  return new Promise(resolve=>{
@@ -65,7 +65,7 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
  });
 }
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
-async function leaveEdits() { return !hasEdits() || await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'}); }
+async function leaveEdits() { const leave=!hasEdits()||await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'});if(leave&&itemEditing){setItemEditing(false);lastTasks='';}return leave; }
 function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare','find']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); }
 function renderLibrary() {
  const query=$('search').value.toLocaleLowerCase();
@@ -523,7 +523,7 @@ function renderBackups(data) {
 }
 async function loadBackups() { renderBackups(await api('/api/backups')); }
 $('backup-now').onclick=()=>perform(async()=>{const button=$('backup-now');button.disabled=true;$('backup-status').textContent='Archiving and running the restore test… Large libraries take a few minutes.';
- try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+result.created.meetings+' meetings'+(result.skipped_active?' · the recording in progress was left out':'');}
+ try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+result.created.meetings+' meetings'+(result.created.skipped_meetings?.length?' · '+result.created.skipped_meetings.length+' active or processing meetings left out':'');}
  catch(e){$('backup-status').textContent='';throw e;}finally{button.disabled=false;}});
 function showSettingsTab(name) {
  settingsTab=name; if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings();
@@ -569,7 +569,7 @@ function dueInfo(task,today) {
  return [days<=7?'soon':'later','Due in '+days+(days===1?' day':' days')];
 }
 let itemKind='task', itemsData={items:[],pending:[],meetings:{}};
-const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'],['all','All']],decision:[['current','In force'],['proposed','Proposed'],['accepted','Accepted'],['superseded','Replaced'],['all','All']]};
+const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']],decision:[['current','In force'],['proposed','Proposed'],['accepted','Accepted'],['superseded','Replaced'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']]};
 const statusFilter={task:'open',decision:'current'};
 const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
@@ -596,7 +596,7 @@ function historyBlock(item,meetings) {
  box.append(list); return box;
 }
 async function refreshAfterItemChange() { lastTasks=''; if(view==='tasks') await loadTasks(); else if(view==='prepare') await loadPrepare(); else if(view==='detail'&&selected) await openMeeting(selected,true); state=await api('/api/state'); renderState(); }
-async function changeItem(item,changes) { await api('/api/items/'+item.id,{text:item.text,changes}); await refreshAfterItemChange(); }
+async function changeItem(item,changes,finishEdit=false) { await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});if(finishEdit)setItemEditing(false);await refreshAfterItemChange(); }
 // A new mention that looks like an existing item: the person decides, nothing is linked before that.
 function linkCard(entry,meetings,itemsById) {
  const kind=entry.kind, mention=entry.mention, card=el('div','link-card'), head=el('div','link-head');
@@ -617,23 +617,43 @@ function linkCard(entry,meetings,itemsById) {
  const fresh=el('button','quiet','No, it is a new '+kind); fresh.type='button'; fresh.onclick=()=>resolve('new'); card.append(fresh);
  return card;
 }
+function evidenceBlock(item,meetings){
+ const snapshots=item.evidence||[],box=el('details','item-history');box.append(el('summary','','Sources · '+snapshots.length));
+ for(const evidence of [...snapshots].reverse()){
+  const row=el('div','work-evidence'),main=el('div');main.append(el('small','hint',evidence.quote_kind==='meeting_note'?'Saved meeting note · historical wording':'Saved item text · source quote unavailable'),el('p','',evidence.quote));
+  const source=el('button','quiet','↗ '+meetingLabel(evidence.source_id,meetings)+(evidence.timestamp?' · '+evidence.timestamp:''));source.type='button';source.disabled=!meetings[evidence.source_id];
+  source.onclick=()=>perform(async()=>{await openMeeting(evidence.source_id);switchTab('outcomes');if(evidence.timestamp&&detail.files.includes('recording.wav'))$('audio').currentTime=evidence.timestamp.split(':').reduce((n,v)=>n*60+Number(v),0);toast('Showing the current meeting. This quote is a saved note snapshot.');});
+  row.append(main,source);box.append(row);
+ }
+ return box;
+}
+function setItemEditing(active,row=null){
+ itemEditing=active;
+ for(const other of $('task-list').children)other.inert=active&&other!==row;
+ for(const node of [...document.querySelectorAll('[data-kind]'),...$('status-filter').querySelectorAll('button'),$('work-project'),$('task-owner')])node.disabled=active;
+ if(active&&row)for(const node of row.querySelectorAll('input,button'))node.disabled=true;
+}
 function itemActions(item,row) {
  const actions=el('div','tracked-actions'), edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
  const main=row.querySelector('.tracked-main'), text=main.querySelector('.tracked-text');
- edit.onclick=()=>{const box=el('textarea','tracked-edit'),bar=el('div','tracked-edit-bar'),save=el('button','primary','Save'),cancel=el('button','secondary','Cancel');let owner=null;
+ edit.onclick=()=>{if(itemEditing)return;setItemEditing(true,row);const box=el('textarea','tracked-edit'),bar=el('div','tracked-edit-bar'),save=el('button','primary','Save'),cancel=el('button','secondary','Cancel');let owner=null;
   box.value=item.text;box.setAttribute('aria-label','Text');bar.append(save,cancel);
   if(item.kind==='task'){owner=el('input','tracked-owner-input');owner.value=item.owner||'';owner.placeholder='Owner';owner.setAttribute('list','known-speakers');owner.setAttribute('aria-label','Owner');bar.prepend(owner);}
-  const close=()=>{box.replaceWith(text);bar.remove();actions.hidden=false;};
-  save.onclick=()=>{const value=box.value.trim();if(!value){box.focus();return;}const changes={};if(value!==item.text)changes.text=value;if(owner&&(owner.value.trim()||null)!==item.owner)changes.owner=owner.value.trim()||null;if(!Object.keys(changes).length){close();return;}save.disabled=true;perform(()=>changeItem(item,changes)).finally(()=>save.disabled=false);};
+  const close=()=>{setItemEditing(false);box.replaceWith(text);bar.remove();actions.hidden=false;lastTasks='';perform(loadTasks);};
+  save.onclick=()=>{const value=box.value.trim();if(!value){box.focus();return;}const changes={};if(value!==item.text)changes.text=value;if(owner&&(owner.value.trim()||null)!==item.owner)changes.owner=owner.value.trim()||null;if(!Object.keys(changes).length){close();return;}save.disabled=true;perform(()=>changeItem(item,changes,true)).finally(()=>save.disabled=false);};
   cancel.onclick=close;box.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))save.click();};
   text.replaceWith(box);box.after(bar);actions.hidden=true;box.focus();};
  merge.onclick=()=>{const others=itemsData.items.filter(other=>other.kind===item.kind&&other.id!==item.id);if(!others.length){toast('There is no other '+item.kind+' to merge with');return;}
+  if(itemEditing)return;setItemEditing(true,row);
   const bar=el('div','tracked-edit-bar'),select=el('select'),go=el('button','primary','Merge'),cancel=el('button','secondary','Cancel');
   select.setAttribute('aria-label','Merge into');select.append(option('Same as…',''),...others.map(other=>option(other.text.slice(0,100),other.id)));
-  go.onclick=()=>{if(!select.value)return;perform(async()=>{await api('/api/items/'+item.id+'/merge',{into:select.value});await refreshAfterItemChange();toast('Merged · both histories are kept');});};
-  cancel.onclick=()=>{bar.remove();actions.hidden=false;};bar.append(select,go,cancel);main.append(bar);actions.hidden=true;};
- remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this '+item.kind+' everywhere?\n\n'+item.text+'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.'),{ok:'Delete',danger:true})))return;await api('/api/items/'+item.id+'/delete',{text:item.text});await refreshAfterItemChange();toast('Deleted');});
- actions.append(edit,merge,remove); return actions;
+  go.onclick=()=>{if(!select.value)return;perform(async()=>{await api('/api/items/'+item.id+'/merge',{into:select.value,revision:item.revision,into_revision:itemsData.items.find(other=>other.id===select.value)?.revision});setItemEditing(false);await refreshAfterItemChange();toast('Merged · both histories are kept');});};
+  cancel.onclick=()=>{setItemEditing(false);bar.remove();actions.hidden=false;lastTasks='';perform(loadTasks);};bar.append(select,go,cancel);main.append(bar);actions.hidden=true;};
+ remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this '+item.kind+' everywhere?\n\n'+item.text+'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.'),{ok:'Delete',danger:true})))return;await api('/api/items/'+item.id+'/delete',{text:item.text,revision:item.revision});await refreshAfterItemChange();toast('Deleted');});
+ const snooze=el('button','quiet',item.snoozed_until?'Unsnooze':'Snooze'),dismiss=el('button','quiet',item.dismissed?'Restore to My Work':'Dismiss');
+ snooze.onclick=()=>perform(async()=>{if(item.snoozed_until){await changeItem(item,{snoozed_until:null});return;}const day=new Date();day.setDate(day.getDate()+1);const value=await ask('Snooze in My Work until YYYY-MM-DD. The item status and its sources stay unchanged.',{ok:'Snooze',value:day.toLocaleDateString('en-CA')});if(value!==null)await changeItem(item,{snoozed_until:value});});
+ dismiss.onclick=()=>perform(()=>changeItem(item,{dismissed:!item.dismissed}));
+ actions.append(edit,snooze,dismiss,merge,remove); return actions;
 }
 function globalTaskRow(item,today) {
  const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), done=el('input'), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
@@ -641,7 +661,7 @@ function globalTaskRow(item,today) {
  who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
  meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline));
- main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings));
+ main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(done,main); row.append(itemActions(item,row)); return row;
 }
 function decisionRow(item,byId) {
@@ -649,17 +669,23 @@ function decisionRow(item,byId) {
  meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status]));
  if(item.superseded_by&&byId[item.superseded_by]) meta.append(el('span','hint','Replaced by: '+byId[item.superseded_by].text));
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
- const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:['accepted','Restore']}[item.status];
+ const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
  const change=el('button','secondary small-action',next[1]);change.type='button';change.onclick=()=>perform(()=>changeItem(item,{status:next[0]}));meta.append(change);
- main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings));
+ main.append(el('p','tracked-text',item.text),meta,meetingChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
-async function loadTasks() { const fresh=await api('/api/items'); const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
+async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
 function renderTasks() {
+ if(itemEditing)return;
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
- const tasks=itemsData.items.filter(item=>item.kind==='task'), decisions=itemsData.items.filter(item=>item.kind==='decision');
- const open=tasks.filter(t=>t.status==='open'), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending;
- $('tasks-summary').textContent=open.length+' open tasks · '+late.length+' overdue · '+decisions.filter(d=>d.status!=='superseded').length+' decisions in force'+(pending.length?' · '+pending.length+' to review':'');
+ const project=$('work-project'), oldProject=project.value;
+ project.replaceChildren(option('All projects',''),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
+ if([...project.options].some(o=>o.value===oldProject))project.value=oldProject;
+ const inProject=item=>!project.value||item.links.some(link=>meetings[link.meeting_id]?.project_id===project.value);
+ const tasks=itemsData.items.filter(item=>item.kind==='task'&&inProject(item)), decisions=itemsData.items.filter(item=>item.kind==='decision'&&inProject(item));
+ const open=tasks.filter(t=>t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
+ const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
+ $('tasks-summary').textContent=open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':'');
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.classList.toggle('selected',button.dataset.kind===itemKind); button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
@@ -671,10 +697,11 @@ function renderTasks() {
  $('task-owner').value=[...$('task-owner').options].some(o=>o.value===owner)?owner:'';
  const latest=item=>item.links.map(link=>meetings[link.meeting_id]?.date||'').sort().at(-1)||'';
  let rows;
- if(itemKind==='task') rows=tasks.filter(t=>filter==='all'||(filter==='done'?t.status==='done':t.status==='open'&&(filter==='open'||t.due_date&&t.due_date<today)))
+ const personal=item=>filter==='snoozed'?!!item.snoozed_until&&item.snoozed_until>today&&!item.dismissed:filter==='dismissed'?!!item.dismissed:filter==='all'||!item.dismissed&&(!item.snoozed_until||item.snoozed_until<=today);
+ if(itemKind==='task') rows=tasks.filter(personal).filter(t=>['all','snoozed','dismissed'].includes(filter)||(filter==='done'?t.status==='done':t.status==='open'&&(filter==='open'||t.due_date&&t.due_date<today)))
   .filter(t=>!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:t.owner===$('task-owner').value))
   .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||latest(b).localeCompare(latest(a)));
- else rows=decisions.filter(d=>filter==='all'||(filter==='current'?d.status!=='superseded':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
+ else rows=decisions.filter(personal).filter(d=>['all','snoozed','dismissed'].includes(filter)||(filter==='current'?d.status==='accepted':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
  $('task-list').replaceChildren();
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
  if(!rows.length) $('task-list').append(el('p','empty-content',(itemKind==='task'?tasks:decisions).length?'Nothing matches this filter.':empty));
@@ -896,6 +923,7 @@ $('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;di
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
+$('work-project').onchange=()=>renderTasks();
 $('task-owner').onchange=renderTasks;
 $('new-meeting').onclick=async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;renderLibrary();};
 let searchTimer; $('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim();if(q){window.searchResults=await api('/api/search?q='+encodeURIComponent(q));}else window.searchResults=null;lastLibrary='';renderLibrary();}),200);};

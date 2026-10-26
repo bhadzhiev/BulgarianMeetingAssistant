@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from contextlib import contextmanager
 import json
 import datetime as dt
 import os
@@ -887,11 +888,19 @@ class MeetingService:
         return dict(folder=str(self.backup_dir), archives=backup.archives(self.backup_dir) if self.backup_dir.exists() else [])
 
     def create_backup(self):
-        # Archiving can take minutes; recording controls must not wait for it.
-        with self.lock:
-            skip = {self.active} if self.active else set()
-        result = backup.create(self.library.root, self.backup_dir, skip)
-        return dict(self.backups(), created=result, skipped_active=bool(skip))
+        def skip():
+            live = {meeting_id for meeting_id, session in self.live_sessions.items()
+                    if session.thread and session.thread.is_alive()}
+            return set(self.busy) | live | ({self.active} if self.active else set())
+        result = backup.create(self.library.root, self.backup_dir, skip, guard=self._snapshot_guard)
+        return dict(self.backups(), created=result, skipped_active=bool(result['skipped_meetings']))
+
+    @contextmanager
+    def _snapshot_guard(self):
+        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock:
+            # Recover a projection interrupted after SQLite committed before pinning it.
+            self.items.data, self.items.revision = self.items.store.load()
+            yield
 
     def restore_backup(self, name):
         def merge(staging, restored):
@@ -914,7 +923,7 @@ class MeetingService:
                     self.items.save()
             except (OSError, ValueError, KeyError, AttributeError):
                 pass
-        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge)
+        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge, guard=self._snapshot_guard)
         with self.lock:
             for meeting_id in result['restored']:
                 # A meeting archived during a job comes back as interrupted, like after a crash.
@@ -1164,7 +1173,8 @@ class MeetingService:
         self._refresh_items()
 
     def _meeting_refs(self):
-        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created']) for m in self.library.list()}
+        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created'], project_id=m.get('project_id'))
+                for m in self.library.list()}
 
     def pending_links(self, meetings=None):
         """Mentions that may be an existing task or decision and wait for a person to choose."""
@@ -1192,7 +1202,8 @@ class MeetingService:
 
     def task_summary(self):
         today = dt.date.today().isoformat()
-        open_tasks = [t for t in self.tasks() if t['status'] == 'open']
+        open_tasks = [t for t in self.tasks() if t['status'] == 'open' and not t.get('dismissed')
+                      and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
                     today=today, review=len(self.pending_links()))
 
@@ -1208,19 +1219,34 @@ class MeetingService:
             validate_minutes(minutes)
             yield link, directory, minutes
 
-    def update_item(self, item_id, text, changes):
+    def update_item(self, item_id, text, changes, revision=None):
         if not isinstance(changes, dict) or not changes:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
             if not item or item['text'] != text:
-                raise ValueError('This item changed. Reload the list and try again.')
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
+            if revision is not None and (type(revision) is not int or revision != item.get('revision')):
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             allowed = {'text', 'owner', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+            allowed |= {'dismissed', 'snoozed_until'}
             if set(changes) - allowed:
                 raise ValueError('These fields cannot change here')
             clean = {}
             for name, value in changes.items():
-                if name == 'text':
+                if name == 'dismissed':
+                    if type(value) is not bool:
+                        raise ValueError('Dismissed must be true or false')
+                    clean[name] = value
+                elif name == 'snoozed_until':
+                    if value is not None:
+                        try:
+                            if dt.date.fromisoformat(value).isoformat() != value:
+                                raise ValueError()
+                        except (ValueError, TypeError):
+                            raise ValueError('Snooze date must use YYYY-MM-DD') from None
+                    clean[name] = value
+                elif name == 'text':
                     if not isinstance(value, str) or not value.strip():
                         raise ValueError('The text cannot be empty')
                     clean[name] = value.strip()[:1000]
@@ -1245,13 +1271,15 @@ class MeetingService:
             self._sync_linked({item_id})
             return dict(self.items.items[item_id])
 
-    def delete_item(self, item_id, text):
+    def delete_item(self, item_id, text, revision=None):
         """Remove a task or decision and its mentions from every meeting."""
         from meeting_assistant import save_minutes
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
             if not item or item['text'] != text:
-                raise ValueError('This item changed. Reload the list and try again.')
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
+            if revision is not None and (type(revision) is not int or revision != item.get('revision')):
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             field = items.FIELD[item['kind']]
             for _, directory, minutes in list(self._linked_minutes(item)):
                 minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
@@ -1260,12 +1288,15 @@ class MeetingService:
             self.items.save()
             return dict(deleted=item_id)
 
-    def merge_items(self, item_id, into_id):
+    def merge_items(self, item_id, into_id, revision=None, into_revision=None):
         from meeting_assistant import save_minutes
         with self.lock, self.items.lock:
             item, into = self.items.items.get(item_id), self.items.items.get(into_id)
             if not item or not into or item_id == into_id or item['kind'] != into['kind']:
                 raise ValueError('Choose another item of the same kind')
+            if (revision is not None and (type(revision) is not int or revision != item.get('revision'))
+                    or into_revision is not None and (type(into_revision) is not int or into_revision != into.get('revision'))):
+                raise items.WorkItemConflict('These items changed. Reload the list and try again.')
             field = items.FIELD[item['kind']]
             for _, directory, minutes in list(self._linked_minutes(item)):
                 if any(mention.get('item_id') == into_id for mention in minutes[field]):

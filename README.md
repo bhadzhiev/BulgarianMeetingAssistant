@@ -359,8 +359,8 @@ A stale edit from another window is rejected; cancel the editor to load the newe
 Migration copies and archives retain earlier data until you remove those copies.
 
 The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
-the next stages. This foundation supports meeting tasks and decisions. Gmail, Google Chat and GitHub
-external account connections are planned; this version does not connect to them.
+the next stages. This foundation supports meeting tasks, decisions and questions.
+GitHub and Google Chat connections remain planned. The first Gmail connector is available below.
 
 **Suggested** stores source-backed proposals separately. **Accept** creates an item; **Link** attaches
 the quote to an existing item of the same kind without changing its text, owner or status. Dismiss,
@@ -477,6 +477,47 @@ You cannot delete a meeting while it records or processes.
 The app validates notes' structure and source timestamps, but factual correctness still requires
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
+
+## Gmail: local read-only pilot
+
+Open **My Work → Gmail → Connect Gmail read-only**. Use the shared Google connection and approve
+`gmail.readonly`. Calendar permission is requested only if already used or separately connected.
+This desktop OAuth flow requests the complete selected scope set again; it does not use incremental
+authorization. Tokens stay in macOS Keychain. Enable the Gmail API for the app's OAuth project;
+Workspace admin policy, OAuth testing users or restricted-scope verification can block access.
+See [desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app) and
+[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
+
+Choose **Refresh connection**, then **Sync / Continue**. Each run handles one page of up to 20 threads.
+The first sync covers up to 200 threads with Inbox/Sent activity in the preceding 30 days. Continue
+until the status says synced. A limit message means the initial window is incomplete. Subsequent runs
+use Gmail history; an expired history cursor asks you to start a bounded rebuild. Recording/processing
+pauses further work, and Cancel stops before the next cache commit. A network request already in
+flight can take up to its 30-second timeout; it does not hold recording controls.
+
+**Needs reply** means the latest non-draft message is incoming; **Waiting for** means it is sent.
+These are direction-based candidates, not AI judgments that someone owes a reply. Open a thread to
+read its cached text and fetch time. HTML becomes plain text; remote images, scripts and attachments
+are not fetched or rendered. A thread includes at most its latest 100 non-draft messages and local
+size limits apply. Matching threads can contain older messages. This version does not send, modify,
+label or draft email, and never sends email content to AI.
+
+**Suggest a task from this message** saves a manual proposal with a pinned source quote. Review it
+in Suggested, then Accept or Link. It does not extract commitments or dates automatically. Syncing a
+changed previously-linked thread marks its old pending proposals stale. A removed/out-of-window
+thread becomes unavailable without completing its WorkItems. Review uses the last synced revision;
+it is not a live Gmail check at the instant you click Accept.
+
+The rebuildable `gmail-cache.sqlite3` holds email text locally. Accounts have separate caches; only
+the connected account is shown. **Clear local email cache** can remove a selected cached account even
+after sign-out. This keeps promoted WorkItem source snapshots and archives. The email cache and
+cursor are excluded from library archives; promoted sources/proposals remain in the portable graph.
+Incremental sync can grow the cache beyond the initial cap; lists show at most 200 threads. There is
+no automatic email retention purge or automatic background sync in this pilot.
+
+The connector is tested with synthetic Gmail responses. Live consent, Workspace policy and a real
+mailbox sync still need validation with the app owner's account. Automatic extraction with explicit
+per-source AI consent is a later delivery.
 
 ## Archive and restore the library
 

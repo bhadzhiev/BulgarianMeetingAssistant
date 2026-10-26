@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.server.service.google.complete({k:v[0] for k,v in parse_qs(url.query).items()})
                 self.server.service.google_connected()
-                message = 'You are signed in with Google. Return to Meeting Assistant and choose the destination calendar in Settings.'
+                message = 'You are signed in with Google. Return to Meeting Assistant to use the permissions you approved.'
                 code = 200
             except Exception as exc:
                 message, code = str(exc), 400
@@ -142,6 +142,12 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
             return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
+        if url.path == '/api/gmail':
+            return self.respond(200, self.server.service.gmail.status())
+        if url.path == '/api/gmail/threads':
+            return self.respond(200, self.server.service.gmail.listing(parse_qs(url.query).get('view',['needs_reply'])[0]))
+        if url.path == '/api/gmail/thread':
+            return self.respond(200, self.server.service.gmail.detail(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
             return self.respond(200, self.server.service.item_list())
         if url.path == '/api/tasks':
@@ -254,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/calendar/credentials':
                 result = service.google.configure(body['credentials'])
             elif path == '/api/calendar/connect':
-                url = service.google.begin(self.server.origin)
+                url = service.google.begin(self.server.origin, body.get('capability','calendar')) if body.get('capability') else service.google.begin(self.server.origin)
                 opened = webbrowser.open(url)
                 result = {'authorization_url':url,'browser_opened':opened}
             elif path == '/api/calendar/disconnect':
@@ -265,6 +271,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.import_transcript(body['text'], body.get('filename', ''))
             elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
+            elif path == '/api/gmail/sync':
+                result = service.gmail.start()
+            elif path == '/api/gmail/cancel':
+                result = service.gmail.stop()
+            elif path == '/api/gmail/clear':
+                result = service.gmail.clear(body.get('account'))
+            elif path == '/api/gmail/propose':
+                result = service.gmail_proposal(body['id'],body['revision'],body['message_id'],body['title'])
             elif path == '/api/speakers':
                 result = service.save_speakers(body['speakers'])
             elif path == '/api/trackers':

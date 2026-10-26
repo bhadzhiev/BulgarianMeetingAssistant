@@ -139,3 +139,28 @@ SQLite. Content and historical revisions are retained locally and inside archive
 retention/purge controls and large-account ingestion performance remain later connector work.
 Physical iPhone recovery and speech throughput measurements remain manual validation work; passing
 synthetic tests does not complete those checks. No blocking product-scope questions remain for this slice.
+
+
+## Gmail pilot (WA-007 first delivery)
+
+A shared PKCE/Keychain account tracks Calendar and Gmail grants independently. Gmail uses only
+`gmail.readonly`; existing Calendar grants are explicitly included in the next consent request.
+The desktop flow does not support incremental authorization, per
+[Google's native app guide](https://developers.google.com/identity/protocols/oauth2/native-app).
+No actual account is connected during automated development checks.
+
+Manual sync uses a separate indexed SQLite cache and durable per-account queues. Initial sync reads
+at most 200 matching threads in a fixed 30-day window, in pages of 20. History refresh preserves the
+old cursor until every referenced thread is handled; HTTP 404 resets to a bounded rebuild, following
+[Google's sync contract](https://developers.google.com/workspace/gmail/api/guides/sync). There is one
+worker, no automatic sync and recording/processing takes priority. Full selected thread text is read
+within local body/response/count limits; attachments are excluded. The cache is rebuildable, excluded
+from archives and can be cleared independently. Promoted source snapshots remain in graph archives.
+
+Needs reply/Waiting for are last-message direction heuristics. Message-to-task proposals are manual,
+with pinned quotes and existing Accept/Link review. No automatic commitment/deadline extraction,
+AI export, draft, send, label or mailbox modification is implemented. Existing promoted sources are
+refreshed before a cache page is committed, so interruption retries are safe across the two stores.
+Unknown provider ordering, live mailbox validation, retention policy, Workspace deployment consent
+and automatic extraction remain explicit follow-ups. The Gmail permission itself is restricted; see
+[Google's scope classification](https://developers.google.com/workspace/gmail/api/auth/scopes).

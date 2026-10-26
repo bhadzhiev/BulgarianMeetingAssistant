@@ -35,6 +35,7 @@ from .google_calendar import GoogleCalendar, bundled_client, CalendarError
 from .gmail import GmailSync
 from .gmail_ai import GmailAI
 from .google_chat import ChatSync
+from .github_source import GitHubConnection,GitHubSync,GitHubError
 from .meeting_automation import MeetingAutomation
 from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
 
@@ -101,6 +102,8 @@ class MeetingService:
         self.gmail_ai = GmailAI(self)
         self.chat = ChatSync(root,self.google,lambda:self.closed.is_set() or bool(self.active or self.busy),
                              self._refresh_chat_message,self._chat_unavailable)
+        self.github = GitHubSync(root,GitHubConnection(root),lambda:self.closed.is_set() or bool(self.active or self.busy),
+                                 self._refresh_github_source,self._github_unavailable)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -1218,6 +1221,51 @@ class MeetingService:
             self._refresh_items()
             return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs(), graph=WorkGraph(self.items).snapshot())
 
+    def _github_publish(self,account,record,suggestions):
+        graph=WorkGraph(self.items)
+        def metadata(data,result):
+            data['sources'][result['source_id']]['remote']=dict(state=record['state'],kind=record['kind'],
+                repository_id=record['repository_id'],repository=record['repository'],number=record['number'],
+                authority='github',fetched_at=record['fetched_at'])
+        return graph.ingest(dict(provider='github',account='github.com:'+account,external_id='issue:'+str(record['issue_id']),
+            revision=record['revision'],text=record['text']),suggestions,after=metadata)
+
+    def _refresh_github_source(self,account,record):
+        with self.lock,self.items.lock:
+            if self.closed.is_set() or self.active or self.busy:raise InterruptedError('paused for recording or processing')
+            if self.github.connection.status()['account_id']!=account:raise GitHubError('GitHub account changed. Sync again.')
+            source=next((s for s in self.items.data['sources'].values() if s['provider']=='github' and
+                         s['account']=='github.com:'+account and s['external_id']=='issue:'+str(record['issue_id'])),None)
+            if source:
+                if record['available']:
+                    known=self.items.data['source_revisions'][source['current_revision']]
+                    if source['available'] and known['external_revision']==record['revision']:
+                        return
+                    self._github_publish(account,record,[])
+                else:WorkGraph(self.items).availability(source['id'],source['current_revision'],False)
+
+    def _github_unavailable(self,account,repo):
+        with self.lock,self.items.lock:
+            if self.github.connection.status()['account_id']!=account:raise GitHubError('GitHub account changed. Sync again.')
+            graph=WorkGraph(self.items)
+            def apply(data):
+                for source in data['sources'].values():
+                    if source['provider']=='github' and source['account']=='github.com:'+account and source.get('remote',{}).get('repository_id')==repo:
+                        source.update(available=False,ai_export_allowed=False);source.pop('ai_consent',None)
+                graph._activity(data,'github_repository_unavailable',account=account,repository_id=repo)
+            graph._write(apply)
+
+    def github_proposal(self,key,revision,title):
+        with self.github.lock,self.lock,self.items.lock:
+            account=self.github._account();record=self.github.detail(key,expected_account=account)
+            if not record['available']:raise ValueError('This GitHub source is unavailable. Refresh repository access first.')
+            if record['revision']!=revision or self.github.connection.status()['account_id']!=account:
+                raise items.WorkItemConflict('GitHub source/account changed. Reopen the object before proposing a task.')
+            quote=(record['body'] or record['title'])[:10000]
+            return self._github_publish(account,record,[dict(kind='task',text=title,quote=quote,
+                locator=dict(repository_id=record['repository_id'],repository=record['repository'],issue_id=key,
+                             number=record['number'],kind=record['kind'],url=record['url'],head_sha=record.get('head_sha')))])
+
     def _refresh_chat_message(self, account, record):
         with self.lock,self.items.lock:
             if self.closed.is_set() or self.active or self.busy:
@@ -1633,6 +1681,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.github.close()
         self.chat.close()
         self.gmail_ai.close()
         self.gmail.close()

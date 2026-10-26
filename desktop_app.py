@@ -142,6 +142,15 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
             return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
+        if url.path == '/api/github':
+            return self.respond(200, self.server.service.github.status())
+        if url.path == '/api/github/repos':
+            return self.respond(200, self.server.service.github.repos())
+        if url.path == '/api/github/items':
+            query = parse_qs(url.query)
+            return self.respond(200, self.server.service.github.listing(int(query.get('repo',['0'])[0]),query.get('filter',['all'])[0],query.get('kind',['all'])[0]))
+        if url.path == '/api/github/item':
+            return self.respond(200, self.server.service.github.detail(int(parse_qs(url.query).get('id',['0'])[0])))
         if url.path == '/api/chat':
             return self.respond(200, self.server.service.chat.status())
         if url.path == '/api/chat/spaces':
@@ -281,6 +290,21 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.import_transcript(body['text'], body.get('filename', ''))
             elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
+            elif path == '/api/github/connect':
+                result = service.github.connection.connect(body['token'])
+            elif path == '/api/github/disconnect':
+                service.github.stop()
+                result = service.github.connection.disconnect()
+            elif path == '/api/github/sync':
+                result = service.github.start(body['repository'],body.get('filter','all'),body.get('restart',False))
+            elif path == '/api/github/refresh':
+                result = service.github.start(key=body['id'])
+            elif path == '/api/github/cancel':
+                result = service.github.stop()
+            elif path == '/api/github/clear':
+                result = service.github.clear(body['account'])
+            elif path == '/api/github/propose':
+                result = service.github_proposal(body['id'],body['revision'],body['title'])
             elif path == '/api/chat/discover':
                 result = service.chat.start('spaces',restart=body.get('restart',False))
             elif path == '/api/chat/sync':

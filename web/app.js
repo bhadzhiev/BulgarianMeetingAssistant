@@ -752,6 +752,40 @@ $('chat-restart').onclick=()=>perform(()=>chatAction('sync',{space:chatSpace,res
 $('chat-cancel').onclick=()=>perform(()=>chatAction('cancel'));
 $('chat-clear').onclick=()=>perform(async()=>{const account=$('chat-cache-account').value;if(await ask('Clear this local Chat account cache? Promoted WorkItem source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/chat/clear',{account});chatMessage='';$('chat-detail').replaceChildren();await loadChat();}});
 
+let ghAccount='',ghRepo=0,ghItem=0,ghRepos=[],ghTimer=null,ghWasRunning=false;
+async function loadGitHub(){
+ const status=await api('/api/github'),connection=status.connection;
+ if(ghAccount!==connection.account_id){ghAccount=connection.account_id;ghRepo=0;ghItem=0;$('github-detail').replaceChildren();$('github-repository').value='';}
+ $('github-status').textContent=(connection.connected?'Connected as '+connection.login:'GitHub not connected')+' · '+status.job.status+(connection.error?' · '+connection.error:'')+(status.job.error?' · '+status.job.error:'');
+ ghRepos=connection.connected?await api('/api/github/repos'):[];const chosen=ghRepos.find(r=>r.full_name.toLowerCase()===$('github-repository').value.trim().toLowerCase());if(chosen)ghRepo=chosen.id;
+ $('github-repos').replaceChildren(option('Choose a cached repository…',''),...ghRepos.map(r=>option(r.full_name,String(r.id))));$('github-repos').value=ghRepo?String(ghRepo):'';
+ $('github-sync').disabled=$('github-restart').disabled=!connection.connected||status.job.running;$('github-cancel').disabled=!status.job.running;$('github-disconnect').disabled=!connection.connected;
+ const cache=$('github-cache-account'),old=cache.value;cache.replaceChildren(...status.cached_accounts.map(a=>option(a.login+' · '+a.id,a.id)));if(status.cached_accounts.some(a=>a.id===old))cache.value=old;$('github-clear').disabled=status.job.running||!status.cached_accounts.length;
+ const list=$('github-items');list.replaceChildren();if(ghRepo&&connection.connected){const role=$('github-filter').value,sync=status.states[ghRepo+':'+role]||{};
+  list.append(el('p','hint',(sync.last_sync?'Last page saved '+new Date(sync.last_sync*1000).toLocaleString():'This filter has no completed page yet')+(sync.limited?' · 200-result limit reached':'')+(sync.incomplete?' · GitHub reported incomplete search results':'')));
+  const records=await api('/api/github/items?repo='+ghRepo+'&filter='+role+'&kind='+$('github-kind').value);for(const r of records){const b=el('button','mail-thread',r.repository+' #'+r.number+' · '+(r.kind==='issue'?'Issue':'PR')+' · '+r.title+' · '+(r.available?r.state:'Unavailable'));b.onclick=()=>perform(()=>openGitHubItem(r.issue_id));list.append(b);}if(!records.length)list.append(el('p','hint','No matches in this cached filter. Sync the selected repository/filter.'));
+ }
+ if(ghWasRunning&&!status.job.running){lastTasks='';await loadTasks();if(ghItem)await openGitHubItem(ghItem);}ghWasRunning=status.job.running;
+ if(ghTimer)clearTimeout(ghTimer);ghTimer=null;if(status.job.running&&view==='tasks'&&$('github-panel').open)ghTimer=setTimeout(()=>perform(loadGitHub),1500);
+}
+async function openGitHubItem(key){
+ const r=await api('/api/github/item?id='+key);ghItem=key;const box=$('github-detail');box.replaceChildren(el('h3','',r.repository+' #'+r.number+' · '+r.title),el('p','hint','GitHub '+(r.kind==='issue'?'issue':'PR')+' state: '+r.state+' · '+(r.available?'Cached '+new Date(r.fetched_at*1000).toLocaleString():'Source unavailable')),el('p','hint','Local task status remains independent.'),el('p','mail-body',r.available?r.body||'No body text. The title can be quoted.':'Access or source unavailable. Historical WorkItem quotes remain.'));
+ const link=el('a','','Open on GitHub ↗');link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';box.append(link);
+ const refresh=el('button','secondary small-action','Refresh this issue / PR');refresh.onclick=()=>perform(async()=>{await api('/api/github/refresh',{id:key});ghWasRunning=true;await loadGitHub();});box.append(refresh);
+ if(r.available){const b=el('button','secondary small-action','Suggest a task from this issue / PR');b.onclick=()=>perform(async()=>{const title=await ask('Task proposal from GitHub. Remote status does not set the task status.',{ok:'Save suggestion',value:r.title});if(title===null)return;await api('/api/github/propose',{id:key,revision:r.revision,title});await refreshAfterItemChange();$('work-suggested').open=true;toast('GitHub proposal saved · review Accept/Link');});box.append(b);}
+}
+async function githubSync(restart=false){await api('/api/github/sync',{repository:$('github-repository').value.trim(),filter:$('github-filter').value,restart});ghWasRunning=true;await loadGitHub();}
+$('github-panel').ontoggle=()=>{if($('github-panel').open)perform(loadGitHub);else if(ghTimer){clearTimeout(ghTimer);ghTimer=null;}};
+$('github-connect').onclick=()=>perform(async()=>{const token=$('github-token').value.trim();try{await api('/api/github/connect',{token});await loadGitHub();}finally{$('github-token').value='';}});
+$('github-disconnect').onclick=()=>perform(async()=>{await api('/api/github/disconnect',{});await loadGitHub();});
+$('github-connection').onclick=()=>perform(loadGitHub);
+$('github-sync').onclick=()=>perform(()=>githubSync());$('github-restart').onclick=()=>perform(()=>githubSync(true));
+$('github-cancel').onclick=()=>perform(async()=>{await api('/api/github/cancel',{});await loadGitHub();});
+$('github-repository').onchange=()=>{ghRepo=ghRepos.find(r=>r.full_name.toLowerCase()===$('github-repository').value.trim().toLowerCase())?.id||0;ghItem=0;$('github-detail').replaceChildren();perform(loadGitHub);};
+$('github-repos').onchange=()=>{const repo=ghRepos.find(r=>r.id===Number($('github-repos').value));if(repo){$('github-repository').value=repo.full_name;ghRepo=repo.id;}ghItem=0;$('github-detail').replaceChildren();perform(loadGitHub);};
+for(const id of ['github-filter','github-kind'])$(id).onchange=()=>{ghItem=0;$('github-detail').replaceChildren();perform(loadGitHub);};
+$('github-clear').onclick=()=>perform(async()=>{if(await ask('Clear the local GitHub cache for the selected account? Promoted source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/github/clear',{account:$('github-cache-account').value});ghItem=0;$('github-detail').replaceChildren();await loadGitHub();}});
+
 let proposalFilter='pending';
 async function graphAction(action,body){await api('/api/work/'+action,body);await refreshAfterItemChange();}
 function renderWorkGraph(){
@@ -765,6 +799,7 @@ function renderWorkGraph(){
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
   card.append(el('strong','',p.text),el('p','hint',(p.origin==='gmail_ai'?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · Snoozed until '+p.snoozed_until:'')));
   if(p.fields&&Object.keys(p.fields).length)card.append(el('p','hint',Object.entries(p.fields).map(([name,value])=>(name==='due_date'?'Due date':name==='owner'?'Owner':'Deadline')+': '+value).join(' · ')));
+  if(source?.remote?.authority==='github')card.append(el('p','hint','GitHub '+(source.remote.kind==='pull_request'?'PR':'issue')+' state: '+source.remote.state+' · local task status is independent'+(!source.available?' · Source unavailable':'')));
   if(ev){const quote=el('blockquote','',ev.quote);card.append(quote,el('p','hint',(source?source.provider+' · '+source.account+' · '+source.external_id:'Unavailable source')+' · saved revision '+ev.source_revision.slice(0,12)));}
   const actions=el('div','work-actions'),review=(action,extra={})=>graphAction('review',{id:p.id,revision:p.revision,action,...extra});
   const button=(label,run)=>{const b=el('button','secondary small-action',label);b.onclick=()=>perform(run);actions.append(b);};

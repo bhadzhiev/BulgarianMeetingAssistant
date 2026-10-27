@@ -543,7 +543,7 @@ class RepoReports:
             if meeting_id:self.service.library.get(meeting_id)
             row['meeting_id']=meeting_id or None;self._save(row);return row
 
-    def propose(self,key,finding_id):
+    def propose(self,key,finding_id,title=None):
         with self.service.lock,self.service.items.lock,self.lock:
             row=self._row(key);analysis=row.get('analysis') or {}
             finding=next((f for part in analysis.get('parts',{}).values() for f in part if f['id']==finding_id),None)
@@ -554,7 +554,7 @@ class RepoReports:
             graph=WorkGraph(self.service.items)
             def metadata(data,result):data['sources'][result['source_id']]['remote']=dict(authority='github_code',repository=row['repository'],report_id=row['id'],url=ev['url'])
             return graph.ingest(dict(provider='github',account='github.com:'+row['account'],external_id='code:'+row['repository']+':'+ev['id'],revision=ev['id'],text=ev['text']),
-                [dict(kind='task',text=finding['text'],quote=ref['quote'],locator=dict(report_id=key,url=ev['url'],evidence_id=ev['id']),fields={},origin='repo_ai')],after=metadata)
+                [dict(kind='task',text=checked_text(title) if title is not None else finding['text'],quote=ref['quote'],locator=dict(report_id=key,url=ev['url'],evidence_id=ev['id']),fields={},origin='repo_ai')],after=metadata)
 
     def delete(self,key):
         with self.service.lock,self.lock:

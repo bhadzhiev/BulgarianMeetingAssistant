@@ -97,6 +97,7 @@ class MeetingService:
         self.desktop_mode = False
         self.activity_changed = lambda active: None
         self.health_changed = lambda missing: None
+        self.editor_changed = lambda dirty: None
         self.task_cache = {}
         self.analytics_cache = {}
         self.preview = None
@@ -121,6 +122,8 @@ class MeetingService:
         self.github = GitHubSync(root,GitHubConnection(root),lambda:self.closed.is_set() or bool(self.active or self.busy),
                                  self._refresh_github_source,self._github_unavailable)
         self.repo_reports = RepoReports(self)
+        from .task_draft import DraftJobs
+        self.task_drafts = DraftJobs(self)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -1281,7 +1284,7 @@ class MeetingService:
             meetings = [m for m in self.library.list() if (m.get('series_id') == series_id if series else m.get('project_id') == project['id'])]
             self._refresh_items()
             with self.items.lock:
-                registry = list(self.items.items.values())
+                registry = [item for item in self.item_list()['items'] if project['id'] in item['effective_project_ids']]
             existing_types={meeting_types.of(m)['id'] for m in meetings}
             requires_type=not series and meeting_type is None and len(existing_types)>1
             kind = (self._meeting_type(meeting_type)[0] if meeting_type is not None else
@@ -1289,7 +1292,7 @@ class MeetingService:
             kind = meeting_types.definition(kind, self.templates.get(kind))
             result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
                                     {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
-                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind)
+                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind, project_id=None if series else project['id'])
             return dict(result, project_id=project['id'], series_id=series_id, requires_type=requires_type)
 
     SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
@@ -2194,6 +2197,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.task_drafts.close()
         self.repo_reports.close()
         self.github.close()
         self.chat.close()

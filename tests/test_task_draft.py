@@ -41,6 +41,7 @@ class DraftTests(unittest.TestCase):
         approved=self.approved()
         def changed(*args,**kwargs):
             self.r.data['reports'][self.key]['analysis']['parts'].clear()
+            self.r.data['reports'][self.key]['analysis'].pop('summary',None)
             return dict(text='Draft')
         with self.assertRaises(ValueError):task_draft.draft(self.s,approved,SimpleNamespace(run=changed))
         self.assertTrue(self.s.processing_slot.acquire(blocking=False));self.s.processing_slot.release()

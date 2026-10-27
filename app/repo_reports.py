@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import secrets
 import tempfile
+import time
 import threading
 import urllib.parse
 from zoneinfo import ZoneInfo
@@ -144,6 +145,37 @@ def analyze(evidence, settings, progress=lambda _:None, key='', depth=0):
         return found
 
 
+def analysis_batches(evidence):
+    batches=[];current=[];size=2;change=None
+    for ev in evidence:
+        length=len(canonical(ev))+1
+        if current and (ev.get('change_id')!=change or size+length>14000):batches.append(current);current=[];size=2
+        current.append(ev);size+=length;change=ev.get('change_id')
+    if current:batches.append(current)
+    return batches
+
+
+def synthesis_evidence(findings,evidence):
+    known={ev['id']:ev for ev in evidence};quotes={}
+    for finding in findings:
+        for ref in finding['evidence']:
+            if ref['id'] in known and ref['quote'] not in quotes.setdefault(ref['id'],[]):quotes[ref['id']].append(ref['quote'])
+    selected=[];size=2
+    for key,parts in quotes.items():
+        original=known[key]['text'];first=min(original.index(quote) for quote in parts);last=max(original.index(quote)+len(quote) for quote in parts)
+        ev=dict(known[key],text=original[first:last]);length=len(canonical(ev))+1
+        if size+length>14000:continue
+        selected.append(ev);size+=length
+    return selected,len(quotes)-len(selected)
+
+
+def synthesize(evidence,settings,progress=lambda _:None,key=''):
+    # Only exact previously cited source passages enter synthesis, never unsupported paraphrases.
+    progress('Synthesizing the approved source passages')
+    result=complete_json(settings,[dict(role='system',content=SYSTEM+'\nProduce one overall report across these changes; prioritize consequences, risks and follow-ups, without repeating each file.'),dict(role='user',content=canonical(dict(untrusted_repository_evidence=evidence)))],SCHEMA,'repository_summary',timeout=120,api_key=key)
+    return validate_findings(result,evidence)
+
+
 def _read_store(path):
     path=Path(path)
     if not path.exists(): return dict(version=VERSION,reports={})
@@ -178,8 +210,11 @@ def _read_store(path):
             if not isinstance(analysis,dict) or not isinstance(analysis.get('parts'),dict) or len(analysis['parts'])>MAX_PARTS:raise ValueError('Invalid saved report analysis')
             for ev_id,findings in analysis['parts'].items():
                 if ev_id not in known:raise ValueError('Unknown saved report evidence')
-                validate_findings(dict(findings=[{k:v for k,v in f.items() if k!='id'} for f in findings]),[known[ev_id]],limit=40)
+                validate_findings(dict(findings=[{k:v for k,v in f.items() if k!='id'} for f in findings]),list(known.values()),limit=40)
                 if any(f.get('id')!=digest({k:v for k,v in f.items() if k!='id'}) for f in findings):raise ValueError('Invalid saved finding identity')
+            if 'summary' in analysis:
+                validate_findings(dict(findings=[{k:v for k,v in f.items() if k!='id'} for f in analysis['summary']]),list(known.values()),limit=40)
+                if any(f.get('id')!=digest({k:v for k,v in f.items() if k!='id'}) for f in analysis['summary']):raise ValueError('Invalid summary identity')
     return data
 
 
@@ -215,7 +250,7 @@ class RepoReports:
         try:self.data=read_store(self.path)
         except (OSError,ValueError):
             self.data=dict(version=VERSION,reports={});self.load_error='Repository reports could not be read. Restore a verified archive; existing report files were kept.'
-        self.nonce=secrets.token_hex(16);self.job=dict(running=False,status='idle',error=None,report_id=None)
+        self.blob_cache={};self.nonce=secrets.token_hex(16);self.job=dict(running=False,status='idle',error=None,report_id=None)
         for row in self.data['reports'].values():
             if row.get('status') in {'collecting','analyzing'}:row.update(status='interrupted',error='Interrupted. Continue collection or approve AI again.')
 
@@ -231,6 +266,7 @@ class RepoReports:
         return row
 
     def _save(self,row):
+        row['revision']=row.get('revision',0)+1
         with self.service.lock,self.lock:
             if self.load_error:raise ValueError(self.load_error)
             candidate=dict(self.data,reports=dict(self.data['reports'],**{row['id']:copy.deepcopy(row)}))
@@ -241,7 +277,7 @@ class RepoReports:
     def listing(self):
         account=self.account()
         with self.lock:
-            rows=[{k:r.get(k) for k in ('id','repository','branch','period','head','created','status','collection_complete','error','meeting_id')} for r in self.data['reports'].values() if r['account']==account]
+            rows=[{k:r.get(k) for k in ('id','repository','branch','period','head','created','status','collection_complete','error','meeting_id','revision')} for r in self.data['reports'].values() if r['account']==account]
             return dict(account=account,error=self.load_error,reports=sorted(rows,key=lambda r:r['created'],reverse=True),job=copy.deepcopy(self.job),defaults=defaults())
 
     def detail(self,key):
@@ -348,7 +384,14 @@ class RepoReports:
     def _context(self,row,file,line):
         if row['coverage']['contexts']>=20 or file.get('status')=='removed' or not SHA.fullmatch(str(file.get('sha',''))):return ''
         if Path(file['filename']).suffix.lower() not in {'.py','.js','.ts','.tsx','.jsx','.rs','.go','.java','.c','.h','.cpp'}:return ''
-        blob=self._get(row,'/repos/'+row['repository']+'/git/blobs/'+file['sha'])['data'];row['coverage']['contexts']+=1
+        cache_key=(row['account'],row['repository'],file['sha'])
+        blob=self.blob_cache.get(cache_key)
+        if blob is None:
+            blob=self._get(row,'/repos/'+row['repository']+'/git/blobs/'+file['sha'])['data']
+            if type(blob.get('size')) is int and 0<=blob['size']<=64000:
+                if len(self.blob_cache)>=20:self.blob_cache.pop(next(iter(self.blob_cache)))
+                self.blob_cache[cache_key]=blob
+        row['coverage']['contexts']+=1
         if blob.get('sha')!=file['sha'] or blob.get('encoding')!='base64':raise ValueError('GitHub returned invalid file context')
         if type(blob.get('size')) is not int or not 0<=blob['size']<=64000:
             self._warn(row,'Some file context was omitted because it exceeded 64 KB');return ''
@@ -470,7 +513,7 @@ class RepoReports:
             row=self._row(key)
             if not row.get('collection_complete'):raise ValueError('Finish collection before approving AI')
             target=self.target();evidence=row['evidence'][:MAX_PARTS]
-            cache_key=digest(dict(version=VERSION,input_revision=row['input_revision'],target=target))
+            cache_key=digest(dict(version=VERSION,strategy=2,input_revision=row['input_revision'],target=target))
             return dict(cache_key=cache_key,preview_token=digest(dict(cache_key=cache_key,nonce=self.nonce,account=row['account'],report_id=row['id'])),target=target,
                 parts=len(evidence),characters=sum(len(e['text']) for e in evidence),omitted_parts=max(0,len(row['evidence'])-MAX_PARTS),
                 input_revision=row['input_revision'],partial=bool(row['coverage']['warnings'] or row['coverage']['omitted']))
@@ -491,17 +534,31 @@ class RepoReports:
     def _analyze(self,row,target,key):
         from .worker import ProcessingWorker
         if not self.service.processing_slot.acquire(blocking=False):raise JobCancelled()
+        started=time.monotonic();metrics=row['analysis'].setdefault('metrics',dict(worker_steps=0,input_characters=0,elapsed_seconds=0))
+        def run(evidence,action='repo_report'):
+            self.flag.check()
+            with tempfile.TemporaryDirectory(prefix='.repo-ai-',dir=self.service.library.root) as tmp:
+                result=(self.runner or ProcessingWorker(self.service.project)).run(action,Path(tmp),dict(target,repo_evidence=evidence),self._progress,key,cancel=self.flag)
+            self.flag.check();metrics['worker_steps']+=1;metrics['input_characters']+=sum(len(ev['text']) for ev in evidence)
+            return validate_findings(dict(findings=[{k:v for k,v in f.items() if k!='id'} for f in result]),row['evidence'],limit=40)
         try:
-            for index,ev in enumerate(row['evidence'][:MAX_PARTS]):
-                self.flag.check()
-                if ev['id'] in row['analysis']['parts']:continue
-                self._progress(f'Analyzing part {index+1} of {min(MAX_PARTS,len(row["evidence"]))}')
-                with tempfile.TemporaryDirectory(prefix='.repo-ai-',dir=self.service.library.root) as tmp:
-                    result=(self.runner or ProcessingWorker(self.service.project)).run('repo_report',Path(tmp),dict(target,repo_evidence=[ev]),self._progress,key,cancel=self.flag)
-                self.flag.check()
-                # Revalidate the worker boundary before publishing any suggestion.
-                checked=validate_findings(dict(findings=[{k:v for k,v in f.items() if k!='id'} for f in result]),[ev],limit=40)
-                row['analysis']['parts'][ev['id']]=checked;self._save(row)
+            selected=row['evidence'][:MAX_PARTS]
+            batches=analysis_batches([ev for ev in selected if ev['id'] not in row['analysis']['parts']])
+            for index,batch in enumerate(batches):
+                self._progress(f'Analyzing change group {index+1} of {len(batches)}')
+                checked=run(batch)
+                # Mark each completed input; only the first stores the group's findings.
+                for ev in batch:row['analysis']['parts'][ev['id']]=[]
+                row['analysis']['parts'][batch[0]['id']]=checked;self._save(row)
+            if 'summary' not in row['analysis']:
+                findings=[f for part in row['analysis']['parts'].values() for f in part]
+                evidence,omitted=synthesis_evidence(findings,row['evidence'])
+                if len([part for part in row['analysis']['parts'].values() if part])>1 and evidence:
+                    self._progress('Writing the overall report with source references')
+                    row['analysis']['summary']=run(evidence,'repo_synthesis')
+                else:row['analysis']['summary']=findings[:5]
+                row['analysis']['summary_omitted_sources']=omitted
+            metrics['elapsed_seconds']+=round(time.monotonic()-started,3)
             row['analysis'].update(complete=True)
             row.update(status='complete',error=None);self._save(row)
         finally:self.service.processing_slot.release()
@@ -516,7 +573,11 @@ class RepoReports:
         except JobCancelled:
             row.update(status='interrupted',error='Paused or cancelled. Saved parts are kept. Continue explicitly.');self._save(row);self._progress('Paused or cancelled')
         except Exception as exc:
-            if isinstance(exc,GitHubError):message='GitHub collection failed. Repository analysis needs Contents: Read-only and Pull requests: Read-only. Check access, token approval and rate limits.'
+            if isinstance(exc,GitHubError):
+                status=getattr(exc,'status',None)
+                if getattr(exc,'rate_limited',False):message='GitHub rate limit reached. Saved parts are kept; wait before continuing.'
+                elif status in {401,403,404}:message=f'GitHub access failed (HTTP {status}). Check token expiry, repository selection/approval and Contents/Pull requests read access.'
+                else:message='GitHub could not be reached. Check the connection and retry collection; saved parts are kept.'
             elif isinstance(exc,OutputTruncatedError):message='AI output limit reached. Lower reasoning effort, increase the output limit or choose another model; completed parts are kept.'
             elif isinstance(exc,(ValueError,RuntimeError)):message=str(exc)
             else:message='Repository report could not finish. Completed parts are kept.'
@@ -546,7 +607,7 @@ class RepoReports:
     def propose(self,key,finding_id,title=None):
         with self.service.lock,self.service.items.lock,self.lock:
             row=self._row(key);analysis=row.get('analysis') or {}
-            finding=next((f for part in analysis.get('parts',{}).values() for f in part if f['id']==finding_id),None)
+            finding=next((f for part in [*analysis.get('parts',{}).values(),analysis.get('summary',[])] for f in part if f['id']==finding_id),None)
             if not finding:raise ValueError('Choose a saved finding')
             ref=finding['evidence'][0];ev=next(e for e in row['evidence'] if e['id']==ref['id'])
             validate_findings(dict(findings=[{k:v for k,v in finding.items() if k!='id'}]),[e for e in row['evidence'] if e['id'] in {r['id'] for r in finding['evidence']}],limit=40)

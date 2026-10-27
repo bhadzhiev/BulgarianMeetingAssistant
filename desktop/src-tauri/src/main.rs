@@ -9,7 +9,7 @@ use tauri::menu::{Menu, MenuItem};
 
 #[derive(Default)]
 struct Backend { child: Mutex<Option<Child>>, quitting: AtomicBool, stopped: AtomicBool,
-    recording: AtomicBool, confirming: AtomicBool, exit_confirmed: AtomicBool }
+    dirty: AtomicBool, ui_seen: Mutex<Option<Instant>>, recovery_url: Mutex<Option<tauri::Url>>, recording: AtomicBool, confirming: AtomicBool, exit_confirmed: AtomicBool }
 
 fn status(app: &tauri::AppHandle, message: &str) {
     if let Some(window) = app.get_webview_window("main") {
@@ -67,6 +67,9 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
                             if !control_state.quitting.load(Ordering::SeqCst) { let _ = window.set_title("Atlanta"); }
                         }
                     }
+                } else if value["event"] == "ui" {
+                    control_state.dirty.store(value["dirty"].as_bool().unwrap_or(true), Ordering::SeqCst);
+                    *control_state.ui_seen.lock().unwrap()=Some(Instant::now());
                 } else if value["event"] == "microphone" {
                     if let Some(window) = control_app.get_webview_window("main") {
                         let missing = value["missing"].as_bool().unwrap_or(false);
@@ -84,10 +87,13 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
     }
     if !state.quitting.load(Ordering::SeqCst) {
         let window = app.get_webview_window("main").ok_or("Window closed")?;
+        *state.recovery_url.lock().unwrap()=Some(url.clone());
+        *state.ui_seen.lock().unwrap()=Some(Instant::now());
         window.navigate(url).map_err(|e| e.to_string())?;
         let _ = window.set_title("Atlanta");
     }
     thread::spawn(move || {
+        let mut warned=false;
         while !state.quitting.load(Ordering::SeqCst) {
             let stopped = state.child.lock().unwrap().as_mut()
                 .map(|child| matches!(child.try_wait(), Ok(Some(_)))).unwrap_or(true);
@@ -99,6 +105,11 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
                 }
                 break;
             }
+            let stale=state.ui_seen.lock().unwrap().as_ref().map(|at|at.elapsed()>Duration::from_secs(30)).unwrap_or(false);
+            if stale && !warned {
+                warned=true;
+                if let Some(window)=app.get_webview_window("main") {let _=window.set_title("Interface not responding · App menu → Recover interface");let _=window.request_user_attention(Some(tauri::UserAttentionType::Informational));}
+            } else if !stale && warned {warned=false;if let Some(window)=app.get_webview_window("main") {let _=window.set_title("Atlanta");}}
             thread::sleep(Duration::from_millis(500));
         }
     });
@@ -126,6 +137,7 @@ fn stop(state: &Backend) {
 fn main() {
     let state = Arc::new(Backend::default());
     let startup = state.clone();
+    let menu_state=state.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
@@ -139,12 +151,20 @@ fn main() {
             if let Some(app_menu) = menu.items()?.first().and_then(|item| item.as_submenu()) {
                 let last = app_menu.items()?.len().saturating_sub(1);
                 app_menu.remove_at(last)?;
+                app_menu.append(&MenuItem::with_id(app, "recover-ui", "Recover interface", true, None::<&str>)?)?;
                 app_menu.append(&MenuItem::with_id(app, "safe-quit", "Quit Atlanta", true, Some("Cmd+Q"))?)?;
             }
             Ok(menu)
         })
-        .on_menu_event(|app, event| {
-            if event.id().as_ref() == "safe-quit" { app.exit(0); }
+        .on_menu_event(move |app, event| {
+            if event.id().as_ref()=="safe-quit" {app.exit(0);}
+            if event.id().as_ref()=="recover-ui" {
+                let state=menu_state.clone();let app_handle=app.clone();
+                let restore=move || {if let Some(url)=state.recovery_url.lock().unwrap().clone(){if let Some(window)=app_handle.get_webview_window("main"){let _=window.navigate(url);state.dirty.store(false,Ordering::SeqCst);*state.ui_seen.lock().unwrap()=Some(Instant::now());}}};
+                if menu_state.dirty.load(Ordering::SeqCst) {
+                    app.dialog().message("Recovering the interface discards unsaved edits. Recording and the local server continue.").title("Recover interface?").buttons(MessageDialogButtons::OkCancelCustom("Recover".into(),"Keep editing".into())).show(move |yes|{if yes{restore();}});
+                } else {restore();}
+            }
         })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -165,13 +185,14 @@ fn main() {
             if let RunEvent::ExitRequested { api, .. } = event {
                 if state.stopped.load(Ordering::SeqCst) { return; }
                 api.prevent_exit();
-                if state.recording.load(Ordering::SeqCst) && !state.exit_confirmed.load(Ordering::SeqCst)
+                if (state.recording.load(Ordering::SeqCst)||state.dirty.load(Ordering::SeqCst)) && !state.exit_confirmed.load(Ordering::SeqCst)
                     && !state.quitting.load(Ordering::SeqCst) {
                     if !state.confirming.swap(true, Ordering::SeqCst) {
                         let state = state.clone(); let app = app.clone();
-                        let dialog = app.dialog().message("A meeting is being recorded. Quitting stops and saves the recording.")
-                            .title("Stop recording and quit?")
-                            .buttons(MessageDialogButtons::OkCancelCustom("Stop & quit".into(), "Keep recording".into()));
+                        let message=if state.recording.load(Ordering::SeqCst) {"Quitting stops and saves the recording. Unsaved editor changes will be discarded."}else{"There are unsaved editor changes. Quit and discard them?"};
+                        let dialog = app.dialog().message(message)
+                            .title("Quit Atlanta?")
+                            .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Keep working".into()));
                         let dialog = if let Some(window) = app.get_webview_window("main") { dialog.parent(&window) } else { dialog };
                         dialog.show(move |confirmed| {
                             state.confirming.store(false, Ordering::SeqCst);

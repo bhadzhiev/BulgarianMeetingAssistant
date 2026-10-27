@@ -1,0 +1,20 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const UX=require('../web/ux.js'),source=fs.readFileSync('web/app.js','utf8');
+const extract=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.indexOf(a)));
+const tick=()=>new Promise(setImmediate);
+(async()=>{
+ assert.equal(UX.inputISO('29.02.2028'),'2028-02-29');assert.equal(UX.inputISO('29.02.2026'),null);assert.equal(UX.inputISO('31.04.2026'),null);assert.equal(UX.display('2026-10-27'),'27.10.2026');assert.equal(UX.date('2026-10-27'),'27.10.2026');assert.equal(UX.dateTime('2026-10-27T12:00:00Z'),'27.10.2026 · 14:00');
+ const gate=UX.requests(),a=gate.start('meeting'),b=gate.start('meeting');assert(!gate.current(a));assert(gate.current(b));gate.invalidate();assert(!gate.current(b));
+ const waiting={};let c;
+ c=vm.createContext({readers:UX.requests(),state:{active:null},leaveEdits:async()=>true,hasEdits:()=>false,api:path=>new Promise(resolve=>waiting[path]=resolve),renderDetail:()=>{},show:()=>{},renderLibrary:()=>{},$:()=>({open:false})});
+ vm.runInContext('let meetingLoadSequence=0,selected=null,detail=null,dirtyTranscript=false,dirtyNotes=false,notesEditing=false,questionFilter="",questionLimit=0,lastFingerprint="",detailChangedWhileEditing=false;'+extract('async function openMeeting(','function renderState()'),c);
+ const first=vm.runInContext('openMeeting("A")',c);await tick();const second=vm.runInContext('openMeeting("B")',c);await tick();waiting['/api/meetings/B']({id:'B'});await second;waiting['/api/meetings/A']({id:'A'});await first;
+ assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('({selected,detail:detail.id})',c))),{selected:'B',detail:'B'});
+ let resolveDetail,d;const notice={hidden:true};
+ d=vm.createContext({readers:UX.requests(),api:path=>path==='/api/state'?Promise.resolve({}):new Promise(r=>resolveDetail=r),renderState:()=>{},loadTasks:()=>{},hasEdits:()=>vm.runInContext('dirty',d),renderDetail:()=>{},$:()=>notice,disconnectedMessage:()=>''});
+ vm.runInContext('let refreshing=false,refreshPending=false,pendingChanged=[],state={},initialRouteHandled=true,view="detail",selected="A",detail={id:"A",text:"old"},lastFingerprint="old",notesEditing=false,dirty=false,meetingLoadSequence=0,detailChangedWhileEditing=false;'+extract('async function refresh(changed)','let lastLive=null;'),d);
+ const refresh=vm.runInContext('refresh(null)',d);await tick();vm.runInContext('dirty=true;detail.text="unsaved correction"',d);resolveDetail({id:'A',text:'server version'});await refresh;
+ assert.equal(vm.runInContext('detail.text',d),'unsaved correction');assert.equal(notice.hidden,false);
+ const validation=vm.createContext({});vm.runInContext(extract('function validDates(container)','function markNotes()'),validation);validation.container={querySelectorAll:()=>[{getClientRects:()=>[],checkValidity:()=>false,reportValidity:()=>{throw new Error('Hidden date must not block another panel');}},{getClientRects:()=>[{}],checkValidity:()=>true}]};assert.equal(vm.runInContext('validDates(container)',validation),true);
+ console.log('UX regression PASS: leap dates, Sofia display, latest-request publication, edits protected during refresh.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

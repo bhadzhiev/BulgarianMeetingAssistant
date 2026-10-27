@@ -239,6 +239,34 @@
   <label>Project<select id="excerpt-project" required></select></label><p id="excerpt-error" role="alert" class="error" hidden></p>
   <div class="work-actions"><button class="primary" type="submit">Save excerpt</button><button id="excerpt-cancel" class="secondary" type="button">Cancel</button></div>
 </form></dialog>
+<dialog id="person-dialog" aria-labelledby="person-title"><form id="person-form" method="dialog">
+  <div class="card-heading"><div><p class="eyebrow">PERSON</p><h2 id="person-title">New person</h2></div><button id="person-close" class="quiet" type="button" aria-label="Close">✕</button></div>
+  <p id="person-error" class="error" role="alert" hidden></p>
+  <label for="person-name">Name</label><input id="person-name" maxlength="80" required>
+  <label for="person-aliases">Also appears as</label><input id="person-aliases" maxlength="2000" placeholder="Иван, Ivan, SPEAKER_02 after you name it"><p class="hint">Names in transcripts and task owners, separated by commas.</p>
+  <label for="person-emails">Emails</label><input id="person-emails" maxlength="2600" placeholder="name@company.com"><p class="hint">Kept on this Mac. Never added to GitHub text.</p>
+  <label for="person-github">GitHub username</label><div class="input-row"><input id="person-github" maxlength="40" placeholder="octocat"><button id="person-github-check" class="secondary" type="button">Check on GitHub</button></div><p id="person-github-status" class="hint"></p>
+  <label for="person-notes">Notes</label><textarea id="person-notes" rows="2" maxlength="1000"></textarea>
+  <div id="person-profile" class="person-profile"></div>
+  <div class="review-footer"><button id="person-delete" class="danger" type="button">Delete person</button><button class="primary" type="submit">Save person</button></div>
+</form></dialog>
+<dialog id="github-draft-dialog" aria-labelledby="github-draft-title"><div class="card-heading"><div><p class="eyebrow">GITHUB · COPY, THEN PUBLISH YOURSELF</p><h2 id="github-draft-title">GitHub draft</h2></div><button id="github-draft-close" class="quiet" type="button" aria-label="Close">✕</button></div>
+  <div class="draft-options"><div id="github-draft-format" class="segmented" role="group" aria-label="Format"></div><select id="github-draft-repo" aria-label="Repository"></select><label class="checkbox"><input id="github-draft-meeting" type="checkbox" checked> Meeting title</label><label class="checkbox"><input id="github-draft-speaker" type="checkbox"> Speaker names</label></div>
+  <p id="github-draft-notes" class="hint"></p>
+  <label for="github-draft-issue-title" id="github-draft-title-label">Issue title</label><input id="github-draft-issue-title" maxlength="256">
+  <label for="github-draft-body">Text</label><textarea id="github-draft-body" rows="14"></textarea>
+  <p class="hint">Atlanta does not publish anything. Review the text, copy it or open GitHub with it filled in, and publish there. The quote and the reference stay as evidence.</p>
+  <div class="review-footer"><a id="github-draft-open" class="secondary button-link" target="_blank" rel="noopener noreferrer">Open on GitHub ↗</a><span><button id="github-draft-copy-title" class="secondary" type="button">Copy title</button><button id="github-draft-copy" class="primary" type="button">Copy text</button></span></div>
+</dialog>
+<dialog id="github-link-dialog" aria-labelledby="github-link-title"><form id="github-link-form" method="dialog">
+  <div class="card-heading"><div><p class="eyebrow">LINK EXISTING · ON THIS MAC</p><h2 id="github-link-title">Link to a GitHub issue or PR</h2></div><button id="github-link-close" class="quiet" type="button" aria-label="Close">✕</button></div>
+  <p class="hint">The link lives in Atlanta only. GitHub does not know about it unless the issue text includes the Atlanta reference.</p>
+  <p id="github-link-error" class="error" role="alert" hidden></p>
+  <label for="github-link-repo">Repository</label><select id="github-link-repo"></select>
+  <label for="github-link-ref">Issue or pull request</label><input id="github-link-ref" placeholder="#123, owner/name#123, a GitHub URL, or words of the title" autocomplete="off">
+  <div id="github-link-results" class="source-list link-results" role="listbox" aria-label="Matching issues"></div>
+  <div class="review-footer"><span></span><button class="primary" type="submit">Save link</button></div>
+</form></dialog>
 <dialog id="conversation-reader"><div class="card"><button id="conversation-reader-close" class="quiet" type="button">Close</button><div id="conversation-reader-body"></div></div></dialog>
 <dialog id="viewer-dialog" aria-labelledby="viewer-title"><div class="card-heading"><div><p class="eyebrow">PREVIEW</p><h2 id="viewer-title"></h2></div><span class="viewer-actions"><a id="viewer-download" class="quiet">↓ Download</a><button id="viewer-close" class="quiet" type="button" aria-label="Close preview">✕</button></span></div><div id="viewer-body" class="markdown"></div></dialog>
 <dialog id="ask-dialog" aria-describedby="ask-message"><form id="ask-form" method="dialog"><p id="ask-message" class="ask-message"></p><input id="ask-input" maxlength="160" aria-label="Name" hidden><div class="review-footer"><button id="ask-cancel" class="quiet" value="cancel">Cancel</button><button id="ask-ok" class="primary" value="ok">OK</button></div></form></dialog>
@@ -253,7 +281,7 @@
 <dialog id="review-dialog" aria-labelledby="review-title"><div class="card-heading"><div><p class="eyebrow">NEW AI NOTES</p><h2 id="review-title">Review changes</h2></div><button id="review-close" class="quiet" type="button" aria-label="Close review">✕</button></div><div id="review-error" class="error" role="alert" hidden></div><p class="hint">Your saved notes stay as they are until you apply changes. Task status is kept. A changed statement needs a new check.</p><div id="review-body" class="review-body"></div><div class="review-footer"><button id="review-discard" class="quiet danger-text" type="button">Discard new notes</button><button id="review-apply" class="primary" type="button">Apply selected</button></div></dialog>
 <dialog id="settings-dialog"><form id="settings-form"><div class="card-heading"><div><p class="eyebrow">MAKE IT YOURS</p><h2>Settings</h2></div><button id="settings-close" class="quiet" type="button" aria-label="Close settings">✕</button></div>
 <div id="settings-error" class="error" role="alert" hidden></div>
-<div class="tabs settings-tabs" role="tablist"><button type="button" role="tab" data-tab="recording">Recording</button><button type="button" role="tab" data-tab="notes">Notes &amp; AI</button><button type="button" role="tab" data-tab="speakers">Speakers</button><button type="button" role="tab" data-tab="trackers">Topic trackers</button><button type="button" role="tab" data-tab="calendar">Calendar</button><button type="button" role="tab" data-tab="projects">Projects</button><button type="button" role="tab" data-tab="backup">Backup</button></div>
+<div class="tabs settings-tabs" role="tablist"><button type="button" role="tab" data-tab="recording">Recording</button><button type="button" role="tab" data-tab="notes">Notes &amp; AI</button><button type="button" role="tab" data-tab="speakers">People</button><button type="button" role="tab" data-tab="trackers">Topic trackers</button><button type="button" role="tab" data-tab="calendar">Calendar</button><button type="button" role="tab" data-tab="projects">Projects</button><button type="button" role="tab" data-tab="backup">Backup</button></div>
 <label class="checkbox advanced-toggle"><input id="settings-advanced" type="checkbox"> Show advanced settings</label>
 <div class="settings-body">
 <div class="settings-panel" data-tab="recording" role="tabpanel">
@@ -297,6 +325,11 @@
 <p class="hint">Shared by all meetings. Names are suggested for speaker labels and task owners, and known speakers are marked in transcripts. Notes use these exact spellings for task owners. Labels that you save in a transcript are added automatically.</p>
 <div id="speaker-list" class="speaker-list"></div>
 <div class="input-row"><input id="new-speaker" maxlength="80" placeholder="Add a name, for example Мария Петрова" autocomplete="off" aria-label="New known speaker"><button id="add-speaker" class="secondary" type="button">Add speaker</button></div>
+<fieldset class="settings-section"><legend>People</legend>
+<p class="hint">A person joins the names, emails and GitHub account of one real person. Atlanta uses it for task owners and GitHub assignee suggestions. Nothing here is guessed from a voice, and emails stay on this Mac.</p>
+<div id="people-list" class="people-list"></div>
+<button id="add-person" class="secondary" type="button">＋ Add person</button>
+</fieldset>
 </div>
 <div class="settings-panel" data-tab="trackers" role="tabpanel" hidden>
 <p class="hint">Track topics in every meeting. Phrases use local, case-insensitive matching. Optional semantic matching uses only your configured Local AI endpoint; it never falls back to cloud AI.</p>

@@ -563,3 +563,36 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .history-buttons{display:inline-flex;gap:2px}
 .history-buttons button{width:28px;height:28px;padding:0;border-radius:8px;font-size:18px;line-height:1;color:var(--muted)}
 .history-buttons button:hover{background:var(--surface-2);color:var(--ink)}
+
+/* People, project repositories and GitHub actions. */
+.people-list{display:flex;flex-direction:column;gap:4px;margin:8px 0 12px}
+.person-row{display:grid;grid-template-columns:26px auto 1fr;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);text-align:left;font-weight:400}
+.person-row:hover{border-color:var(--green);background:var(--accent-soft)}
+.person-row .hint{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#person-dialog,#github-draft-dialog,#github-link-dialog{width:min(720px,95vw)}
+#github-draft-dialog:not([open]){display:none}
+#github-draft-dialog{display:flex;flex-direction:column}
+.person-profile:not(:empty){border-top:1px solid var(--line);margin-top:18px;padding-top:6px}
+.person-profile h3{font-size:15px;margin:10px 0 4px}
+.profile-section h4{margin:14px 0 6px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+.profile-row{margin:4px 0;font-size:13px}
+.profile-row.muted{color:var(--muted)}
+.profile-said{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;margin:4px 0;font-size:13px}
+.profile-said .hint{margin:0}
+.project-repos{margin:12px 0 20px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.project-repos h3{margin:0 0 8px;font-size:14px}
+.project-repos .work-actions{margin:10px 0 0}
+.github-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.github-menu>summary{padding:4px 10px;font-size:11px}
+.github-menu .menu-items{left:0;right:auto}
+.linked-issue a{font-weight:600;color:var(--src-github);text-decoration:none}
+.linked-issue .quiet{padding:0 2px;font-size:11px}
+.draft-options{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 6px}
+.draft-options select{flex:1 1 200px;width:auto}
+.draft-options .checkbox{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px}
+#github-draft-body{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+#github-draft-dialog .review-footer span{display:flex;gap:8px}
+.link-results{height:auto;max-height:240px;margin:8px 0 0}
+.owner-confirm{margin-left:4px;color:var(--warn-ink)}
+.linked-in-atlanta{margin:6px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.linked-in-atlanta h4{margin:0 0 4px;font-size:12px}

@@ -251,6 +251,10 @@ class Conversations:
                 pull=remote.get('kind')=='pull_request'
                 events.append(dict(id='source:'+source_id,kind='pull_request' if pull else 'issue',at=iso(remote['fetched_at']),text=('PR' if pull else 'Issue')+' #'+str(remote.get('number',''))+' · '+remote.get('repository','')+' · saved from GitHub',source_id=source_id))
         relations=[r for r in self.service.items.data.get('relationships',{}).values() if r['from_id'] in by_id and r['to_id'] in by_id]
+        for item in items:
+            for link in self.service.github_links.for_resource('item',item['id']):
+                events.append(dict(id='github-link:'+link['id'],kind='pull_request' if link['kind']=='pull_request' else 'issue',at=link['linked_at'],
+                    text='Linked '+item['text'][:80]+' to '+link['repository']+' #'+str(link['number']),url=link['url']))
         chains=self.trace(project,items,meetings)
         seen={e['id'] for e in events}
         for chain in chains:
@@ -341,6 +345,14 @@ class Conversations:
             stages=dict(conversation=[],decision=[],task=[],github=[],code=[])
             for key in sorted(group,key=lambda k:(by_id[k].get('created') or '',k)):
                 item=by_id[key];found=from_sources(item)
+                # Links that a person saved to an existing issue or pull request (local to this Mac).
+                for link in self.service.github_links.for_resource('item',key):
+                    pull=link['kind']=='pull_request'
+                    found['github'].append(dict(id='link:'+link['repository'].casefold()+'#'+str(link['number']),kind='pull_request' if pull else 'issue',
+                        label=link['repository']+' #'+str(link['number'])+(' · '+link['title'] if link['title'] else ''),date=link['linked_at'],
+                        ref=dict(url=link['url'],link_id=link['id'],state=link.get('state'),linked=True)))
+                    change=code.get((link['repository'].casefold(),'pr:'+str(link['number']))) if pull else None
+                    if change:found['code'].append(dict(id='change:'+change['report_id']+':'+change['id'],kind='code',label=change['label'],date=change.get('date'),ref=dict(url=change['url'],report_id=change['report_id'],sha=change.get('sha'))))
                 stages['conversation']+=origins(item)+found['conversation'];stages['github']+=found['github'];stages['code']+=found['code']
                 stages['task' if item['kind']=='task' else 'decision'].append(dict(id='item:'+key,kind=item['kind'],label=item['text'],date=item.get('created'),status=item['status'],ref=dict(item_id=key)))
             for name in stages:stages[name]=list({node['id']:node for node in stages[name]}.values())

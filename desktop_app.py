@@ -127,6 +127,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return
+        if url.path == '/api/people/profile':
+            return self.respond(200, self.server.service.person_profile(parse_qs(url.query).get('id', [''])[0]))
+        if url.path == '/api/github/links':
+            query = {key: value[0] for key, value in parse_qs(url.query).items()}
+            if query.get('repository'):
+                return self.respond(200, self.server.service.github_links_for(repository=query['repository'], number=query.get('number', '0')))
+            return self.respond(200, self.server.service.github_links_for(query.get('kind'), query.get('id')))
         if url.path == '/api/conversations':
             return self.respond(200,self.server.service.conversations.listing({k:v[0] for k,v in parse_qs(url.query).items()}))
         if url.path == '/api/conversations/external':
@@ -391,6 +398,20 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.reveal_backup(body['name'])
             elif path == '/api/ask':
                 result = service.ask(body['question'], body.get('project', ''), body.get('ai', True) is not False)
+            elif path == '/api/people/save':
+                result = service.save_person(body)
+            elif path == '/api/people/delete':
+                result = service.delete_person(body.get('id'), body.get('revision'))
+            elif path == '/api/github/user':
+                result = service.github_user(body.get('login'))
+            elif path == '/api/projects/repositories':
+                result = service.set_project_repositories(body.get('id'), body.get('repositories'))
+            elif path == '/api/github/draft':
+                result = service.github_draft(body)
+            elif path == '/api/github/link':
+                result = service.github_link(body)
+            elif path == '/api/github/unlink':
+                result = service.github_unlink(body)
             elif path == '/api/conversations/bulk':
                 result = service.conversations.bulk(body)
             elif path == '/api/conversations/attach':

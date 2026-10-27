@@ -474,3 +474,22 @@ a.small-action{padding:7px 12px;font-size:12px}
 #conversation-reader-close{float:right;margin:-6px -6px 0 12px}
 .conversation-project-choices{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 16px}
 .conversation-project-choices .project-choice{display:inline-flex;align-items:center;gap:8px;margin:0;font-weight:500}
+
+/* Listen: the same start/stop control everywhere. ▶ starts at the moment, ■ stops. */
+.listen{display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.listen-icon{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--light);color:var(--green);font-size:8px;line-height:1;flex:none}
+.listen.playing{color:var(--green)}
+.listen.playing .listen-icon{background:var(--green);color:var(--on-accent);box-shadow:0 0 0 3px var(--focus)}
+.listen:disabled .listen-icon{background:var(--surface-2);color:var(--placeholder)}
+.chip-listen{padding:0;width:26px;height:26px;justify-content:center;border-radius:50%;background:transparent;vertical-align:middle}
+.chip-listen .listen-icon{width:22px;height:22px;font-size:9px}
+.chip-listen:hover:not(:disabled) .listen-icon{background:var(--accent-soft-2)}
+.item-meetings{align-items:center}
+.stamp-group{display:inline-flex;align-items:center;gap:0;white-space:nowrap}
+.stamp-group .stamp{padding:1px 6px 1px 2px}
+.stamp-group .stamp .listen-icon{width:16px;height:16px;font-size:7px}
+.stamp-show{padding:1px 4px;font-size:11px}
+.trace-step{display:flex;align-items:flex-start;gap:4px}
+.trace-step .trace-node{flex:1;min-width:0}
+.trace-step .chip-listen{margin-top:4px}
+.timeline-event .trace-step{min-width:0}

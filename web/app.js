@@ -60,8 +60,7 @@ function renderSpeakerReview(busy) {
   identify.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+detail.id+'/process',{action:'speakers'});await openMeeting(detail.id,true);});target.append(identify);}
  if(!names.length){target.append(el('p','hint',hasAudio?'No speaker labels yet. The transcript remains available.':'Speaker separation needs recorded audio. You can add labels manually.'));return;}
  for(const name of names){
-  const sample=detail.transcript.find(s=>s.speaker===name), row=el('div','input-row speaker-review-row'), label=el('strong','',name), listen=el('button','quiet','Listen from '+time(sample.start));listen.type='button';listen.disabled=!hasAudio;
-  listen.onclick=()=>{$('audio').currentTime=sample.start;$('audio').play().catch(e=>error(e.message));};
+  const sample=detail.transcript.find(s=>s.speaker===name), row=el('div','input-row speaker-review-row'), label=el('strong','',name), listen=listenButton(detail.id,sample.start,{label:'Listen from '+time(sample.start),className:'quiet'});
   const input=el('input');input.placeholder='Participant name';input.value=/^SPEAKER[ _-]?\d+$/i.test(name)?'':name;input.maxLength=120;input.setAttribute('list','known-speakers');input.setAttribute('aria-label','Participant name for '+name);input.disabled=busy;input.oninput=()=>{speakerNaming=true;};
   const save=el('button','secondary','Apply name');save.type='button';save.disabled=busy;save.onclick=()=>perform(async()=>{if(dirtyTranscript||dirtyNotes||itemEditing){error('Save other corrections before naming speakers.');return;}if(!input.value.trim()){error('Enter a participant name.');return;}
    detail=await api('/api/meetings/'+detail.id+'/edit',{speaker_name:{speaker:name,name:input.value.trim(),revision:detail.transcript_revision}});speakerNaming=false;lastFingerprint=JSON.stringify(detail);state=await api('/api/state');renderState();renderDetail();toast('Speaker name applied to this meeting');});
@@ -257,12 +256,12 @@ function renderTranscript(d,busy) {
  const toolbar=el('div','transcript-view-actions'),toggle=el('button','quiet',transcriptEditing?'Read as dialogue':'Edit transcript');toggle.type='button';toggle.setAttribute('aria-pressed',String(transcriptEditing));toggle.onclick=()=>{transcriptEditing=!transcriptEditing;renderTranscript(detail,busy);};toolbar.append(toggle);target.append(toolbar);
  if(transcriptEditing){
  const choice=el('label','transcript-refresh-choice'),check=el('input');check.type='checkbox';check.checked=refreshNotesAfterEdit;check.disabled=busy;check.onchange=()=>{refreshNotesAfterEdit=check.checked;if(dirtyTranscript)markTranscript();};choice.append(check,document.createTextNode(' Update notes and tasks after saving'));toolbar.prepend(choice);
- d.transcript.forEach((s,index)=>{ const row=el('div','segment');row.dataset.segmentIndex=String(index);const seek=el('button','',time(s.start)+' ▶');seek.setAttribute('aria-label','Play from '+time(s.start));seek.onclick=()=>{ $('audio').currentTime=s.start; $('audio').play().catch(e=>error(e.message)); }; const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore original transcription: '+original.text;restore.setAttribute('aria-label','Restore original transcription for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text);row.append(seek,content);$('transcript').append(row); });
+ d.transcript.forEach((s,index)=>{ const row=el('div','segment');row.dataset.segmentIndex=String(index);const seek=listenButton(d.id,s.start); const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore original transcription: '+original.text;restore.setAttribute('aria-label','Restore original transcription for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text);row.append(seek,content);$('transcript').append(row); });
  return;
  }
  for(const turn of transcriptTurns(d.transcript)) {
   const row=el('article','dialogue-turn'),header=el('div','dialogue-heading'),first=turn.segments[0].segment;
-  const seek=el('button','quiet dialogue-time',time(first.start)+' ▶');seek.type='button';seek.setAttribute('aria-label','Play from '+time(first.start));seek.onclick=()=>{$('audio').currentTime=first.start;$('audio').play().catch(e=>error(e.message));};
+  const seek=listenButton(d.id,first.start,{className:'quiet dialogue-time'});
   header.append(speakerBadge(el('span'),turn.speaker),el('strong','',turn.speaker||'Unidentified speaker'),seek);
   const text=el('p','dialogue-text');
   for(const {segment,index} of turn.segments){if(text.childNodes.length)text.append(document.createTextNode(' '));const fragment=el('span','transcript-fragment',segment.text.trim());fragment.dataset.segmentIndex=String(index);text.append(fragment);}
@@ -329,41 +328,77 @@ function closeMenus(except) { for(const menu of document.querySelectorAll('detai
 document.addEventListener('click',event=>{closeMenus(event.target.closest('details.menu'));if(event.target.closest('.menu-items button,.menu-items a'))closeMenus();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenus();});
 function stampSeconds(stamp) { const [h,m,sec]=stamp.split(':').map(Number); return h*3600+m*60+sec; }
+// One player for every listen button: the first click plays from the moment, the next click stops it.
+// Only one moment plays at a time. In the open meeting it drives the meeting's own player, so the
+// player bar shows the same position; elsewhere a hidden player reads the meeting's recording.
+const moment={audio:new Audio(),player:null,button:null,render:null,key:'',until:null};
+moment.audio.preload='none';
+function hasRecording(meetingId){
+ if(detail?.id===meetingId)return detail.files.includes('recording.wav');
+ return !!(state?.meetings?.find(m=>m.id===meetingId)?.has_audio??itemsData?.meetings?.[meetingId]?.has_audio);
+}
+function finishMoment(){ if(moment.render)moment.render(false); Object.assign(moment,{player:null,button:null,render:null,key:'',until:null}); }
+function stopMoment(){ const player=moment.player; finishMoment(); if(player&&!player.paused)player.pause(); }
+function listenButton(meetingId,seconds,{label,until,className='',title}={}){
+ const button=el('button','listen '+className),key=meetingId+'@'+seconds+'@'+(until??'');button.type='button';
+ const text=label??time(seconds);
+ const render=playing=>{button.classList.toggle('playing',playing);button.setAttribute('aria-pressed',String(playing));
+  button.replaceChildren(el('span','listen-icon',playing?'■':'▶'),...(text?[el('span','listen-label',text)]:[]));
+  button.setAttribute('aria-label',(playing?'Stop playback at ':'Play from ')+time(seconds));button.title=title||(playing?'Stop':'Play from '+time(seconds));};
+ render(false);
+ if(!meetingId||!hasRecording(meetingId)){button.disabled=true;button.title='This meeting has no recording';return button;}
+ // A list that renders again keeps showing the moment that plays.
+ if(moment.key===key&&moment.player&&!moment.player.paused){moment.button=button;moment.render=render;render(true);}
+ button.onclick=event=>{event.stopPropagation();
+  if(moment.button===button){stopMoment();return;}
+  stopMoment();
+  const player=detail?.id===meetingId&&view==='detail'?$('audio'):moment.audio;
+  if(player===moment.audio){const src='/files/'+meetingId+'/recording.wav';if(!player.src.endsWith(src)){player.src=src;player.preload='auto';}}
+  Object.assign(moment,{player,button,render,key,until:until??null});render(true);
+  const start=()=>{player.currentTime=seconds;player.play().catch(e=>{if(moment.button===button)finishMoment();error('The recording could not play: '+e.message);});};
+  if(player.readyState>=1)start();else player.addEventListener('loadedmetadata',start,{once:true});
+ };
+ return button;
+}
+function watchPlayer(player){
+ // The pause event arrives after a new moment may already play; only a stopped player ends the moment.
+ player.addEventListener('pause',()=>{if(moment.player===player&&player.paused)finishMoment();});
+ player.addEventListener('ended',()=>{if(moment.player===player)finishMoment();});
+ player.addEventListener('timeupdate',()=>{if(moment.player===player&&moment.until!==null&&player.currentTime>=moment.until)player.pause();});
+}
+watchPlayer(moment.audio);watchPlayer($('audio'));
 // Show the transcript at this moment and play it when the meeting has audio.
 function showMoment(stamp) {
  const seconds=stampSeconds(stamp); let index=detail.transcript.findIndex(s=>time(s.start)===stamp);
  if(index<0) index=detail.transcript.findIndex(s=>s.end>=seconds);
  switchTab('transcript'); const row=transcriptElement(index);
  if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
- if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
+ if(detail.files.includes('recording.wav')&&$('audio').paused)$('audio').currentTime=seconds;
 }
 function showSeconds(seconds) {
  let index=-1; detail.transcript.forEach((segment,i)=>{if(segment.start<=seconds+0.5)index=i;});
  switchTab('transcript'); const row=transcriptElement(Math.max(0,index));
  if(row&&detail.transcript.length){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
- if(detail.files.includes('recording.wav')){$('audio').currentTime=seconds;$('audio').play().catch(e=>error(e.message));}
+ if(detail.files.includes('recording.wav')&&$('audio').paused)$('audio').currentTime=seconds;
 }
-function stampButton(stamp) { const button=el('button','quiet stamp',stamp+' ▶'); button.type='button'; button.title='Show this moment in the transcript'; button.onclick=()=>showMoment(stamp); return button; }
+// A note's time: listen in place, or show the moment in the transcript.
+function stampButton(stamp) {
+ const box=el('span','stamp-group'),show=el('button','quiet stamp-show','↗');show.type='button';show.title='Show '+stamp+' in the transcript';show.setAttribute('aria-label',show.title);show.onclick=()=>showMoment(stamp);
+ box.append(listenButton(detail.id,stampSeconds(stamp),{label:stamp,className:'stamp'}),show);return box;
+}
 // AI notes cite moments as (00:29:46); make them links to the transcript.
 function linkedText(target,text) { text.split(/\(?\b(\d{2}:\d{2}:\d{2})\b\)?/).forEach((part,i)=>target.append(i%2?stampButton(part):document.createTextNode(part))); return target; }
 const FIELD_TITLES={summary:'Summary',decisions:'Decisions',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations'};
 const ITEM_FIELDS=Object.keys(FIELD_TITLES).filter(field=>field!=='tasks');
 function segmentAt(stamp) { return detail.transcript.find(s=>time(s.start)===stamp); }
-let excerptEnd=null;
-$('audio').addEventListener('timeupdate',()=>{if(excerptEnd!==null&&$('audio').currentTime>=excerptEnd){$('audio').pause();excerptEnd=null;}});
-$('audio').addEventListener('seeking',()=>{if(excerptEnd!==null&&$('audio').currentTime>excerptEnd)excerptEnd=null;});
-// Play only the cited segment and stay in the notes; without audio, show it in the transcript.
-function playExcerpt(stamp) {
- const segment=segmentAt(stamp);
- if(!segment||!detail.files.includes('recording.wav')) return showMoment(stamp);
- excerptEnd=segment.end; $('audio').currentTime=segment.start; $('audio').play().catch(e=>error(e.message));
-}
 function sourceBlock(stamp) {
  const box=el('div','note-source');
  if(!stamp) { box.append(el('span','no-source','No source moment')); return box; }
- const audio=detail.files.includes('recording.wav'), play=el('button','quiet stamp',(audio?'▶ ':'')+stamp);
- play.type='button'; play.title=audio?'Play this moment':'Show this moment in the transcript'; play.onclick=()=>playExcerpt(stamp); box.append(play);
  const segment=segmentAt(stamp);
+ if(detail.files.includes('recording.wav')){
+  // Play only the cited segment and stay in the notes.
+  box.append(listenButton(detail.id,segment?segment.start:stampSeconds(stamp),{label:stamp,until:segment?.end,className:'quiet stamp',title:'Play this moment'}));
+ }else{const show=el('button','quiet stamp',stamp);show.type='button';show.title='Show this moment in the transcript';show.onclick=()=>showMoment(stamp);box.append(show);}
  if(segment) { const quote=el('button','quote',(segment.speaker?segment.speaker+': ':'')+'“'+segment.text+'”'); quote.type='button'; quote.title='Show in the transcript'; quote.onclick=()=>showMoment(stamp); box.append(quote); }
  return box;
 }
@@ -509,7 +544,7 @@ function shortDuration(seconds) {
 }
 function metric(label,value) { const box=el('div','metric');box.append(el('strong','',String(value)),el('span','',label));return box; }
 function seekEvidence(item) {
- if(detail.files.includes('recording.wav')) { $('audio').currentTime=item.timestamp||0;$('audio').play().catch(e=>error(e.message));return; }
+ if(detail.files.includes('recording.wav')&&$('audio').paused) $('audio').currentTime=item.timestamp||0;
  switchTab('transcript');const row=transcriptElement(item.segment_index);if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
 }
 function speakerStats(target,rows,global=false) {
@@ -537,7 +572,7 @@ function renderMeetingAnalytics(busy=false) {
  if(!(data.topics||[]).length){const configure=el('button','secondary','Configure topic trackers');configure.onclick=()=>openSettings('trackers');topics.append(el('p','hint','No topic trackers are configured.'),configure);}
  for(const topic of data.topics||[]) {
   const box=el('div','topic-result'),heading=el('div','speaker-stat-heading');heading.append(el('strong','',topic.name),el('span','',topic.match_count+(topic.match_count===1?' hit':' hits')));box.append(heading);
-  for(const hit of topic.matches||[]) {const evidence=el('div','evidence-row'),seek=el('button','quiet evidence-time',time(hit.timestamp)+' ▶');seek.onclick=()=>seekEvidence(hit);const text=el('p','',hit.text);const meta=el('small','',(hit.speaker||'Unknown speaker')+(hit.semantic?' · Local AI semantic match':' · '+(hit.phrases||[]).join(', ')));const main=el('div');main.append(text,meta);evidence.append(seek,main);box.append(evidence);}
+  for(const hit of topic.matches||[]) {const evidence=el('div','evidence-row'),seek=listenButton(detail.id,hit.timestamp||0,{className:'quiet evidence-time'});const text=el('p','',hit.text);const meta=el('small','',(hit.speaker||'Unknown speaker')+(hit.semantic?' · Local AI semantic match':' · '+(hit.phrases||[]).join(', ')));const main=el('div');main.append(text,meta);evidence.append(seek,main);box.append(evidence);}
   topics.append(box);
  }
  target.append(topics);
@@ -554,7 +589,7 @@ function renderMeetingAnalytics(busy=false) {
  for(const question of shown.slice(0,questionLimit)) {
   const row=el('div','question-row'+(question.answered?' answered':'')),toggle=el('input');toggle.type='checkbox';toggle.checked=question.answered;toggle.disabled=busy;toggle.setAttribute('aria-label','Mark question as answered');
   toggle.onchange=()=>perform(async()=>{const updated=await api('/api/meetings/'+detail.id+'/question',{id:question.id,text:question.text,answered:toggle.checked});detail.analytics=updated;lastFingerprint=JSON.stringify(detail);renderMeetingAnalytics(false);});
-  const main=el('div'),text=el('p','',question.text),meta=el('div','tracked-meta'),seek=el('button','quiet tracked-source',time(question.timestamp)+' ▶');seek.onclick=()=>seekEvidence(question);meta.append(el('span','',question.speaker||'Unknown speaker'),seek);main.append(text,meta);row.append(toggle,main);questions.append(row);
+  const main=el('div'),text=el('p','',question.text),meta=el('div','tracked-meta'),seek=listenButton(detail.id,question.timestamp||0,{className:'quiet tracked-source'});meta.append(el('span','',question.speaker||'Unknown speaker'),seek);main.append(text,meta);row.append(toggle,main);questions.append(row);
  }
  if(shown.length>questionLimit){const more=el('button','secondary','Show all '+shown.length+' questions');more.type='button';more.onclick=()=>{questionLimit=Infinity;renderMeetingAnalytics(busy);};questions.append(more);}
  target.append(questions);
@@ -662,6 +697,7 @@ function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
  for(const link of item.links.filter(link=>link.meeting_id!==except).sort((a,b)=>(meetings[a.meeting_id]?.date||'').localeCompare(meetings[b.meeting_id]?.date||''))) {
   box.append(originChip('meeting',meetingLabel(link.meeting_id,meetings)+(link.evidence_timestamp?' · '+link.evidence_timestamp:''),async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}));
+  if(link.evidence_timestamp)box.append(listenButton(link.meeting_id,stampSeconds(link.evidence_timestamp),{label:'',className:'chip-listen'}));
  }
  return box;
 }
@@ -711,7 +747,7 @@ function evidenceBlock(item,meetings){
   const row=el('div','work-evidence'),main=el('div');main.append(el('small','hint',evidence.quote_kind==='meeting_note'?'Saved meeting note · historical wording':'Saved item text · source quote unavailable'),el('p','',evidence.quote));
   const source=el('button','quiet','↗ '+meetingLabel(evidence.source_id,meetings)+(evidence.timestamp?' · '+evidence.timestamp:''));source.type='button';source.disabled=!meetings[evidence.source_id];
   source.onclick=()=>perform(async()=>{await openMeeting(evidence.source_id);switchTab('outcomes');if(evidence.timestamp&&detail.files.includes('recording.wav'))$('audio').currentTime=evidence.timestamp.split(':').reduce((n,v)=>n*60+Number(v),0);toast('Showing the current meeting. This quote is a saved note snapshot.');});
-  row.append(main,source);box.append(row);
+  row.append(main,source);if(evidence.timestamp&&meetings[evidence.source_id])row.append(listenButton(evidence.source_id,stampSeconds(evidence.timestamp),{label:'',className:'chip-listen'}));box.append(row);
  }
  return box;
 }
@@ -1239,6 +1275,7 @@ function renderProjectSettings() {
   return line;};
  for(const project of projectList()) { const box=el('div','project-entry'); box.append(row('projects',project),...seriesOf(project.id).map(series=>row('series',series))); list.append(box); }
 }
+function sourceListen(source){return source?.meeting_id&&source.timestamp?listenButton(source.meeting_id,stampSeconds(source.timestamp),{label:'',className:'chip-listen'}):'';}
 function sourceChip(source) {
  const chip=el('button','meeting-chip','↗ '+withDate(source.meeting_title,source.meeting_date)+(source.timestamp?' · '+source.timestamp:'')); chip.type='button'; chip.title='Open the meeting at this moment';
  chip.onclick=()=>perform(async()=>{await openMeeting(source.meeting_id);if(source.timestamp&&detail.transcript.length)showMoment(source.timestamp);else switchTab('outcomes');});
@@ -1263,7 +1300,7 @@ function renderPrepare(data) {
  const last=data.meetings.at(-1);
  $('prepare-summary').textContent=data.meetings.length?data.title+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+' · no meetings yet';
  $('prepare-content').hidden=!data.meetings.length;
- const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source));return box;};
+ const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source),sourceListen(source));return box;};
  $('prepare-agenda').replaceChildren(...data.agenda.map(entry=>{const item=el('li');item.append(el('span','agenda-title',entry.title));if(entry.sources.length)item.append(sources(entry.sources));return item;}));
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10);
  $('prepare-tasks').replaceChildren(...(data.tasks.length?data.tasks.map(task=>{
@@ -1293,7 +1330,7 @@ function resultRow(result) {
  if(result.status) head.append(el('span','decision-status '+result.status,STATUS_LABELS[result.status]||result.status));
  if(result.speaker) head.append(el('span','hint',result.speaker));
  row.append(head,highlighted(result.snippet));
- const sources=el('div','item-meetings'); sources.append(sourceChip(result)); row.append(sources); return row;
+ const sources=el('div','item-meetings'); sources.append(sourceChip(result),sourceListen(result)); row.append(sources); return row;
 }
 async function openFind(query) {
  if(!(await leaveEdits())) return; dirtyTranscript=dirtyNotes=false; selected=null; history.replaceState(null,'','/'); show('find'); renderLibrary();
@@ -1317,7 +1354,7 @@ async function runAsk() {
  const box=$('find-answer'), project=$('find-project').value; box.hidden=false; box.replaceChildren(el('p','hint','Searching…'));
  const result=await api('/api/ask',{question,project,ai:false});
  box.replaceChildren(el('p','eyebrow','ANSWER FROM YOUR MEETINGS'),el('h2','',result.question));
- const list=entries=>{const wrap=el('div');for(const entry of entries){const row=el('div','prepare-question'),chips=el('div','item-meetings');chips.append(sourceChip(entry));row.append(el('p','',entry.text),chips);wrap.append(row);}return wrap;};
+ const list=entries=>{const wrap=el('div');for(const entry of entries){const row=el('div','prepare-question'),chips=el('div','item-meetings');chips.append(sourceChip(entry),sourceListen(entry));row.append(el('p','',entry.text),chips);wrap.append(row);}return wrap;};
  if(result.decision_question) {
   const status=el('div','decision-check '+(result.confirmed.length?'ok':'none'));
   status.append(el('strong','',result.confirmed.length?'✓ Confirmed decision found':'No confirmed decision found'));
@@ -1335,7 +1372,7 @@ async function runAsk() {
   const full=await response.json(); if(!response.ok) throw new Error(full.error||'Request failed');
   written.replaceChildren();
   if(full.ai?.found){written.append(el('p','',full.ai.answer));const cites=el('div','item-meetings');cites.append(el('span','hint','Sources'));
-   for(const number of full.ai.cited){const chip=sourceChip(full.sources[number-1]);chip.textContent='['+number+'] '+chip.textContent;cites.append(chip);}written.append(cites);}
+   for(const number of full.ai.cited){const chip=sourceChip(full.sources[number-1]);chip.textContent='['+number+'] '+chip.textContent;cites.append(chip,sourceListen(full.sources[number-1]));}written.append(cites);}
   else if(full.ai) written.append(el('p','hint','The found passages do not answer this question.'));
   else if(full.ai_error) written.append(el('p','notice warning','No written answer: '+full.ai_error));
  } catch(e) {
@@ -1568,11 +1605,17 @@ function traceNode(node){
  });
  return button;
 }
+function traceListen(node){
+ const ref=node.ref;if(!ref.meeting_id)return '';
+ const start=ref.start??(ref.timestamp?stampSeconds(ref.timestamp):0);
+ return listenButton(ref.meeting_id,start,{label:'',until:ref.end??null,className:'chip-listen',title:ref.end!=null?'Play the excerpt':'Play from '+time(start)});
+}
+function traceStep(node){const step=el('div','trace-step');step.append(traceNode(node),traceListen(node));return step;}
 function traceCard(chain){
  const card=el('article','trace-card'),grid=el('div','trace-grid');
  for(const [stage,title] of TRACE_STAGES){
   const column=el('div','trace-stage'+(chain.stages[stage].length?'':' empty'));column.append(el('h4','',title));
-  for(const node of chain.stages[stage].slice(0,6))column.append(traceNode(node));
+  for(const node of chain.stages[stage].slice(0,6))column.append(traceStep(node));
   if(chain.stages[stage].length>6)column.append(el('p','hint','+'+(chain.stages[stage].length-6)+' more'));
   if(!chain.stages[stage].length)column.append(el('p','trace-missing',stage==='task'&&chain.stages.decision.length?'Link a task to this decision':stage==='code'&&chain.stages.github.some(n=>n.kind==='pull_request')?'No repository report has this PR':'—'));
   grid.append(column);
@@ -1596,7 +1639,7 @@ function renderTimeline(box,data){
   const when=new Date(event.at),label=when.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   if(label!==day){day=label;box.append(el('h3','timeline-day',label));}
   const row=el('article','timeline-event'),kind=event.kind==='code'?'code':event.kind;
-  row.append(el('span','timeline-time',when.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})),traceNode(eventNode(event,kind)));
+  row.append(el('span','timeline-time',when.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})),traceStep(eventNode(event,kind)));
   if(event.event)row.append(el('span','hint',TIMELINE_EVENTS[event.event]||event.event.replace(/_/g,' ')));
   box.append(row);
  }
@@ -1604,7 +1647,7 @@ function renderTimeline(box,data){
 }
 const TIMELINE_EVENTS={created:'Created',discussed:'Discussed',duplicate:'Mentioned again',changed:'Changed',removed:'Removed from a meeting',merged:'Merged',superseded:'Replaced',detached:'Waits for new notes',projects_changed:'Projects changed',source_linked:'Source linked',answered:'Answered',reopened:'Reopened'};
 function eventNode(event,kind){
- const ref=event.url?{url:event.url,report_id:event.report_id}:event.attachment_id?{attachment_id:event.attachment_id}:event.source_id?{source_id:event.source_id}:event.item_id?{item_id:event.item_id}:{meeting_id:event.meeting_id};
+ const ref=event.url?{url:event.url,report_id:event.report_id}:event.attachment_id?{attachment_id:event.attachment_id,...(event.meeting_id?{meeting_id:event.meeting_id,start:event.start,end:event.end}:{})}:event.source_id?{source_id:event.source_id}:event.item_id?{item_id:event.item_id}:{meeting_id:event.meeting_id};
  return {kind,label:event.text,status:event.status,ref};
 }
 async function loadWorkspace(){
@@ -1723,10 +1766,12 @@ async function openAttachment(id){
  if(row.stale)box.append(el('p','notice','The original transcript or source revision has changed or is unavailable. This saved quotation is preserved.'));
  box.append(el('pre','conversation-snapshot',row.text));const choices=conversationProjectChoices(row.project_ids),save=el('button','secondary','Save project links');box.append(choices.box,save);
  save.onclick=()=>perform(async()=>{await api('/api/conversations/projects',{id:row.id,revision:row.revision,project_ids:choices.value()});if(view==='conversations')await loadConversations();if(view==='projects')await loadWorkspace();await openAttachment(row.id);});
- if(row.kind==='excerpt'){const jump=el('button','quiet','Open original meeting at '+time(row.locator.start));jump.onclick=()=>perform(async()=>{$('conversation-reader').close();await openMeeting(row.locator.meeting_id);showSeconds(row.locator.start);if(row.stale)toast('Saved excerpt differs from the current transcript');});box.append(jump);}
+ if(row.kind==='excerpt'){const jump=el('button','quiet','Open original meeting at '+time(row.locator.start));jump.onclick=()=>perform(async()=>{$('conversation-reader').close();await openMeeting(row.locator.meeting_id);showSeconds(row.locator.start);if(row.stale)toast('Saved excerpt differs from the current transcript');});box.append(jump,listenButton(row.locator.meeting_id,row.locator.start,{label:'Listen to the excerpt',until:row.locator.end,className:'secondary'}));}
  if(!$('conversation-reader').open)$('conversation-reader').showModal();
 }
 $('conversation-reader-close').onclick=()=>$('conversation-reader').close();
+// A moment that plays from the reader stops with it.
+$('conversation-reader').addEventListener('close',()=>{if(moment.player===moment.audio)stopMoment();});
 $('open-conversations').onclick=()=>perform(openConversations);
 $('conversation-filters').onsubmit=event=>{event.preventDefault();conversationOffset=0;selectedConversations.clear();perform(loadConversations);};
 $('conversation-project').onchange=()=>fillSeries($('conversation-series'),$('conversation-project').value,'','All series');

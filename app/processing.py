@@ -107,15 +107,22 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             language='bg', translate=False, print_progress=False, print_realtime=False,
             print_timestamps=False, no_context=True, suppress_blank=True,
             suppress_non_speech_tokens=True, temperature=0, n_threads=6, **options)
+    detector = None
     if provider == 'parakeet':
         from . import parakeet
         model = parakeet.Decoder(settings['models_dir'], progress)
+        if settings.get('whisper_vad', True):
+            # Silero skips silent chunks and trims each chunk to its speech; it only improves quality.
+            from . import vad as voice
+            detector, reason = voice.load(Path(settings['models_dir']), progress)
+            vad = voice.LABEL if detector else reason
     word_alignment = provider in {'local', 'parakeet'} and settings.get('diarization_enabled', True)
     model_name = parakeet.MODEL_NAME if provider == 'parakeet' else settings['local_model'] if provider == 'local' else settings['cloud_model']
     segments = []
     audio_path = directory / 'recording.wav'
     try:
-        audio_path, preparation = audio_preparation.prepare(directory, settings.get('audio_preparation', 'off'), progress)
+        audio_path, preparation = audio_preparation.prepare(directory, settings.get('audio_preparation', 'off'), progress,
+            Path(settings['models_dir']) if settings.get('models_dir') else None)
         progress('Checking saved transcription progress')
         model_stat = None
         if model_path and Path(model_path).is_file():
@@ -169,7 +176,13 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                     segments.extend(timed)
                 elif provider == 'parakeet':
                     from .speaker_alignment import group_units
-                    decoded = model.transcribe(samples, start, rate)
+                    part, offset = samples, start
+                    if detector:
+                        from . import vad as voice
+                        spans = voice.speech_spans(detector.probabilities(samples.astype(np.float32) / 32768))
+                        first, last = (max(0, spans[0][0] - 4800), min(count, spans[-1][1] + 4800)) if spans else (0, 0)
+                        part, offset = samples[first:last], start + first / rate
+                    decoded = model.transcribe(part, offset, rate) if len(part) else []
                     segments.extend(TranscriptSegment(**unit) for unit in (decoded if word_alignment else group_units(decoded)))
                 else:
                     buffer = io.BytesIO()
@@ -225,7 +238,10 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             if isinstance(vad, str):
                 metadata['vad_error'] = vad
         if provider == 'parakeet':
-            metadata.update(model_repository=parakeet.MODEL_ID, model_revision=parakeet.MODEL_REVISION, word_boundaries=bool(units), language='auto', vocabulary_applied=False)
+            metadata.update(model_repository=parakeet.MODEL_ID, model_revision=parakeet.MODEL_REVISION, word_boundaries=bool(units), language='auto', vocabulary_applied=False,
+                vad=bool(detector))
+            if isinstance(vad, str) and vad.startswith('unavailable'):
+                metadata['vad_error'] = vad
         atomic_json(directory / 'transcript.metadata.json', metadata)
         checkpoint.unlink(missing_ok=True)
     finally:

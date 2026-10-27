@@ -140,9 +140,16 @@ chosen microphone hears. ScreenCaptureKit reference:
 
 ## Transcription and notes
 
-**Audio preparation before final transcription** in Settings → Recording has two options:
-**Off** (default, including older meetings) and **Light**. Light removes low-frequency rumble,
+**Audio preparation before final transcription** in Settings → Recording has three options:
+**Off** (default, including older meetings), **Light** and **Strong**. Light removes low-frequency rumble,
 reduces steady noise gently, balances levels with gain capped at 2×, and limits output peaks.
+Strong replaces the gentle denoiser with RNNoise (FFmpeg `arnndn`, the "leavened-quisling" model for
+voice in a noisy room, about 300 KB, downloaded into `models/` on first use at a pinned revision).
+It removes more fan, traffic and room noise, but it can also change voices. In a synthetic check
+with one Bulgarian sentence, Strong lowered word errors with fan-like noise and raised them with
+white noise. Whisper is trained on noisy speech, so compare Original and Prepared audio and the
+transcript on your own recordings before you keep Strong. Without its model, Strong stops with a
+clear reason; it never changes to another profile silently.
 It does not remove pauses, change speed or promise to repair clipped or reverberant speech.
 Both local and cloud final transcription can use it; live captions are unchanged.
 
@@ -175,8 +182,16 @@ the settings it started with for automatic processing.
 - **Voice detection (VAD):** on by default. The final local pass uses the Silero model of
   whisper.cpp (under 1 MB, downloads into `models/` on first use) to skip silence. On silence,
   Whisper can invent text such as "Абонирайте се!"; VAD stops this and makes timestamps more exact.
-  If the model cannot download, transcription continues without VAD and the reason is saved
-  in `transcript.metadata.json`. Turn it off in **Settings → Recording**.
+  Live captions and Parakeet use the ONNX release of the same Silero version (v5.1.2, about
+  2.3 MB, through `onnxruntime`). Live captions send only the detected speech to Whisper instead of
+  everything above a loudness threshold, so steady noise no longer starts a caption. With Silero, a
+  short answer that only repeats vocabulary terms (for example "Kubernetes.") is kept. Parakeet skips
+  chunks without speech and trims each chunk to its speech. In a synthetic check with 20 s of fan noise
+  between two sentences, live captions decoded half as much audio and kept both sentences whole;
+  Parakeet finished 2.3× faster. If a model or `onnxruntime` is unavailable (for example on macOS 13,
+  which the current `onnxruntime` wheel does not support), transcription continues as before and the
+  reason is saved in `transcript.metadata.json` or `live-caption.log`. Turn it off in
+  **Settings → Recording**.
 - **Hallucination filter:** the app removes known Whisper inventions (subtitle credits,
   "subscribe" and "thanks for watching" phrases) and loops where one phrase repeats four or more times.
 - **Vocabulary:** enter names and terms in **Settings → Recording → Vocabulary for transcription**.
@@ -575,8 +590,8 @@ In **Settings → Recording → Transcription**, select **Local · Parakeet TDT 
 for the final transcription. Whisper remains available; live captions always use the selected
 Whisper model. Existing settings do not change automatically.
 
-Parakeet v3 supports Bulgarian and English, with automatic language detection. Its Whisper
-vocabulary and VAD options do not apply. Compare the results on representative recordings before
+Parakeet v3 supports Bulgarian and English, with automatic language detection. The Whisper
+vocabulary does not apply; voice detection does (see Voice detection above). Compare the results on representative recordings before
 assuming better accuracy for Bulgarian with English technical terms. AI correction, notes and
 post-recording speaker separation remain separate steps.
 

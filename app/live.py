@@ -21,6 +21,7 @@ from .capture import ffmpeg_path
 from .storage import atomic_json, atomic_text
 from .model_cache import ensure_model
 from .whisper import repeats_prompt
+from . import vad as voice
 
 RATE = 16000
 INTERVAL = 2.5
@@ -81,11 +82,24 @@ def speech_bounds(samples: np.ndarray):
     return first, last, silence
 
 
+def voice_bounds(samples: np.ndarray, detector):
+    """Silero speech detection; the same result shape as speech_bounds."""
+    spans = voice.speech_spans(detector.probabilities(samples))
+    if not spans:
+        return None
+    first = max(0, spans[0][0] - 4800)
+    last = min(len(samples), spans[-1][1] + 4800)
+    silence = (len(samples) - min(len(samples), spans[-1][1])) / RATE
+    return first, last, silence
+
+
 class CaptionEngine:
     """Small, deterministic caption state machine, independent of model loading."""
-    def __init__(self, directory: Path, decode):
+    def __init__(self, directory: Path, decode, detector=None):
         self.directory = directory
         self.decode = decode
+        # Silero ignores steady noise that passes the energy gate; without it the gate stays.
+        self.detector = detector
         self.cursor = 0.0
         self.last_end = 0.0
         self.state = dict(status='listening', message='Listening for speech',
@@ -104,7 +118,7 @@ class CaptionEngine:
                 and end - self.cursor < MAX_WINDOW - .05):
             return False
         samples = read_window(self.directory, info, self.cursor, end)
-        bounds = speech_bounds(samples)
+        bounds = voice_bounds(samples, self.detector) if self.detector else speech_bounds(samples)
         self.last_end = end
         if bounds is None:
             self.cursor = end
@@ -149,7 +163,7 @@ class CaptionEngine:
         self.publish()
 
 
-def run_worker(directory: Path, models_dir: Path, model_name: str, prompt: str = ''):
+def run_worker(directory: Path, models_dir: Path, model_name: str, prompt: str = '', use_vad: bool = False):
     state = dict(status='loading', message='Loading live caption model (first use downloads it)',
                  segments=[], partial=None, processed_until=0, error=None)
     atomic_json(directory / 'live.json', state)
@@ -163,11 +177,17 @@ def run_worker(directory: Path, models_dir: Path, model_name: str, prompt: str =
             print_progress=False, print_realtime=False, print_timestamps=False,
             single_segment=True, no_context=True, suppress_blank=True,
             suppress_non_speech_tokens=True, temperature=0, n_threads=4, initial_prompt=prompt)
+        detector, reason = voice.load(models_dir, progress) if use_vad else (None, None)
+        if reason:
+            print(f'Live voice detection {reason}; using the energy gate', flush=True)
         def decode(samples):
             raw = model.transcribe(samples, language='bg', single_segment=True, no_context=True)
             text = ' '.join(s.text for s in raw)
-            return '' if repeats_prompt(text, prompt) else text
-        engine = CaptionEngine(directory, decode)
+            # Whisper copies prompt terms over silence. When Silero confirms speech, a short answer
+            # such as "Kubernetes." is real; a copy of several prompt terms still is not.
+            copied = repeats_prompt(text, prompt) and (detector is None or len(text.split()) >= 3)
+            return '' if copied else text
+        engine = CaptionEngine(directory, decode, detector)
         stop_file = directory / '.live-stop'
         while True:
             info = read_json(directory / 'capture.json', None)
@@ -239,7 +259,8 @@ class LiveSession:
                 command = [sys.executable, '--live-worker'] if getattr(sys, 'frozen', False) else [sys.executable, '-m', 'app.live']
                 process = subprocess.Popen(command + [
                     '--directory', str(self.directory), '--models-dir', self.settings['models_dir'],
-                    '--model', self.settings['local_model'], '--prompt=' + self.prompt], cwd=self.project,
+                    '--model', self.settings['local_model'], '--prompt=' + self.prompt]
+                    + (['--vad'] if self.settings.get('whisper_vad', True) else []), cwd=self.project,
                     stdout=log, stderr=log)
                 deadline = None
                 while process.poll() is None:
@@ -282,8 +303,9 @@ def main():
     parser.add_argument('--models-dir', type=Path, required=True)
     parser.add_argument('--model', required=True)
     parser.add_argument('--prompt', default='')
+    parser.add_argument('--vad', action='store_true')
     args = parser.parse_args()
-    run_worker(args.directory, args.models_dir, args.model, args.prompt)
+    run_worker(args.directory, args.models_dir, args.model, args.prompt, args.vad)
 
 
 if __name__ == '__main__':

@@ -44,7 +44,7 @@ class PipelineTests(unittest.TestCase):
         with wave.open(str(self.root/'recording.wav'),'wb') as out:
             out.setnchannels(1);out.setsampwidth(2);out.setframerate(16000);out.writeframes(b'\0\0'*16000*70)
         self.original=(self.root/'recording.wav').read_bytes()
-        self.settings=dict(DEFAULTS,transcription='parakeet',models_dir=str(self.root/'models'),diarization_enabled=True)
+        self.settings=dict(DEFAULTS,transcription='parakeet',models_dir=str(self.root/'models'),diarization_enabled=True,whisper_vad=False)
         self.calls=[];self.fail_at=None;self.empty=False
         case=self
         class Decoder:
@@ -81,6 +81,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.calls,[checkpoint['cursor']/16000])
         self.assertTrue(list((self.root/'versions').glob('*/minutes.json')))
         self.assertFalse((self.root/'minutes.json').exists())
+
+    def test_voice_detection_skips_silent_chunks_and_trims_each_chunk_to_speech(self):
+        offsets=[];lengths=[]
+        class Detector:
+            def probabilities(self,samples):
+                # Speech only from 10 s to 20 s of the first minute.
+                windows=-(-len(samples)//512);start=len(offsets)==0
+                return __import__('numpy').array([.9 if start and 10*16000<=i*512<20*16000 else 0 for i in range(windows)])
+        case=self
+        class Decoder:
+            def __init__(self,*args):pass
+            def transcribe(self,samples,offset,rate):
+                offsets.append(offset);lengths.append(len(samples)/rate);return [dict(start=offset,end=offset+1,text='Обнови',speaker=None)]
+        with patch('app.parakeet.Decoder',Decoder),patch('app.vad.load',return_value=(Detector(),None)):
+            processing.transcribe(self.root,dict(self.settings,whisper_vad=True),lambda _:None)
+        self.assertEqual(len(offsets),1)
+        # Speech starts at the first 32 ms window after 10 s; each side keeps 0.3 s of context.
+        self.assertAlmostEqual(offsets[0],9.716,places=3);self.assertAlmostEqual(lengths[0],10.584,places=3)
+        metadata=json.loads((self.root/'transcript.metadata.json').read_text());self.assertTrue(metadata['vad'])
+
+    def test_missing_voice_detection_keeps_whole_chunks(self):
+        with patch('app.vad.load',return_value=(None,'unavailable: synthetic')):
+            processing.transcribe(self.root,dict(self.settings,whisper_vad=True),lambda _:None)
+        self.assertEqual(self.calls,[0,self.calls[1]])
+        metadata=json.loads((self.root/'transcript.metadata.json').read_text())
+        self.assertEqual((metadata['vad'],metadata['vad_error']),(False,'unavailable: synthetic'))
 
     def test_new_model_revision_does_not_reuse_old_checkpoint(self):
         self.fail_at=2

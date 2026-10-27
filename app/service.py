@@ -119,7 +119,7 @@ class MeetingService:
         if set(settings) - set(DEFAULTS):
             raise ValueError('Unknown setting')
         values = migrate_settings(dict(self.settings, **settings))
-        if values['audio_preparation'] not in {'off', 'light'}:
+        if values['audio_preparation'] not in {'off', 'light', 'strong'}:
             raise ValueError('Audio preparation must be Off or Light')
         values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
         if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:

@@ -24,6 +24,8 @@ MENTION = {'task': {'text': 'task', 'owner': 'owner', 'deadline': 'deadline', 'd
 TASK_STATES = ('open', 'done')
 DECISION_STATES = ('proposed', 'accepted', 'superseded')
 AI_UPDATES = ('owner', 'deadline', 'due_date')
+# Fields that describe the current state of an item, not what a meeting said.
+STATE_FIELDS = ('owner', 'due_date')
 MATCH = 0.55
 # A decision's state shows in its mentions as the review state: accepted means checked.
 REVIEW_OF = {'accepted': 'verified', 'proposed': 'ai'}
@@ -129,9 +131,9 @@ class Registry:
             if new_status:
                 applied['status'] = [item['status'], new_status]
                 item['status'] = new_status
-        if 'status' in applied:
-            self.status_changed.add(item['id'])
         if applied:
+            # Other meetings that mention the item show the edit too.
+            self.status_changed.add(item['id'])
             self._event(item, 'changed', meeting_id, applied, by='user')
 
     @staticmethod
@@ -140,14 +142,23 @@ class Registry:
 
     @staticmethod
     def _reconcile(kind: str, item: dict, mention: dict) -> bool:
-        """The item holds the state; every meeting's notes show the same state."""
+        """The item holds the state; every meeting's notes show the same state.
+
+        State that a person set (owner, due date) reaches every mention. The wording (text and the
+        deadline as said) stays as each meeting's notes said it; the saved evidence keeps it too.
+        """
+        changed = False
+        for name, source in MENTION[kind].items():
+            if name in STATE_FIELDS and name in item['manual'] and mention.get(source) != item.get(name):
+                mention[source] = item.get(name)
+                changed = True
         if kind == 'task' and mention.get('status') != item['status']:
             mention['status'] = item['status']
-            return True
+            changed = True
         if kind == 'decision' and item['status'] in REVIEW_OF and mention.get('review') != REVIEW_OF[item['status']]:
             mention['review'] = REVIEW_OF[item['status']]
-            return True
-        return False
+            changed = True
+        return changed
 
     def detach(self, meeting_id: str) -> None:
         """The notes of a meeting are gone because it was transcribed again. Its items keep their identity
@@ -300,9 +311,28 @@ class Registry:
             if not item['links'] and item.get('managed_by') != 'work_graph' and not self.has_graph_links(item['id']):
                 self.remove(item['id'])
 
+    def newer(self, item_id: str) -> set[str]:
+        """The decisions that replace this one, directly or through a chain of replacements."""
+        found, todo = set(), [item_id]
+        while todo:
+            current = todo.pop()
+            following = {other['id'] for other in self.items.values() if current in other.get('supersedes', [])}
+            following.add(self.items.get(current, {}).get('superseded_by'))
+            for entry in following - found - {None}:
+                found.add(entry)
+                todo.append(entry)
+        return found
+
+    def replaces(self, item_id: str, other_id: str) -> bool:
+        """True when one decision replaces the other, at any distance in the replacement chain."""
+        return other_id in self.newer(item_id) or item_id in self.newer(other_id)
+
     def merge(self, item_id: str, into_id: str) -> None:
         """Two items are the same thing; keep one with all links and history."""
         item, into = self.items[item_id], self.items[into_id]
+        if self.replaces(item_id, into_id):
+            # Merging would make a decision replace itself.
+            raise ValueError('One of these decisions replaces the other. They cannot be merged.')
         if item.get('source_evidence') or into.get('source_evidence'):
             raise ValueError('Use proposal Link for items with work graph sources.')
         for link in item['links']:

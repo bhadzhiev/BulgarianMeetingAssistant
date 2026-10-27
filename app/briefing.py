@@ -46,6 +46,7 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
     proposed = sorted((dict(item_id=item['id'], text=item['text'], source=last_source(item)) for item in in_scope
                        if item['kind'] == 'decision' and item['status'] == 'proposed'), key=newest, reverse=True)
 
+    by_id = {item['id']: item for item in in_scope}
     questions = []
     for meeting in reversed(meetings[-RECENT_MEETINGS:]):
         for field, kind in (('needs_decision', 'decide'), ('open_questions', 'discuss')):
@@ -54,10 +55,10 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
                 # A newer meeting asked the same thing already; keep the newest wording.
                 if any(similarity(text, known['text']) >= MATCH for known in questions):
                     continue
-                answer = next((d for d in decisions if d['source'] and d['source']['meeting_date'] > dates[meeting['id']]
-                               and similarity(text, d['text']) >= MATCH), None)
-                questions.append(dict(text=text, kind=kind, source=source(meeting['id'], entry.get('evidence_timestamp') if isinstance(entry, dict) else None),
-                                      maybe_answered_by=answer))
+                stamp = entry.get('evidence_timestamp') if isinstance(entry, dict) else None
+                answer = next((d for d in decisions if similarity(text, d['text']) >= MATCH
+                               and any(_after(link, meeting['id'], stamp, dates) for link in by_id[d['item_id']]['links'] if link['meeting_id'] in ids)), None)
+                questions.append(dict(text=text, kind=kind, source=source(meeting['id'], stamp), maybe_answered_by=answer))
     checks = []
     if meetings:
         last = meetings[-1]['id']
@@ -90,6 +91,25 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
                 agenda=agenda, markdown=markdown(title, today, agenda, tasks, questions, decisions[:10]))
 
 
+def _seconds(stamp):
+    try:
+        hours, minutes, seconds = (int(part) for part in stamp.split(':'))
+        return hours * 3600 + minutes * 60 + seconds
+    except (AttributeError, ValueError):
+        return None
+
+
+def _after(link, meeting_id, stamp, dates) -> bool:
+    """A decision mention comes after a question: a later meeting, or later in the same meeting.
+
+    In the same meeting a mention without a time counts as after; the decision was made there.
+    """
+    if link['meeting_id'] != meeting_id:
+        return dates[link['meeting_id']] > dates[meeting_id]
+    asked, decided = _seconds(stamp), _seconds(link.get('evidence_timestamp'))
+    return asked is None or decided is None or decided >= asked
+
+
 def _stamp(seconds) -> str:
     seconds = max(0, int(seconds))
     return f'{seconds // 3600:02}:{seconds // 60 % 60:02}:{seconds % 60:02}'
@@ -109,9 +129,14 @@ def markdown(title, today, agenda, tasks, questions, decisions) -> str:
         lines += ['', '## Open tasks']
         lines += [f'- [ ] {t["text"]}' + (f' · {t["owner"]}' if t['owner'] else '') + (f' · due {t["due_date"]}' if t['due_date'] else '')
                   + _cite(t['source']) for t in tasks]
-    if questions:
+    unresolved = [q for q in questions if not q['maybe_answered_by']]
+    if unresolved:
         lines += ['', '## Questions without a decision']
-        lines += [f'- {q["text"]}' + _cite(q['source']) for q in questions]
+        lines += [f'- {q["text"]}' + _cite(q['source']) for q in unresolved]
+    answered = [q for q in questions if q['maybe_answered_by']]
+    if answered:
+        lines += ['', '## Questions that a decision may answer']
+        lines += [f'- {q["text"]} → {q["maybe_answered_by"]["text"]}' + _cite(q['source']) for q in answered]
     if decisions:
         lines += ['', '## Decisions in force']
         lines += [f'- {d["text"]}' + _cite(d['source']) for d in decisions]

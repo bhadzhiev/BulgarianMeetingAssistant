@@ -151,12 +151,23 @@ class TraceTests(unittest.TestCase):
         stages=chain['stages']
         self.assertEqual([n['ref'].get('meeting_id') for n in stages['conversation'] if n['kind']=='meeting'],[self.meeting])
         self.assertIn(self.excerpt['id'],[n['ref'].get('attachment_id') for n in stages['conversation']])
+        excerpt=next(n for n in stages['conversation'] if n['ref'].get('attachment_id')==self.excerpt['id'])
+        self.assertEqual((excerpt['ref']['meeting_id'],excerpt['ref']['start'],excerpt['ref']['end']),(self.meeting,12,20))
+        moment=next(e for e in timeline['events'] if e.get('attachment_id')==self.excerpt['id'])
+        self.assertEqual((moment['meeting_id'],moment['start'],moment['end']),(self.meeting,12,20))
         self.assertEqual([n['ref']['item_id'] for n in stages['decision']],[self.decision['id']])
         self.assertEqual([(n['kind'],n['ref']['number']) for n in stages['github']],[('pull_request',7)])
         self.assertEqual([n['ref']['url'] for n in stages['code']],['https://github.com/synthetic/infra/pull/7'])
         self.assertEqual(chain['complete'],5);self.assertEqual(chain['relationships'][0]['kind'],'implements')
         self.assertIn('https://github.com/synthetic/infra/pull/7',[e.get('url') for e in timeline['events'] if e['kind']=='code'])
         self.assertNotIn('https://github.com/synthetic/infra/pull/8',[e.get('url') for e in timeline['events']])
+    def test_meetings_say_whether_a_recording_can_play(self):
+        self.assertFalse(self.s.snapshot()['meetings'][0]['has_audio']);self.assertFalse(self.s.item_list()['meetings'][self.meeting]['has_audio'])
+        (self.s.library.directory(self.meeting)/'recording.wav').write_bytes(b'RIFF'+bytes(40))
+        self.assertTrue(self.s.snapshot()['meetings'][0]['has_audio']);self.assertTrue(self.s.item_list()['meetings'][self.meeting]['has_audio'])
+        self.s.active=self.meeting
+        try:self.assertFalse(self.s.item_list()['meetings'][self.meeting]['has_audio'])
+        finally:self.s.active=None
     def test_without_a_saved_relationship_similar_items_stay_in_separate_chains(self):
         self.report()
         with patch.object(self.s.repo_reports,'account',return_value='1'):timeline,chain=self.chain()

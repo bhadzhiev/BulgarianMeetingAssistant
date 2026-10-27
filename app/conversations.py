@@ -233,7 +233,10 @@ class Conversations:
 
     def timeline(self, project, items, meetings):
         events=[dict(id='meeting:'+m['id'],kind='meeting',at=iso(m.get('started_at') or m['created']),text=m['title'],meeting_id=m['id']) for m in meetings]
-        for row in self.attachments(project):events.append(dict(id=row['id'],kind=row['kind'],at=row['date'],text=row['title'],attachment_id=row['id'],captured_at=row['created']))
+        for row in self.attachments(project):
+            event=dict(id=row['id'],kind=row['kind'],at=row['date'],text=row['title'],attachment_id=row['id'],captured_at=row['created'])
+            if row['kind']=='excerpt':event.update(meeting_id=row['locator']['meeting_id'],start=row['locator']['start'],end=row['locator']['end'])
+            events.append(event)
         by_id={i['id']:i for i in items}
         for item in items:
             for n,event in enumerate(item.get('history',[])):
@@ -289,7 +292,9 @@ class Conversations:
             try:return sum(int(part)*60**n for n,part in enumerate(reversed(stamp.split(':'))))
             except (AttributeError,ValueError):return None
         def attachment_node(a):
-            return dict(id='attachment:'+a['id'],kind=a['kind'],label=a['title'],date=a['date'],ref=dict(attachment_id=a['id']))
+            ref=dict(attachment_id=a['id'])
+            if a['kind']=='excerpt':ref.update(meeting_id=a['locator']['meeting_id'],start=a['locator']['start'],end=a['locator']['end'])
+            return dict(id='attachment:'+a['id'],kind=a['kind'],label=a['title'],date=a['date'],ref=ref)
         def origins(item):
             nodes=[]
             for link in item.get('links',[]):

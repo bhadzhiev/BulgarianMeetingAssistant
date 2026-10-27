@@ -250,6 +250,19 @@ From a saved meeting you can:
 - Search meeting names and saved transcripts, rename a meeting, and export audio/Markdown/JSON/SRT.
 - Transcribe again with the current settings or generate notes independently.
 
+### Listen to a moment
+
+Every time next to a meeting moment is a start/stop control: **▶** plays from that
+moment, **■** stops it. Only one moment plays at a time; starting another stops the
+first. The control is in the transcript, speaker review, notes and analytics of a
+meeting, and also outside the meeting: task and decision sources in My Work and
+Projects, the project trace and events, Prepare me and Search & ask. You listen in
+place; the page does not change. A note's source plays only its cited segment, and
+a saved excerpt plays only its time range. In the open meeting the control uses
+the meeting's player, so its position stays in sync. Opening a meeting from a link
+shows the moment in the transcript without starting playback. Meetings without a
+recording (for example, imported transcripts) show the control as unavailable.
+
 ### Conversation analytics
 
 Saved meetings have an **Analytics** tab for talk time, topic evidence, and questions.

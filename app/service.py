@@ -197,7 +197,7 @@ class MeetingService:
                 live = self.live_sessions.get(self.active)
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
-            return dict(meetings=self.library.list(), active=active, google=self.google.status(),
+            return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
                 speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
@@ -1359,8 +1359,12 @@ class MeetingService:
         self.items_synced = {}
         self._refresh_items()
 
+    def _has_audio(self, meeting_id):
+        """A finished recording can play from any moment; a meeting that is still recording has none yet."""
+        return meeting_id != self.active and (self.library.directory(meeting_id) / 'recording.wav').is_file()
+
     def _meeting_refs(self):
-        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created'], project_id=m.get('project_id'))
+        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created'], project_id=m.get('project_id'), has_audio=self._has_audio(m['id']))
                 for m in self.library.list()}
 
     def pending_links(self, meetings=None):

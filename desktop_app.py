@@ -127,6 +127,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return
+        if url.path == '/api/conversations':
+            return self.respond(200,self.server.service.conversations.listing({k:v[0] for k,v in parse_qs(url.query).items()}))
+        if url.path == '/api/conversations/external':
+            query = parse_qs(url.query)
+            return self.respond(200,self.server.service.conversations.external(query.get('provider',[''])[0],query.get('id',[''])[0]))
+        if url.path == '/api/conversations/attachment':
+            return self.respond(200,self.server.service.conversations.attachment(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/projects/workspace':
             return self.respond(200, self.server.service.project_workspace(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/search':
@@ -384,6 +391,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.reveal_backup(body['name'])
             elif path == '/api/ask':
                 result = service.ask(body['question'], body.get('project', ''), body.get('ai', True) is not False)
+            elif path == '/api/conversations/bulk':
+                result = service.conversations.bulk(body)
+            elif path == '/api/conversations/attach':
+                result = service.conversations.attach(body)
+            elif path == '/api/conversations/projects':
+                result = service.conversations.assign(body)
             elif path == '/api/projects/create':
                 result = service.create_project(body.get('name'))
             elif path == '/api/projects/change':

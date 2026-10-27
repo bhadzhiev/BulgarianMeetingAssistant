@@ -26,7 +26,7 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
 
 
-COLLECTIONS = ('sources', 'source_revisions', 'source_evidence', 'proposals', 'relationships', 'activity')
+COLLECTIONS = ('sources', 'source_revisions', 'source_evidence', 'proposals', 'relationships', 'activity', 'conversation_links')
 
 def normalize(item):
     states = {'task': {'open', 'done'}, 'decision': {'proposed', 'accepted', 'superseded'}, 'question': {'open', 'answered'}}
@@ -100,7 +100,7 @@ class WorkItemStore:
         export = self.export
         with closing(self.connect()) as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise ValueError('This WorkItem database needs a newer app version')
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript('''
@@ -114,7 +114,7 @@ class WorkItemStore:
                 CREATE TABLE IF NOT EXISTS graph_records (
                     collection TEXT NOT NULL, id TEXT NOT NULL, document TEXT NOT NULL,
                     PRIMARY KEY(collection,id));
-                PRAGMA user_version=2;
+                PRAGMA user_version=3;
             ''')
             initialized = db.execute('SELECT initialized FROM registry_meta WHERE id=1').fetchone()[0]
         if not initialized:

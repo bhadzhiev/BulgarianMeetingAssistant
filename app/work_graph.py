@@ -2,6 +2,8 @@
 import copy
 import datetime as dt
 import hashlib
+import re
+import math
 import uuid
 
 from .work_items import COLLECTIONS, WorkItemConflict, canonical
@@ -72,6 +74,31 @@ def validate_graph(graph, items=None):
                 or not isinstance(entry.get('quote'), str) or not entry['quote'] or entry['quote'] not in revision['text']
                 or not isinstance(entry.get('locator'), dict)):
             raise ValueError('Evidence must quote a pinned source revision')
+    for link in graph.get('conversation_links', {}).values():
+        revision = revisions.get(link.get('source_revision'))
+        ids = link.get('project_ids')
+        if (not revision or revision['source_id'] != link.get('source_id')
+                or type(link.get('revision')) is not int or link['revision'] < 1
+                or not isinstance(ids, list) or len(ids)>50
+                or any(not isinstance(key,str) or not re.fullmatch(r'[a-f0-9]{12}',key) for key in ids)
+                or len(set(ids))!=len(ids)
+                or link.get('kind') not in {'excerpt','gmail','google_chat'}):
+            raise ValueError('Invalid conversation attachment')
+        text(link.get('title'), 'conversation title', 500)
+        if not isinstance(link.get('date'),str) or dt.datetime.fromisoformat(link['date'].replace('Z','+00:00')).tzinfo is None:
+            raise ValueError('Conversation dates need a timezone')
+        if sources[link['source_id']]['provider'] != ('meeting' if link['kind']=='excerpt' else link['kind']):
+            raise ValueError('Conversation source kind does not match')
+        locator = link.get('locator')
+        if not isinstance(locator,dict):raise ValueError('Invalid conversation locator')
+        if link['kind']=='excerpt':
+            if (not re.fullmatch(r'[a-f0-9]{32}',locator.get('meeting_id',''))
+                    or type(locator.get('first')) is not int or type(locator.get('last')) is not int
+                    or not 0<=locator['first']<=locator['last']
+                    or not isinstance(locator.get('transcript_revision'),str) or not re.fullmatch(r'[a-f0-9]{64}',locator['transcript_revision'])
+                    or any(type(locator.get(key)) not in (int,float) or not math.isfinite(locator[key]) for key in ('start','end'))
+                    or not 0<=locator['start']<=locator['end']):
+                raise ValueError('Invalid transcript excerpt locator')
     for proposal in graph['proposals'].values():
         if (proposal.get('kind') not in KINDS or proposal.get('evidence_id') not in evidence
                 or proposal.get('state') not in {'pending', 'accepted', 'linked', 'dismissed', 'stale'}

@@ -4,6 +4,7 @@ from dataclasses import asdict
 from contextlib import contextmanager
 from .work_graph import WorkGraph, validate_graph
 from .work_items import COLLECTIONS, normalize
+import copy
 import json
 import re
 import shutil
@@ -35,6 +36,7 @@ from . import meeting_types
 from . import search
 from .events import Watcher
 from .projects import Projects
+from .meeting_templates import Templates
 from .conversations import Conversations
 from .people import People
 from .github_links import GitHubLinks, parse as parse_github_reference
@@ -107,6 +109,7 @@ class MeetingService:
         self.projects = Projects(root / 'projects.json')
         self.people = People(root / 'people.json')
         self.github_links = GitHubLinks(root / 'github-links.json')
+        self.templates = Templates(root / 'meeting-templates.json')
         self.conversations = Conversations(self)
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
@@ -225,7 +228,7 @@ class MeetingService:
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
-                speakers=self.library.speakers(), people=self.people.list(), meeting_types=meeting_types.public(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
+                speakers=self.library.speakers(), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
@@ -269,6 +272,7 @@ class MeetingService:
             with self.items.lock:
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
+            meeting['github_links'] = [link for i in meeting['items'] for link in self.github_links.for_resource('item', i)]
             meeting['live'] = read_json(directory / 'live.json', None)
             meeting['input_gaps'] = read_json(directory / 'capture.json', {}).get('input_gaps', [])
             meeting['markers'] = read_json(directory / 'markers.json', [])
@@ -344,7 +348,7 @@ class MeetingService:
         if transcription_timing is not None and transcription_timing not in ('live', 'after'):
             raise ValueError('Choose live captions or transcription after recording')
         if meeting_type is not None:
-            meeting_types.check(meeting_type)
+            self._meeting_type(meeting_type)
         ffmpeg_path()
         device = self._input_device(device, device_name)
         if not isinstance(fallback_device_name, str) or len(fallback_device_name) > 300:
@@ -365,9 +369,9 @@ class MeetingService:
             # Missing credentials never prevent saving a recording.
             meeting = self.library.create(title, mode, settings)
             # A new meeting of a series starts with the type of the series; a different choice is the person's own.
-            inherited = self.projects.series_type(series_id)
-            meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id, meeting_type=meeting_type or inherited,
-                                          meeting_type_source='series' if (meeting_type or inherited) == inherited else 'manual')
+            inherited = self._series_type(series_id)
+            meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id,
+                                          **self._type_changes(meeting_type or inherited, 'series' if (meeting_type or inherited) == inherited else 'manual'))
             self.active = meeting['id']
             self.activity_changed(True)
             self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
@@ -951,17 +955,67 @@ class MeetingService:
             changes = dict(project_id=project_id, series_id=series_id)
             # A type that the person chose stays; otherwise the meeting follows its series.
             if meeting.get('meeting_type_source') != 'manual':
-                changes.update(meeting_type=self.projects.series_type(series_id), meeting_type_source='series')
+                changes.update(self._type_changes(self._series_type(series_id), 'series'))
             self.library.update(meeting_id, **changes)
             return self.detail(meeting_id)
 
     def set_meeting_type(self, meeting_id, kind):
         """Change the type of one meeting. Saved notes stay; new notes for the type wait for review."""
-        meeting_types.check(kind)
+        changes = self._type_changes(kind, 'manual')
         with self.lock:
             self.library.get(meeting_id)
-            self.library.update(meeting_id, meeting_type=kind, meeting_type_source='manual')
+            self.library.update(meeting_id, **changes)
             return self.detail(meeting_id)
+
+    def type_export(self, meeting_id):
+        """The result of the meeting in the format of its type, for example a postmortem document."""
+        from meeting_assistant import validate_minutes
+        from . import type_exports
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            minutes = read_json(self.library.directory(meeting_id) / 'minutes.json', None)
+            if not minutes:
+                raise ValueError('Generate meeting notes first')
+            validate_minutes(minutes)
+            ids = [task['item_id'] for task in minutes.get('tasks', []) if task.get('item_id')]
+            with self.items.lock:
+                items = {i: copy.deepcopy(self.items.items[i]) for i in ids if i in self.items.items}
+            links = {i: self.github_links.for_resource('item', i) for i in ids}
+            return type_exports.render(meeting, minutes, items, links)
+
+    def _meeting_type(self, kind):
+        """(type ID, copy of the own template or None). An unknown type raises."""
+        if kind in meeting_types.TYPES:
+            return kind, None
+        template = self.templates.get(kind) if isinstance(kind, str) else None
+        if not template:
+            raise ValueError('Choose a meeting type')
+        return kind, {key: template[key] for key in ('label', 'description', 'prepare', 'sections')}
+
+    def _type_changes(self, kind, source):
+        # A meeting keeps a copy of its template, so a later edit of the template never changes its notes.
+        kind, template = self._meeting_type(kind)
+        return dict(meeting_type=kind, meeting_template=template, meeting_type_source=source)
+
+    def _series_type(self, series_id):
+        """The default type of a series. A deleted template falls back to the general type."""
+        kind = self.projects.series_type(series_id)
+        return kind if kind in meeting_types.TYPES or self.templates.get(kind) else meeting_types.DEFAULT
+
+    def save_template(self, body):
+        with self.lock:
+            template = self.templates.save(body)
+            return dict(template=template, meeting_types=meeting_types.public(self.templates.list()))
+
+    def delete_template(self, template_id, revision):
+        """Delete an own template. Saved meetings keep their copy; series that used it become general."""
+        with self.lock, self.projects.lock:
+            self.templates.delete(template_id, revision)
+            for series in self.projects.data['series']:
+                if series.get('type') == template_id:
+                    series['type'] = meeting_types.DEFAULT
+            self.projects.save()
+            return dict(meeting_types=meeting_types.public(self.templates.list()), projects=self.projects.data)
 
     def change_scope(self, kind, entry_id, action, name=None):
         """Rename or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
@@ -970,7 +1024,7 @@ class MeetingService:
         with self.lock, self.projects.lock:
             if action == 'type':
                 # Only new meetings use the new default; saved meetings keep their type.
-                self.projects.set_series_type(entry_id, name)
+                self.projects.set_series_type(entry_id, self._meeting_type(name)[0])
             elif action == 'rename':
                 self.projects.rename(kind, entry_id, name)
             else:
@@ -1224,7 +1278,8 @@ class MeetingService:
             self._refresh_items()
             with self.items.lock:
                 registry = list(self.items.items.values())
-            kind = self.projects.series_type(series_id) if series else meeting_types.DEFAULT
+            kind = self._series_type(series_id) if series else meeting_types.DEFAULT
+            kind = meeting_types.definition(kind, self.templates.get(kind))
             result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
                                     {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
                                     dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind)
@@ -1305,7 +1360,7 @@ class MeetingService:
                     normalize(item)
         def merge(staging, restored):
             self.repo_reports.restore(staging)
-            for name, store in (('people.json', self.people), ('github-links.json', self.github_links)):
+            for name, store in (('people.json', self.people), ('github-links.json', self.github_links), ('meeting-templates.json', self.templates)):
                 try:
                     store.merge(json.loads((staging / name).read_text()))
                 except (OSError, ValueError):

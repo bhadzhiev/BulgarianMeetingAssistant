@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app import notes, processing
+from app import meeting_types, notes, processing
+from app.work_items import WorkItemConflict
 from app.projects import Projects
 from app.service import DEFAULTS, MeetingService
 from app.storage import atomic_json
@@ -94,7 +95,7 @@ class MeetingTypeServiceTests(unittest.TestCase):
         self.s.set_meeting_type(meeting, 'incident')
         output = minutes(facts=[item('Сайтът не отговаря')], hypotheses=[item('Може би е DNS', '00:00:05')], incident_timeline=[])
         seen = []
-        with patch('meeting_assistant.generate_minutes', side_effect=lambda args, group: seen.append(args.meeting_type) or json.loads(json.dumps(output))):
+        with patch('meeting_assistant.generate_minutes', side_effect=lambda args, group: seen.append(args.meeting_type['id']) or json.loads(json.dumps(output))):
             processing.summarize(self.s.library.directory(meeting), dict(DEFAULTS, summarizer='local'), lambda _: None)
         self.assertEqual(seen, ['incident'])
         directory = self.s.library.directory(meeting)
@@ -132,6 +133,89 @@ class MeetingTypeServiceTests(unittest.TestCase):
         self.assertIn('What we learned and what changes', titles)
         # A project without a series keeps the general agenda.
         self.assertEqual(self.s.prepare(project_id=self.project)['meeting_type'], 'general')
+
+    def template(self, **values):
+        return self.s.save_template(dict(dict(label='Architecture review', prepare='planning',
+            sections=[dict(title='Options', instruction='вариантите, които сравнихме', review=True)]), **values))['template']
+
+    def test_own_templates_are_checked_and_meetings_keep_a_copy(self):
+        template = self.template()
+        for bad, message in ((dict(label='Daily stand-up'), 'built-in type'), (dict(sections=[]), '1 to 3 sections'),
+                             (dict(prepare='party'), 'agenda of a built-in'), (dict(sections=[dict(title='A', instruction='x')] * 2), 'own title')):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
+                self.s.save_template(dict(dict(label='Other', sections=[dict(title='A', instruction='x')]), **bad))
+        with self.assertRaisesRegex(ValueError, 'already has this name'):
+            self.template(label='ARCHITECTURE review')
+        meeting = self.meeting('ADR 12', '2026-10-27T09:00:00+03:00')
+        self.s.set_meeting_type(meeting, template['id'])
+        self.s.save_template(dict(template, sections=[dict(title='Choices', instruction='друго')]))
+        with self.assertRaises(WorkItemConflict):
+            self.s.save_template(dict(template, label='Old copy'))
+        saved = self.s.library.get(meeting)
+        self.assertEqual(saved['meeting_template']['sections'][0]['title'], 'Options')
+        self.assertEqual(meeting_types.of(saved)['sections'][0]['attention'][1], 'Check {n} items in Options')
+        output = minutes(custom_1=[item('Postgres или DynamoDB')])
+        with patch('meeting_assistant.generate_minutes', side_effect=lambda args, group: seen.append(args.meeting_type) or json.loads(json.dumps(output))):
+            seen = []
+            processing.summarize(self.s.library.directory(meeting), dict(DEFAULTS, summarizer='local'), lambda _: None)
+        self.assertEqual(meeting_types.sections(seen[0]), ('custom_1',))
+        self.assertIn('custom_1: вариантите, които сравнихме', llm_prompt('[00:00:00] Да.', meeting_type=seen[0]))
+        self.assertIn('## Options\n- Postgres или DynamoDB', (self.s.library.directory(meeting) / 'minutes.md').read_text())
+        self.assertIn('Architecture review', [t['label'] for t in self.s.snapshot()['meeting_types']])
+
+    def test_deleting_a_template_resets_series_and_keeps_meetings(self):
+        template = self.template()
+        series = self.series('ADR', template['id'])
+        meeting = self.meeting('ADR 1', '2026-10-27T09:00:00+03:00', series=series)
+        self.assertEqual(self.s.library.get(meeting)['meeting_type'], template['id'])
+        self.assertEqual(self.s.prepare(series_id=series)['meeting_type'], template['id'])
+        self.s.delete_template(template['id'], template['revision'])
+        self.assertEqual(self.s.projects.series_type(series), 'general')
+        self.assertEqual(meeting_types.of(self.s.library.get(meeting))['label'], 'Architecture review')
+        with self.assertRaisesRegex(ValueError, 'Choose a meeting type'):
+            self.s.set_meeting_type(meeting, template['id'])
+
+    def test_templates_survive_archive_and_restore(self):
+        template = self.template()
+        name = self.s.create_backup()['created']['name']
+        target = MeetingService(self.root / 'target', PROJECT, google=FakeGoogle(), backup_dir=self.s.backup_dir)
+        self.addCleanup(target.close)
+        target.restore_backup(name)
+        self.assertEqual(target.templates.list()[0]['id'], template['id'])
+
+    def test_sprint_review_starts_with_the_work_done_since_the_last_review(self):
+        reviews = self.series('Reviews', 'sprint_review')
+        self.meeting('Review 1', '2026-10-13T09:00:00+03:00', minutes(
+            carry_over=[item('Миграцията не е готова')],
+            tasks=[dict(task='Пусни новия login', owner='Мария', deadline=None, due_date=None, evidence_timestamp='00:00:00')]), reviews)
+        task = next(i for i in self.s.item_list()['items'] if i['kind'] == 'task')
+        self.s.update_item(task['id'], task['text'], {'status': 'done'})
+        titles = [entry['title'] for entry in self.s.prepare(series_id=reviews)['agenda']]
+        self.assertEqual(titles, ['Show: Пусни новия login (Мария)', 'Not finished last time: Миграцията не е готова', 'Feedback and new requests'])
+
+    def test_each_type_exports_its_own_format(self):
+        meeting = self.meeting('DNS outage', '2026-10-25T14:00:00+03:00', minutes(
+            facts=[item('Сайтът спря за 20 минути')], hypotheses=[item('Причината е DNS', '00:00:05')],
+            observations=[item('Иван изглежда притеснен')],
+            tasks=[dict(task='Добави алерт за DNS', owner='Мария', deadline=None, due_date='2026-11-01', evidence_timestamp='00:00:05')]))
+        self.s.set_meeting_type(meeting, 'incident')
+        task = next(i for i in self.s.item_list()['items'] if i['kind'] == 'task')
+        self.s.github_link(dict(resource=dict(kind='item', id=task['id']), reference='org/infra#7'))
+        result = self.s.type_export(meeting)
+        self.assertEqual((result['title'], result['filename']), ('Postmortem', 'postmortem.md'))
+        self.assertIn('- Причината е DNS — непроверено', result['markdown'])
+        self.assertIn('| Добави алерт за DNS | Мария | 2026-11-01 | Отворено | [org/infra#7](https://github.com/org/infra/issues/7) |', result['markdown'])
+        self.assertNotIn('притеснен', result['markdown'])
+        self.assertEqual(self.s.detail(meeting)['github_links'][0]['number'], 7)
+        self.s.set_meeting_type(meeting, 'client')
+        client = self.s.type_export(meeting)['markdown']
+        self.assertNotIn('Добави алерт', client)
+        self.assertNotIn('притеснен', client)
+        self.s.set_meeting_type(meeting, 'daily')
+        daily = self.s.type_export(meeting)['markdown']
+        self.assertTrue(daily.startswith('**Daily · DNS outage · 25.10.2026**'))
+        self.assertIn('**Блокери**\n- Няма блокери', daily)
+        self.assertIn('- [ ] Добави алерт за DNS — Мария · до 2026-11-01', daily)
 
     def test_archived_series_keep_their_type(self):
         target = Projects(self.root / 'projects.json')

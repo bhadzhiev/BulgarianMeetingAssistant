@@ -356,7 +356,7 @@ MARKER_NAMES = {"important": "Важно", "decision": "Решение", "check"
 
 
 def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date: str | None = None,
-               markers: list[dict[str, Any]] | None = None, meeting_type: str = meeting_types.DEFAULT) -> str:
+               markers: list[dict[str, Any]] | None = None, meeting_type: str | dict = meeting_types.DEFAULT) -> str:
     kind = meeting_types.prompt(meeting_type)
     kind = f"\n{kind}\n" if kind else ""
     marked = ""
@@ -555,11 +555,15 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
     def line(item: dict[str, Any]) -> str:
         source = f" ({item['evidence_timestamp']})" if item.get("evidence_timestamp") else ""
         return f"- {item['text']}{source}" + (" — проверено" if item.get("review") == "verified" else "")
+    try:
+        titles = meeting_types.titles_bg(json.loads((output_dir / "meeting.json").read_text()))
+    except (OSError, ValueError):
+        titles = meeting_types.TITLES_BG
     lines = ["# Бележки от срещата", "", "## Резюме"]
     lines.extend(line(item) for item in minutes.get("summary", []))
     for field in SECTION_FIELDS:
         if minutes.get(field):
-            lines.extend(["", f"## {meeting_types.TITLES_BG[field]}"])
+            lines.extend(["", f"## {titles.get(field) or 'Раздел ' + field.rsplit('_', 1)[-1]}"])
             lines.extend(line(item) for item in minutes[field])
     lines.extend(["", "## Взети решения"])
     decisions = minutes.get("decisions", [])

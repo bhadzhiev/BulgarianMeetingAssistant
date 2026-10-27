@@ -420,6 +420,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.conversations.assign(body)
             elif path == '/api/projects/create':
                 result = service.create_project(body.get('name'))
+            elif path == '/api/templates/save':
+                result = service.save_template(body)
+            elif path == '/api/templates/delete':
+                result = service.delete_template(body['id'], body['revision'])
             elif path == '/api/projects/change':
                 result = service.change_scope(body['kind'], body['id'], body['action'], body.get('name'))
             elif path == '/api/marker':
@@ -437,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
                     result = service.merge_items(item_id, body['into'], body['revision'], body['into_revision'])
                 else: result = service.update_item(item_id, body['text'], body['changes'], body['revision'])
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope|type)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope|type|type-export)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
@@ -446,6 +450,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
                 elif match[2] == 'scope': result = service.set_scope(match[1], body.get('project'), body.get('series'))
                 elif match[2] == 'type': result = service.set_meeting_type(match[1], body.get('meeting_type'))
+                elif match[2] == 'type-export': result = service.type_export(match[1])
                 elif match[2] == 'link': result = service.resolve_link(match[1], body['field'], body['index'], body['text'], body['action'], body.get('item_id'))
                 elif match[2] == 'marker-delete': result = service.delete_marker(match[1], body['id'])
                 elif match[2] == 'notes-review': result = service.review_notes(match[1], body['action'], body.get('accept', []), body.get('revision', ''))

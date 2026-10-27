@@ -600,3 +600,8 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .scope-entry select{width:auto;flex:0 0 auto;margin-left:auto;height:32px;line-height:30px;font-size:12px}
 .prepare-owner{margin:14px 0 6px;font-size:13px;color:var(--muted)}
 .prepare-owner:first-child{margin-top:0}
+.this-is{width:auto;flex:0 0 auto;max-width:190px}
+.speaker-review-row strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.speaker-review-row{display:grid;grid-template-columns:minmax(80px,130px) auto minmax(120px,1fr) auto minmax(120px,170px);align-items:center}
+.speaker-review-row .this-is{max-width:none;width:100%}
+@media(max-width:900px){.speaker-review-row{display:flex}}

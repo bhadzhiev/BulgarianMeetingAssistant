@@ -1037,5 +1037,59 @@ External sources appear through their accepted/linked WorkItems and saved quotes
 Moving a meeting updates inherited assignments, while preserving manual choices.
 Archive/Restore retains assignments and maps project IDs to restored projects.
 
-This version groups whole meetings. Attaching selected transcript passages and
-browsing all unlinked email/Chat conversations inside a project are follow-ups.
+Projects now also link transcript excerpts and cached Gmail/Chat conversations directly, without requiring a WorkItem.
+
+
+### Conversations library
+
+**Conversations** is the full browser; the sidebar keeps five recent matching
+meetings and a link to the library. Search saved transcript text or titles and
+filter by project, series, participant and inclusive Europe/Sofia dates. Results
+are paginated, 50 per page. Meeting speaker names come from the current saved
+transcript (draft captions are used only when no final transcript exists).
+
+Select up to 200 meetings and move them to a project together. Scope revisions
+prevent overwriting a newer project assignment; active meetings cannot be moved.
+The app journals the scope update so an interrupted batch completes on restart.
+Explicit WorkItem project assignments are preserved. A series is retained only
+when its parent project stays the same, unless a new series is selected.
+
+From a saved transcript choose **Attach excerpt to project** and select speaker
+turns or a time range. Ranges include complete overlapping transcript segments,
+up to 500 segments per excerpt. The app checks the transcript revision and saves
+a pinned quote with its timestamps, speaker labels and original meeting link.
+It does not copy audio. Editing or removing the transcript preserves the quote
+and marks its original as changed/unavailable. Saved excerpts support multiple
+projects through **Save project links**.
+
+Choose **Gmail threads** or **Chat conversations** to attach cached conversations
+without accepting or creating a task. This is a bounded snapshot of the existing
+cache, not a request for complete remote history; attachments are not fetched.
+Snapshots do not update automatically and no AI request or connector write is
+made. Refresh normal source sync, then explicitly attach the new cached revision
+if needed. Saved snapshots remain readable after disconnecting or clearing the
+source cache. Unassigning them retains the local evidence and existing archives.
+
+In **My Work → Gmail** or **Chat**, **Attach to project** on an open thread or
+conversation saves the same snapshot directly. It shows the projects that already
+have it; choosing again saves the current cached version.
+
+**Timeline → Trace** shows one row for each group of linked work: the conversation
+where it started, the decision, the tasks, their GitHub issue or PR, and the merged
+code change. Items join a row only through links that a person saves with **Link to
+another item** on a task, decision or question (implements, comes from, supports,
+same as). The other steps join by identity, never by similar text or dates: the
+item's meetings and source quotes, the attached excerpt that contains the quoted
+moment, the attached thread or Chat space of a Gmail or Chat source, and the merged
+PR with the same repository and number in a repository report of the connected
+GitHub account. Each step opens its evidence. **Timeline → Events** lists the same
+records by day, including those merged code changes.
+
+Projects have **Conversations** and **Timeline** tabs. The timeline combines
+meeting/source dates, recorded WorkItem history and dated GitHub source captures,
+with evidence navigation and explicitly stored relationships. It does not infer
+causality, completed work, successful CI or deployments. It shows current item
+wording/status alongside event dates, up to 300 newest events. Links and pinned
+quotes are included in Archive/Restore; project IDs are remapped on restore.
+The additive conversation-link collection upgrades the WorkItem SQLite schema
+to version 3; older app builds refuse this database rather than discarding links.

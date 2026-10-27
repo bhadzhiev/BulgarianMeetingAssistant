@@ -34,6 +34,7 @@ class Library:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self._finish_scope_batch()
         self.speakers_path = self.root / 'speakers.json'
         self.trackers_path = self.root / 'trackers.json'
         # Finish deletions that a crash interrupted after the meeting left the library.
@@ -54,6 +55,28 @@ class Library:
             raise FileNotFoundError('Meeting not found')
         return path
 
+    def _finish_scope_batch(self):
+        journal = self.root / '.scope-batch.json'
+        if not journal.exists(): return
+        changes = json.loads(journal.read_text())
+        if not isinstance(changes,list) or not 1<=len(changes)<=200: raise ValueError('Invalid pending meeting group update')
+        for change in changes:
+            if (not isinstance(change,dict) or set(change)!={'id','project_id','series_id'}
+                    or any(change[key] is not None and (not isinstance(change[key],str) or not re.fullmatch(r'[a-f0-9]{12}',change[key])) for key in ('project_id','series_id'))):
+                raise ValueError('Invalid pending meeting scope')
+            self.directory(change['id'])
+        for change in changes:
+            path = self.directory(change['id']) / 'meeting.json'
+            meeting = json.loads(path.read_text());meeting.update({key:change[key] for key in ('project_id','series_id')});atomic_json(path,meeting)
+        journal.unlink()
+
+    def assign_scopes(self, changes):
+        with self.lock:
+            self._finish_scope_batch()
+            for change in changes:self.directory(change['id'])
+            atomic_json(self.root / '.scope-batch.json', changes)
+            self._finish_scope_batch()
+
     def create(self, title: str, mode: str, settings: dict) -> dict:
         with self.lock:
             meeting_id = uuid.uuid4().hex
@@ -69,7 +92,9 @@ class Library:
             return meeting
 
     def get(self, meeting_id: str) -> dict:
-        return json.loads((self.directory(meeting_id) / 'meeting.json').read_text())
+        with self.lock:
+            self._finish_scope_batch()
+            return json.loads((self.directory(meeting_id) / 'meeting.json').read_text())
 
     def update(self, meeting_id: str, **changes) -> dict:
         with self.lock:
@@ -84,6 +109,7 @@ class Library:
 
     def delete(self, meeting_id: str) -> None:
         with self.lock:
+            self._finish_scope_batch()
             directory = self.directory(meeting_id)
             # Renaming first removes the meeting from the library atomically.
             trash = self.root / ('.deleted-' + meeting_id)

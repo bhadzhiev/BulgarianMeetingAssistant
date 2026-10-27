@@ -6,11 +6,12 @@
   <a class="brand" href="/" aria-label="Atlanta home"><span class="brand-icon">A</span><span><strong>Atlanta</strong><small>MEETING ASSISTANT</small></span></a>
   <button id="new-meeting" class="primary wide"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New meeting</button>
   <button id="open-tasks" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10"/></svg>My Work <span id="tasks-badge" class="count-badge" hidden></span></button>
-  <button id="open-projects" class="secondary wide tasks-link">Projects</button>
+  <button id="open-conversations" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h11v8H8l-4 3zM9 16h7l4 3v-8h-3"/></svg>Conversations</button>
+  <button id="open-projects" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3zM3 7V5h6l2 2"/></svg>Projects</button>
   <button id="open-analytics" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>Conversation analytics</button>
   <button id="open-prepare" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8M6 8h12a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM9 13h6M9 16h4"/></svg>Prepare me</button>
   <button id="open-find" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Search &amp; ask</button>
-  <label class="search-label" for="search">YOUR MEETINGS</label>
+  <label class="search-label" for="search">RECENT MEETINGS</label>
   <select id="project-filter" class="project-filter" aria-label="Show the meetings of a project"></select>
   <input id="search" type="search" placeholder="Search title or transcript…" aria-label="Search meetings">
   <nav id="library" aria-label="Meeting library"></nav>
@@ -57,11 +58,26 @@
     </div>
     <p id="recording-next-step" class="below-card"></p>
   </section>
+  <section id="conversations" hidden>
+    <div class="heading"><p class="eyebrow">YOUR CONVERSATIONS</p><h1>Conversations</h1><p class="subheading">Find meetings, email threads, Chat conversations and saved excerpts.</p></div>
+    <form id="conversation-filters" class="card conversation-filters">
+      <label>Search<input id="conversation-query" type="search" maxlength="500" placeholder="Title or transcript text"></label>
+      <label>Source<select id="conversation-source"><option value="meeting">Meetings</option><option value="all">All cached sources</option><option value="gmail">Gmail threads</option><option value="google_chat">Chat conversations</option><option value="attached">Saved project conversations &amp; excerpts</option></select></label>
+      <label>Project<select id="conversation-project"></select></label><label>Series<select id="conversation-series"></select></label>
+      <label>Participant<select id="conversation-participant"><option value="">All participants</option></select></label>
+      <label>From<input id="conversation-from" type="date"></label><label>Through<input id="conversation-to" type="date"></label>
+      <button class="primary" type="submit">Search conversations</button><button id="conversation-reset" class="quiet" type="button">Reset filters</button>
+    </form>
+    <p id="conversation-notices" class="hint" role="status"></p>
+    <div class="card conversation-bulk"><strong id="conversation-selection">0 meetings selected</strong><button id="conversation-select-page" class="quiet">Select this page</button><button id="conversation-clear" class="quiet">Clear selection</button><select id="conversation-bulk-project" aria-label="Move selected meetings to project"></select><select id="conversation-bulk-series" aria-label="Series for selected meetings"></select><button id="conversation-move" class="secondary">Move selected meetings</button><p class="hint">Manual project assignments on work items stay unchanged. Up to 200 meetings per operation.</p></div>
+    <p id="conversation-count" class="hint" aria-live="polite"></p><div id="conversation-list" class="conversation-list"></div>
+    <div class="work-actions"><button id="conversation-prev" class="secondary">Previous page</button><button id="conversation-next" class="secondary">Next page</button></div>
+  </section>
   <section id="projects" hidden>
     <div class="heading"><p class="eyebrow">YOUR WORKSPACE</p><h1>Projects</h1><p class="subheading">Meetings and work from every source, together.</p></div>
     <div class="work-actions"><select id="workspace-project" aria-label="Project workspace"></select><button id="workspace-refresh" class="secondary">Refresh</button><button id="workspace-new" class="primary">＋ New project</button></div>
     <div id="workspace-cards" class="project-cards"></div>
-    <div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="task">Tasks</button><button role="tab" data-section="decision">Decisions</button><button role="tab" data-section="question">Questions</button><button role="tab" data-section="sources">Sources</button></div>
+    <div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="task">Tasks</button><button role="tab" data-section="decision">Decisions</button><button role="tab" data-section="question">Questions</button><button role="tab" data-section="sources">Sources</button><button role="tab" data-section="conversations">Conversations</button><button role="tab" data-section="timeline">Timeline</button></div>
     <div id="workspace-content" class="card"></div>
   </section>
   <section id="tasks" hidden>
@@ -196,13 +212,22 @@
     <p id="processing-time" class="hint" role="status" hidden></p><button id="cancel-processing" class="secondary" type="button" hidden>Cancel processing</button>
     <div id="playback" class="card playback-card"><label id="audio-source-label" for="audio-source" hidden>Playback audio</label><select id="audio-source" aria-label="Playback audio" hidden><option value="recording.wav">Original recording</option></select><audio id="audio" controls preload="metadata"></audio><p id="audio-unavailable" class="hint" hidden>Recover the saved audio to enable playback.</p></div>
         <div class="tabs" role="tablist"><button id="tab-transcript" class="selected" role="tab" aria-selected="true">Transcript</button><button id="tab-outcomes" role="tab" aria-selected="false">Tasks &amp; decisions</button><button id="tab-notes" role="tab" aria-selected="false">Summary &amp; notes</button><button id="tab-analytics" role="tab" aria-selected="false">Analytics</button></div>
-    <div id="transcript-panel" class="card"><div class="card-heading"><h2>Every detail, in context.</h2><button id="save-transcript" class="secondary" disabled>Save corrections</button></div><p id="timestamp-note" class="hint"></p><p id="audio-preparation-status" class="hint" hidden></p><p id="correction-status" class="notice" hidden></p><div id="detail-markers" class="detail-markers" hidden></div><div id="speaker-review" class="speaker-review"></div><div id="speaker-legend" class="speaker-legend" aria-label="Speakers in this meeting" hidden></div><div id="transcript-refresh-status" hidden></div>
+    <div id="transcript-panel" class="card"><div class="card-heading"><h2>Every detail, in context.</h2><button id="save-excerpt" class="secondary" type="button">Attach excerpt to project</button><button id="save-transcript" class="secondary" disabled>Save corrections</button></div><p id="timestamp-note" class="hint"></p><p id="audio-preparation-status" class="hint" hidden></p><p id="correction-status" class="notice" hidden></p><div id="detail-markers" class="detail-markers" hidden></div><div id="speaker-review" class="speaker-review"></div><div id="speaker-legend" class="speaker-legend" aria-label="Speakers in this meeting" hidden></div><div id="transcript-refresh-status" hidden></div>
         <div id="transcript"></div><div id="saved-live-draft" hidden></div></div>
     <div id="outcomes-panel" class="card" hidden><div class="card-heading"><h2>Decisions, tasks and next steps.</h2><div class="note-actions"><button id="edit-outcomes" class="secondary" type="button">Edit</button><button id="cancel-outcomes" class="quiet" type="button" hidden>Cancel</button><button id="save-outcomes" class="primary" type="button" hidden disabled>Save changes</button></div></div><div id="outcomes"></div></div>
     <div id="notes-panel" class="card" hidden><div class="card-heading"><h2>What matters next.</h2><div class="note-actions"><button id="edit-notes" class="secondary" type="button">Edit</button><button id="cancel-notes" class="quiet" type="button" hidden>Cancel</button><button id="save-notes" class="primary" type="button" hidden disabled>Save notes</button></div></div><div id="notes"></div></div>
     <div id="meeting-analytics-panel" class="card" hidden><div class="card-heading"><div><p class="eyebrow">TALK TIME · TOPICS · QUESTIONS</p><h2>Conversation analytics</h2></div><button id="reanalyze" class="secondary">Reanalyze</button></div><p id="diarization-status" class="notice warning" hidden></p><p id="meeting-analytics-error" class="notice warning" hidden></p><div id="meeting-analytics-content"></div><p class="hint">Talk time comes from offline speaker intervals and excludes silence. Topic hits link to transcript evidence.</p></div>
   </section>
 </main>
+<dialog id="excerpt-dialog"><form id="excerpt-form" class="card">
+  <h2>Attach a transcript excerpt</h2><p class="hint">Save a quoted snapshot and a link to the original audio. No recording is copied. Time ranges include whole overlapping transcript segments.</p>
+  <label>Select by<select id="excerpt-mode"><option value="turns">Conversation turns</option><option value="range">Time range</option></select></label>
+  <div id="excerpt-turns"><label>From turn<select id="excerpt-first"></select></label><label>Through turn<select id="excerpt-last"></select></label></div>
+  <div id="excerpt-times" hidden><label>From HH:MM:SS<input id="excerpt-from" placeholder="00:00:00"></label><label>Through HH:MM:SS<input id="excerpt-to" placeholder="00:01:00"></label></div>
+  <label>Project<select id="excerpt-project" required></select></label><p id="excerpt-error" role="alert" class="error" hidden></p>
+  <div class="work-actions"><button class="primary" type="submit">Save excerpt</button><button id="excerpt-cancel" class="secondary" type="button">Cancel</button></div>
+</form></dialog>
+<dialog id="conversation-reader"><div class="card"><button id="conversation-reader-close" class="quiet" type="button">Close</button><div id="conversation-reader-body"></div></div></dialog>
 <dialog id="viewer-dialog" aria-labelledby="viewer-title"><div class="card-heading"><div><p class="eyebrow">PREVIEW</p><h2 id="viewer-title"></h2></div><span class="viewer-actions"><a id="viewer-download" class="quiet">↓ Download</a><button id="viewer-close" class="quiet" type="button" aria-label="Close preview">✕</button></span></div><div id="viewer-body" class="markdown"></div></dialog>
 <dialog id="ask-dialog" aria-describedby="ask-message"><form id="ask-form" method="dialog"><p id="ask-message" class="ask-message"></p><input id="ask-input" maxlength="160" aria-label="Name" hidden><div class="review-footer"><button id="ask-cancel" class="quiet" value="cancel">Cancel</button><button id="ask-ok" class="primary" value="ok">OK</button></div></form></dialog>
 <dialog id="scope-dialog" aria-labelledby="scope-title"><form id="scope-form">

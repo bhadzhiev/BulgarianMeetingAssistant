@@ -32,6 +32,7 @@ from . import briefing
 from . import search
 from .events import Watcher
 from .projects import Projects
+from .conversations import Conversations
 from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client, CalendarError
@@ -99,6 +100,7 @@ class MeetingService:
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
         self.projects = Projects(root / 'projects.json')
+        self.conversations = Conversations(self)
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
         self.gmail = GmailSync(root, self.google, lambda: self.closed.is_set() or bool(self.active or self.busy), self._refresh_gmail_source)
@@ -954,10 +956,10 @@ class MeetingService:
             cards = []
             for p in [dict(id='__none__', name='Unassigned'), *projects]:
                 items_here = [i for i in data['items'] if includes(i['effective_project_ids'], p['id'])]
-                cards.append(dict(p, meetings=sum(includes([m['project_id']] if m.get('project_id') else [], p['id']) for m in all_meetings),
+                cards.append(dict(p, linked_conversations=len(self.conversations.attachments(p['id'])), meetings=sum(includes([m['project_id']] if m.get('project_id') else [], p['id']) for m in all_meetings),
                     open_tasks=sum(i['kind']=='task' and i['status']=='open' and not i.get('dismissed') for i in items_here),
                     open_questions=sum(i['kind']=='question' and i['status']=='open' for i in items_here)))
-            return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'])
+            return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'], conversations=self.conversations.attachments(project_id), timeline=self.conversations.timeline(project_id, rows, meetings))
 
     def prepare(self, project_id=None, series_id=None):
         """Open tasks, questions, decisions and an agenda for the next meeting of a project or series."""
@@ -1033,6 +1035,7 @@ class MeetingService:
     @contextmanager
     def _snapshot_guard(self):
         with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock:
+            self.library._finish_scope_batch()
             # Recover a projection interrupted after SQLite committed before pinning it.
             self.items.data, self.items.revision = self.items.store.load()
             yield
@@ -1087,6 +1090,8 @@ class MeetingService:
                             self.items.items[item_id] = restored_item
                     for collection in COLLECTIONS:
                         for key, record in portable.get(collection, {}).items():
+                            if collection == 'conversation_links':
+                                record = dict(record, project_ids=sorted({mapping['projects'].get(p,p) for p in record['project_ids'] if self.projects.get('projects',mapping['projects'].get(p,p))}))
                             self.items.data[collection].setdefault(key, record)
                     self.items.prune({m['id'] for m in self.library.list()})
                     self.items.save()
@@ -1381,7 +1386,12 @@ class MeetingService:
                 assigned = item.get('project_ids')
                 effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
                 rows.append(dict(item, effective_project_ids=sorted({key for key in effective if key in known})))
-            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=WorkGraph(self.items).snapshot())
+            graph = WorkGraph(self.items).snapshot()
+            conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
+            # Pinned conversation bodies are fetched on demand, not with every My Work refresh.
+            for revision in graph['source_revisions']:
+                if revision['source_id'] in conversations:revision.pop('text',None)
+            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph)
 
     def _github_publish(self,account,record,suggestions):
         graph=WorkGraph(self.items)

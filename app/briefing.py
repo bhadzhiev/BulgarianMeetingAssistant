@@ -84,10 +84,12 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
         checks = [dict(text=marker.get('note') or 'Marked "check later"', source=source(last, _stamp(marker['time'])))
                   for marker in markers.get(last, []) if marker.get('kind') == 'check']
 
-    # The type sections of the last meeting, for example the blockers of the last daily.
+    # Type-specific context comes from the last matching meeting, keeping all project work in scope.
+    typed = [m for m in meetings if meeting_types.of(m)['id']==definition['id']]
+    anchors = typed if any(m.get('meeting_type') for m in meetings) else meetings
     sections = []
-    if meetings:
-        last = meetings[-1]['id']
+    if anchors:
+        last = anchors[-1]['id']
         for section in definition['sections']:
             entries = [dict(text=entry['text'], source=source(last, entry.get('evidence_timestamp')))
                        for entry in (minutes.get(last) or {}).get(section['key'], []) if isinstance(entry, dict)]
@@ -103,7 +105,7 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
     open_questions = [q for q in questions if not q['maybe_answered_by']]
     for task in [t for t in tasks if t['overdue']]:
         add('Overdue: ' + task['text'] + owner(task), [task['source']])
-    last_date = dates[meetings[-1]['id']][:10] if meetings else ''
+    last_date = dates[anchors[-1]['id']][:10] if anchors else ''
     done = [dict(item_id=item['id'], text=item['text'], owner=item.get('owner'), source=last_source(item)) for item in in_scope
             if item['kind'] == 'task' and item['status'] == 'done' and _done_at(item) >= last_date]
     decide = [q for q in open_questions if q['kind'] == 'decide'][:LIMIT]
@@ -138,6 +140,11 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
         if proposed:
             add(f'Confirm {len(proposed)} proposed decision' + ('s' if len(proposed) > 1 else ''), [d['source'] for d in proposed[:3]])
         add('Goals, capacity and risks for the period', [])
+    elif style == 'refinement':
+        for field in ('readiness','acceptance_criteria','estimation_blockers'):
+            for entry in from_last.get(field,[]):add('Clarify: '+entry['text'],[entry['source']])
+        for question in open_questions[:LIMIT]:add('Resolve before estimation: '+question['text'],[question['source']])
+        add('Confirm scope, acceptance criteria and readiness for estimation', [])
     elif style == 'cross_team':
         for entry in from_last.get('dependencies', []):
             add('Dependency: ' + entry['text'], [entry['source']])

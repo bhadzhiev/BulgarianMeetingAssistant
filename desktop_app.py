@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, parse_qs, quote, unquote
 import webbrowser
 
 from app.service import MeetingService
+from app import identity_channels
 from app.work_items import WorkItemConflict
 from app.google_calendar import CalendarError
 
@@ -157,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.find(value('q'), value('kind'), value('project')))
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
-            return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
+            return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0], query.get('type', [None])[0]))
         if url.path == '/api/github':
             return self.respond(200, self.server.service.github.status())
         if url.path == '/api/github/reports':
@@ -179,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/chat/spaces':
             return self.respond(200, self.server.service.chat.spaces())
         if url.path == '/api/chat/conversation':
-            return self.respond(200, self.server.service.chat.conversation(parse_qs(url.query).get('space', [''])[0]))
+            return self.respond(200, identity_channels.chat_conversation(self.server.service,parse_qs(url.query).get('space', [''])[0]))
         if url.path == '/api/chat/messages':
             return self.respond(200, self.server.service.chat.messages(parse_qs(url.query).get('space',[''])[0]))
         if url.path == '/api/chat/message':
@@ -191,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/gmail/threads':
             return self.respond(200, self.server.service.gmail.listing(parse_qs(url.query).get('view',['needs_reply'])[0]))
         if url.path == '/api/gmail/thread':
-            return self.respond(200, self.server.service.gmail.detail(parse_qs(url.query).get('id',[''])[0]))
+            return self.respond(200, identity_channels.gmail_thread(self.server.service,parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
             return self.respond(200, self.server.service.item_list())
         if url.path == '/api/tasks':
@@ -217,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
@@ -398,6 +399,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.reveal_backup(body['name'])
             elif path == '/api/ask':
                 result = service.ask(body['question'], body.get('project', ''), body.get('ai', True) is not False)
+            elif path == '/api/people/channel':
+                from app.identity_channels import confirm
+                result = confirm(service,body)
+            elif path == '/api/people/channel/remove':
+                from app.identity_channels import remove
+                result = remove(service,body)
             elif path == '/api/people/save':
                 result = service.save_person(body)
             elif path == '/api/people/delete':

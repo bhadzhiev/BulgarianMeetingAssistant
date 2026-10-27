@@ -78,8 +78,12 @@ class GitHubLinks:
                        url=f'https://github.com/{repository}/{"pull" if details.get("kind") == "pull_request" else "issues"}/{number}',
                        kind=details.get('kind') or 'unknown', title=str(details.get('title') or '')[:300], state=details.get('state'),
                        issue_id=details.get('issue_id'), verified=bool(details.get('verified')),
+                       verification=details.get('verification','unknown'),checked_at=details.get('checked_at'),cached_at=details.get('cached_at'),
                        linked_at=old['linked_at'] if old else dt.datetime.now(dt.timezone.utc).isoformat(),
                        revision=old['revision'] + 1 if old else 1)
+            if old and row['verification']=='offline':
+                for field in ('kind','title','state','issue_id','verified','checked_at','cached_at'):row[field]=old.get(field)
+            elif old and not row.get('checked_at'):row['checked_at']=old.get('checked_at')
             self.links[key] = row
             self._save()
             return copy.deepcopy(row)

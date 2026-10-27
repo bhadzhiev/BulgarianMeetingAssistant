@@ -51,12 +51,12 @@ TYPES = {
         task_title='Tasks', export='Sprint review summary',
         sections=[
             _section('delivered', 'Delivered', 'Завършено',
-                     'какво е завършено или показано в спринта. Посочи кой го е направил, ако е казано.'),
+                     'какво е показано и какво е завършено в спринта. Разграничавай демонстрирано, завършено и изрично прието; не ги приравнявай. Посочи кой го е направил, ако е казано.'),
             _section('carry_over', 'Not finished', 'Незавършено',
                      'какво не е завършено и защо, както е казано.',
                      ('Agree what happens with {n} unfinished item', 'Agree what happens with {n} unfinished items')),
             _section('feedback', 'Feedback', 'Обратна връзка',
-                     'обратна връзка и нови искания от участниците или от клиента.'),
+                     'обратна връзка и нови искания от участниците или от клиента; кои промени са изрично приети и кои остават предложения.'),
         ],
         prompt='Това е преглед на спринт (sprint review). Разграничавай завършено от незавършено.'),
     'planning': dict(
@@ -70,6 +70,15 @@ TYPES = {
             _section('out_of_scope', 'Out of scope', 'Извън обхвата', 'какво изрично няма да се прави в този период.'),
         ],
         prompt='Това е среща за планиране. В tasks запиши само работа, която е изрично планирана.'),
+    'refinement': dict(
+        label='Backlog refinement',
+        description='Readiness, acceptance criteria and estimation blockers. Resolve ambiguity before committing to delivery.',
+        task_title='Agreed follow-ups', export='Refinement summary',
+        sections=[
+            _section('readiness','Readiness and scope','Готовност и обхват','какво е готово за планиране и какво остава неясно. Не приемай готовност по подразбиране.'),
+            _section('acceptance_criteria','Acceptance criteria','Критерии за приемане','изрично договорените проверими критерии за приемане.',('Confirm {n} acceptance criterion','Confirm {n} acceptance criteria')),
+            _section('estimation_blockers','Estimation blockers','Пречки за оценяване','неизяснени зависимости, въпроси и липсваща информация, които пречат на оценката.',('Resolve {n} estimation blocker','Resolve {n} estimation blockers')),
+        ], prompt='Това е refinement. Разграничавай обсъдено от договорено. Не измисляй оценки, готовност, срокове или критерии.'),
     'cross_team': dict(
         label='Cross-team',
         description='Dependencies, handoffs and escalations between teams. Prepare me starts with the open dependencies.',

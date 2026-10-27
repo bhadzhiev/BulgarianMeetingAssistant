@@ -39,6 +39,7 @@ from .projects import Projects
 from .meeting_templates import Templates
 from .conversations import Conversations
 from .people import People
+from . import identity_channels
 from .github_links import GitHubLinks, parse as parse_github_reference
 from . import whisper
 from .live import LiveSession, read_json
@@ -1062,7 +1063,7 @@ class MeetingService:
         return dict(login=user['login'], id=user['id'])
 
     def _person_names(self, person):
-        return {name.casefold() for name in [person['name'], *person['aliases']]}
+        return {name.casefold() for name in [person['name'], *person['aliases']] if not re.fullmatch(r'SPEAKER[ _-]?\d+',name,re.I)}
 
     def person_profile(self, person_id):
         """What a person said (their confirmed names in transcripts) and what they took on.
@@ -1096,7 +1097,7 @@ class MeetingService:
             except (ValueError, GitHubError):
                 github = []
         return dict(person=person, statements=len(said), meetings=len(meetings), said=said[:50],
-                    commitments=confirmed, suggested=suggested, github=github)
+                    commitments=confirmed, suggested=suggested, github=github, channels=identity_channels.profile(self,person))
 
     # GitHub drafts and local links -------------------------------------------------------------------
     def _resource(self, value):
@@ -1214,15 +1215,18 @@ class MeetingService:
             cached = self.github.find(repository, number)
         except (ValueError, GitHubError):
             cached = None
-        if cached:
-            details = dict(kind=cached['kind'], title=cached['title'], state=cached['state'], issue_id=cached['issue_id'], verified=True)
+        force=body.get('verify_live',False)
+        if type(force) is not bool:raise ValueError('Invalid GitHub check option')
+        if cached and not force:
+            details = dict(kind=cached['kind'], title=cached['title'], state=cached['state'], issue_id=cached['issue_id'], verified=True,
+                           verification='cached', cached_at=cached.get('fetched_at'))
         else:
             try:
                 issue = self.github.connection.get(f'/repos/{repository}/issues/{number}')['data']
                 details = dict(kind='pull_request' if 'pull_request' in issue else 'issue', title=issue.get('title'), state=issue.get('state'),
-                               issue_id=issue.get('id'), verified=True)
+                               issue_id=issue.get('id'), verified=True, verification='github', checked_at=dt.datetime.now(dt.timezone.utc).isoformat())
             except (ValueError, GitHubError):
-                pass
+                details.update(verification='offline')
         row = self.github_links.link(data['target'], repository, number, details)
         return dict(link=row, links=self.github_links.for_resource(data['target']['kind'], data['target']['id']))
 
@@ -1267,7 +1271,7 @@ class MeetingService:
                     open_questions=sum(i['kind']=='question' and i['status']=='open' for i in items_here)))
             return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'], conversations=self.conversations.attachments(project_id), timeline=self.conversations.timeline(project_id, rows, meetings))
 
-    def prepare(self, project_id=None, series_id=None):
+    def prepare(self, project_id=None, series_id=None, meeting_type=None):
         """Open tasks, questions, decisions and an agenda for the next meeting of a project or series."""
         with self.lock, self.projects.lock:
             series = self.projects.get('series', series_id) if series_id else None
@@ -1278,12 +1282,15 @@ class MeetingService:
             self._refresh_items()
             with self.items.lock:
                 registry = list(self.items.items.values())
-            kind = self._series_type(series_id) if series else meeting_types.DEFAULT
+            existing_types={meeting_types.of(m)['id'] for m in meetings}
+            requires_type=not series and meeting_type is None and len(existing_types)>1
+            kind = (self._meeting_type(meeting_type)[0] if meeting_type is not None else
+                    self._series_type(series_id) if series else next(iter(existing_types)) if len(existing_types)==1 else meeting_types.DEFAULT)
             kind = meeting_types.definition(kind, self.templates.get(kind))
             result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
                                     {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
                                     dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind)
-            return dict(result, project_id=project['id'], series_id=series_id)
+            return dict(result, project_id=project['id'], series_id=series_id, requires_type=requires_type)
 
     SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
                      'transcript': {'transcript', 'draft'}}

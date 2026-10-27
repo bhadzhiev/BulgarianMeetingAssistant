@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/date-picker.js" defer></script><script src="/draft-buffer.js" defer></script><script src="/app.js" defer></script></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="Atlanta home"><span class="brand-icon">A</span><span><strong>Atlanta</strong><small>MEETING ASSISTANT</small></span></a>
@@ -40,11 +40,11 @@
       <div id="mode-help" class="hint">Place your iPhone near the centre of the table, or use your Mac microphone.</div>
       <label for="microphone">Microphone</label><div class="input-row"><select id="microphone" required><option value="">Loading microphones…</option></select><button id="check-mic" type="button" class="secondary">Test mic</button></div>
       <div class="meter-row"><meter id="setup-meter" min="0" max="1" value="0" aria-label="Microphone level"></meter><span id="mic-hint">Test your microphone before recording</span></div>
+      <label for="record-type">Meeting type</label><select id="record-type" aria-describedby="record-type-help"></select><p id="record-type-help" class="hint"></p>
       <details id="record-more" class="record-more"><summary><span>More options</span><span id="record-more-summary" class="record-more-summary"></span></summary>
       <label for="fallback-microphone">Backup microphone (optional)</label><select id="fallback-microphone"><option value="">Retry the selected microphone only</option></select><p class="hint">If the selected microphone disconnects, use only the backup you choose here. Missing audio stays a marked gap. For a wireless iPhone, keep it locked; unlocking or answering a call can pause its microphone.</p>
       <label for="transcription-timing">When to transcribe</label><select id="transcription-timing" aria-describedby="transcription-timing-help"><option value="after">After recording · no live captions</option><option value="live">Live captions + final transcript after recording</option></select><p id="transcription-timing-help" class="hint"></p>
       <label for="record-project">Project and series (optional)</label><div class="input-row scope-select"><select id="record-project" aria-label="Project"></select><select id="record-series" aria-label="Series"></select><button id="record-prepare" type="button" class="secondary" disabled>Prepare me</button></div><p class="hint">Create projects and series from a saved meeting: ＋ Add to a project.</p>
-      <label for="record-type">Meeting type</label><select id="record-type" aria-describedby="record-type-help"></select><p id="record-type-help" class="hint"></p>
       <div class="processing-summary"><span class="small-icon">✦</span><div><strong id="processing-name">Local transcription</strong><p id="privacy-copy">Audio and transcripts stay on this Mac.</p></div><button type="button" id="settings-inline" class="quiet">Change</button></div>
       </details>
       <div id="readiness" class="readiness" aria-live="polite"></div>
@@ -81,8 +81,8 @@
       <button class="primary" type="submit">Search conversations</button><button id="conversation-reset" class="quiet" type="button">Reset filters</button>
     </form>
     <p id="conversation-notices" class="hint" role="status"></p>
-    <div class="card conversation-bulk"><strong id="conversation-selection">0 meetings selected</strong><button id="conversation-select-page" class="quiet">Select this page</button><button id="conversation-clear" class="quiet">Clear selection</button><select id="conversation-bulk-project" aria-label="Move selected meetings to project"></select><select id="conversation-bulk-series" aria-label="Series for selected meetings"></select><button id="conversation-move" class="secondary">Move selected meetings</button><p class="hint">Manual project assignments on work items stay unchanged. Up to 200 meetings per operation.</p></div>
-    <p id="conversation-count" class="hint" aria-live="polite"></p><div id="conversation-list" class="conversation-list"></div>
+    <div class="card conversation-bulk"><strong id="conversation-selection">0 meetings selected</strong><button id="conversation-clear" class="quiet">Clear selection</button><select id="conversation-bulk-project" aria-label="Move selected meetings to project"></select><select id="conversation-bulk-series" aria-label="Series for selected meetings"></select><button id="conversation-move" class="secondary">Move selected meetings</button><p class="hint">Manual project assignments on work items stay unchanged. Up to 200 meetings per operation.</p></div>
+    <div class="work-actions"><p id="conversation-count" class="hint" aria-live="polite"></p><button id="conversation-select-page" class="quiet" type="button">Select this page</button></div><div id="conversation-list" class="conversation-list"></div>
     <div class="work-actions"><button id="conversation-prev" class="secondary">Previous page</button><button id="conversation-next" class="secondary">Next page</button></div>
   </section>
   <section id="projects" hidden>
@@ -195,7 +195,7 @@
   </section>
   <section id="prepare" hidden>
     <div class="heading"><p class="eyebrow">BEFORE THE NEXT MEETING</p><h1>Prepare me</h1><p id="prepare-summary" class="subheading">Choose a project or a series.</p></div>
-    <div class="card prepare-scope"><div class="scope-row"><label>Project<select id="prepare-project"></select></label><label>Series<select id="prepare-series"></select></label></div>
+    <div class="card prepare-scope"><div class="scope-row"><label>Project<select id="prepare-project"></select></label><label>Series<select id="prepare-series"></select></label><label class="prepare-purpose">What upcoming meeting are you preparing for?<select id="prepare-type"></select></label></div>
       <p id="prepare-empty" class="hint" hidden>No projects yet. Open a saved meeting and choose ＋ Add to a project. Put recurring meetings into a series.</p></div>
     <div id="prepare-content" hidden>
       <div class="card"><div class="card-heading"><h2>Proposed agenda</h2><button id="copy-agenda" class="secondary" type="button">Copy as text</button></div><ol id="prepare-agenda" class="agenda"></ol></div>
@@ -249,7 +249,7 @@
   <label for="person-emails">Emails</label><input id="person-emails" maxlength="2600" placeholder="name@company.com"><p class="hint">Kept on this Mac. Never added to GitHub text.</p>
   <label for="person-github">GitHub username</label><div class="input-row"><input id="person-github" maxlength="40" placeholder="octocat"><button id="person-github-check" class="secondary" type="button">Check on GitHub</button></div><p id="person-github-status" class="hint"></p>
   <label for="person-notes">Notes</label><textarea id="person-notes" rows="2" maxlength="1000"></textarea>
-  <div id="person-profile" class="person-profile"></div>
+  <div id="person-identities" class="identity-list"></div><div id="person-profile" class="person-profile"></div>
   <div class="review-footer"><button id="person-delete" class="danger" type="button">Delete person</button><button class="primary" type="submit">Save person</button></div>
 </form></dialog>
 <dialog id="template-dialog" aria-labelledby="template-title"><form id="template-form" method="dialog">
@@ -264,7 +264,7 @@
 </form></dialog>
 <dialog id="github-draft-dialog" aria-labelledby="github-draft-title"><div class="card-heading"><div><p class="eyebrow">GITHUB · COPY, THEN PUBLISH YOURSELF</p><h2 id="github-draft-title">GitHub draft</h2></div><button id="github-draft-close" class="quiet" type="button" aria-label="Close">✕</button></div>
   <div class="draft-options"><div id="github-draft-format" class="segmented" role="group" aria-label="Format"></div><select id="github-draft-repo" aria-label="Repository"></select><label class="checkbox"><input id="github-draft-meeting" type="checkbox" checked> Meeting title</label><label class="checkbox"><input id="github-draft-speaker" type="checkbox"> Speaker names</label></div>
-  <p id="github-draft-notes" class="hint"></p>
+  <p id="github-draft-notes" class="hint"></p><p id="github-draft-edits" class="notice" hidden>Manual edits kept. Changes to options only refresh untouched fields. <button id="github-draft-review" class="quiet" type="button">Review regenerated text…</button></p>
   <label for="github-draft-issue-title" id="github-draft-title-label">Issue title</label><input id="github-draft-issue-title" maxlength="256">
   <label for="github-draft-body">Text</label><textarea id="github-draft-body" rows="14"></textarea>
   <p class="hint">Atlanta does not publish anything. Review the text, copy it or open GitHub with it filled in, and publish there. The quote and the reference stay as evidence.</p>
@@ -367,3 +367,6 @@
 <datalist id="known-speakers"></datalist>
 <div id="toast" role="status" hidden></div>
 </body></html>
+
+<dialog id="draft-review-dialog" aria-labelledby="draft-review-title"><h2 id="draft-review-title">Review regenerated draft</h2><p class="hint">The current text is preserved until you explicitly replace it.</p><div class="draft-comparison"><section><h3>Your current draft</h3><pre id="draft-review-current"></pre></section><section><h3>New generated draft</h3><pre id="draft-review-generated"></pre></section></div><div class="work-actions"><button id="draft-review-apply" class="primary" type="button">Replace with generated text</button><button id="draft-review-cancel" class="secondary" type="button">Keep my edits</button></div></dialog>
+<dialog id="channel-person-dialog" aria-labelledby="channel-person-title"><h2 id="channel-person-title">Confirm sender identity</h2><p id="channel-person-context" class="hint"></p><label for="channel-person-select">This sender is…</label><select id="channel-person-select"></select><p class="hint">Only this confirmed email or stable channel identity is linked. No voice or display-name guess is used.</p><p id="channel-person-error" class="error" role="alert" hidden></p><div class="work-actions"><button id="channel-person-confirm" class="primary" type="button">Confirm identity</button><button id="channel-person-new" class="secondary" type="button">Add a person…</button><button id="channel-person-cancel" class="quiet" type="button">Cancel</button></div></dialog>

@@ -1175,3 +1175,41 @@ wording/status alongside event dates, up to 300 newest events. Links and pinned
 quotes are included in Archive/Restore; project IDs are remapped on restore.
 The additive conversation-link collection upgrades the WorkItem SQLite schema
 to version 3; older app builds refuse this database rather than discarding links.
+
+
+### Consistent periods, preparation and confirmed identities
+
+The Library, repository reports, analytics and task dates share the Atlanta date
+picker, with keyboard navigation, typed ISO dates and Today/Yesterday/Last 7 days
+period shortcuts. A calendar day uses local dates, preserving DST boundaries.
+Library batch actions appear only after selecting meetings.
+
+Meeting type is visible before recording. Prepare me asks which upcoming meeting
+to prepare when a project contains mixed types; an explicit choice can override a
+series default. Preparation retains the whole project's work but takes typed
+context from the last matching meeting. Backlog refinement adds readiness,
+acceptance criteria and estimation blockers. Sprint review distinguishes shown,
+finished and explicitly accepted changes. Saved templates and prior notes remain
+unchanged until the user reprocesses or edits them.
+
+GitHub draft options regenerate untouched fields while keeping manual edits.
+Issue and comment edits are retained separately in memory during the page session.
+Review regenerated text compares both versions before explicit replacement.
+Drafts are not published, stored in browser storage or sent to AI by this feature.
+
+Confirm a message sender with Link sender to person. Gmail matches a manually
+confirmed exact email; Chat requires a confirmed stable users/ ID scoped to its
+Google account. Display names and voice are never used to guess channel links.
+Renaming a person retains the previous name as an alias. Numbered speakers stay
+scoped to their meeting. Profiles join saved statements/commitments, existing
+GitHub assignments and matching local email/Chat cache messages. Profile channel
+coverage is bounded to 1000 cached threads/messages and 50 matching messages per
+channel. Clearing a source cache removes its profile message preview, while
+confirmed identities remain in people.json and library archives.
+
+GitHub resource links distinguish Found in local cache, Checked in GitHub and
+Not checked/offline. They show the cache timestamp and/or last live check when
+known. Check in GitHub performs an explicit read-only refresh; a failed refresh
+preserves the previous title/state and labels it unavailable. Legacy links whose
+verification origin is unknown ask for a new check. These labels never mark a
+local task completed or claim CI/deployment success.

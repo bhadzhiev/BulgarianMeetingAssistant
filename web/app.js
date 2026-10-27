@@ -21,7 +21,7 @@ function date(value) { return new Date(value).toLocaleDateString(undefined,{mont
 function error(message) { const target=$('settings-dialog').open?$('settings-error'):$('review-dialog').open?$('review-error'):$('scope-dialog').open?$('scope-error'):$('error'); target.textContent=message; target.hidden=false; }
 function clearError() { $('error').hidden=true; $('settings-error').hidden=true; $('review-error').hidden=true; $('scope-error').hidden=true; }
 function toast(message) { $('toast').textContent=message; $('toast').hidden=false; setTimeout(()=>$('toast').hidden=true,3000); }
-function knownSpeaker(name) { const key=(name||'').trim().toLocaleLowerCase(); return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
+function knownSpeaker(name) { const key=(name||'').trim().toLocaleLowerCase();if(/^speaker[ _-]?\d+$/i.test(key))return null; return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
 function speakerTone(name) { let hash=0; for(const c of name.toLocaleLowerCase()) hash=(hash*31+c.codePointAt(0))>>>0; return 'tone-'+(hash%8); }
 function initials(name) { return name.split(/\s+/).filter(Boolean).slice(0,2).map(word=>[...word][0].toLocaleUpperCase()).join(''); }
 function speakerBadge(target,name) {
@@ -140,7 +140,7 @@ async function openPerson(id){
  $('person-name').value=person?.name||'';$('person-aliases').value=(person?.aliases||[]).join(', ');$('person-emails').value=(person?.emails||[]).join(', ');
  $('person-github').value=person?.github?.login||'';$('person-notes').value=person?.notes||'';$('person-delete').hidden=!person;
  $('person-github-status').textContent=person?.github?(person.github.id?'GitHub ID '+person.github.id+' · a renamed account stays this person':'Not checked on GitHub yet'):'';
- $('person-profile').replaceChildren();
+ renderPersonIdentities(person);$('person-profile').replaceChildren();
  if(!$('person-dialog').open)$('person-dialog').showModal();
  if(person)renderProfile(await api('/api/people/profile?id='+person.id));
 }
@@ -148,6 +148,7 @@ function renderProfile(profile){
  const box=$('person-profile');box.replaceChildren(el('h3','','What '+profile.person.name+' said and took on'));
  box.append(el('p','hint',profile.statements+(profile.statements===1?' statement':' statements')+' in '+profile.meetings+(profile.meetings===1?' meeting':' meetings')+', from transcripts where a speaker has one of the names above.'));
  const list=(title,rows,render,empty)=>{const section=el('section','profile-section');section.append(el('h4','',title));if(!rows.length)section.append(el('p','hint',empty));for(const row of rows)section.append(render(row));box.append(section);};
+ renderChannelProfile(profile);
  list('Commitments',profile.commitments,task=>el('p','profile-row',task.text+(task.due_date?' · due '+task.due_date:'')+(task.status==='done'?' · done':'')),'No task with an owner that a person confirmed.');
  if(profile.suggested.length)list('Suggested by the AI, not confirmed',profile.suggested,task=>el('p','profile-row muted',task.text),'');
  list('Recent statements',profile.said.slice(0,10),row=>{const line=el('div','profile-said');line.append(listenButton(row.meeting_id,row.start,{label:'',className:'chip-listen'}),el('span','',row.text),el('small','hint',row.meeting_title));return line;},'No transcript uses these names yet.');
@@ -234,7 +235,7 @@ function currentRoute(){
  if(view==='detail'&&selected){q.set('meeting',selected);if(meetingTab!=='transcript')q.set('tab',meetingTab);}
  else if(view==='tasks'){q.set('view','work');q.set('tab',workTab);}
  else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);}
- else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);}
+ else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);if(prepareScope.type)q.set('type',prepareScope.type);}
  else if(LIBRARY_VIEWS.includes(view))q.set('view',view);
  const text=q.toString();return text?'/?'+text:'/';
 }
@@ -254,7 +255,7 @@ async function applyRoute(){
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
    workspaceSection=q.get('section')||'overview';await $('open-projects').onclick();
   }
-  else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||''));
+  else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
   else if(target==='find')await openFind();
   else if(target==='analytics')await $('open-analytics').onclick();
   else if(target==='conversations')await perform(openConversations);
@@ -993,7 +994,8 @@ function githubActions(resource,links){
  for(const link of links){
   const chip=el('span','source-chip src-github linked-issue'),open=el('a','',link.repository+' #'+link.number);open.href=link.url;open.target='_blank';open.rel='noopener noreferrer';
   chip.append(el('i'),el('b','',link.kind==='pull_request'?'PR':'Issue'),open);
-  if(link.title)chip.append(el('span','',link.title));if(link.state)chip.append(el('span','',link.state));if(!link.verified)chip.append(el('span','','not checked'));
+  if(link.title)chip.append(el('span','',link.title));if(link.state)chip.append(el('span','',link.state));chip.append(el('span','hint',githubVerificationLabel(link)));
+  const check=el('button','quiet','Check in GitHub');check.type='button';check.onclick=()=>perform(async()=>{check.disabled=true;try{await api('/api/github/link',{resource,reference:link.url,verify_live:true});await afterGitHubLink(resource);}finally{check.disabled=false;}});chip.append(check);
   const remove=el('button','quiet','✕');remove.type='button';remove.title='Remove this link from Atlanta (GitHub is not changed)';remove.setAttribute('aria-label','Remove link');
   remove.onclick=()=>perform(async()=>{await api('/api/github/unlink',{id:link.id,revision:link.revision});await afterGitHubLink(resource);});chip.append(remove);box.append(chip);
  }
@@ -1007,16 +1009,29 @@ async function afterGitHubLink(resource){
  if(resource.kind==='attachment'&&$('conversation-reader').open)return openAttachment(resource.id);
  await refreshAfterItemChange();
 }
-let draftResource=null,draftFormat='issue';
-async function openDraft(resource,format){draftResource=resource;draftFormat=format;$('github-draft-repo').replaceChildren();await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
+let draftResource=null,draftFormat='issue',draftSequence=0,draftActiveKey='',draftLatest=null;
+const draftBuffers=new Map();
+function captureDraft(){if(draftActiveKey&&draftBuffers.has(draftActiveKey))draftBuffers.get(draftActiveKey).capture($('github-draft-issue-title').value,$('github-draft-body').value);}
+function draftEditNotice(){const buffer=draftBuffers.get(draftActiveKey);$('github-draft-edits').hidden=!buffer?.edited;}
+async function openDraft(resource,format){captureDraft();draftResource=resource;draftFormat=format;draftActiveKey='';$('github-draft-repo').replaceChildren();await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
 async function renderDraft(){
- const draft=await api('/api/github/draft',{resource:draftResource,format:draftFormat,repository:$('github-draft-repo').value||undefined,include_meeting:$('github-draft-meeting').checked,include_speaker:$('github-draft-speaker').checked});
- segmentedChoice($('github-draft-format'),[['issue','Issue draft'],['comment','Comment']],draftFormat,value=>{draftFormat=value;perform(renderDraft);});
- const repos=[...new Set([...draft.repositories,...(draft.repository?[draft.repository]:[])])],select=$('github-draft-repo');
- select.replaceChildren(option(repos.length?'Repository…':'No repository in the project',''),...repos.map(r=>option(r,r)));select.value=draft.repository||'';
- $('github-draft-issue-title').value=draft.title;$('github-draft-issue-title').hidden=$('github-draft-title-label').hidden=draftFormat!=='issue';
- $('github-draft-body').value=draft.body;$('github-draft-notes').textContent=[...draft.notes,draft.assignee?'Assignee suggestion: '+draft.assignee+' (a confirmed owner).':''].filter(Boolean).join(' ');
- updateDraftLink();
+ captureDraft();const sequence=++draftSequence,key=JSON.stringify([draftResource,draftFormat]),format=draftFormat;
+ if(!draftBuffers.has(key)){if(draftBuffers.size>=20){const clean=[...draftBuffers].find(([,buffer])=>!buffer.edited);if(clean)draftBuffers.delete(clean[0]);}draftBuffers.set(key,new DraftBuffer());}
+ const buffer=draftBuffers.get(key);draftActiveKey=key;
+ if(buffer.values.body!==undefined){$('github-draft-issue-title').value=buffer.values.title;$('github-draft-body').value=buffer.values.body;}
+ else {$('github-draft-issue-title').value='';$('github-draft-body').value='';}
+ $('github-draft-copy').disabled=$('github-draft-copy-title').disabled=$('github-draft-review').disabled=true;
+ try{
+ const draft=await api('/api/github/draft',{resource:draftResource,format,repository:$('github-draft-repo').value||undefined,include_meeting:$('github-draft-meeting').checked,include_speaker:$('github-draft-speaker').checked});
+ if(sequence!==draftSequence||key!==draftActiveKey)return;
+ // Capture edits made while the request was in flight, before accepting generated fields.
+ buffer.capture($('github-draft-issue-title').value,$('github-draft-body').value);
+ const values=buffer.accept(draft);draftLatest=draft;
+ segmentedChoice($('github-draft-format'),[['issue','Issue draft'],['comment','Comment']],format,value=>{captureDraft();draftFormat=value;perform(renderDraft);});
+ const repos=[...new Set([...draft.repositories,...(draft.repository?[draft.repository]:[])])],select=$('github-draft-repo');select.replaceChildren(option(repos.length?'Repository…':'No repository in the project',''),...repos.map(r=>option(r,r)));select.value=draft.repository||'';
+ $('github-draft-issue-title').value=values.title;$('github-draft-body').value=values.body;$('github-draft-issue-title').hidden=$('github-draft-title-label').hidden=format!=='issue';
+ $('github-draft-notes').textContent=[...draft.notes,draft.assignee?'Assignee suggestion: '+draft.assignee+' (a confirmed owner).':''].filter(Boolean).join(' ');draftEditNotice();updateDraftLink();
+ }finally{if(sequence===draftSequence)$('github-draft-copy').disabled=$('github-draft-copy-title').disabled=$('github-draft-review').disabled=false;}
 }
 function updateDraftLink(){
  const repo=$('github-draft-repo').value,open=$('github-draft-open');open.hidden=draftFormat!=='issue'||!repo;
@@ -1026,9 +1041,10 @@ async function copyText(text){
  try{await navigator.clipboard.writeText(text);}catch{const area=el('textarea');area.value=text;document.body.append(area);area.select();document.execCommand('copy');area.remove();}
  toast('Copied · paste it in GitHub');
 }
-$('github-draft-close').onclick=()=>$('github-draft-dialog').close();
-for(const id of ['github-draft-meeting','github-draft-speaker','github-draft-repo'])$(id).onchange=()=>perform(renderDraft);
-$('github-draft-body').oninput=$('github-draft-issue-title').oninput=updateDraftLink;
+$('github-draft-close').onclick=()=>{captureDraft();$('github-draft-dialog').close();};
+$('github-draft-dialog').addEventListener('close',captureDraft);
+for(const id of ['github-draft-meeting','github-draft-speaker','github-draft-repo'])$(id).onchange=()=>{updateDraftLink();perform(renderDraft);};
+$('github-draft-body').oninput=$('github-draft-issue-title').oninput=()=>{captureDraft();draftEditNotice();updateDraftLink();};
 $('github-draft-copy').onclick=()=>perform(()=>copyText($('github-draft-body').value));
 $('github-draft-copy-title').onclick=()=>perform(()=>copyText($('github-draft-issue-title').value));
 let linkResource=null,linkCandidates=[];
@@ -1159,6 +1175,7 @@ async function openMail(key){
  for(const message of thread.messages){
   const card=el('article','mail-message'+(message.sent?' sent':'')),top=el('div','message-top');card.dataset.threadId=thread.id;card.dataset.messageId=message.id;
   top.append(avatar(personName(message.sender)),el('strong','',personName(message.sender)),el('span','hint',new Date(message.date).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})));
+  if(message.identity)top.append(senderIdentityButton(message.identity,message.sender));
   card.append(top,el('p','message-text',message.body||'No inline text body. Attachments are not fetched.'));
   if(message.body){
    const actions=el('div','message-actions'),suggest=el('button','secondary small-action','Suggest a task'),analyze=el('button','quiet small-action','Analyze with AI');
@@ -1252,6 +1269,7 @@ async function renderConversation(sync){
   else{const top=el('div','message-top');top.append(el('strong','',m.sender),el('span','hint',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})));const main=el('div');main.append(top,text);row.append(avatar(m.sender),main);}
   row.onclick=()=>{chatMessage=m.name;for(const other of body.querySelectorAll('.chat-msg'))other.classList.toggle('selected',other===row);renderChatActions(m);};
   row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.click();}};
+  if(m.identity)row.append(senderIdentityButton(m.identity,m.sender));
   body.append(row);previous=m;
  }
  if(!messages.length)body.append(el('p','source-empty','No messages in the last 30 days. Choose Sync conversation to check again.'));
@@ -1446,7 +1464,7 @@ function renderWorkGraph(){
  for(const q of itemsData.items.filter(i=>i.kind==='question')){
   const row=el('div','work-proposal');row.append(el('strong','',q.text),el('p','hint',q.status==='answered'?'Answered':'Open'));
   if(q.answer)row.append(el('p','',q.answer));row.append(historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));
-  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,projectAssignment(q));questions.append(row);
+  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,projectAssignment(q),githubActions({kind:'item',id:q.id}));questions.append(row);
  }
  if(!questions.children.length)questions.append(el('p','hint','No questions yet. Add one or accept a question proposal.'));
 }
@@ -1500,7 +1518,7 @@ function showWorkTab(tab){
 }
 for(const button of $('work-tabs').querySelectorAll('button')) button.onclick=()=>showWorkTab(button.dataset.workTab);
 // Projects group meetings; a series groups the meetings that repeat inside a project.
-let lastProjects='', prepareScope={project:'',series:''}, prepareData=null;
+let lastProjects='', prepareScope={project:'',series:'',type:''}, prepareData=null;
 const projectList=()=>state?.projects?.projects||[];
 const seriesOf=projectId=>(state?.projects?.series||[]).filter(series=>series.project_id===projectId);
 // Meeting types: the purpose of a meeting adds sections to its notes and changes Prepare me.
@@ -1546,7 +1564,7 @@ $('project-filter').onchange=()=>{lastLibrary='';renderLibrary();};
 $('record-project').onchange=()=>{fillSeries($('record-series'),$('record-project').value,'','No series');$('record-prepare').disabled=!$('record-project').value;$('record-type').value=seriesType('');renderRecordMore();};
 // A series brings its default type; the person can still choose another one for this meeting.
 $('record-series').onchange=()=>{$('record-type').value=seriesType($('record-series').value);renderRecordMore();};
-$('record-prepare').onclick=()=>perform(()=>openPrepare($('record-project').value,$('record-series').value));
+$('record-prepare').onclick=()=>perform(()=>openPrepare($('record-project').value,$('record-series').value,$('record-type').value));
 function renderScope(d) {
  const box=$('detail-scope'), project=projectList().find(p=>p.id===d.project_id), series=seriesOf(d.project_id).find(s=>s.id===d.series_id); box.replaceChildren();
  const edit=el('button','quiet scope-chip',project?project.name+(series?' · '+series.name:'')+' ✎':'＋ Add to a project'); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
@@ -1627,9 +1645,9 @@ function sourceChip(source) {
  chip.onclick=()=>perform(async()=>{await openMeeting(source.meeting_id);if(source.timestamp&&detail.transcript.length)showMoment(source.timestamp);else switchTab('outcomes');});
  return chip;
 }
-async function openPrepare(projectId,seriesId) {
+async function openPrepare(projectId,seriesId,kind) {
  if(!(await leaveEdits())) return; dirtyTranscript=dirtyNotes=false; selected=null; show('prepare');
- prepareScope={project:projectId||prepareScope.project||projectList()[0]?.id||'',series:projectId?seriesId||'':prepareScope.series};
+ prepareScope={project:projectId||prepareScope.project||projectList()[0]?.id||'',series:projectId?seriesId||'':prepareScope.series,type:kind||''};
  renderLibrary(); await loadPrepare();
 }
 async function loadPrepare() {
@@ -1637,17 +1655,21 @@ async function loadPrepare() {
  fillProjects($('prepare-project'),prepareScope.project,'Choose a project'); fillSeries($('prepare-series'),prepareScope.project,prepareScope.series,'All meetings of the project');
  $('prepare-empty').hidden=!!projectList().length; $('prepare-content').hidden=true;
  if(!prepareScope.project){$('prepare-summary').textContent='Choose a project or a series.';return;}
- prepareData=await api('/api/prepare?'+new URLSearchParams(prepareScope.series?{series:prepareScope.series}:{project:prepareScope.project})); renderPrepare(prepareData);
+ const query=prepareScope.series?{series:prepareScope.series}:{project:prepareScope.project};if(prepareScope.type)query.type=prepareScope.type;
+ prepareData=await api('/api/prepare?'+new URLSearchParams(query));
+ const picker=$('prepare-type');picker.replaceChildren(option('Choose the upcoming meeting type…',''),...(state.meeting_types||[]).map(t=>option(t.label,t.id)));picker.value=prepareData.requires_type?'':prepareScope.type||prepareData.meeting_type;
+ if(prepareData.requires_type){$('prepare-summary').textContent='This project contains different meeting types. Choose the upcoming meeting before preparing its agenda.';return;}
+ renderPrepare(prepareData);
 }
-$('prepare-project').onchange=()=>{prepareScope={project:$('prepare-project').value,series:''};perform(loadPrepare);};
-$('prepare-series').onchange=()=>{prepareScope.series=$('prepare-series').value;perform(loadPrepare);};
+$('prepare-project').onchange=()=>{prepareScope={project:$('prepare-project').value,series:'',type:''};perform(loadPrepare);};
+$('prepare-series').onchange=()=>{prepareScope.series=$('prepare-series').value;prepareScope.type='';perform(loadPrepare);};
 $('open-prepare').onclick=()=>perform(()=>openPrepare());
 $('copy-agenda').onclick=()=>perform(async()=>{await navigator.clipboard.writeText(prepareData.markdown);toast('Agenda copied · paste it into the invitation or a chat');});
 function renderPrepare(data) {
  const last=data.meetings.at(-1);
  const type=typeOf(data.meeting_type), label=type.id==='general'?'':' · '+type.label;
  $('prepare-summary').textContent=data.meetings.length?data.title+label+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+label+' · no meetings yet';
- $('prepare-content').hidden=!data.meetings.length;
+ $('prepare-content').hidden=false;
  const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source),sourceListen(source));return box;};
  $('prepare-sections-card').hidden=!data.sections?.length;
  $('prepare-sections').replaceChildren(...(data.sections||[]).map(section=>{const box=el('section','note-section');box.append(el('h3','',section.title),...section.items.map(entry=>{const row=el('div','prepare-question');row.append(el('p','',entry.text),sources([entry.source]));return row;}));return box;}));
@@ -2133,8 +2155,9 @@ function attachmentCard(row){
 }
 function renderConversations(){
  if(!conversationPage)return;const result=conversationPage,list=$('conversation-list');list.replaceChildren();
+ $('conversation-select-page').disabled=!result.rows.some(row=>row.provider==='meeting');
  $('conversation-count').textContent=result.total+' conversations · '+(result.total?result.offset+1:0)+'–'+Math.min(result.offset+result.rows.length,result.total);
- $('conversation-selection').textContent=selectedConversations.size+' meetings selected';$('conversation-move').disabled=!selectedConversations.size;
+ $('conversation-selection').textContent=selectedConversations.size+' meetings selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;
  $('conversation-prev').disabled=!result.offset;$('conversation-next').disabled=result.offset+result.rows.length>=result.total;
  for(const row of result.rows){
   const card=el('article','conversation-card'),main=el('div','conversation-main'),open=el('button','quiet conversation-title',row.title);open.type='button';
@@ -2144,7 +2167,7 @@ function renderConversations(){
   if(row.excerpt_projects?.length)main.append(el('p','hint','Contains project excerpts: '+row.excerpt_projects.map(id=>projectList().find(p=>p.id===id)?.name).filter(Boolean).join(', ')));
   if(row.provider==='meeting'){
    const check=el('input');check.type='checkbox';check.checked=selectedConversations.has(row.external_id);check.setAttribute('aria-label','Select '+row.title);
-   check.onchange=()=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=selectedConversations.size+' meetings selected';$('conversation-move').disabled=!selectedConversations.size;};card.append(check);
+   check.onchange=()=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=selectedConversations.size+' meetings selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;};card.append(check);
   }else if(row.provider!=='attached'){
    const details=el('details','project-assignment'),choices=conversationProjectChoices(row.project_ids),save=el('button','secondary small-action','Attach conversation');details.append(el('summary','','Attach to projects'),choices.box);save.type='button';save.onclick=()=>perform(async()=>{const saved=await api('/api/conversations/attach',{provider:row.provider,external_id:row.external_id,account:row.account,revision:row.revision,attachment_revision:row.attachment_revision,project_ids:choices.value()});await loadConversations();await openAttachment(saved.id);});details.append(save);main.append(details);
   }
@@ -2201,3 +2224,45 @@ $('excerpt-first').onchange=()=>{if(Number($('excerpt-last').value)<Number($('ex
 $('excerpt-mode').onchange=()=>{$('excerpt-times').hidden=$('excerpt-mode').value!=='range';$('excerpt-turns').hidden=$('excerpt-mode').value==='range';};
 $('excerpt-cancel').onclick=()=>$('excerpt-dialog').close();
 $('excerpt-form').onsubmit=async event=>{event.preventDefault();$('excerpt-error').hidden=true;const button=event.submitter;button.disabled=true;try{const body={provider:'excerpt',meeting_id:detail.id,transcript_revision:detail.transcript_revision,first:Number($('excerpt-first').value),last:Number($('excerpt-last').value),project_ids:[$('excerpt-project').value]};if($('excerpt-mode').value==='range'){const seconds=value=>{if(!/^\d{2,}:\d{2}:\d{2}$/.test(value)||value.split(':').slice(1).some(n=>Number(n)>59))throw new Error('Use HH:MM:SS for the time range');return value.split(':').reduce((n,v)=>n*60+Number(v),0);};body.range=[seconds($('excerpt-from').value),seconds($('excerpt-to').value)];}const saved=await api('/api/conversations/attach',body);$('excerpt-dialog').close();await openAttachment(saved.id);}catch(exc){$('excerpt-error').textContent=exc.message;$('excerpt-error').hidden=false;}finally{button.disabled=false;}};
+
+$('prepare-type').onchange=()=>{prepareScope.type=$('prepare-type').value;perform(loadPrepare);};
+function githubVerificationLabel(link){
+ const checked=link.checked_at?' · last live check '+new Date(link.checked_at).toLocaleString():'';
+ if(link.verification==='github')return 'Checked in GitHub'+checked;
+ if(link.verification==='cached'){const cached=link.cached_at?(typeof link.cached_at==='number'?new Date(link.cached_at*1000):new Date(link.cached_at)).toLocaleString():'';return 'Found in local cache'+(cached?' · cached '+cached:'')+checked;}
+ if(link.verification==='offline')return 'Not checked · offline or unavailable'+checked;
+ return 'Verification source unknown · check again';
+}
+$('github-draft-review').onclick=()=>{
+ captureDraft();const buffer=draftBuffers.get(draftActiveKey);if(!buffer)return;
+ $('draft-review-current').textContent=buffer.values.title+'\n\n'+buffer.values.body;
+ $('draft-review-generated').textContent=buffer.generated.title+'\n\n'+buffer.generated.body;
+ $('draft-review-dialog').showModal();
+};
+$('draft-review-cancel').onclick=()=>$('draft-review-dialog').close();
+$('draft-review-apply').onclick=()=>{const buffer=draftBuffers.get(draftActiveKey);if(!buffer)return;const next=buffer.reset();$('github-draft-issue-title').value=next.title;$('github-draft-body').value=next.body;draftEditNotice();updateDraftLink();$('draft-review-dialog').close();};
+let channelContext=null;
+function senderIdentityButton(identity,label){
+ const b=el('button','quiet sender-person',identity.person_name?'✓ '+identity.person_name:'Link sender to person…');b.type='button';b.disabled=!identity.available;
+ b.onclick=event=>{event.stopPropagation();perform(async()=>{if(identity.person_id)return openPerson(identity.person_id);channelContext=identity;$('channel-person-context').textContent=(identity.provider==='gmail'?'Gmail':'Google Chat')+' · '+label+' · '+identity.account;
+ $('channel-person-select').replaceChildren(option('Choose a person',''),...(state.people||[]).map(p=>option(p.name,p.id)));$('channel-person-error').hidden=true;$('channel-person-dialog').showModal();});};return b;
+}
+$('channel-person-cancel').onclick=()=>$('channel-person-dialog').close();
+$('channel-person-new').onclick=()=>perform(async()=>{$('channel-person-dialog').close();await openPerson(null);});
+$('channel-person-confirm').onclick=async()=>{
+ const person=(state.people||[]).find(p=>p.id===$('channel-person-select').value);if(!person){$('channel-person-error').textContent='Choose a person first.';$('channel-person-error').hidden=false;return;}
+ const context=channelContext;$('channel-person-confirm').disabled=true;
+ try{const result=await api('/api/people/channel',{...context,person_id:person.id,revision:person.revision});state.people=result.people;renderPeople();if(context!==channelContext)return;$('channel-person-dialog').close();if(context.provider==='gmail')await openMail(context.thread_id);else await loadChat();toast('Sender identity confirmed');}
+ catch(e){$('channel-person-error').textContent=e.message;$('channel-person-error').hidden=false;}
+ finally{$('channel-person-confirm').disabled=false;}
+};
+function renderPersonIdentities(person){
+ const box=$('person-identities');box.replaceChildren();if(!person)return;
+ for(const identity of person.identities||[]){const row=el('div','identity-row'),remove=el('button','quiet','Remove identity');remove.type='button';row.append(el('span','hint',(identity.provider==='gmail'?'Gmail':'Google Chat')+' · '+identity.external_id+' · '+identity.account));
+  remove.onclick=()=>perform(async()=>{const text=identity.provider==='gmail'?'Remove this confirmed email and its channel links from '+person.name+'?':'Remove this confirmed Chat identity from '+person.name+'?';if(!(await ask(text,{ok:'Remove identity'})))return;const result=await api('/api/people/channel/remove',{person_id:person.id,revision:person.revision,identity});state.people=result.people;renderPeople();await openPerson(person.id);});row.append(remove);box.append(row);
+ }
+}
+function renderChannelProfile(profile){
+ const channels=profile.channels;if(!channels)return;const box=$('person-profile');box.append(el('p','hint',channels.coverage));
+ for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-said'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+new Date(message.date*1000).toLocaleString()));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
+}

@@ -91,10 +91,30 @@ function renderSpeakerReview(busy) {
  for(const name of names){
   const sample=detail.transcript.find(s=>s.speaker===name), row=el('div','input-row speaker-review-row'), label=el('strong','',name), listen=listenButton(detail.id,sample.start,{label:'Listen from '+time(sample.start),className:'quiet'});
   const input=el('input');input.placeholder='Participant name';input.value=/^SPEAKER[ _-]?\d+$/i.test(name)?'':name;input.maxLength=120;input.setAttribute('list','known-speakers');input.setAttribute('aria-label','Participant name for '+name);input.disabled=busy;input.oninput=()=>{speakerNaming=true;};
-  const save=el('button','secondary','Apply name');save.type='button';save.disabled=busy;save.onclick=()=>perform(async()=>{if(dirtyTranscript||dirtyNotes||itemEditing){error('Save other corrections before naming speakers.');return;}if(!input.value.trim()){error('Enter a participant name.');return;}
-   detail=await api('/api/meetings/'+detail.id+'/edit',{speaker_name:{speaker:name,name:input.value.trim(),revision:detail.transcript_revision}});speakerNaming=false;lastFingerprint=JSON.stringify(detail);state=await api('/api/state');renderState();renderDetail();toast('Speaker name applied to this meeting');});
-  row.append(label,listen,input,save);target.append(row);
+  const apply=async value=>{if(dirtyTranscript||dirtyNotes||itemEditing){error('Save other corrections before naming speakers.');return false;}
+   detail=await api('/api/meetings/'+detail.id+'/edit',{speaker_name:{speaker:name,name:value,revision:detail.transcript_revision}});speakerNaming=false;lastFingerprint=JSON.stringify(detail);state=await api('/api/state');renderState();renderDetail();return true;};
+  const save=el('button','secondary','Apply name');save.type='button';save.disabled=busy;save.onclick=()=>perform(async()=>{if(!input.value.trim()){error('Enter a participant name.');return;}if(await apply(input.value.trim()))toast('Speaker name applied to this meeting');});
+  row.append(label,listen,input,save,thisIs(name,busy,apply));target.append(row);
  }
+}
+// The person that a speaker name belongs to: the same name or one of the person's other names.
+function personFor(name) { const key=(name||'').trim().toLocaleLowerCase(); return key?(state.people||[]).find(p=>[p.name,...p.aliases].some(n=>n.toLocaleLowerCase()===key))||null:null; }
+// "This is …" links a speaker of this meeting to a person. A numbered speaker takes the person's name;
+// a name already given here stays and becomes one of the person's other names, so later meetings link too.
+let pendingSpeaker=null;
+function thisIs(name,busy,apply) {
+ const linked=personFor(name), generic=/^SPEAKER[ _-]?\d+$/i.test(name), select=el('select','this-is');
+ select.setAttribute('aria-label','Link '+name+' to a person'); select.disabled=busy; select.title=linked?'Linked to '+linked.name+'. Choose another person to change it.':'Choose the person who speaks here';
+ select.append(option(linked?'✓ '+linked.name:'This is…',''),...(state.people||[]).filter(p=>p!==linked).map(p=>option(p.name,p.id)),option('＋ New person…','__new__'));
+ select.onchange=()=>perform(async()=>{
+  const value=select.value; select.value='';
+  if(value==='__new__'){await openPerson(null);if(!generic)$('person-name').value=name;$('person-name').focus();pendingSpeaker={meeting:detail.id,name,generic,apply};return;}
+  const person=(state.people||[]).find(p=>p.id===value); if(!person) return;
+  if(generic||personFor(name)){if(await apply(person.name))toast(name+' is '+person.name+' in this meeting');return;}
+  const result=await api('/api/people/save',Object.assign({},person,{aliases:[...person.aliases,name]}));
+  state.people=result.people; renderPeople(); renderDetail(); toast('"'+name+'" is now one of the names of '+person.name);
+ });
+ return select;
 }
 function renderSpeakerSettings() {
  const list=$('speaker-list'), names=state.speakers||[]; list.replaceChildren();
@@ -114,6 +134,7 @@ function renderPeople(){
 let personEditing=null,personGitHub=null;
 const splitList=value=>value.split(',').map(x=>x.trim()).filter(Boolean);
 async function openPerson(id){
+ if(id)pendingSpeaker=null;
  const person=id?(state.people||[]).find(p=>p.id===id):null;personEditing=person;personGitHub=person?.github||null;
  $('person-title').textContent=person?person.name:'New person';$('person-error').hidden=true;
  $('person-name').value=person?.name||'';$('person-aliases').value=(person?.aliases||[]).join(', ');$('person-emails').value=(person?.emails||[]).join(', ');
@@ -134,6 +155,7 @@ function renderProfile(profile){
 }
 $('add-person').onclick=()=>perform(()=>openPerson(null));
 $('person-close').onclick=()=>$('person-dialog').close();
+$('person-dialog').addEventListener('close',()=>{pendingSpeaker=null;});
 $('person-github').oninput=()=>{personGitHub=null;$('person-github-status').textContent=$('person-github').value.trim()?'Check the username on GitHub to keep its stable ID.':'';};
 $('person-github-check').onclick=()=>perform(async()=>{const login=$('person-github').value.trim().replace(/^@/,'');if(!login)return;
  try{personGitHub=await api('/api/github/user',{login});$('person-github').value=personGitHub.login;$('person-github-status').textContent='✓ @'+personGitHub.login+' · GitHub ID '+personGitHub.id;}
@@ -142,7 +164,10 @@ $('person-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
  const login=$('person-github').value.trim().replace(/^@/,'');
  const github=login?(personGitHub&&personGitHub.login.toLowerCase()===login.toLowerCase()?personGitHub:{login,id:null}):null;
  try{const result=await api('/api/people/save',{id:personEditing?.id,revision:personEditing?.revision,name:$('person-name').value,aliases:splitList($('person-aliases').value),emails:splitList($('person-emails').value),github,notes:$('person-notes').value});
-  state.people=result.people;renderPeople();$('person-dialog').close();toast('Saved '+result.person.name);}
+  // A person created from "This is …" is linked to that speaker at once.
+  const link=pendingSpeaker;pendingSpeaker=null;
+  state.people=result.people;renderPeople();$('person-dialog').close();toast('Saved '+result.person.name);
+  if(link&&!personEditing&&detail?.id===link.meeting){if(link.generic||!personFor(link.name)){if(await link.apply(result.person.name))toast(link.name+' is '+result.person.name+' in this meeting');}else renderDetail();}}
  catch(e){$('person-error').textContent=e.message;$('person-error').hidden=false;}});};
 $('person-delete').onclick=()=>perform(async()=>{if(!personEditing||!(await ask('Delete '+personEditing.name+'? Meetings, tasks and speaker names stay as they are.',{ok:'Delete',danger:true})))return;
  const result=await api('/api/people/delete',{id:personEditing.id,revision:personEditing.revision});state.people=result.people;renderPeople();$('person-dialog').close();});

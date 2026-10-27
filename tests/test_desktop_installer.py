@@ -25,6 +25,7 @@ case "$1" in
 esac
 ''')
         for name in ['cargo','npm','xcrun','ffmpeg']:executable(tools/name,'exit 0\n')
+        executable(tools/'uname','echo Darwin arm64\n')
         executable(tools/'osascript','echo false\n')
         executable(tools/'ditto','cp -R "$1" "$2"\n')
         executable(tools/'codesign','[ "$INSTALL_TEST_FAILURE" != verify ]\n')
@@ -69,3 +70,16 @@ exec /bin/mv "$@"
         self.assertNotEqual(result.returncode,0)
         self.assertEqual((install/APP/'payload').read_text(),'old\n')
         self.assertEqual(list(install.glob('.bma-install.*')),[])
+
+    def test_apple_silicon_installs_parakeet_once_by_default(self):
+        result,_,commands=self.run_install(options=('--with-parakeet',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('requirements-parakeet.txt',commands)
+        self.assertEqual(commands.count('--with-parakeet'),1)
+
+    def test_without_parakeet_does_not_install_or_forward_the_option(self):
+        result,_,commands=self.run_install(options=('--without-parakeet',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertNotIn('requirements-parakeet.txt',commands)
+        self.assertNotIn('--with-parakeet',commands)
+        self.assertNotIn('--without-parakeet',commands)

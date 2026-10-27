@@ -1,4 +1,4 @@
-"""AI clean-up of a finished transcript. Timestamps and speakers never change; Whisper text is kept."""
+"""AI clean-up of a finished transcript. Timestamps and speakers never change; original ASR text is kept."""
 from __future__ import annotations
 
 import difflib
@@ -101,7 +101,7 @@ def correct(directory: Path, settings: dict, progress, api_key: str = '', speake
             return ask_part(ids[:middle], depth + 1) + ask_part(ids[middle:], depth + 1)
         items = result.get('segments') if isinstance(result, dict) else None
         if not isinstance(items, list) or [item.get('id') if isinstance(item, dict) else None for item in items] != ids:
-            raise ValueError('The correction model changed the segment list. The Whisper transcript was kept.')
+            raise ValueError('The correction model changed the segment list. The original transcript was kept.')
         return items
 
     for number, ids in enumerate(groups):

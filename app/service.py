@@ -24,6 +24,7 @@ from . import processing
 from . import correction
 from . import analytics as conversation
 from . import diarization
+from . import parakeet
 from . import backup
 from . import items
 from . import briefing
@@ -123,7 +124,7 @@ class MeetingService:
             raise ValueError('Invalid local AI reasoning effort')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid local AI response format')
-        if (values['transcription'] not in {'local', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
+        if (values['transcription'] not in {'local', 'parakeet', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
                 or values['transcript_correction'] not in {'none', 'local', 'openai'}):
             raise ValueError('Invalid processing provider')
         vocabulary = values['whisper_vocabulary']
@@ -154,6 +155,11 @@ class MeetingService:
                 raise ValueError('Invalid API key')
             settings = self.validate_settings(values)
             previous = dict(self.settings)
+            # Choose Parakeet only where it can run, so a meeting does not fail after the recording.
+            if settings['transcription'] == 'parakeet' and previous.get('transcription') != 'parakeet':
+                runtime = parakeet.availability()
+                if not runtime['available']:
+                    raise ValueError(runtime['message'])
         status = self.google.status()
         changed = settings['calendar_id'] != previous['calendar_id'] or not previous['calendar_enabled']
         account_changed = status['connected'] and status['account'] != previous.get('calendar_account')
@@ -188,7 +194,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=self.library.list(), active=active, google=self.google.status(),
-                desktop_mode=self.desktop_mode, diarization=diarization.availability(),
+                desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
                 speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
                 device_error=device_error, preview_level=self.preview_level,
@@ -684,7 +690,7 @@ class MeetingService:
             method = 'segment overlap'
             try:
                 assigned = align(source, alignment, turns)
-                method = 'Whisper word boundaries and speaker turns'
+                method = 'Parakeet word boundaries and speaker turns' if alignment.get('method') == parakeet.ALIGNMENT_METHOD else 'Whisper word boundaries and speaker turns'
             except (ValueError, KeyError, TypeError):
                 # Old, cloud or edited transcripts have no trustworthy word alignment.
                 assigned = conversation.assign_speakers(source, turns)

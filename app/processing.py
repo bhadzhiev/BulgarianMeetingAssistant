@@ -107,7 +107,11 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             language='bg', translate=False, print_progress=False, print_realtime=False,
             print_timestamps=False, no_context=True, suppress_blank=True,
             suppress_non_speech_tokens=True, temperature=0, n_threads=6, **options)
-    word_alignment = provider == 'local' and settings.get('diarization_enabled', True)
+    if provider == 'parakeet':
+        from . import parakeet
+        model = parakeet.Decoder(settings['models_dir'], progress)
+    word_alignment = provider in {'local', 'parakeet'} and settings.get('diarization_enabled', True)
+    model_name = parakeet.MODEL_NAME if provider == 'parakeet' else settings['local_model'] if provider == 'local' else settings['cloud_model']
     segments = []
     audio_path = directory / 'recording.wav'
     try:
@@ -118,12 +122,13 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             stat = Path(model_path).stat()
             model_stat = [str(model_path), stat.st_size, stat.st_mtime_ns]
         try:
-            backend_version = version('pywhispercpp') if provider == 'local' else None
+            backend_version = version('parakeet-mlx') if provider == 'parakeet' else version('pywhispercpp') if provider == 'local' else None
         except PackageNotFoundError:
             backend_version = 'unknown'
         signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
-            provider=provider, model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
-            model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation), sort_keys=True).encode()).hexdigest()
+            provider=provider, model=model_name,
+            model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation,
+            **({'model_revision': parakeet.MODEL_REVISION} if provider == 'parakeet' else {})), sort_keys=True).encode()).hexdigest()
         checkpoint = directory / '.transcription-progress.json'
         with wave.open(str(audio_path), 'rb') as source:
             rate = source.getframerate()
@@ -162,6 +167,10 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                             token_timestamps=False, max_len=0, split_on_word=False)
                         timed = whisper.apply_prompted_text(timed, ' '.join(clean_text(s.text) for s in prompted))
                     segments.extend(timed)
+                elif provider == 'parakeet':
+                    from .speaker_alignment import group_units
+                    decoded = model.transcribe(samples, start, rate)
+                    segments.extend(TranscriptSegment(**unit) for unit in (decoded if word_alignment else group_units(decoded)))
                 else:
                     buffer = io.BytesIO()
                     with wave.open(buffer, 'wb') as chunk:
@@ -202,19 +211,21 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         save_transcript(directory, segments)
         if units:
             atomic_json(directory / 'transcript.alignment.json', dict(version=1, source_revision=revision([asdict(s) for s in segments]),
-                method='whisper.cpp experimental word boundaries', units=units))
+                method=parakeet.ALIGNMENT_METHOD if provider == 'parakeet' else 'whisper.cpp experimental word boundaries', units=units))
         if preparation['profile'] == 'light':
             os.replace(audio_path, directory / 'transcription.wav')
         else:
             (directory / 'transcription.wav').unlink(missing_ok=True)
         metadata = dict(provider=provider,
-            model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
-            timestamps='segment' if provider == 'local' else 'approximate chunk boundaries',
+            model=model_name,
+            timestamps='segment' if provider in {'local', 'parakeet'} else 'approximate chunk boundaries',
             audio_preparation=preparation, resumed_from_seconds=resumed_from)
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):
                 metadata['vad_error'] = vad
+        if provider == 'parakeet':
+            metadata.update(model_repository=parakeet.MODEL_ID, model_revision=parakeet.MODEL_REVISION, word_boundaries=bool(units), language='auto', vocabulary_applied=False)
         atomic_json(directory / 'transcript.metadata.json', metadata)
         checkpoint.unlink(missing_ok=True)
     finally:

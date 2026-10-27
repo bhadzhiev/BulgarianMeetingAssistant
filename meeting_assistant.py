@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from app import meeting_types
 from app.storage import atomic_text
 from app.whisper import remove_hallucinations
 
@@ -314,7 +315,8 @@ def transcript_for_llm(segments: list[TranscriptSegment]) -> str:
     )
 
 
-def minutes_schema() -> dict[str, Any]:
+def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
+    """The notes schema. A meeting type adds its own sections; every section has the shape of summary."""
     task = {
         "type": "object",
         "properties": {
@@ -343,8 +345,9 @@ def minutes_schema() -> dict[str, Any]:
             "tasks": {"type": "array", "items": task},
             "open_questions": {"type": "array", "items": item},
             "observations": {"type": "array", "items": item},
+            **{name: {"type": "array", "items": item} for name in sections},
         },
-        "required": ["summary", "decisions", "next_steps", "needs_decision", "tasks", "open_questions", "observations"],
+        "required": ["summary", "decisions", "next_steps", "needs_decision", "tasks", "open_questions", "observations", *sections],
         "additionalProperties": False,
     }
 
@@ -353,7 +356,9 @@ MARKER_NAMES = {"important": "Важно", "decision": "Решение", "check"
 
 
 def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date: str | None = None,
-               markers: list[dict[str, Any]] | None = None) -> str:
+               markers: list[dict[str, Any]] | None = None, meeting_type: str = meeting_types.DEFAULT) -> str:
+    kind = meeting_types.prompt(meeting_type)
+    kind = f"\n{kind}\n" if kind else ""
     marked = ""
     if markers:
         lines = "\n".join(f"[{timestamp(m['time'])}] {MARKER_NAMES.get(m['kind'], m['kind'])}" + (f" — {m['note']}" if m.get("note") else "")
@@ -387,7 +392,7 @@ needs_decision: въпроси, които изрично чакат решен�
 observations: поверителни наблюдения за ръководителя след срещата: рискове, обещания, които изглеждат
 нереалистични, колебание или скрито несъгласие. Всяко наблюдение има evidence_timestamp на казаното.
 Не оценявай личности. Ако няма ясна основа в текста, върни празен списък.
-{known}{marked}
+{kind}{known}{marked}
 ТРАНСКРИПТ:
 {transcript}"""
 
@@ -414,8 +419,10 @@ def extract_json(text: str) -> dict[str, Any]:
 
 
 MINUTES_OPTIONAL = ("next_steps", "needs_decision", "observations")
+# Sections of a meeting type. Notes have only the sections of their type, so they are never filled in.
+SECTION_FIELDS = meeting_types.SECTION_FIELDS
 # Every statement in these fields has a source moment and a review state, like a task.
-ITEM_FIELDS = ("summary", "decisions", "next_steps", "needs_decision", "open_questions", "observations")
+ITEM_FIELDS = ("summary", "decisions", "next_steps", "needs_decision", "open_questions", "observations", *SECTION_FIELDS)
 REVIEW_STATES = ("ai", "verified")
 _CITED = re.compile(r"\s*[(\[](\d{2,}:\d{2}:\d{2})[)\]]")
 _STAMP = re.compile(r"\b(\d{2,}:\d{2}:\d{2})\b")
@@ -446,16 +453,18 @@ def note_item(value: Any) -> Any:
 def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] | None = None) -> None:
     """Validate notes. Fills in fields added after the first format, so older notes stay valid."""
     fields = {"summary", "decisions", "tasks", "open_questions"}
-    if not isinstance(minutes, dict) or not fields <= set(minutes) or set(minutes) - fields - set(MINUTES_OPTIONAL):
+    if not isinstance(minutes, dict) or not fields <= set(minutes) or set(minutes) - fields - set(MINUTES_OPTIONAL) - set(SECTION_FIELDS):
         raise ValueError("Minutes must contain summary, decisions, tasks, and open_questions")
     for field in MINUTES_OPTIONAL:
         minutes.setdefault(field, [])
-    fields |= set(MINUTES_OPTIONAL)
+    fields |= set(MINUTES_OPTIONAL) | set(SECTION_FIELDS) & set(minutes)
     for field in fields:
         if not isinstance(minutes[field], list):
             raise ValueError(f"{field} must be a list")
     evidence = {timestamp(s.start) for s in segments} if segments is not None else None
     for field in ITEM_FIELDS:
+        if field not in minutes:
+            continue
         minutes[field] = [note_item(item) for item in minutes[field]]
         for item in minutes[field]:
             if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review", *REGISTRY_KEYS}:
@@ -506,12 +515,14 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
     if not transcript:
         raise ValueError("Cannot summarize an empty transcript")
     prompt = llm_prompt(transcript, getattr(args, "speakers", None), getattr(args, "meeting_date", None),
-                        [m for m in getattr(args, "markers", None) or [] if segments[0].start - 5 <= m["time"] <= segments[-1].end + 5])
-    schema = minutes_schema()
+                        [m for m in getattr(args, "markers", None) or [] if segments[0].start - 5 <= m["time"] <= segments[-1].end + 5],
+                        getattr(args, "meeting_type", meeting_types.DEFAULT))
+    schema = minutes_schema(meeting_types.sections(getattr(args, "meeting_type", meeting_types.DEFAULT)))
     stamps = list(dict.fromkeys(timestamp(s.start) for s in segments))
     schema["properties"]["tasks"]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps
     for field in ITEM_FIELDS:
-        schema["properties"][field]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
+        if field in schema["properties"]:
+            schema["properties"][field]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
     if args.summarizer in {"local", "ollama"}:
         from app.local_ai import complete_json
         return complete_json(vars(args), [{"role": "user", "content": prompt}], schema, "meeting_minutes")
@@ -546,6 +557,10 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
         return f"- {item['text']}{source}" + (" — проверено" if item.get("review") == "verified" else "")
     lines = ["# Бележки от срещата", "", "## Резюме"]
     lines.extend(line(item) for item in minutes.get("summary", []))
+    for field in SECTION_FIELDS:
+        if minutes.get(field):
+            lines.extend(["", f"## {meeting_types.TITLES_BG[field]}"])
+            lines.extend(line(item) for item in minutes[field])
     lines.extend(["", "## Взети решения"])
     decisions = minutes.get("decisions", [])
     lines.extend(line(item) for item in decisions) if decisions else lines.append("- Няма извлечени решения.")

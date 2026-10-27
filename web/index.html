@@ -44,6 +44,7 @@
       <label for="fallback-microphone">Backup microphone (optional)</label><select id="fallback-microphone"><option value="">Retry the selected microphone only</option></select><p class="hint">If the selected microphone disconnects, use only the backup you choose here. Missing audio stays a marked gap. For a wireless iPhone, keep it locked; unlocking or answering a call can pause its microphone.</p>
       <label for="transcription-timing">When to transcribe</label><select id="transcription-timing" aria-describedby="transcription-timing-help"><option value="after">After recording · no live captions</option><option value="live">Live captions + final transcript after recording</option></select><p id="transcription-timing-help" class="hint"></p>
       <label for="record-project">Project and series (optional)</label><div class="input-row scope-select"><select id="record-project" aria-label="Project"></select><select id="record-series" aria-label="Series"></select><button id="record-prepare" type="button" class="secondary" disabled>Prepare me</button></div><p class="hint">Create projects and series from a saved meeting: ＋ Add to a project.</p>
+      <label for="record-type">Meeting type</label><select id="record-type" aria-describedby="record-type-help"></select><p id="record-type-help" class="hint"></p>
       <div class="processing-summary"><span class="small-icon">✦</span><div><strong id="processing-name">Local transcription</strong><p id="privacy-copy">Audio and transcripts stay on this Mac.</p></div><button type="button" id="settings-inline" class="quiet">Change</button></div>
       </details>
       <div id="readiness" class="readiness" aria-live="polite"></div>
@@ -198,7 +199,8 @@
       <p id="prepare-empty" class="hint" hidden>No projects yet. Open a saved meeting and choose ＋ Add to a project. Put recurring meetings into a series.</p></div>
     <div id="prepare-content" hidden>
       <div class="card"><div class="card-heading"><h2>Proposed agenda</h2><button id="copy-agenda" class="secondary" type="button">Copy as text</button></div><ol id="prepare-agenda" class="agenda"></ol></div>
-      <div class="card"><h2>Open tasks</h2><div id="prepare-tasks"></div></div>
+      <div id="prepare-sections-card" class="card" hidden><h2>From the last meeting</h2><div id="prepare-sections"></div></div>
+      <div class="card"><h2 id="prepare-tasks-title">Open tasks</h2><div id="prepare-tasks"></div></div>
       <div class="card"><h2>Questions without a decision</h2><p class="hint">From the last three meetings. A question asked again shows once, with its newest source.</p><div id="prepare-questions"></div></div>
       <div class="card"><h2>Decisions in force</h2><p class="hint">Accepted decisions, newest first.</p><div id="prepare-decisions"></div><div id="prepare-proposed"></div></div>
     </div>

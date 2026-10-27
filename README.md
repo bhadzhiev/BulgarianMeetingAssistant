@@ -570,6 +570,36 @@ The app validates notes' structure and source timestamps, but factual correctnes
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
 
+## People, project repositories and GitHub drafts
+
+Atlanta keeps the conversation and its evidence; GitHub keeps the work. Atlanta does not write to
+GitHub. You copy a draft, or open GitHub with it filled in, and publish it yourself.
+
+- **People** (Settings → People): a person joins one real person's name, other names that appear in
+  transcripts and as task owners, emails and a GitHub username. **Check on GitHub** saves the stable
+  GitHub user ID (a read-only `GET /users/{login}`), so a renamed account stays the same person. Names
+  and GitHub accounts belong to one person only. Nothing is guessed from a voice. Emails stay on this
+  Mac and never enter GitHub text. A person shows what they said (transcript rows with one of their
+  names) and what they took on. **Only a task whose owner a person confirmed is a commitment.** An owner
+  from the AI shows as "AI suggestion · Confirm"; saving the same owner confirms it and adds a history
+  entry. Unconfirmed owners are listed apart and never reach GitHub drafts.
+- **Project repositories** (Projects → Overview): a project lists its GitHub repositories. One
+  repository can belong to several projects. Drafts and links offer these repositories first.
+- **Copy as issue / comment** (GitHub ▾ on a task, decision or question, and on a saved excerpt): the
+  draft has the text, the project, the quoted transcript moment with its date and time, a confirmed
+  owner (as `@login` when the person has a GitHub username) and due date, and an Atlanta reference
+  (`<!-- atlanta:resource=item:… -->`). Meeting titles are included by default and speaker names are
+  hidden by default; both are switches. You can edit the text before you copy it. **Open on GitHub**
+  opens the new-issue page of the chosen repository with the title and text filled in.
+- **Link existing issue or PR**: enter `#123`, `owner/name#123`, a GitHub URL, or words of a title from
+  the GitHub cache. The link lives only on this Mac; GitHub does not know about it unless the published
+  text includes the Atlanta reference. A link is checked against the GitHub cache, then with a
+  read-only request; offline it is saved as "not checked". Linked issues and PRs appear in the project
+  trace and events, and an open issue in My Work → GitHub lists the Atlanta resources linked to it.
+
+`people.json` and `github-links.json` are in library archives; restore adds the archived ones that this
+library does not have.
+
 ## GitHub changes by period
 
 Open **My Work → GitHub → Changes by period**. Enter one repository, an optional branch

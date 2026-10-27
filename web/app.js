@@ -34,7 +34,7 @@ function speakerBadge(target,name) {
 function syncSpeakers() {
  const signature=JSON.stringify(state.speakers||[]); if(signature===lastSpeakers) return; lastSpeakers=signature;
  $('known-speakers').replaceChildren(...(state.speakers||[]).map(name=>{const option=document.createElement('option');option.value=name;return option;}));
- if($('settings-dialog').open) renderSpeakerSettings();
+ if($('settings-dialog').open){ renderSpeakerSettings(); renderPeople(); }
  // Re-annotate the open meeting unless that would discard typing.
  if(view==='detail'&&detail&&!hasEdits()) renderDetail();
 }
@@ -98,6 +98,51 @@ function renderSpeakerSettings() {
  if(!names.length) list.append(el('p','hint','No known speakers yet.'));
  for(const name of names) { const chip=el('span','speaker-chip'); const remove=el('button','quiet','✕'); remove.type='button'; remove.setAttribute('aria-label','Remove '+name); remove.onclick=()=>perform(()=>saveSpeakers(names.filter(n=>n!==name))); chip.append(speakerBadge(el('span'),name),el('span','',name),remove); list.append(chip); }
 }
+// People: one real person behind names, task owners and a GitHub account. Confirmed by a person only.
+function renderPeople(){
+ const list=$('people-list');list.replaceChildren();
+ for(const person of state.people||[]){
+  const row=el('button','person-row');row.type='button';row.append(avatar(person.name),el('strong','',person.name),
+   el('span','hint',[person.aliases.length?'Also: '+person.aliases.join(', '):'',person.github?'@'+person.github.login+(person.github.id?'':' · not checked'):''].filter(Boolean).join(' · ')));
+  row.onclick=()=>perform(()=>openPerson(person.id));list.append(row);
+ }
+ if(!(state.people||[]).length)list.append(el('p','hint','No people yet. Add the people you meet often; their known names can stay as speakers above.'));
+}
+let personEditing=null,personGitHub=null;
+const splitList=value=>value.split(',').map(x=>x.trim()).filter(Boolean);
+async function openPerson(id){
+ const person=id?(state.people||[]).find(p=>p.id===id):null;personEditing=person;personGitHub=person?.github||null;
+ $('person-title').textContent=person?person.name:'New person';$('person-error').hidden=true;
+ $('person-name').value=person?.name||'';$('person-aliases').value=(person?.aliases||[]).join(', ');$('person-emails').value=(person?.emails||[]).join(', ');
+ $('person-github').value=person?.github?.login||'';$('person-notes').value=person?.notes||'';$('person-delete').hidden=!person;
+ $('person-github-status').textContent=person?.github?(person.github.id?'GitHub ID '+person.github.id+' · a renamed account stays this person':'Not checked on GitHub yet'):'';
+ $('person-profile').replaceChildren();
+ if(!$('person-dialog').open)$('person-dialog').showModal();
+ if(person)renderProfile(await api('/api/people/profile?id='+person.id));
+}
+function renderProfile(profile){
+ const box=$('person-profile');box.replaceChildren(el('h3','','What '+profile.person.name+' said and took on'));
+ box.append(el('p','hint',profile.statements+(profile.statements===1?' statement':' statements')+' in '+profile.meetings+(profile.meetings===1?' meeting':' meetings')+', from transcripts where a speaker has one of the names above.'));
+ const list=(title,rows,render,empty)=>{const section=el('section','profile-section');section.append(el('h4','',title));if(!rows.length)section.append(el('p','hint',empty));for(const row of rows)section.append(render(row));box.append(section);};
+ list('Commitments',profile.commitments,task=>el('p','profile-row',task.text+(task.due_date?' · due '+task.due_date:'')+(task.status==='done'?' · done':'')),'No task with an owner that a person confirmed.');
+ if(profile.suggested.length)list('Suggested by the AI, not confirmed',profile.suggested,task=>el('p','profile-row muted',task.text),'');
+ list('Recent statements',profile.said.slice(0,10),row=>{const line=el('div','profile-said');line.append(listenButton(row.meeting_id,row.start,{label:'',className:'chip-listen'}),el('span','',row.text),el('small','hint',row.meeting_title));return line;},'No transcript uses these names yet.');
+ if(profile.person.github)list('Assigned on GitHub (cached)',profile.github,item=>el('p','profile-row',item.repository+' #'+item.number+' · '+item.title+' · '+item.state),'Nothing in the GitHub cache. Sync the GitHub tab to see assigned issues.');
+}
+$('add-person').onclick=()=>perform(()=>openPerson(null));
+$('person-close').onclick=()=>$('person-dialog').close();
+$('person-github').oninput=()=>{personGitHub=null;$('person-github-status').textContent=$('person-github').value.trim()?'Check the username on GitHub to keep its stable ID.':'';};
+$('person-github-check').onclick=()=>perform(async()=>{const login=$('person-github').value.trim().replace(/^@/,'');if(!login)return;
+ try{personGitHub=await api('/api/github/user',{login});$('person-github').value=personGitHub.login;$('person-github-status').textContent='✓ @'+personGitHub.login+' · GitHub ID '+personGitHub.id;}
+ catch(e){$('person-github-status').textContent='Could not check: '+e.message+' The username is saved without an ID.';}});
+$('person-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+ const login=$('person-github').value.trim().replace(/^@/,'');
+ const github=login?(personGitHub&&personGitHub.login.toLowerCase()===login.toLowerCase()?personGitHub:{login,id:null}):null;
+ try{const result=await api('/api/people/save',{id:personEditing?.id,revision:personEditing?.revision,name:$('person-name').value,aliases:splitList($('person-aliases').value),emails:splitList($('person-emails').value),github,notes:$('person-notes').value});
+  state.people=result.people;renderPeople();$('person-dialog').close();toast('Saved '+result.person.name);}
+ catch(e){$('person-error').textContent=e.message;$('person-error').hidden=false;}});};
+$('person-delete').onclick=()=>perform(async()=>{if(!personEditing||!(await ask('Delete '+personEditing.name+'? Meetings, tasks and speaker names stay as they are.',{ok:'Delete',danger:true})))return;
+ const result=await api('/api/people/delete',{id:personEditing.id,revision:personEditing.revision});state.people=result.people;renderPeople();$('person-dialog').close();});
 async function saveSpeakers(names) { const result=await api('/api/speakers',{speakers:names}); state.speakers=result.speakers; renderSpeakerSettings(); syncSpeakers(); }
 async function api(path,body) {
  const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -792,7 +837,7 @@ async function closeSettings(){
  if(settingsValues()!==settingsOpened&&!(await ask('Discard the changes in Settings? They are not saved.',{ok:'Discard changes',cancel:'Keep editing',danger:true})))return;
  $('settings-dialog').close();
 }
-function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('diarization-runtime').textContent=state.diarization?.message||'Speaker separation is checked after recording.';$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();markProfile();settingsOpened=settingsValues();
+function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('diarization-runtime').textContent=state.diarization?.message||'Speaker separation is checked after recording.';$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();markProfile();renderPeople();settingsOpened=settingsValues();
  // Loading the calendar list can change the calendar field; that is not an edit by the person.
  if(calendarConnected())perform(async()=>{const untouched=settingsValues()===settingsOpened;await loadCalendars();if(untouched)settingsOpened=settingsValues();}); }
 function daysBetween(from,to) { return Math.round((Date.parse(to)-Date.parse(from))/86400000); }
@@ -809,7 +854,7 @@ const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'
 const statusFilter={task:'open',decision:'current'};
 const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
+const EVENT_LABELS={confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
@@ -897,13 +942,79 @@ function itemActions(item,row) {
  dismiss.onclick=()=>perform(()=>changeItem(item,{dismissed:!item.dismissed}));
  actions.append(edit,snooze,dismiss,merge,remove); return actions;
 }
+// GitHub, without writing to it: copy a draft, open GitHub prefilled, or link an existing issue on this Mac.
+function githubActions(resource,links){
+ links=links??(itemsData.github_links||[]).filter(l=>l.resource.kind===resource.kind&&l.resource.id===resource.id);
+ const box=el('div','github-actions');
+ for(const link of links){
+  const chip=el('span','source-chip src-github linked-issue'),open=el('a','',link.repository+' #'+link.number);open.href=link.url;open.target='_blank';open.rel='noopener noreferrer';
+  chip.append(el('i'),el('b','',link.kind==='pull_request'?'PR':'Issue'),open);
+  if(link.title)chip.append(el('span','',link.title));if(link.state)chip.append(el('span','',link.state));if(!link.verified)chip.append(el('span','','not checked'));
+  const remove=el('button','quiet','✕');remove.type='button';remove.title='Remove this link from Atlanta (GitHub is not changed)';remove.setAttribute('aria-label','Remove link');
+  remove.onclick=()=>perform(async()=>{await api('/api/github/unlink',{id:link.id,revision:link.revision});await afterGitHubLink(resource);});chip.append(remove);box.append(chip);
+ }
+ const menu=el('details','menu github-menu'),items=el('div','menu-items');menu.append(el('summary','','GitHub ▾'),items);
+ for(const [label,run] of [['Copy as issue…',()=>openDraft(resource,'issue')],['Copy as comment…',()=>openDraft(resource,'comment')],['Link existing issue or PR…',()=>openLink(resource)]]){
+  const b=el('button','',label);b.type='button';b.onclick=()=>{menu.open=false;perform(run);};items.append(b);
+ }
+ box.append(menu);return box;
+}
+async function afterGitHubLink(resource){
+ if(resource.kind==='attachment'&&$('conversation-reader').open)return openAttachment(resource.id);
+ await refreshAfterItemChange();
+}
+let draftResource=null,draftFormat='issue';
+async function openDraft(resource,format){draftResource=resource;draftFormat=format;$('github-draft-repo').replaceChildren();await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
+async function renderDraft(){
+ const draft=await api('/api/github/draft',{resource:draftResource,format:draftFormat,repository:$('github-draft-repo').value||undefined,include_meeting:$('github-draft-meeting').checked,include_speaker:$('github-draft-speaker').checked});
+ segmentedChoice($('github-draft-format'),[['issue','Issue draft'],['comment','Comment']],draftFormat,value=>{draftFormat=value;perform(renderDraft);});
+ const repos=[...new Set([...draft.repositories,...(draft.repository?[draft.repository]:[])])],select=$('github-draft-repo');
+ select.replaceChildren(option(repos.length?'Repository…':'No repository in the project',''),...repos.map(r=>option(r,r)));select.value=draft.repository||'';
+ $('github-draft-issue-title').value=draft.title;$('github-draft-issue-title').hidden=$('github-draft-title-label').hidden=draftFormat!=='issue';
+ $('github-draft-body').value=draft.body;$('github-draft-notes').textContent=[...draft.notes,draft.assignee?'Assignee suggestion: '+draft.assignee+' (a confirmed owner).':''].filter(Boolean).join(' ');
+ updateDraftLink();
+}
+function updateDraftLink(){
+ const repo=$('github-draft-repo').value,open=$('github-draft-open');open.hidden=draftFormat!=='issue'||!repo;
+ if(!open.hidden)open.href='https://github.com/'+repo+'/issues/new?'+new URLSearchParams({title:$('github-draft-issue-title').value,body:$('github-draft-body').value});
+}
+async function copyText(text){
+ try{await navigator.clipboard.writeText(text);}catch{const area=el('textarea');area.value=text;document.body.append(area);area.select();document.execCommand('copy');area.remove();}
+ toast('Copied · paste it in GitHub');
+}
+$('github-draft-close').onclick=()=>$('github-draft-dialog').close();
+for(const id of ['github-draft-meeting','github-draft-speaker','github-draft-repo'])$(id).onchange=()=>perform(renderDraft);
+$('github-draft-body').oninput=$('github-draft-issue-title').oninput=updateDraftLink;
+$('github-draft-copy').onclick=()=>perform(()=>copyText($('github-draft-body').value));
+$('github-draft-copy-title').onclick=()=>perform(()=>copyText($('github-draft-issue-title').value));
+let linkResource=null,linkCandidates=[];
+async function openLink(resource){
+ linkResource=resource;$('github-link-error').hidden=true;$('github-link-ref').value='';$('github-link-results').replaceChildren();
+ let draft={repositories:[]};try{draft=await api('/api/github/draft',{resource,format:'comment'});}catch{}
+ try{linkCandidates=(await api('/api/github/overview?filter=all')).items;}catch{linkCandidates=[];}
+ const repos=[...new Set([...draft.repositories,...linkCandidates.map(r=>r.repository)])];
+ $('github-link-repo').replaceChildren(option('Any repository',''),...repos.map(r=>option(r,r)));$('github-link-repo').value=draft.repositories[0]||'';
+ renderLinkResults();$('github-link-dialog').showModal();$('github-link-ref').focus();
+}
+function renderLinkResults(){
+ const query=$('github-link-ref').value.trim().toLocaleLowerCase(),repo=$('github-link-repo').value,list=$('github-link-results');
+ const rows=query&&!/^#?\d+$|github\.com|\/.+#/.test(query)?linkCandidates.filter(r=>(!repo||r.repository===repo)&&(r.title+' #'+r.number).toLocaleLowerCase().includes(query)).slice(0,30):[];
+ list.replaceChildren(...rows.map(r=>sourceRow(false,[el('span','row-tag '+(r.kind==='issue'?'issue':'pr'),r.kind==='issue'?'Issue':'PR'),el('span','row-who',r.repository.split('/')[1]),el('strong','row-title','#'+r.number+' '+r.title),el('span','row-when',r.state)],async()=>{$('github-link-ref').value=r.repository+'#'+r.number;renderLinkResults();})));
+ list.hidden=!rows.length;
+}
+$('github-link-ref').oninput=$('github-link-repo').onchange=renderLinkResults;
+$('github-link-close').onclick=()=>$('github-link-dialog').close();
+$('github-link-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+ try{await api('/api/github/link',{resource:linkResource,reference:$('github-link-ref').value,repository:$('github-link-repo').value});$('github-link-dialog').close();toast('Linked in Atlanta · GitHub is not changed');await afterGitHubLink(linkResource);}
+ catch(e){$('github-link-error').textContent=e.message;$('github-link-error').hidden=false;}});};
 function globalTaskRow(item,today) {
  const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), done=el('input'), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  done.type='checkbox';done.checked=item.status==='done';done.setAttribute('aria-label','Mark task as done');done.onchange=()=>perform(()=>changeItem(item,{status:done.checked?'done':'open'}));
  who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
+ if(item.owner&&!item.manual?.includes('owner')){const confirm=el('button','quiet small-action owner-confirm','AI suggestion · Confirm');confirm.type='button';confirm.title='A person confirms this owner. Only confirmed owners count as commitments and reach GitHub drafts.';confirm.onclick=()=>perform(()=>changeItem(item,{owner:item.owner}));who.append(confirm);}
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
  meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline));
- main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
+ main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(done,main); row.append(itemActions(item,row)); return row;
 }
 function decisionRow(item,byId) {
@@ -913,7 +1024,7 @@ function decisionRow(item,byId) {
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
  const change=el('button','secondary small-action',next[1]);change.type='button';change.onclick=()=>perform(()=>changeItem(item,{status:next[0]}));meta.append(change);
- main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
+ main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
 async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
@@ -1160,6 +1271,8 @@ async function openGitHubItem(key){
  suggest.onclick=()=>perform(async()=>{const value=await ask('Task proposal from GitHub. The GitHub status does not set the task status.',{ok:'Save suggestion',value:r.title});if(value===null)return;await api('/api/github/propose',{id:key,revision:r.revision,title:value});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
  refresh.onclick=()=>perform(async()=>{await api('/api/github/refresh',{id:key});ghWasRunning=true;await loadGitHub();});
  actions.append(el('span','reader-quote','Local task status stays independent of GitHub.'),suggest,refresh,link);
+ const linked=await api('/api/github/links?'+new URLSearchParams({repository:r.repository,number:String(r.number)}));
+ if(linked.length){const box=el('div','linked-in-atlanta');box.append(el('h4','','Linked in Atlanta · on this Mac'));for(const l of linked)box.append(el('p','profile-row',(l.resource_kind==='deleted'?'':l.resource_kind+' · ')+l.resource_text));body.prepend(box);}
  $('github-detail').replaceChildren(head,body,actions);
 }
 $('github-connect').onclick=()=>perform(async()=>{const token=$('github-token').value.trim();try{await api('/api/github/connect',{token});await loadGitHub();await loadRepoReports();}finally{$('github-token').value='';}});
@@ -1797,10 +1910,24 @@ function renderTimeline(box,data){
  }
  if(!(timeline.events||[]).length)box.append(el('p','empty-content','No events yet.'));
 }
-const TIMELINE_EVENTS={created:'Created',discussed:'Discussed',duplicate:'Mentioned again',changed:'Changed',removed:'Removed from a meeting',merged:'Merged',superseded:'Replaced',detached:'Waits for new notes',projects_changed:'Projects changed',source_linked:'Source linked',answered:'Answered',reopened:'Reopened'};
+const TIMELINE_EVENTS={confirmed:'Owner confirmed',created:'Created',discussed:'Discussed',duplicate:'Mentioned again',changed:'Changed',removed:'Removed from a meeting',merged:'Merged',superseded:'Replaced',detached:'Waits for new notes',projects_changed:'Projects changed',source_linked:'Source linked',answered:'Answered',reopened:'Reopened'};
 function eventNode(event,kind){
  const ref=event.url?{url:event.url,report_id:event.report_id}:event.attachment_id?{attachment_id:event.attachment_id,...(event.meeting_id?{meeting_id:event.meeting_id,start:event.start,end:event.end}:{})}:event.source_id?{source_id:event.source_id}:event.item_id?{item_id:event.item_id}:{meeting_id:event.meeting_id};
  return {kind,label:event.text,status:event.status,ref};
+}
+// The GitHub repositories of a project: drafts and links offer them first. One repository can serve several projects.
+function repositoryEditor(project){
+ const box=el('section','project-repos'),chips=el('div','item-meetings'),repos=[...(project.repositories||[])];
+ box.append(el('h3','','GitHub repositories'),chips);
+ const draw=()=>{chips.replaceChildren(...repos.map(name=>{const chip=el('span','source-chip src-github'),remove=el('button','quiet','✕');remove.type='button';remove.setAttribute('aria-label','Remove '+name);
+  remove.onclick=()=>{repos.splice(repos.indexOf(name),1);draw();save.disabled=false;};chip.append(el('i'),el('b','',name),remove);return chip;}));if(!repos.length)chips.append(el('span','hint','No repository yet.'));};
+ const row=el('div','work-actions'),input=el('input'),add=el('button','secondary','Add'),save=el('button','primary','Save repositories'),list=el('datalist');
+ list.id='repo-choices-'+project.id;input.setAttribute('list',list.id);input.placeholder='owner/name';input.setAttribute('aria-label','Repository');add.type=save.type='button';save.disabled=true;
+ add.onclick=()=>{const name=input.value.trim();if(name&&!repos.some(r=>r.toLowerCase()===name.toLowerCase())){repos.push(name);draw();save.disabled=false;}input.value='';};
+ input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();add.click();}};
+ save.onclick=()=>perform(async()=>{await api('/api/projects/repositories',{id:project.id,repositories:repos});toast('Repositories saved');await loadWorkspace();});
+ api('/api/github/repos').then(rows=>list.replaceChildren(...rows.map(r=>option(r.full_name,r.full_name)))).catch(()=>{});
+ row.append(input,list,add,save);box.append(row);draw();return box;
 }
 async function loadWorkspace(){
  const sequence=++workspaceSequence,key=$('workspace-project').value;
@@ -1819,12 +1946,13 @@ function renderWorkspace(){
  const kinds={task:'Tasks',decision:'Decisions',question:'Questions'};
  function itemCard(item){
   const card=el('article','workspace-item');card.append(el('strong','',item.text),el('p','hint',item.kind+' · '+item.status+(item.owner?' · '+item.owner:'')),projectAssignment(item));
-  if(item.answer)card.append(el('p','',item.answer));card.append(sourceChips(item,itemsData.meetings),relationLinks(item),evidenceBlock(item,itemsData.meetings));
+  if(item.answer)card.append(el('p','',item.answer));card.append(sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),relationLinks(item),evidenceBlock(item,itemsData.meetings));
   const open=el('button','quiet','Open in My Work');open.onclick=()=>perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});card.append(open);return card;
  }
  if(workspaceSection==='overview'){
   box.append(el('h2','',data.projects.find(p=>p.id===data.project_id)?.name||'All projects'));
   box.append(el('p','hint','One work item can belong to several projects. Manual assignments take priority over linked meeting projects. Source states and saved quotes remain unchanged.'));
+  const current=data.projects.find(p=>p.id===data.project_id);if(current&&current.id!=='__none__')box.append(repositoryEditor(current));
   for(const [kind,title] of Object.entries(kinds)){
    const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
    box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));
@@ -1918,7 +2046,8 @@ async function openAttachment(id){
  if(row.stale)box.append(el('p','notice','The original transcript or source revision has changed or is unavailable. This saved quotation is preserved.'));
  box.append(el('pre','conversation-snapshot',row.text));const choices=conversationProjectChoices(row.project_ids),save=el('button','secondary','Save project links');box.append(choices.box,save);
  save.onclick=()=>perform(async()=>{await api('/api/conversations/projects',{id:row.id,revision:row.revision,project_ids:choices.value()});if(view==='conversations')await loadConversations();if(view==='projects')await loadWorkspace();await openAttachment(row.id);});
- if(row.kind==='excerpt'){const jump=el('button','quiet','Open original meeting at '+time(row.locator.start));jump.onclick=()=>perform(async()=>{$('conversation-reader').close();await openMeeting(row.locator.meeting_id);showSeconds(row.locator.start);if(row.stale)toast('Saved excerpt differs from the current transcript');});box.append(jump,listenButton(row.locator.meeting_id,row.locator.start,{label:'Listen to the excerpt',until:row.locator.end,className:'secondary'}));}
+ if(row.kind==='excerpt'){const jump=el('button','quiet','Open original meeting at '+time(row.locator.start));jump.onclick=()=>perform(async()=>{$('conversation-reader').close();await openMeeting(row.locator.meeting_id);showSeconds(row.locator.start);if(row.stale)toast('Saved excerpt differs from the current transcript');});box.append(jump,listenButton(row.locator.meeting_id,row.locator.start,{label:'Listen to the excerpt',until:row.locator.end,className:'secondary'}));
+  box.append(githubActions({kind:'attachment',id:row.id},await api('/api/github/links?kind=attachment&id='+encodeURIComponent(row.id))));}
  if(!$('conversation-reader').open)$('conversation-reader').showModal();
 }
 $('conversation-reader-close').onclick=()=>$('conversation-reader').close();

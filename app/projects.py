@@ -86,6 +86,22 @@ class Projects:
             raise ValueError(('A project' if kind == 'projects' else 'A series in this project') + ' already has this name')
         entry['name'] = name
 
+    def set_repositories(self, project_id, repositories) -> list[str]:
+        """The GitHub repositories of a project. One repository can belong to several projects."""
+        from .github_source import repo_name
+        project = self.get('projects', project_id)
+        if not project:
+            raise ValueError('This project no longer exists. Reload and try again.')
+        if not isinstance(repositories, list) or len(repositories) > 30:
+            raise ValueError('A project has at most 30 repositories')
+        result = []
+        for value in repositories:
+            name = repo_name(value.strip() if isinstance(value, str) else value)
+            if name.casefold() not in {r.casefold() for r in result}:
+                result.append(name)
+        project['repositories'] = result
+        return result
+
     def delete(self, kind: str, entry_id) -> set[str]:
         """Remove a project with its series, or one series. Returns the removed series IDs."""
         if not self.get(kind, entry_id):
@@ -124,6 +140,10 @@ class Projects:
                     mapping[kind][entry['id']] = same['id']
                     continue
                 new_id = entry['id'] if not self.get(kind, entry['id']) else uuid.uuid4().hex[:12]
-                self.data[kind].append(dict(id=new_id, name=name, **({'project_id': project_id} if kind == 'series' else {})))
+                added = dict(id=new_id, name=name, **({'project_id': project_id} if kind == 'series' else {}))
+                if kind == 'projects' and isinstance(entry.get('repositories'), list):
+                    from .github_source import REPO
+                    added['repositories'] = [r for r in entry['repositories'] if isinstance(r, str) and REPO.fullmatch(r)][:30]
+                self.data[kind].append(added)
                 mapping[kind][entry['id']] = new_id
         return mapping

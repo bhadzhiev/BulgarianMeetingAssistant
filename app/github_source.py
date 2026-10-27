@@ -93,7 +93,7 @@ class GitHubConnection:
             self.store.delete();self.bundle={};self.loaded=True;self.configured=False;self.path.unlink(missing_ok=True)
         return self.status()
     def get(self,resource,query=None,expected_account=None):
-        allowed=resource in {'/user','/issues','/search/issues'}
+        allowed=resource in {'/user','/issues','/search/issues'} or re.fullmatch(r'/users/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})',resource)
         if not allowed:
             match=re.fullmatch(r'/repos/([^/]+/[^/]+)(?:/(issues|pulls)/([1-9][0-9]*))?',resource)
             if not match:
@@ -249,6 +249,18 @@ class GitHubSync:
             with self.lock:self.job=dict(running=False,status=str(exc),error=None)
         except Exception as exc:
             with self.lock:self.job=dict(running=False,status='error',error=str(exc) if isinstance(exc,GitHubError) else 'GitHub data could not be processed. Retry the sync.')
+    def find(self,repository,number):
+        """The cached issue or pull request with this repository and number, or None."""
+        account=self._account()
+        with closing(self.db()) as db:
+            row=db.execute("SELECT summary FROM objects WHERE account=? AND number=? AND lower(json_extract(summary,'$.repository'))=lower(?)",(account,number,repository)).fetchone()
+        return json.loads(row[0]) if row else None
+    def assigned_to(self,user_id):
+        """Cached open and closed items assigned to a GitHub user ID, newest change first."""
+        account=self._account()
+        with closing(self.db()) as db:
+            rows=db.execute("SELECT o.summary FROM objects o, json_each(o.document,'$.assignees') a WHERE o.account=? AND a.value=? ORDER BY json_extract(o.summary,'$.updated') DESC LIMIT 50",(account,str(user_id))).fetchall()
+        return [json.loads(row[0]) for row in rows]
     def detail(self,key,expected_account=None):
         if type(key) is not int or key<=0:raise ValueError('Invalid GitHub object ID')
         account=self._account()

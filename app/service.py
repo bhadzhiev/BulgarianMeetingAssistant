@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from .work_graph import WorkGraph, validate_graph
 from .work_items import COLLECTIONS, normalize
 import json
+import re
 import shutil
 import hashlib
 import datetime as dt
@@ -34,6 +35,8 @@ from . import search
 from .events import Watcher
 from .projects import Projects
 from .conversations import Conversations
+from .people import People
+from .github_links import GitHubLinks, parse as parse_github_reference
 from . import whisper
 from .live import LiveSession, read_json
 from .google_calendar import GoogleCalendar, bundled_client, CalendarError
@@ -101,6 +104,8 @@ class MeetingService:
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
         self.projects = Projects(root / 'projects.json')
+        self.people = People(root / 'people.json')
+        self.github_links = GitHubLinks(root / 'github-links.json')
         self.conversations = Conversations(self)
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
@@ -219,7 +224,7 @@ class MeetingService:
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
-                speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
+                speakers=self.library.speakers(), people=self.people.list(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
@@ -956,6 +961,211 @@ class MeetingService:
             self.projects.save()
             return dict(projects=self.projects.data)
 
+    def set_project_repositories(self, project_id, repositories):
+        with self.lock, self.projects.lock:
+            result = self.projects.set_repositories(project_id, repositories)
+            self.projects.save()
+            return dict(repositories=result, projects=self.projects.data)
+
+    # People ------------------------------------------------------------------------------------------
+    def save_person(self, body):
+        return dict(person=self.people.save(body), people=self.people.list())
+
+    def delete_person(self, person_id, revision):
+        self.people.delete(person_id, revision)
+        return dict(people=self.people.list())
+
+    def github_user(self, login):
+        """The stable GitHub ID of a username, so a later rename keeps the same person."""
+        from .people import LOGIN
+        if not isinstance(login, str) or not LOGIN.fullmatch(login.strip().lstrip('@')):
+            raise ValueError('Enter a GitHub username')
+        user = self.github.connection.get('/users/' + login.strip().lstrip('@'))['data']
+        if type(user.get('id')) is not int or not isinstance(user.get('login'), str):
+            raise ValueError('GitHub returned an invalid user')
+        return dict(login=user['login'], id=user['id'])
+
+    def _person_names(self, person):
+        return {name.casefold() for name in [person['name'], *person['aliases']]}
+
+    def person_profile(self, person_id):
+        """What a person said (their confirmed names in transcripts) and what they took on.
+
+        Only a task whose owner a person confirmed is a commitment. An owner from the AI is shown apart,
+        as a suggestion, so taking part in a conversation never becomes a responsibility by itself.
+        """
+        person = self.people.get(person_id)
+        if not person:
+            raise ValueError('This person no longer exists. Reload and try again.')
+        names = self._person_names(person)
+        said, meetings = [], {}
+        for meeting in self.library.list():
+            path = self.library.directory(meeting['id']) / 'transcript.json'
+            rows = read_json(path, []) if path.exists() else []
+            mine = [row for row in rows if isinstance(row, dict) and isinstance(row.get('speaker'), str) and row['speaker'].casefold() in names]
+            if mine:
+                meetings[meeting['id']] = len(mine)
+                said += [dict(meeting_id=meeting['id'], meeting_title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
+                              start=row['start'], text=row.get('text', '')) for row in mine]
+        said.sort(key=lambda r: (r['date'], r['start']), reverse=True)
+        with self.items.lock:
+            tasks = [i for i in self.items.items.values() if i['kind'] == 'task' and isinstance(i.get('owner'), str) and i['owner'].casefold() in names]
+        row = lambda i: dict(id=i['id'], text=i['text'], status=i['status'], due_date=i.get('due_date'), links=i.get('links', []))
+        confirmed = [row(i) for i in tasks if 'owner' in i.get('manual', [])]
+        suggested = [row(i) for i in tasks if 'owner' not in i.get('manual', [])]
+        github = []
+        if person['github'] and person['github'].get('id'):
+            try:
+                github = self.github.assigned_to(person['github']['id'])
+            except (ValueError, GitHubError):
+                github = []
+        return dict(person=person, statements=len(said), meetings=len(meetings), said=said[:50],
+                    commitments=confirmed, suggested=suggested, github=github)
+
+    # GitHub drafts and local links -------------------------------------------------------------------
+    def _resource(self, value):
+        """The text, moment and projects of a task, decision, question or saved excerpt."""
+        from .github_links import resource
+        target = resource(value)
+        if target['kind'] == 'attachment':
+            row = self.conversations.attachment(target['id'])
+            moment = None
+            if row['kind'] == 'excerpt':
+                meeting = self.library.get(row['locator']['meeting_id'])
+                moment = dict(meeting_id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
+                              seconds=row['locator']['start'])
+            quote = '\n'.join(re.sub(r'^\[[0-9.]+–[0-9.]+\] ', '', line) for line in row['text'].splitlines() if line.strip())[:4000]
+            return dict(target=target, kind='excerpt' if row['kind'] == 'excerpt' else 'conversation', text=row['title'], quote=quote,
+                        speaker=None, moment=moment, project_ids=row['project_ids'], owner=None, owner_confirmed=False, due_date=None,
+                        source_label=None if moment else ('Gmail' if row['kind'] == 'gmail' else 'Google Chat'))
+        item = next((i for i in self.item_list()['items'] if i['id'] == target['id']), None)
+        if not item:
+            raise ValueError('This item no longer exists. Reload and try again.')
+        moment = quote = speaker = source = None
+        meetings = {m['id']: m for m in self.library.list()}
+        links = sorted((l for l in item['links'] if l['meeting_id'] in meetings),
+                       key=lambda l: meetings[l['meeting_id']].get('started_at') or meetings[l['meeting_id']]['created'])
+        for link in links:
+            stamp = link.get('evidence_timestamp')
+            if not stamp:
+                continue
+            seconds = sum(int(part) * 60 ** n for n, part in enumerate(reversed(stamp.split(':'))))
+            meeting = meetings[link['meeting_id']]
+            moment = dict(meeting_id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'], seconds=seconds)
+            rows = read_json(self.library.directory(meeting['id']) / 'transcript.json', [])
+            segment = next((r for r in rows if r['start'] <= seconds + .5 < max(r['end'], r['start'] + 1)), None)
+            if segment:
+                quote, speaker = segment['text'].strip(), segment.get('speaker')
+            break
+        if not quote:
+            graph = WorkGraph(self.items).snapshot()
+            evidence = next((e for e in graph['source_evidence'] if e['id'] in set(item.get('source_evidence', []))), None)
+            if evidence:
+                quote = evidence['quote']
+                found = next((x for x in graph['sources'] if x['id'] == evidence['source_id']), {})
+                remote = found.get('remote', {})
+                source = {'gmail': 'Gmail', 'google_chat': 'Google Chat'}.get(found.get('provider')) or (
+                    f"GitHub {remote.get('repository', '')}#{remote.get('number', '')}" if found.get('provider') == 'github' else None)
+        return dict(target=target, kind=item['kind'], text=item['text'], quote=quote, speaker=speaker, moment=moment,
+                    project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_confirmed='owner' in item.get('manual', []),
+                    due_date=item.get('due_date'), status=item['status'], source_label=source)
+
+    def github_draft(self, body):
+        """Markdown for a GitHub issue or comment that the person copies and publishes. Atlanta writes nothing."""
+        from .github_source import repo_name
+        fmt = body.get('format')
+        if fmt not in {'issue', 'comment'}:
+            raise ValueError('Choose an issue or a comment')
+        data = self._resource(body.get('resource'))
+        projects = [self.projects.get('projects', key) for key in data['project_ids']]
+        projects = [p for p in projects if p]
+        choices = [r for p in projects for r in p.get('repositories', [])]
+        repository = body.get('repository') or (choices[0] if choices else '')
+        if repository:
+            repository = repo_name(repository)
+        with_meeting, with_speaker = body.get('include_meeting', True) is not False, body.get('include_speaker') is True
+        notes, kind = [], {'task': 'Task', 'decision': 'Decision', 'question': 'Question', 'excerpt': 'Meeting excerpt', 'conversation': 'Conversation'}[data['kind']]
+        moment = data['moment']
+        when = ''
+        if moment:
+            day = dt.datetime.fromisoformat(moment['date']).strftime('%-d %B %Y')
+            stamp = f"{int(moment['seconds']) // 3600:02}:{int(moment['seconds']) // 60 % 60:02}:{int(moment['seconds']) % 60:02}"
+            when = (f"{moment['title']}, {day} · {stamp}" if with_meeting else f'A meeting on {day} · {stamp}')
+            if not with_meeting:
+                notes.append('The meeting title is hidden.')
+        elif data.get('source_label'):
+            when = data['source_label']
+        quote = data['quote']
+        if quote and data['speaker'] and not with_speaker and data['kind'] != 'excerpt':
+            notes.append('The speaker name is hidden.')
+        if data['kind'] == 'excerpt' and not with_speaker:
+            # Excerpt lines start with the speaker; keep only the words.
+            quote = '\n'.join(re.sub(r'^[^:\n]{1,80}: ', '', line) for line in quote.splitlines())
+            notes.append('Speaker names are hidden.')
+        quoted = '\n'.join('> ' + line for line in quote.splitlines()) if quote else ''
+        if quoted and data['speaker'] and with_speaker and data['kind'] != 'excerpt':
+            quoted += '\n> — ' + data['speaker']
+        owner = ''
+        if data['owner'] and data['owner_confirmed']:
+            person = self.people.match(data['owner'])
+            owner = '@' + person['github']['login'] if person and person['github'] else data['owner']
+            if person and person['github'] and not person['github'].get('id'):
+                notes.append(f"@{person['github']['login']} is not checked on GitHub yet; check it in Settings → People.")
+        elif data['owner']:
+            notes.append('The AI-suggested owner is not included; confirm the owner in Atlanta first.')
+        reference = data['target']['kind'] + ':' + data['target']['id']
+        footer = f"<sub>Atlanta reference: {reference}</sub>\n<!-- atlanta:resource={reference} -->"
+        details = ' · '.join(x for x in [owner and 'Owner: ' + owner, data.get('due_date') and 'Due: ' + data['due_date']] if x)
+        if fmt == 'comment':
+            parts = [f"**{kind}{' · ' + when if when else ''}**", quoted, data['text'] if data['text'] != quote and data['kind'] not in {'excerpt', 'conversation'} else '', details, footer]
+            title = ''
+        else:
+            context = ' · '.join(x for x in ['Project: ' + ', '.join(p['name'] for p in projects) if projects else '', 'From: ' + when if when else ''] if x)
+            title = (data['text'] if data['kind'] not in {'excerpt', 'conversation'} else (data['text'] or 'Follow up from a meeting'))[:120]
+            parts = [f'## {kind}\n\n' + data['text'] if data['kind'] not in {'excerpt', 'conversation'} else '',
+                     '## Context\n\n' + context if context else '', '## Evidence\n\n' + quoted if quoted else '',
+                     '## Details\n\n' + details if details else '', footer]
+        markdown = '\n\n'.join(p for p in parts if p)
+        return dict(format=fmt, title=title, body=markdown, repository=repository, repositories=choices,
+                    assignee=owner if owner.startswith('@') else None, notes=notes, resource=data['target'])
+
+    def github_link(self, body):
+        """Link a resource to an existing issue or pull request. Checks the local cache, then GitHub (read only)."""
+        data = self._resource(body.get('resource'))
+        repository, number = parse_github_reference(body.get('reference'), body.get('repository') or '')
+        details = dict(kind='unknown')
+        try:
+            cached = self.github.find(repository, number)
+        except (ValueError, GitHubError):
+            cached = None
+        if cached:
+            details = dict(kind=cached['kind'], title=cached['title'], state=cached['state'], issue_id=cached['issue_id'], verified=True)
+        else:
+            try:
+                issue = self.github.connection.get(f'/repos/{repository}/issues/{number}')['data']
+                details = dict(kind='pull_request' if 'pull_request' in issue else 'issue', title=issue.get('title'), state=issue.get('state'),
+                               issue_id=issue.get('id'), verified=True)
+            except (ValueError, GitHubError):
+                pass
+        row = self.github_links.link(data['target'], repository, number, details)
+        return dict(link=row, links=self.github_links.for_resource(data['target']['kind'], data['target']['id']))
+
+    def github_unlink(self, body):
+        self.github_links.unlink(body.get('id'), body.get('revision'))
+        return dict(ok=True)
+
+    def github_links_for(self, kind=None, key=None, repository=None, number=None):
+        if repository:
+            rows = self.github_links.for_issue(repository, int(number))
+            for row in rows:
+                try:
+                    data = self._resource(row['resource'])
+                    row['resource_text'], row['resource_kind'] = data['text'], data['kind']
+                except ValueError:
+                    row['resource_text'], row['resource_kind'] = 'A deleted resource', 'deleted'
+            return rows
+        return self.github_links.for_resource(kind, key)
+
     def create_project(self, name):
         with self.lock, self.projects.lock:
             key = self.projects.ensure_project({'name': name})
@@ -1072,6 +1282,11 @@ class MeetingService:
                     normalize(item)
         def merge(staging, restored):
             self.repo_reports.restore(staging)
+            for name, store in (('people.json', self.people), ('github-links.json', self.github_links)):
+                try:
+                    store.merge(json.loads((staging / name).read_text()))
+                except (OSError, ValueError):
+                    pass
             try:
                 archived_projects = json.loads((staging / 'projects.json').read_text())
             except (OSError, ValueError):
@@ -1415,7 +1630,7 @@ class MeetingService:
             # Pinned conversation bodies are fetched on demand, not with every My Work refresh.
             for revision in graph['source_revisions']:
                 if revision['source_id'] in conversations:revision.pop('text',None)
-            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph)
+            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=self.github_links.all())
 
     def _github_publish(self,account,record,suggestions):
         graph=WorkGraph(self.items)

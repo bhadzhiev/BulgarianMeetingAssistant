@@ -279,6 +279,8 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
     from datetime import date
     args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or date.today().isoformat()
+    from . import meeting_types
+    args.meeting_type = meeting_types.of(meeting)
     from .live import read_json
     args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
     # Cache only validated parts of an unfinished run. Settings, sources and
@@ -294,7 +296,8 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     saved_splits = saved.get('splits', []) if isinstance(saved, dict) and saved.get('signature') == signature else []
     splits = {key for key in saved_splits if isinstance(key, str)} if isinstance(saved_splits, list) else set()
     split_attempts = 0
-    result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[])
+    result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[],
+                  **{field: [] for field in meeting_types.sections(args.meeting_type)})
 
     def generate_part(group, label, depth=0):
         nonlocal split_attempts
@@ -342,7 +345,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     for index, group in enumerate(groups):
         for minutes in generate_part(group, f'{index + 1} of {len(groups)}'):
             for field in result:
-                result[field].extend(minutes[field])
+                result[field].extend(minutes.get(field, []))
     validate_minutes(result, segments)
     if (directory / 'minutes.json').exists():
         # Saved notes may hold checked statements and manual edits; the new run waits for review.

@@ -62,6 +62,9 @@ function renderAttention(busy){
  if(decisions)add('warn','Confirm '+decisions+(decisions===1?' decision':' decisions')+' that the AI proposed','Confirm decisions',async()=>toOutcomes());
  const tasks=(minutes.tasks||[]).filter(t=>t.status!=='done'&&!t.link&&(!t.owner||!t.due_date)).length;
  if(tasks)add('info','Give an owner and a due date to '+tasks+(tasks===1?' task':' tasks'),'Complete tasks',async()=>toOutcomes());
+ // Each meeting type asks its own review questions, for example to confirm the hypotheses of an incident.
+ for(const section of typeOf(d.meeting_type).sections){if(!section.attention)continue;const count=(minutes[section.key]||[]).filter(m=>m.review!=='verified').length;
+  if(count)add('info',section.attention[count===1?0:1].replace('{n}',count),'Open notes',async()=>{switchTab('notes');$('notes-panel').scrollIntoView({block:'start'});});}
  box.hidden=false;
  const head=el('div','attention-head');head.append(el('strong','',items.length?'Needs attention · '+items.length:'Review complete'));
  if(!items.length){
@@ -190,6 +193,9 @@ function renderReadiness(){
 // The choices under More options, in one line, so a closed section still shows what will happen.
 function renderRecordMore(){
  const parts=[$('transcription-timing').value==='live'?'Live captions':'Transcribe after recording'];
+ if($('record-type').value&&$('record-type').value!=='general')parts.push(typeOf($('record-type').value).label);
+ const type=typeOf($('record-type').value),inherited=seriesType($('record-series').value);
+ $('record-type-help').textContent=type.description+($('record-series').value&&type.id===inherited?' The default of this series.':'');
  const project=$('record-project').selectedOptions[0];if($('record-project').value&&project)parts.push(project.textContent+($('record-series').value?' · '+$('record-series').selectedOptions[0]?.textContent:''));
  if($('fallback-microphone').value)parts.push('Backup: '+$('fallback-microphone').value);
  parts.push($('processing-name').textContent);$('record-more-summary').textContent=parts.join(' · ');
@@ -667,9 +673,9 @@ function renderNotes(busy=false) {
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(el('p','empty-content','Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
- $('notes').append(noteSection(minutes,'summary','Summary',busy),noteSection(minutes,'needs_decision','Questions for your decision',busy));
+ $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(detail.meeting_type,minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
- const section=el('section','note-section');section.append(el('h3','','Tasks'));
+ const section=el('section','note-section');section.append(el('h3','',typeOf(detail.meeting_type).task_title));
  const taskList=el('div');section.append(taskList);
  function drawTasks() { taskList.replaceChildren(); minutes.tasks.forEach((task,index)=>{
   const box=el('div','task-editor'+(task.status==='done'?' done':''));const text=el('textarea');text.value=task.task;text.disabled=busy;text.setAttribute('aria-label','Task '+(index+1));text.oninput=()=>{task.task=text.value;markNotes();};box.append(text);
@@ -1459,9 +1465,22 @@ for(const button of $('work-tabs').querySelectorAll('button')) button.onclick=()
 let lastProjects='', prepareScope={project:'',series:''}, prepareData=null;
 const projectList=()=>state?.projects?.projects||[];
 const seriesOf=projectId=>(state?.projects?.series||[]).filter(series=>series.project_id===projectId);
+// Meeting types: the purpose of a meeting adds sections to its notes and changes Prepare me.
+const typeList=()=>state?.meeting_types||[];
+const typeOf=id=>typeList().find(t=>t.id===id)||typeList()[0]||{id:'general',label:'General',description:'',task_title:'Tasks',sections:[]};
+const seriesType=id=>(state?.projects?.series||[]).find(s=>s.id===id)?.type||'general';
+function fillTypes(select,value) { select.replaceChildren(...typeList().map(t=>option(t.label,t.id))); select.value=typeList().some(t=>t.id===value)?value:'general'; }
+// The sections of every type are note fields, so editing, review and saving treat them like the summary.
+function registerTypes() { for(const type of typeList()) for(const section of type.sections) if(!(section.key in FIELD_TITLES)){FIELD_TITLES[section.key]=section.title;ITEM_FIELDS.push(section.key);NOTE_FIELDS.push(section.key);} }
+// The sections of this meeting's type, and sections of an earlier type that still hold notes.
+function typeSections(meetingType,minutes) {
+ const own=typeOf(meetingType).sections, other=typeList().flatMap(t=>t.sections).filter(s=>!own.some(o=>o.key===s.key)&&(minutes[s.key]||[]).length);
+ return [...own,...other.filter((s,i)=>other.findIndex(o=>o.key===s.key)===i)];
+}
 function fillProjects(select,value,none,extra=[]) { select.replaceChildren(option(none,''),...projectList().map(p=>option(p.name,p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
 function fillSeries(select,projectId,value,none,extra=[]) { select.replaceChildren(option(none,''),...seriesOf(projectId).map(s=>option(s.name,s.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; select.disabled=!projectId&&!extra.length; }
 function syncProjects() {
+ registerTypes(); if(!$('record-type').options.length) fillTypes($('record-type'),seriesType($('record-series').value));
  const signature=JSON.stringify(state.projects); if(signature===lastProjects) return; lastProjects=signature;
  fillProjects($('project-filter'),$('project-filter').value,'All projects',projectList().length?[option('No project','__none__')]:[]); $('project-filter').hidden=!projectList().length;
  fillProjects($('record-project'),$('record-project').value,'No project'); fillSeries($('record-series'),$('record-project').value,$('record-series').value,'No series');
@@ -1470,11 +1489,20 @@ function syncProjects() {
  if(view==='detail'&&detail) renderScope(detail);
 }
 $('project-filter').onchange=()=>{lastLibrary='';renderLibrary();};
-$('record-project').onchange=()=>{fillSeries($('record-series'),$('record-project').value,'','No series');$('record-prepare').disabled=!$('record-project').value;};
+$('record-project').onchange=()=>{fillSeries($('record-series'),$('record-project').value,'','No series');$('record-prepare').disabled=!$('record-project').value;$('record-type').value=seriesType('');renderRecordMore();};
+// A series brings its default type; the person can still choose another one for this meeting.
+$('record-series').onchange=()=>{$('record-type').value=seriesType($('record-series').value);renderRecordMore();};
 $('record-prepare').onclick=()=>perform(()=>openPrepare($('record-project').value,$('record-series').value));
 function renderScope(d) {
  const box=$('detail-scope'), project=projectList().find(p=>p.id===d.project_id), series=seriesOf(d.project_id).find(s=>s.id===d.series_id); box.replaceChildren();
  const edit=el('button','quiet scope-chip',project?project.name+(series?' · '+series.name:'')+' ✎':'＋ Add to a project'); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
+ const type=el('select','scope-chip scope-type'); type.setAttribute('aria-label','Meeting type'); type.title='Meeting type · changes the notes sections and Prepare me'; fillTypes(type,d.meeting_type||'general');
+ type.onchange=()=>perform(async()=>{const value=type.value;detail=await api('/api/meetings/'+d.id+'/type',{meeting_type:value});lastFingerprint=JSON.stringify(detail);renderDetail();
+  // Saved notes stay; new notes for the type become a proposal that the person reviews.
+  if(detail.minutes&&!['starting','recording','paused','stopping','processing'].includes(detail.status)&&await ask('Make new notes for the type "'+typeOf(value).label+'"?\n\nYour saved notes stay as they are. You review each change before it is applied.',{ok:'Make new notes'})){
+   if(state.settings.summarizer==='none'){openSettings('notes');return;} await api('/api/meetings/'+d.id+'/process',{action:'summarize'}); await openMeeting(d.id,true);
+  } else toast('Meeting type saved');});
+ box.append(type);
  if(project){const prepare=el('button','quiet scope-chip','Prepare the next meeting ›');prepare.type='button';prepare.onclick=()=>perform(()=>openPrepare(d.project_id,d.series_id||''));box.append(prepare);}
 }
 function syncScopeSeries(value) {
@@ -1501,6 +1529,8 @@ function renderProjectSettings() {
  const row=(kind,entry)=>{const line=el('div','scope-entry '+kind),rename=el('button','quiet','Rename'),remove=el('button','quiet danger-text','Delete');rename.type=remove.type='button';
   line.append(el(kind==='projects'?'strong':'span','',entry.name),rename,remove);
   const change=async body=>{state.projects=(await api('/api/projects/change',Object.assign({kind,id:entry.id},body))).projects;lastProjects='';syncProjects();renderProjectSettings();};
+  if(kind==='series'){const type=el('select');type.setAttribute('aria-label','Default meeting type of '+entry.name);type.title='New meetings of this series start with this type';fillTypes(type,entry.type||'general');
+   type.onchange=()=>perform(async()=>{await change({action:'type',name:type.value});toast('New meetings of "'+entry.name+'" start as '+typeOf(type.value).label);});line.insertBefore(type,rename);}
   rename.onclick=()=>perform(async()=>{const name=await ask('New name',{value:entry.name,ok:'Rename'});if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
   remove.onclick=()=>perform(async()=>{if(await ask('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.',{ok:'Delete',danger:true}))await change({action:'delete'});});
   return line;};
@@ -1530,9 +1560,13 @@ $('open-prepare').onclick=()=>perform(()=>openPrepare());
 $('copy-agenda').onclick=()=>perform(async()=>{await navigator.clipboard.writeText(prepareData.markdown);toast('Agenda copied · paste it into the invitation or a chat');});
 function renderPrepare(data) {
  const last=data.meetings.at(-1);
- $('prepare-summary').textContent=data.meetings.length?data.title+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+' · no meetings yet';
+ const type=typeOf(data.meeting_type), label=type.id==='general'?'':' · '+type.label;
+ $('prepare-summary').textContent=data.meetings.length?data.title+label+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+label+' · no meetings yet';
  $('prepare-content').hidden=!data.meetings.length;
  const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source),sourceListen(source));return box;};
+ $('prepare-sections-card').hidden=!data.sections?.length;
+ $('prepare-sections').replaceChildren(...(data.sections||[]).map(section=>{const box=el('section','note-section');box.append(el('h3','',section.title),...section.items.map(entry=>{const row=el('div','prepare-question');row.append(el('p','',entry.text),sources([entry.source]));return row;}));return box;}));
+ $('prepare-tasks-title').textContent=type.id==='incident'?'Open corrective actions':type.id==='daily'?'Open tasks by person':'Open tasks';
  $('prepare-agenda').replaceChildren(...data.agenda.map(entry=>{const item=el('li');item.append(el('span','agenda-title',entry.title));if(entry.sources.length)item.append(sources(entry.sources));return item;}));
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10);
  $('prepare-tasks').replaceChildren(...(data.tasks.length?data.tasks.map(task=>{
@@ -1540,7 +1574,11 @@ function renderPrepare(data) {
   done.type='checkbox'; done.setAttribute('aria-label','Mark task as done'); done.onchange=()=>perform(()=>changeItem({id:task.item_id,text:task.text},{status:'done'}));
   who.append(speakerBadge(el('span'),task.owner||''),el('span','',task.owner||'No owner')); meta.append(who,el('span','due-label '+kind,task.due_date?label+' · '+task.due_date:label));
   if(task.deadline) meta.append(el('span','hint','Said: '+task.deadline));
+  if(task.stalled) meta.append(el('span','hint','No change for '+task.idle_days+' days'));
   main.append(el('p','tracked-text',task.text),meta,sources([task.source])); row.append(done,main); return row;}):[el('p','empty-content','No open tasks.')]));
+ // A daily goes person by person, so its tasks are grouped by owner.
+ if(type.id==='daily'&&data.tasks.length){const rows=[...$('prepare-tasks').children],groups=new Map();data.tasks.forEach((task,i)=>{const owner=task.owner||'No owner';if(!groups.has(owner))groups.set(owner,[]);groups.get(owner).push(rows[i]);});
+  $('prepare-tasks').replaceChildren(...[...groups].sort(([a],[b])=>(a==='No owner')-(b==='No owner')||a.localeCompare(b)).flatMap(([owner,list])=>[el('h3','prepare-owner',owner+' · '+list.length),...list]));}
  $('prepare-questions').replaceChildren(...(data.questions.length?data.questions.map(question=>{
   const row=el('div','prepare-question'); row.append(el('span','change-kind',question.kind==='decide'?'Needs a decision':'Open question'),el('p','',question.text),sources([question.source]));
   if(question.maybe_answered_by){row.classList.add('maybe-answered');row.append(el('p','hint','A later decision may answer it: '+question.maybe_answered_by.text),sources([question.maybe_answered_by.source]));}
@@ -1710,7 +1748,7 @@ for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=
 document.querySelector('input[name=mode]:checked')?.onchange?.();
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent});toast('Microphone test started · 10 seconds');});
 $('microphone').onchange=()=>renderState();
-$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;store('record-mode',document.querySelector('input[name=mode]:checked').value);store('record-mic',$('microphone').selectedOptions[0]?.textContent||'');try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,transcription_timing:$('transcription-timing').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
+$('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;store('record-mode',document.querySelector('input[name=mode]:checked').value);store('record-mic',$('microphone').selectedOptions[0]?.textContent||'');try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,transcription_timing:$('transcription-timing').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null,meeting_type:$('record-type').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
 async function importTranscript(text,filename) {
  const d=await api('/api/import',{text,filename});
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;

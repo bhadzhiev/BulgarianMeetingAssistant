@@ -31,6 +31,7 @@ from .repo_reports import RepoReports, read_store as read_report_store
 from . import backup
 from . import items
 from . import briefing
+from . import meeting_types
 from . import search
 from .events import Watcher
 from .projects import Projects
@@ -224,7 +225,7 @@ class MeetingService:
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
-                speakers=self.library.speakers(), people=self.people.list(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
+                speakers=self.library.speakers(), people=self.people.list(), meeting_types=meeting_types.public(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
@@ -332,7 +333,8 @@ class MeetingService:
                 raise
             return {'ok': True}
 
-    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None, fallback_device_name='', transcription_timing=None):
+    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None, fallback_device_name='', transcription_timing=None,
+              meeting_type=None):
         if self.closed.is_set():
             raise ValueError('The app is closing')
         if mode not in {'in_person', 'online'}:
@@ -341,6 +343,8 @@ class MeetingService:
             raise ValueError('Meeting title must be text')
         if transcription_timing is not None and transcription_timing not in ('live', 'after'):
             raise ValueError('Choose live captions or transcription after recording')
+        if meeting_type is not None:
+            meeting_types.check(meeting_type)
         ffmpeg_path()
         device = self._input_device(device, device_name)
         if not isinstance(fallback_device_name, str) or len(fallback_device_name) > 300:
@@ -360,8 +364,10 @@ class MeetingService:
                 series_id = self.projects.ensure_series({'id': series_id} if series_id else None, project_id)
             # Missing credentials never prevent saving a recording.
             meeting = self.library.create(title, mode, settings)
-            if project_id:
-                meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id)
+            # A new meeting of a series starts with the type of the series; a different choice is the person's own.
+            inherited = self.projects.series_type(series_id)
+            meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id, meeting_type=meeting_type or inherited,
+                                          meeting_type_source='series' if (meeting_type or inherited) == inherited else 'manual')
             self.active = meeting['id']
             self.activity_changed(True)
             self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
@@ -941,15 +947,31 @@ class MeetingService:
             project_id = self.projects.ensure_project(project)
             series_id = self.projects.ensure_series(series, project_id)
             self.projects.save()
-            self.library.update(meeting_id, project_id=project_id, series_id=series_id)
+            meeting = self.library.get(meeting_id)
+            changes = dict(project_id=project_id, series_id=series_id)
+            # A type that the person chose stays; otherwise the meeting follows its series.
+            if meeting.get('meeting_type_source') != 'manual':
+                changes.update(meeting_type=self.projects.series_type(series_id), meeting_type_source='series')
+            self.library.update(meeting_id, **changes)
+            return self.detail(meeting_id)
+
+    def set_meeting_type(self, meeting_id, kind):
+        """Change the type of one meeting. Saved notes stay; new notes for the type wait for review."""
+        meeting_types.check(kind)
+        with self.lock:
+            self.library.get(meeting_id)
+            self.library.update(meeting_id, meeting_type=kind, meeting_type_source='manual')
             return self.detail(meeting_id)
 
     def change_scope(self, kind, entry_id, action, name=None):
-        """Rename or delete a project or series. Deleting never deletes meetings."""
-        if kind not in {'projects', 'series'} or action not in {'rename', 'delete'}:
+        """Rename or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
+        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type'} or action == 'type' and kind != 'series':
             raise ValueError('Invalid change')
         with self.lock, self.projects.lock:
-            if action == 'rename':
+            if action == 'type':
+                # Only new meetings use the new default; saved meetings keep their type.
+                self.projects.set_series_type(entry_id, name)
+            elif action == 'rename':
                 self.projects.rename(kind, entry_id, name)
             else:
                 removed = self.projects.delete(kind, entry_id)
@@ -1202,9 +1224,10 @@ class MeetingService:
             self._refresh_items()
             with self.items.lock:
                 registry = list(self.items.items.values())
+            kind = self.projects.series_type(series_id) if series else meeting_types.DEFAULT
             result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
                                     {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
-                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''))
+                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind)
             return dict(result, project_id=project['id'], series_id=series_id)
 
     SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
@@ -1356,7 +1379,7 @@ class MeetingService:
         subprocess.run(['/usr/bin/open', '-R', str(backup.archive_path(self.backup_dir, name))], check=False, timeout=10)
         return {'ok': True}
 
-    NOTE_FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations')
+    NOTE_FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *meeting_types.SECTION_FIELDS)
 
     def _edited_minutes(self, directory, body):
         """The notes after an edit. A copy that is older than the saved notes must not undo newer changes:

@@ -86,6 +86,19 @@ class Projects:
             raise ValueError(('A project' if kind == 'projects' else 'A series in this project') + ' already has this name')
         entry['name'] = name
 
+    def set_series_type(self, series_id, kind) -> None:
+        """The default meeting type of a series. New meetings of the series start with it."""
+        from .meeting_types import check
+        series = self.get('series', series_id)
+        if not series:
+            raise ValueError('This series no longer exists. Reload and try again.')
+        series['type'] = check(kind)
+
+    def series_type(self, series_id) -> str:
+        from .meeting_types import DEFAULT, TYPES
+        kind = (self.get('series', series_id) or {}).get('type')
+        return kind if kind in TYPES else DEFAULT
+
     def set_repositories(self, project_id, repositories) -> list[str]:
         """The GitHub repositories of a project. One repository can belong to several projects."""
         from .github_source import repo_name
@@ -120,6 +133,7 @@ class Projects:
         An archived entry with the name of a local entry joins the local entry. An archived entry
         whose ID is used locally for a different name gets a new ID, so its meetings keep their group.
         """
+        from .meeting_types import TYPES
         mapping = dict(projects={}, series={})
         for kind in ('projects', 'series'):
             entries = other.get(kind, [])
@@ -144,6 +158,8 @@ class Projects:
                 if kind == 'projects' and isinstance(entry.get('repositories'), list):
                     from .github_source import REPO
                     added['repositories'] = [r for r in entry['repositories'] if isinstance(r, str) and REPO.fullmatch(r)][:30]
+                if kind == 'series' and entry.get('type') in TYPES:
+                    added['type'] = entry['type']
                 self.data[kind].append(added)
                 mapping[kind][entry['id']] = new_id
         return mapping

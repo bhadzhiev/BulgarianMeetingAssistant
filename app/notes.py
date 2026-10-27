@@ -9,7 +9,9 @@ import copy
 import difflib
 import re
 
-FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations')
+from .meeting_types import SECTION_FIELDS
+
+FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *SECTION_FIELDS)
 TASK_DETAILS = ('owner', 'deadline', 'due_date')
 SIMILAR = 0.6
 

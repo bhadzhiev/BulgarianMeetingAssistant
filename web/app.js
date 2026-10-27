@@ -63,7 +63,7 @@ function renderAttention(busy){
  const tasks=(minutes.tasks||[]).filter(t=>t.status!=='done'&&!t.link&&(!t.owner||!t.due_date)).length;
  if(tasks)add('info','Give an owner and a due date to '+tasks+(tasks===1?' task':' tasks'),'Complete tasks',async()=>toOutcomes());
  // Each meeting type asks its own review questions, for example to confirm the hypotheses of an incident.
- for(const section of typeOf(d.meeting_type).sections){if(!section.attention)continue;const count=(minutes[section.key]||[]).filter(m=>m.review!=='verified').length;
+ for(const section of meetingType(d).sections){if(!section.attention)continue;const count=(minutes[section.key]||[]).filter(m=>m.review!=='verified').length;
   if(count)add('info',section.attention[count===1?0:1].replace('{n}',count),'Open notes',async()=>{switchTab('notes');$('notes-panel').scrollIntoView({block:'start'});});}
  box.hidden=false;
  const head=el('div','attention-head');head.append(el('strong','',items.length?'Needs attention · '+items.length:'Review complete'));
@@ -478,7 +478,8 @@ function renderDetail() {
  if(d.files.includes('recording.wav')) { if(!$('audio').src.endsWith(audioURL)) $('audio').src=audioURL; $('audio').hidden=false; $('audio-unavailable').hidden=true; }
  else { $('audio').removeAttribute('src'); $('audio').hidden=true; $('audio-unavailable').hidden=false; }
  $('playback').hidden=d.mode==='imported';
- $('exports').replaceChildren(); $('files-menu').hidden=!d.files.length; for(const name of d.files) { const row=el('div','file-row'), a=el('a','',name==='recording.wav'?'↓ Audio (WAV)':'↓ '+name); a.href='/files/'+d.id+'/'+name; a.download=name; row.append(a); if(name.endsWith('.md')) { const v=el('button','view-file','View'); v.type='button'; v.setAttribute('aria-label','View '+name); v.onclick=()=>perform(()=>openViewer(d.id,name)); row.append(v); } $('exports').append(row); }
+ $('exports').replaceChildren(); $('files-menu').hidden=!d.files.length;
+ if(d.minutes){ const row=el('div','file-row'), open=el('button','view-file type-export',meetingType(d).export+' …'); open.type='button'; open.title='The result in the format of this meeting type'; open.onclick=()=>perform(()=>openTypeExport(d.id)); row.append(open); $('exports').append(row); } for(const name of d.files) { const row=el('div','file-row'), a=el('a','',name==='recording.wav'?'↓ Audio (WAV)':'↓ '+name); a.href='/files/'+d.id+'/'+name; a.download=name; row.append(a); if(name.endsWith('.md')) { const v=el('button','view-file','View'); v.type='button'; v.setAttribute('aria-label','View '+name); v.onclick=()=>perform(()=>openViewer(d.id,name)); row.append(v); } $('exports').append(row); }
  for(const id of ['process','summarize','recover','edit-title','delete-meeting']) $(id).disabled=busy;
  $('correct').disabled=busy||!d.transcript.length; $('correct').hidden=state.settings.transcript_correction==='none'&&!d.transcript_raw;
  const preparation=d.transcript_metadata?.audio_preparation;
@@ -639,7 +640,7 @@ function openReview() {
  const proposal=detail.minutes_proposal, body=$('review-body'), choices=new Map(); body.replaceChildren(); clearError();
  for(const field of Object.keys(FIELD_TITLES)) {
   const list=proposal.changes.filter(change=>change.field===field); if(!list.length) continue;
-  const section=el('section','review-section'); section.append(el('h3','',FIELD_TITLES[field]));
+  const section=el('section','review-section'); section.append(el('h3','',meetingType(detail).sections.find(s=>s.key===field)?.title||FIELD_TITLES[field]));
   for(const change of list) {
    const row=el('label','review-change '+change.kind), box=el('input'), main=el('div'), checked=change.current?.review==='verified';
    // Additions and AI-only edits are preselected; removals and edits of checked statements are not.
@@ -689,6 +690,8 @@ function taskRow(task,index,busy) {
  if(item&&item.text!==task.task) main.append(el('p','hint said-here','Said here: '+task.task));
  main.append(meta);
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
+ // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
+ if(item) main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  row.append(done,main); return row;
 }
 function renderNotes(busy=false) {
@@ -698,9 +701,9 @@ function renderNotes(busy=false) {
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(el('p','empty-content','Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
- $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(detail.meeting_type,minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
+ $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
- const section=el('section','note-section');section.append(el('h3','',typeOf(detail.meeting_type).task_title));
+ const section=el('section','note-section');section.append(el('h3','',meetingType(detail).task_title));
  const taskList=el('div');section.append(taskList);
  function drawTasks() { taskList.replaceChildren(); minutes.tasks.forEach((task,index)=>{
   const box=el('div','task-editor'+(task.status==='done'?' done':''));const text=el('textarea');text.value=task.task;text.disabled=busy;text.setAttribute('aria-label','Task '+(index+1));text.oninput=()=>{task.task=text.value;markNotes();};box.append(text);
@@ -826,7 +829,7 @@ $('backup-now').onclick=()=>perform(async()=>{const button=$('backup-now');butto
  try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+result.created.meetings+' meetings'+(result.created.skipped_meetings?.length?' · '+result.created.skipped_meetings.length+' active or processing meetings left out':'');}
  catch(e){$('backup-status').textContent='';throw e;}finally{button.disabled=false;}});
 function showSettingsTab(name) {
- settingsTab=name; if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings();
+ settingsTab=name; if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings(); if(name==='types') renderTypeSettings();
  for(const tab of document.querySelectorAll('.settings-tabs button')) { const yes=tab.dataset.tab===name; tab.classList.toggle('selected',yes); tab.setAttribute('aria-selected',String(yes)); }
  for(const panel of document.querySelectorAll('.settings-panel')) panel.hidden=panel.dataset.tab!==name;
  document.querySelector('.settings-body').scrollTop=0;
@@ -855,7 +858,17 @@ function renderMarkdown(source) {
  }
  return out.join('');
 }
-async function openViewer(id,name) { const url='/files/'+id+'/'+name; const response=await fetch(url); if(!response.ok) throw new Error('Could not open '+name); $('viewer-title').textContent=name; $('viewer-download').href=url; $('viewer-download').download=name; $('viewer-body').innerHTML=renderMarkdown(await response.text()); $('viewer-body').scrollTop=0; $('viewer-dialog').showModal(); }
+// The result of a meeting in the format of its type. Built from saved notes; nothing is saved as a file.
+let viewerUrl=null;
+async function openTypeExport(id) {
+ const result=await api('/api/meetings/'+id+'/type-export',{});
+ if(viewerUrl)URL.revokeObjectURL(viewerUrl); viewerUrl=URL.createObjectURL(new Blob([result.markdown],{type:'text/markdown'}));
+ $('viewer-title').textContent=result.title; $('viewer-download').href=viewerUrl; $('viewer-download').download=result.filename;
+ $('viewer-body').innerHTML=renderMarkdown(result.markdown); $('viewer-body').prepend(el('p','hint',result.note)); $('viewer-body').scrollTop=0;
+ $('viewer-copy').hidden=false; $('viewer-copy').onclick=()=>perform(async()=>{await navigator.clipboard.writeText(result.markdown);toast('Copied · paste it into a chat, an email or a document');});
+ $('viewer-dialog').showModal();
+}
+async function openViewer(id,name) { $('viewer-copy').hidden=true; const url='/files/'+id+'/'+name; const response=await fetch(url); if(!response.ok) throw new Error('Could not open '+name); $('viewer-title').textContent=name; $('viewer-download').href=url; $('viewer-download').download=name; $('viewer-body').innerHTML=renderMarkdown(await response.text()); $('viewer-body').scrollTop=0; $('viewer-dialog').showModal(); }
 $('viewer-close').onclick=()=>$('viewer-dialog').close();
 $('viewer-dialog').onclick=event=>{if(event.target===$('viewer-dialog'))$('viewer-dialog').close();};
 // The fields that Save settings sends. Speakers, topics and projects save with their own buttons.
@@ -1492,20 +1505,36 @@ const projectList=()=>state?.projects?.projects||[];
 const seriesOf=projectId=>(state?.projects?.series||[]).filter(series=>series.project_id===projectId);
 // Meeting types: the purpose of a meeting adds sections to its notes and changes Prepare me.
 const typeList=()=>state?.meeting_types||[];
-const typeOf=id=>typeList().find(t=>t.id===id)||typeList()[0]||{id:'general',label:'General',description:'',task_title:'Tasks',sections:[]};
+const typeOf=id=>typeList().find(t=>t.id===id)||typeList()[0]||{id:'general',label:'General',description:'',task_title:'Tasks',export:'Meeting summary',sections:[]};
+// A meeting with an own template uses its own copy of the template, even after the template changes.
+function meetingType(d) {
+ const template=d?.meeting_template; if(!template) return typeOf(d?.meeting_type);
+ return {id:d.meeting_type,label:template.label,description:template.description||'',task_title:'Tasks',export:template.label+' summary',custom:true,
+  sections:template.sections.map((s,i)=>({key:'custom_'+(i+1),title:s.title,attention:s.review?['Check {n} item in '+s.title,'Check {n} items in '+s.title]:null}))};
+}
 const seriesType=id=>(state?.projects?.series||[]).find(s=>s.id===id)?.type||'general';
-function fillTypes(select,value) { select.replaceChildren(...typeList().map(t=>option(t.label,t.id))); select.value=typeList().some(t=>t.id===value)?value:'general'; }
+function fillTypes(select,value,extra=[]) {
+ const group=(label,types)=>{const box=el('optgroup');box.label=label;box.append(...types.map(t=>option(t.label,t.id)));return box;}, own=typeList().filter(t=>t.custom);
+ select.replaceChildren(group('Built-in',typeList().filter(t=>!t.custom)),...(own.length?[group('Your templates',own)]:[]),...extra);
+ select.value=[...select.options].some(o=>o.value===value)?value:'general';
+}
 // The sections of every type are note fields, so editing, review and saving treat them like the summary.
-function registerTypes() { for(const type of typeList()) for(const section of type.sections) if(!(section.key in FIELD_TITLES)){FIELD_TITLES[section.key]=section.title;ITEM_FIELDS.push(section.key);NOTE_FIELDS.push(section.key);} }
+let lastTypes='';
+function registerTypes() {
+ for(const [key,title] of [...typeList().filter(t=>!t.custom).flatMap(t=>t.sections.map(s=>[s.key,s.title])),['custom_1','Section 1'],['custom_2','Section 2'],['custom_3','Section 3']])
+  if(!(key in FIELD_TITLES)){FIELD_TITLES[key]=title;ITEM_FIELDS.push(key);NOTE_FIELDS.push(key);}
+ const signature=JSON.stringify(typeList()); if(signature===lastTypes) return; lastTypes=signature;
+ fillTypes($('record-type'),$('record-type').value||seriesType($('record-series').value)); if($('settings-dialog').open) renderTypeSettings();
+}
 // The sections of this meeting's type, and sections of an earlier type that still hold notes.
-function typeSections(meetingType,minutes) {
- const own=typeOf(meetingType).sections, other=typeList().flatMap(t=>t.sections).filter(s=>!own.some(o=>o.key===s.key)&&(minutes[s.key]||[]).length);
+function typeSections(type,minutes) {
+ const own=type.sections, other=[...typeList().filter(t=>!t.custom).flatMap(t=>t.sections),...['custom_1','custom_2','custom_3'].map(key=>({key,title:FIELD_TITLES[key]}))].filter(s=>!own.some(o=>o.key===s.key)&&(minutes[s.key]||[]).length);
  return [...own,...other.filter((s,i)=>other.findIndex(o=>o.key===s.key)===i)];
 }
 function fillProjects(select,value,none,extra=[]) { select.replaceChildren(option(none,''),...projectList().map(p=>option(p.name,p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
 function fillSeries(select,projectId,value,none,extra=[]) { select.replaceChildren(option(none,''),...seriesOf(projectId).map(s=>option(s.name,s.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; select.disabled=!projectId&&!extra.length; }
 function syncProjects() {
- registerTypes(); if(!$('record-type').options.length) fillTypes($('record-type'),seriesType($('record-series').value));
+ registerTypes();
  const signature=JSON.stringify(state.projects); if(signature===lastProjects) return; lastProjects=signature;
  fillProjects($('project-filter'),$('project-filter').value,'All projects',projectList().length?[option('No project','__none__')]:[]); $('project-filter').hidden=!projectList().length;
  fillProjects($('record-project'),$('record-project').value,'No project'); fillSeries($('record-series'),$('record-project').value,$('record-series').value,'No series');
@@ -1521,7 +1550,7 @@ $('record-prepare').onclick=()=>perform(()=>openPrepare($('record-project').valu
 function renderScope(d) {
  const box=$('detail-scope'), project=projectList().find(p=>p.id===d.project_id), series=seriesOf(d.project_id).find(s=>s.id===d.series_id); box.replaceChildren();
  const edit=el('button','quiet scope-chip',project?project.name+(series?' · '+series.name:'')+' ✎':'＋ Add to a project'); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
- const type=el('select','scope-chip scope-type'); type.setAttribute('aria-label','Meeting type'); type.title='Meeting type · changes the notes sections and Prepare me'; fillTypes(type,d.meeting_type||'general');
+ const type=el('select','scope-chip scope-type'); type.setAttribute('aria-label','Meeting type'); type.title='Meeting type · changes the notes sections and Prepare me'; fillTypes(type,d.meeting_type||'general',d.meeting_template&&!typeList().some(t=>t.id===d.meeting_type)?[option(d.meeting_template.label+' · deleted template',d.meeting_type)]:[]);
  type.onchange=()=>perform(async()=>{const value=type.value;detail=await api('/api/meetings/'+d.id+'/type',{meeting_type:value});lastFingerprint=JSON.stringify(detail);renderDetail();
   // Saved notes stay; new notes for the type become a proposal that the person reviews.
   if(detail.minutes&&!['starting','recording','paused','stopping','processing'].includes(detail.status)&&await ask('Make new notes for the type "'+typeOf(value).label+'"?\n\nYour saved notes stay as they are. You review each change before it is applied.',{ok:'Make new notes'})){
@@ -1548,6 +1577,37 @@ $('scope-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
  const series=!projectValue||!seriesValue?null:seriesValue==='__new__'?{name:$('scope-series-name').value}:{id:seriesValue};
  detail=await api('/api/meetings/'+selected+'/scope',{project,series}); lastFingerprint=JSON.stringify(detail);
  state=await api('/api/state'); $('scope-dialog').close(); renderState(); renderDetail(); lastLibrary=''; renderLibrary(); toast('Saved');});};
+// Settings → Meeting types: the built-in types, read-only, and your own templates.
+function renderTypeSettings() {
+ const list=$('type-list'); list.replaceChildren();
+ for(const type of typeList()){
+  const row=el(type.custom?'button':'div','type-row'+(type.custom?' own':''));if(type.custom){row.type='button';row.onclick=()=>openTemplate(type.template);}
+  row.append(el('strong','',type.label+(type.custom?'':' · built-in')),el('span','hint',type.description),el('span','type-sections',type.sections.length?type.sections.map(s=>s.title).join(' · '):'Common notes only'));
+  list.append(row);
+ }
+}
+let templateEditing=null;
+function openTemplate(template) {
+ templateEditing=template||null; $('template-error').hidden=true; $('template-title').textContent=template?template.label:'New template';
+ $('template-label').value=template?.label||''; $('template-description').value=template?.description||''; $('template-delete').hidden=!template;
+ $('template-prepare').replaceChildren(...typeList().filter(t=>!t.custom).map(t=>option(t.label,t.id))); $('template-prepare').value=template?.prepare||'general';
+ const sections=template?.sections||[];
+ $('template-sections').replaceChildren(...[0,1,2].map(i=>{const box=el('fieldset','template-section'),s=sections[i]||{};box.append(el('legend','','Section '+(i+1)+(i?' (optional)':'')));
+  const title=el('input');title.className='template-section-title';title.maxLength=60;title.placeholder=['For example Options','For example Trade-offs','For example Follow-ups'][i];title.value=s.title||'';title.setAttribute('aria-label','Title of section '+(i+1));
+  const instruction=el('input');instruction.className='template-section-instruction';instruction.maxLength=300;instruction.placeholder='What the AI writes here, for example: the options that were compared';instruction.value=s.instruction||'';instruction.setAttribute('aria-label','Instruction for section '+(i+1));
+  const review=el('label','checkbox'),box2=el('input');box2.type='checkbox';box2.className='template-section-review';box2.checked=!!s.review;review.append(box2,document.createTextNode(' Ask me to check these items after the meeting'));
+  box.append(title,instruction,review);return box;}));
+ if(!$('template-dialog').open)$('template-dialog').showModal(); $('template-label').focus();
+}
+$('add-template').onclick=()=>openTemplate(null);
+$('template-close').onclick=()=>$('template-dialog').close();
+$('template-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+ const sections=[...$('template-sections').querySelectorAll('.template-section')].map(box=>({title:box.querySelector('.template-section-title').value.trim(),instruction:box.querySelector('.template-section-instruction').value.trim(),review:box.querySelector('.template-section-review').checked})).filter(s=>s.title||s.instruction);
+ try{const result=await api('/api/templates/save',{id:templateEditing?.id,revision:templateEditing?.revision,label:$('template-label').value,description:$('template-description').value,prepare:$('template-prepare').value,sections});
+  state.meeting_types=result.meeting_types;registerTypes();renderTypeSettings();$('template-dialog').close();toast('Saved '+result.template.label);}
+ catch(e){$('template-error').textContent=e.message;$('template-error').hidden=false;}});};
+$('template-delete').onclick=()=>perform(async()=>{if(!templateEditing||!(await ask('Delete the template "'+templateEditing.label+'"?\n\nSaved meetings keep their notes and their copy of the template. Series that use it become General.',{ok:'Delete',danger:true})))return;
+ const result=await api('/api/templates/delete',{id:templateEditing.id,revision:templateEditing.revision});state.meeting_types=result.meeting_types;state.projects=result.projects;lastProjects='';registerTypes();syncProjects();renderTypeSettings();$('template-dialog').close();toast('Template deleted');});
 function renderProjectSettings() {
  const list=$('project-list'); list.replaceChildren();
  if(!projectList().length) list.append(el('p','empty-content','No projects yet. Open a saved meeting and choose ＋ Add to a project.'));

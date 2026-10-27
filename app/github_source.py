@@ -43,7 +43,8 @@ def http_get(resource,query,token):
     # Never follow response links or redirects with a credential-bearing request.
     url='https://api.github.com'+resource+('?' + urllib.parse.urlencode(query) if query else '')
     request=urllib.request.Request(url,headers={'Accept':'application/vnd.github+json','Authorization':'Bearer '+token,
-        'X-GitHub-Api-Version':'2026-03-10','User-Agent':'BulgarianMeetingAssistant'},method='GET')
+        # The collector requires merge_commit_sha, removed by the 2026-03-10 API.
+        'X-GitHub-Api-Version':'2022-11-28','User-Agent':'BulgarianMeetingAssistant'},method='GET')
     try:
         with urllib.request.build_opener(_NoRedirect).open(request,timeout=30) as response:
             raw=response.read(8*1024*1024+1)

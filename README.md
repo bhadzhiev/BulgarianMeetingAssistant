@@ -629,8 +629,8 @@ a saved evidence ID. Findings are AI interpretations that need review, even with
 Completed collection/AI parts are saved. Continue explicitly after interruption; a crash or
 restart never resumes an AI export automatically. Unchanged commit snapshots and completed
 analysis parts can be reused. Recording or meeting processing pauses repository jobs.
-**Suggest a task** creates a pending WorkItem proposal only; use the normal Accept/Link/Dismiss
-controls. Existing task statuses are never completed from code automatically. Reports can be
+**Suggest a task** asks the selected LLM to draft a task from the finding and its evidence.
+Review/edit the draft, then **Create task** creates an open local task. Cancel creates nothing. Existing task statuses are never completed from code automatically. Reports can be
 linked to a meeting without editing that meeting's transcript or notes.
 
 Reports stay in `repo-reports.json`, are included in Archive/Restore, and are capped at 24.
@@ -700,8 +700,9 @@ are not fetched or rendered. A thread includes at most its latest 100 non-draft 
 size limits apply. Matching threads can contain older messages. This version does not send, modify,
 label or draft email. Email content reaches an AI endpoint only through the selected-message approval below.
 
-**Suggest a task from this message** saves a manual proposal with a pinned source quote. Review it
-in Suggested, then Accept or Link. It does not extract commitments or dates automatically. Syncing a
+**Suggest a task** previews the AI provider and generates an editable task draft from this message.
+**Create task** confirms the edited text and saves an open task with a pinned source quote.
+Cancel discards the draft; owners and dates are not assigned automatically. Syncing a
 changed previously-linked thread marks its old pending proposals stale. A removed/out-of-window
 thread becomes unavailable without completing its WorkItems. Review uses the last synced revision;
 it is not a live Gmail check at the instant you click Accept.
@@ -777,10 +778,10 @@ removes cached text for that space. Prior pinned source snapshots and archives r
 Absence from a capped refresh does not prove deletion; messages outside its range need an individual
 refresh. Old cache records can remain until cleared, and message lists show at most 200 entries.
 
-**Suggest a task from this message** creates a manual proposal with an exact quoted message and
-space/thread/message/sender references. Review it in Suggested, then Accept or Link to an existing
-item. This never sends or edits a Chat message. Cards, attachments and remote resources are not
-fetched or executed. Chat content is not sent to AI in this delivery; Gmail AI approval does not
+**Suggest a task** asks for AI approval for this Chat message, then opens an editable draft.
+**Create task** saves the confirmed task with the exact quoted message and
+space/thread/message/sender references. Cancel creates nothing. This never sends or edits a Chat message. Cards, attachments and remote resources are not
+fetched or executed. Chat content reaches the shown AI provider only after its own task-draft approval; Gmail AI approval does not
 cover Chat. Quotes and known versions reflect the last observed API response, not a live check at
 the moment of acceptance.
 
@@ -821,9 +822,9 @@ ID retained separately. These IDs differ, as noted in
 renames, although redirects are deliberately not followed with credentials: enter the current
 repository path and restart its refresh. Login changes during a page sequence also need a restart.
 
-**Suggest a task from this issue / PR** stores a quote and repository/number/kind references in
-Suggested. Accept creates a new open local task; Link attaches evidence and preserves existing human
-fields/status. GitHub remains authoritative for the remote issue/PR state. A close or merge never
+**Suggest a task** generates an editable draft after approval of the shown AI provider.
+**Create task** saves the edited text as an open local task with a quote and repository/number/kind
+references. Cancel creates nothing; existing task fields and statuses stay unchanged. GitHub remains authoritative for the remote issue/PR state. A close or merge never
 silently completes or reopens the local task. Observed source changes invalidate older pending
 proposals; individual **Refresh this issue / PR** rechecks the object. Access loss blocks new
 acceptance and clears cached text; historical quotes remain. Rate limits halt without inferring
@@ -1213,3 +1214,11 @@ known. Check in GitHub performs an explicit read-only refresh; a failed refresh
 preserves the previous title/state and labels it unavailable. Legacy links whose
 verification origin is unknown ask for a new check. These labels never mark a
 local task completed or claim CI/deployment success.
+
+
+**Suggest a task** now drafts one task with the selected Notes & AI model from the selected
+Gmail message, Chat message, GitHub issue/PR or saved repository finding and its evidence.
+Review the model/provider before generating, then edit the multiline draft and choose
+**Create task**. Only that confirmation creates an open local task in My Work, with pinned
+source evidence. Cancel discards the draft. Generation does not create a proposal or task,
+assign an owner/deadline, or publish anything to GitHub. A changed source requires a new draft.

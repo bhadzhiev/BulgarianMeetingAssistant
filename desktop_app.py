@@ -332,8 +332,11 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.repo_reports.start_analysis(body['id'],body.get('preview_token'),body.get('approved'))
             elif path == '/api/github/reports/cancel':
                 result=service.repo_reports.stop()
+            elif path in {'/api/task-draft/preview', '/api/task-draft/generate', '/api/task-draft/create'}:
+                from app import task_draft
+                result = task_draft.preview(service, body) if path.endswith('/preview') else task_draft.create(service, body) if path.endswith('/create') else task_draft.draft(service, body)
             elif path == '/api/github/reports/propose':
-                result=service.repo_reports.propose(body['id'],body['finding_id'])
+                result=service.repo_reports.propose(body['id'],body['finding_id'],body.get('title'))
             elif path == '/api/github/reports/associate':
                 result=service.repo_reports.associate(body['id'],body.get('meeting_id'))
             elif path == '/api/github/reports/delete':

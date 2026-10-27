@@ -74,6 +74,15 @@ class CredentialTests(unittest.TestCase):
         with self.assertRaises(GitHubError):self.connection.get('/user',expected_account='2')
         self.connection.get('/repos/synthetic/repository/issues/1',expected_account='1')
         self.assertEqual(self.calls[-1][0],'/repos/synthetic/repository/issues/1')
+    def test_http_contract_preserves_merged_pr_commit_identity(self):
+        payload=dict(merge_commit_sha='a'*40,head=dict(sha='b'*40))
+        with patch('urllib.request.build_opener') as opener:
+            response=opener.return_value.open.return_value.__enter__.return_value
+            response.read.return_value=json.dumps(payload).encode();response.headers={}
+            self.assertEqual(http_get('/repos/a/b/pulls/1',None,self.token)['data'],payload)
+            request=opener.return_value.open.call_args.args[0]
+            self.assertEqual(dict((k.lower(),v) for k,v in request.header_items())['x-github-api-version'],'2022-11-28')
+
     def test_redirects_are_not_followed_and_http_errors_hide_response_and_token(self):
         self.assertIsNone(_NoRedirect().redirect_request(None,None,None,None,None,None,None))
         error=urllib.error.HTTPError('https://api.github.com/user',403,'Denied',{'X-RateLimit-Remaining':'0'},io.BytesIO(self.token.encode()))

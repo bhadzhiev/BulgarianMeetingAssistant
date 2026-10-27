@@ -190,6 +190,34 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
  });
 }
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
+let taskDraftPending=false;
+async function suggestTask(button,source){
+ if(taskDraftPending){toast('Finish the current task draft first');return;}
+ taskDraftPending=true;
+ const original=button.textContent;button.disabled=true;button.textContent='Preparing draft…';
+ try{
+  const preview=await api('/api/task-draft/preview',source),target=preview.target;
+  if(!(await ask('Draft a task from this source using '+target.local_ai_model+' at '+target.local_ai_base_url+'? '+preview.characters+' characters will be sent. Nothing is saved until you review the draft.',{ok:'Generate draft'})))return;
+  button.textContent='Drafting task…';button.setAttribute('aria-busy','true');
+  const draft=await api('/api/task-draft/generate',{...source,preview_token:preview.preview_token,approved:true});
+  await editTaskDraft(draft.text,async title=>{await api('/api/task-draft/create',{...source,preview_token:preview.preview_token,title});await refreshAfterItemChange();toast('Task created · saved in My Work');});
+ }finally{taskDraftPending=false;button.disabled=false;button.textContent=original;button.removeAttribute('aria-busy');}
+}
+function editTaskDraft(value,save){
+ return new Promise(resolve=>{
+  const dialog=$('task-draft-dialog'),area=$('task-draft-text'),submit=$('task-draft-save'),cancel=$('task-draft-cancel'),note=$('task-draft-error');
+  area.value=value;note.hidden=true;submit.disabled=false;cancel.disabled=false;let saving=false;
+  dialog.oncancel=event=>{if(saving)event.preventDefault();};dialog.onclose=()=>resolve();cancel.onclick=()=>dialog.close();
+  submit.onclick=async()=>{
+   if(!area.value.trim()){area.setCustomValidity('Enter task text');area.reportValidity();return;}
+   area.setCustomValidity('');saving=true;submit.disabled=cancel.disabled=true;area.disabled=true;note.hidden=true;
+   try{await save(area.value.trim());dialog.close();}
+   catch(e){note.textContent=e.message;note.hidden=false;}
+   finally{saving=false;submit.disabled=cancel.disabled=false;area.disabled=false;}
+  };
+  area.oninput=()=>area.setCustomValidity('');dialog.showModal();area.focus();
+ });
+}
 async function leaveEdits() { const leave=!hasEdits()||await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'});if(leave)speakerNaming=false;if(leave&&itemEditing){setItemEditing(false);lastTasks='';}return leave; }
 // The active recording stays in reach from every view: status, time, level, a microphone warning,
 // Pause/Resume, Stop, and a way back to the live transcript.
@@ -1179,7 +1207,7 @@ async function openMail(key){
   card.append(top,el('p','message-text',message.body||'No inline text body. Attachments are not fetched.'));
   if(message.body){
    const actions=el('div','message-actions'),suggest=el('button','secondary small-action','Suggest a task'),analyze=el('button','quiet small-action','Analyze with AI');
-   suggest.onclick=()=>perform(async()=>{const title=await ask('Task suggestion. Review the source quote in Suggested before accepting.',{ok:'Save suggestion',value:thread.subject});if(title===null)return;await api('/api/gmail/propose',{id:thread.id,revision:thread.revision,message_id:message.id,title});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
+   suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'gmail',id:thread.id,revision:thread.revision,message_id:message.id}));
    const status=el('p','hint gmail-message-ai-status');status.hidden=true;status.setAttribute('role','status');
    suggest.type=analyze.type='button';analyze.dataset.messageAi='';
    analyze.onclick=()=>perform(()=>analyzeMail(thread,message,analyze,status));actions.append(suggest,analyze);card.append(actions,status);
@@ -1282,7 +1310,7 @@ function renderChatActions(m){
  if(!m){bar.replaceChildren(el('span','hint','Select a message to turn it into a task or to refresh it.'));return;}
  const suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh this message');
  suggest.disabled=!m.available||!m.body;
- suggest.onclick=()=>perform(async()=>{const title=await ask('Task proposal from this Chat message',{ok:'Save suggestion',value:m.body.slice(0,120)});if(title===null)return;await api('/api/chat/propose',{name:m.name,revision:m.revision,title});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
+ suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'chat',name:m.name,revision:m.revision}));
  refresh.onclick=()=>perform(()=>chatAction('refresh',{name:m.name}));
  bar.replaceChildren(el('span','reader-quote',m.sender+': '+(m.body||'').slice(0,90)),suggest,refresh);
 }
@@ -1330,7 +1358,7 @@ async function openGitHubItem(key){
  const body=el('div','reader-body');body.append(el('p','message-text',r.available?r.body||'No description.':'Access or source unavailable. Historical WorkItem quotes remain.'));
  const actions=el('div','reader-actions'),suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh'),link=el('a','secondary small-action button-link','Open on GitHub ↗');
  link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';suggest.disabled=!r.available;
- suggest.onclick=()=>perform(async()=>{const value=await ask('Task proposal from GitHub. The GitHub status does not set the task status.',{ok:'Save suggestion',value:r.title});if(value===null)return;await api('/api/github/propose',{id:key,revision:r.revision,title:value});await refreshAfterItemChange();toast('Saved in Suggested · nothing was accepted yet');});
+ suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'github',id:key,revision:r.revision}));
  refresh.onclick=()=>perform(async()=>{await api('/api/github/refresh',{id:key});ghWasRunning=true;await loadGitHub();});
  actions.append(el('span','reader-quote','Local task status stays independent of GitHub.'),suggest,refresh,link);
  const linked=await api('/api/github/links?'+new URLSearchParams({repository:r.repository,number:String(r.number)}));
@@ -1422,7 +1450,7 @@ function renderRepoReport(){
    const rows=findings.filter(f=>f.kind===kind);if(!rows.length)continue;const section=el('section','report-findings');section.append(el('h4','',title));
    for(const f of rows){const card=el('article','report-finding');card.append(el('p','',f.text),el('span','hint','AI · '+(f.certainty==='inference'?'inference':'source-based observation')));
     for(const ref of f.evidence){const ev=r.evidence.find(e=>e.id===ref.id);if(!ev)continue;const quote=el('blockquote','',ref.quote),source=reportLink(ev.url,ev.filename||ev.kind);card.append(quote);if(source)card.append(source);}
-    const suggest=el('button','secondary small-action','Suggest a task');suggest.type='button';suggest.disabled=busy;suggest.onclick=()=>perform(async()=>{await api('/api/github/reports/propose',{id:r.id,finding_id:f.id});await refreshAfterItemChange();toast('Saved in Suggested · no task status changed');});card.append(suggest);section.append(card);
+    const suggest=el('button','secondary small-action','Suggest a task');suggest.type='button';suggest.disabled=busy;suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'report',id:r.id,finding_id:f.id}));card.append(suggest);section.append(card);
    }box.append(section);
   }
  }

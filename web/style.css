@@ -619,3 +619,5 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .conversation-filters{align-items:start}.conversation-filters select{padding-top:0;padding-bottom:0}.conversation-filters>.primary{align-self:start;margin-top:24px}.date-popup-head select{height:38px;line-height:36px;padding-top:0;padding-bottom:0}.date-part-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.period-dates input{font-size:13px}.field-label{font-size:13px}
 #items-panel,#questions-panel,#work-suggested{overflow:visible}#items-panel>.work-messages,#questions-panel>.work-messages,#work-suggested>.work-messages{border-radius:18px 18px 0 0}
 .tracked-meta .date-control,.task-editor .date-control{width:155px;max-width:100%}.tracked-meta .date-control input,.task-editor .date-control input{height:32px;min-height:32px;padding:4px 34px 4px 8px;font-size:12px;line-height:22px;border-radius:8px}
+
+#task-draft-dialog{width:min(640px,calc(100vw - 32px));}#task-draft-text{width:100%;min-height:220px;resize:vertical;margin:12px 0;}

@@ -1,7 +1,9 @@
 import io
 import http.client
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -184,12 +186,40 @@ class AudioPreparationTests(unittest.TestCase):
                 audio_preparation.prepare(self.directory, 'light', lambda _: None)
         self.assertEqual(list(self.directory.glob('.transcription-*')), [])
 
+    def test_strong_stops_with_a_clear_reason_when_the_rnnoise_model_cannot_download(self):
+        self.signal()
+        with patch('app.model_cache.download', side_effect=OSError('offline')):
+            with self.assertRaisesRegex(RuntimeError, 'RNNoise model .* unavailable \\(offline\\). Retry when online, or choose Light or Off'):
+                audio_preparation.prepare(self.directory, 'strong', lambda _: None, self.directory / 'models')
+        self.assertEqual(list(self.directory.glob('.transcription-*')), [])
+
+    @unittest.skipUnless(os.environ.get('BMA_RNNOISE_MODEL'), 'set BMA_RNNOISE_MODEL to the downloaded RNNoise model to run')
+    def test_strong_keeps_the_timeline_and_lowers_steady_noise(self):
+        models = self.directory / 'models'
+        models.mkdir()
+        shutil.copy(os.environ['BMA_RNNOISE_MODEL'], models / audio_preparation.RNNOISE_MODEL)
+        time = np.arange(RATE * 6) / RATE
+        # A voice whose pitch glides from 120 to 220 Hz, so the timeline check has one clear match.
+        phase = 2 * np.pi * np.cumsum(120 + 100 * time / 6) / RATE
+        voice = sum(np.sin(k * phase) / k for k in range(1, 12)) * 2500 * ((time > 1) & (time < 2.5) | (time > 3.5) & (time < 5))
+        noisy = voice + np.random.default_rng(3).normal(0, 800, len(time))
+        write_wav(self.directory / 'recording.wav', noisy)
+        path, info = audio_preparation.prepare(self.directory, 'strong', lambda _: None, models)
+        prepared, source = read_wav(path), read_wav(self.directory / 'recording.wav')
+        self.assertEqual((info['profile'], len(prepared)), ('strong', len(source)))
+        shift = max(range(-200, 201), key=lambda k: np.dot(source[max(0, -k):len(source) - max(0, k)], prepared[max(0, k):len(source) - max(0, -k)]))
+        self.assertLessEqual(abs(shift), 4)
+        quiet = (time < .8) | (time > 5.2)
+        self.assertLess(np.sqrt(np.mean(prepared[quiet] ** 2)), .7 * np.sqrt(np.mean(source[quiet] ** 2)))
+
     def test_setting_defaults_off_and_rejects_unknown_profile(self):
         service = MeetingService(self.directory, PROJECT, google=FakeGoogle())
         try:
             self.assertEqual(service.settings['audio_preparation'], 'off')
             service.save_settings({'audio_preparation': 'light'})
             self.assertEqual(json.loads(service.settings_path.read_text())['audio_preparation'], 'light')
+            service.save_settings({'audio_preparation': 'strong'})
+            self.assertEqual(service.settings['audio_preparation'], 'strong')
             with self.assertRaises(ValueError): service.save_settings({'audio_preparation': 'aggressive'})
         finally:
             service.close()

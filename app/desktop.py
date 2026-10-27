@@ -49,3 +49,10 @@ def control_output():
 def ready(url, output):
     # stdout is a private pipe to the native parent; do not write the credential to logs.
     print(json.dumps({'event': 'ready', 'url': url}), file=output, flush=True)
+
+
+def editor_state(dirty, output):
+    """Authenticated UI heartbeat forwarded over the private native pipe; never includes text."""
+    with _output_lock:
+        try:print(json.dumps(dict(event='ui',dirty=bool(dirty))),file=output,flush=True)
+        except (BrokenPipeError,OSError):pass

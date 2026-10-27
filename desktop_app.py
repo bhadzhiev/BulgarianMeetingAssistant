@@ -193,6 +193,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.gmail.listing(parse_qs(url.query).get('view',['needs_reply'])[0]))
         if url.path == '/api/gmail/thread':
             return self.respond(200, identity_channels.gmail_thread(self.server.service,parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/task-draft/status':
+            return self.respond(200,self.server.service.task_drafts.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
             return self.respond(200, self.server.service.item_list())
         if url.path == '/api/tasks':
@@ -218,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
@@ -316,6 +318,9 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.import_transcript(body['text'], body.get('filename', ''))
             elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability', '/api/work/project'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
+            elif path == '/api/editor-state':
+                if set(body)!={'dirty'} or type(body['dirty']) is not bool:raise ValueError('Invalid editor state')
+                service.editor_changed(body['dirty']);result=dict(ok=True)
             elif path == '/api/github/connect':
                 result = service.github.connection.connect(body['token'])
             elif path == '/api/github/disconnect':
@@ -332,6 +337,10 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.repo_reports.start_analysis(body['id'],body.get('preview_token'),body.get('approved'))
             elif path == '/api/github/reports/cancel':
                 result=service.repo_reports.stop()
+            elif path == '/api/task-draft/start':
+                result=service.task_drafts.start(body)
+            elif path == '/api/task-draft/cancel':
+                result=service.task_drafts.stop(body['id'])
             elif path in {'/api/task-draft/preview', '/api/task-draft/generate', '/api/task-draft/create'}:
                 from app import task_draft
                 result = task_draft.preview(service, body) if path.endswith('/preview') else task_draft.create(service, body) if path.endswith('/create') else task_draft.draft(service, body)
@@ -547,9 +556,10 @@ def main():
     service = MeetingService(args.library, PROJECT, backup_dir=args.backups, step_runner=ProcessingWorker(PROJECT))
     service.desktop_mode = args.desktop_control
     if control is not None:
-        from app.desktop import activity, microphone_health
+        from app.desktop import activity, microphone_health, editor_state
         service.activity_changed = lambda active: activity(active, control)
         service.health_changed = lambda missing: microphone_health(missing, control)
+        service.editor_changed = lambda dirty: editor_state(dirty, control)
     if args.models:
         service.models_dir = args.models
     server = Server(('127.0.0.1', args.port), service)

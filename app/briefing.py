@@ -34,7 +34,7 @@ def _done_at(item) -> str:
 
 
 def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: dict, today: dt.date, title: str,
-          meeting_type: str | dict = meeting_types.DEFAULT) -> dict:
+          meeting_type: str | dict = meeting_types.DEFAULT, project_id=None) -> dict:
     definition = meeting_type if isinstance(meeting_type, dict) else meeting_types.definition(meeting_type)
     style = definition['style']
     meetings = sorted(meetings, key=_date)
@@ -48,14 +48,14 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
         links = sorted((link for link in item['links'] if link['meeting_id'] in ids), key=lambda link: dates[link['meeting_id']])
         return source(links[-1]['meeting_id'], links[-1].get('evidence_timestamp')) if links else None
 
-    in_scope = [item for item in registry if any(link['meeting_id'] in ids for link in item['links'])]
+    in_scope = [item for item in registry if (any(link['meeting_id'] in ids for link in item['links']) or project_id and project_id in item.get('effective_project_ids',[])) and not item.get('dismissed') and (not item.get('snoozed_until') or item['snoozed_until']<=today.isoformat())]
     soon = (today + dt.timedelta(days=7)).isoformat()
     tasks = []
     for item in in_scope:
         if item['kind'] == 'task' and item['status'] == 'open':
             due, changed = item.get('due_date'), _last_change(item)
             idle = (today - dt.date.fromisoformat(changed)).days if changed else 0
-            tasks.append(dict(item_id=item['id'], text=item['text'], owner=item.get('owner'), deadline=item.get('deadline'),
+            tasks.append(dict(item_id=item['id'], revision=item.get('revision'), text=item['text'], owner=item.get('owner'), deadline=item.get('deadline'),
                               due_date=due, overdue=bool(due and due < today.isoformat()),
                               due_soon=bool(due and today.isoformat() <= due <= soon), idle_days=idle, source=last_source(item)))
     tasks.sort(key=lambda task: (not task['overdue'], task['due_date'] or '9999', task['text'].casefold()))

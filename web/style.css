@@ -621,3 +621,26 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .tracked-meta .date-control,.task-editor .date-control{width:155px;max-width:100%}.tracked-meta .date-control input,.task-editor .date-control input{height:32px;min-height:32px;padding:4px 34px 4px 8px;font-size:12px;line-height:22px;border-radius:8px}
 
 #task-draft-dialog{width:min(640px,calc(100vw - 32px));}#task-draft-text{width:100%;min-height:220px;resize:vertical;margin:12px 0;}
+
+/* Shared form rhythm: labels, date fields and actions align without positional offsets. */
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.date-control>input[type=hidden]{display:none!important}.date-display{margin:0!important}.date-error{display:block;color:var(--red);font-size:12px;font-weight:400;margin-top:5px}
+.period-dates{gap:12px}.period-dates label{font-size:12px;font-weight:600;color:var(--ink);line-height:20px}.period-dates .date-part-label{position:static;width:auto;height:auto;clip-path:none;display:block;line-height:20px;margin:0 0 6px;overflow:visible}
+.date-control{line-height:normal}.period-field{grid-column:span 2}.period-presets{margin-top:6px;gap:6px}.period-presets button{min-height:28px}.date-grid [role=row]{display:contents}
+.conversation-filters{grid-template-columns:minmax(160px,1.4fr) minmax(140px,1fr) minmax(280px,2fr) auto;align-items:start;gap:16px;padding:20px}
+.conversation-filters label{font-size:12px;line-height:20px;margin:0}.conversation-filters label>input,.conversation-filters label>select{margin-top:6px}.conversation-filters .period-field{grid-column:auto}.conversation-filters input{padding-top:0;padding-bottom:0}
+.conversation-filters .filter-actions{display:flex;align-items:center;gap:6px;padding-top:26px}.conversation-filters .filter-actions button{min-height:40px;white-space:nowrap}.conversation-filters>.primary{margin:0}
+.advanced-filters{grid-column:1/-1;margin:0}.advanced-filters summary{font-size:13px;cursor:pointer;color:var(--muted)}.advanced-filter-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;padding-top:12px}.filter-chips{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}.filter-chips:empty{display:none}.filter-chips button{font-size:12px;padding:5px 10px;background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.processing-details{margin:12px 0;color:var(--muted);font-size:12px}.processing-details summary{cursor:pointer}.processing-details p{white-space:pre-line;line-height:1.7}
+.dialogue-turn .dialogue-time{opacity:0;transition:opacity .1s}.dialogue-turn:first-of-type .dialogue-time,.dialogue-turn:hover .dialogue-time,.dialogue-turn:focus-within .dialogue-time{opacity:1}.dialogue-turn.uncertain{border-left:2px dashed var(--muted);padding-left:12px}
+@media(hover:none){.dialogue-turn .dialogue-time{opacity:1}}
+@media(max-width:1400px){.conversation-filters{grid-template-columns:1fr 1fr}.conversation-filters .period-field{grid-column:1}.conversation-filters .filter-actions{grid-column:2;justify-self:end}.advanced-filter-fields{grid-template-columns:1fr 1fr}}
+@media(max-width:850px){.conversation-filters{grid-template-columns:1fr}.conversation-filters .period-field,.conversation-filters .filter-actions{grid-column:1}.conversation-filters .filter-actions{padding-top:0;justify-self:start}.advanced-filter-fields{grid-template-columns:1fr}.heading{margin-top:24px;margin-bottom:24px}}
+
+.task-source blockquote{white-space:pre-wrap;max-height:180px;overflow:auto;font-size:13px;margin:10px 0;padding:12px;background:var(--surface);border-radius:8px}.task-source summary{cursor:pointer;color:var(--muted)}#task-panel{width:min(720px,94vw)}#task-panel textarea{min-height:160px;margin:14px 0}#task-panel select{margin-bottom:14px}#task-panel button{margin:8px 8px 0 0}#task-draft-status{min-height:20px}#task-draft-dialog .review-footer{flex-wrap:wrap;gap:8px}#toast button{color:inherit;text-decoration:underline}
+
+.source-tabs{margin-top:-10px;padding-left:12px;border-left:2px solid var(--line)}.filter-search,.filter-project{min-width:0}.date-day:focus-visible{outline:2px solid var(--green);outline-offset:1px}#meeting-artifact-status{margin:8px 0}
+
+.segment-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.diagnostics-button{float:right;font-size:11px;padding:3px 6px;color:var(--muted)}.report-findings{min-width:0}.heading{margin-bottom:28px}#conversations>.heading,#tasks>.heading,#projects>.heading{margin-top:28px}#conversations h1,#tasks h1,#projects h1{font-size:clamp(28px,3vw,38px)}.date-error[hidden]{display:none}.date-trigger svg{width:18px;height:18px;display:block}
+
+.speaker-review-container{margin:14px 0;border:1px solid var(--line);border-radius:10px;padding:10px 14px}.speaker-review-container>summary{cursor:pointer;font-size:13px;color:var(--muted)}

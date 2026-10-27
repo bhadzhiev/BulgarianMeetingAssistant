@@ -1222,3 +1222,15 @@ Review the model/provider before generating, then edit the multiline draft and c
 **Create task**. Only that confirmation creates an open local task in My Work, with pinned
 source evidence. Cancel discards the draft. Generation does not create a proposal or task,
 assign an owner/deadline, or publish anything to GitHub. A changed source requires a new draft.
+
+### Reliable editing and a consistent workspace
+
+Dates are shown/entered as **dd.mm.yyyy** (date/time: **dd.mm.yyyy · HH:MM**, Europe/Sofia), while API and archive date-only fields retain ISO values. The compact Library keeps Search, Project and Period visible, with additional filters under More filters. Filters stay in session state when returning to the Library.
+
+**My Work → Sources** groups Gmail, Chat and GitHub. **Suggest a task** opens a source-aware editor; generate with the shown AI provider or write manually, choose a project, then **Create task**. Generation can be cancelled. Draft retention is optional and limited to 24 hours on this Mac. A successful task creation remains successful even if refreshing its list fails; **Open task** returns directly to it.
+
+Project and meeting type are visible before recording. Project-level **Prepare me** includes externally sourced tasks explicitly assigned to that project. Transcript/note edits are protected from late refreshes and navigation races, and calendar Clear updates the saved due date.
+
+The desktop app warns before quitting with unsaved editor changes. **App menu → Recover interface** reloads the interface while recording and the local backend continue; unsaved edits require confirmation. Copy diagnostics omits credentials and source text.
+
+Repository reports analyze bounded groups of changes and then synthesize the supported source passages. Per-change findings and exact evidence remain available. See [UX validation and benchmark limits](docs/ux-flow-validation.md) for the implemented contracts and reproducible measurements.

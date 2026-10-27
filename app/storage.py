@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import copy
+from collections import OrderedDict
 import json
 import os
 from pathlib import Path
@@ -34,6 +36,8 @@ class Library:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self.metadata_cache = OrderedDict()
+        self.metadata_cache_bytes = 0
         self._finish_scope_batch()
         self.speakers_path = self.root / 'speakers.json'
         self.trackers_path = self.root / 'trackers.json'
@@ -94,7 +98,20 @@ class Library:
     def get(self, meeting_id: str) -> dict:
         with self.lock:
             self._finish_scope_batch()
-            return json.loads((self.directory(meeting_id) / 'meeting.json').read_text())
+            path=self.directory(meeting_id)/'meeting.json'
+            stat=path.stat();signature=(stat.st_mtime_ns,stat.st_size,stat.st_ino)
+            cached=self.metadata_cache.get(meeting_id)
+            if cached and cached[0]==signature:
+                self.metadata_cache.move_to_end(meeting_id)
+                return copy.deepcopy(cached[1])
+            raw=path.read_bytes();meeting=json.loads(raw)
+            previous=self.metadata_cache.pop(meeting_id,None)
+            if previous:self.metadata_cache_bytes-=previous[2]
+            if len(raw)<=2_000_000:
+                self.metadata_cache[meeting_id]=(signature,copy.deepcopy(meeting),len(raw));self.metadata_cache_bytes+=len(raw)
+                while len(self.metadata_cache)>10000 or self.metadata_cache_bytes>20_000_000:
+                    _,expired=self.metadata_cache.popitem(last=False);self.metadata_cache_bytes-=expired[2]
+            return meeting
 
     def update(self, meeting_id: str, **changes) -> dict:
         with self.lock:
@@ -114,6 +131,8 @@ class Library:
             # Renaming first removes the meeting from the library atomically.
             trash = self.root / ('.deleted-' + meeting_id)
             os.replace(directory, trash)
+            cached=self.metadata_cache.pop(meeting_id,None)
+            if cached:self.metadata_cache_bytes-=cached[2]
         shutil.rmtree(trash, ignore_errors=True)
 
     def speakers(self) -> list[str]:

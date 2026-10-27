@@ -56,7 +56,7 @@ class FakeConnection:
 class FakeRunner:
     def __init__(self):self.calls=[];self.callback=None
     def run(self,action,directory,settings,progress,key='',**kwargs):
-        assert action=='repo_report';self.calls.append(copy.deepcopy(settings))
+        assert action in {'repo_report','repo_synthesis'};self.calls.append(copy.deepcopy(settings))
         if self.callback:self.callback(kwargs['cancel'])
         return [dict(finding(settings['repo_evidence'][0]),id='ignored-worker-id')]
 

@@ -172,8 +172,8 @@ class WorkGraph:
                 if key not in data['proposals']:
                     data['proposals'][key] = dict(id=key, kind=suggestion['kind'], text=content, evidence_id=ev_id,
                         state='pending', revision=1, snoozed_until=None, created=now(), fields=fields)
-                    if suggestion.get('origin') == 'gmail_ai':
-                        data['proposals'][key]['origin'] = 'gmail_ai'
+                    if suggestion.get('origin') in {'gmail_ai','repo_ai'}:
+                        data['proposals'][key]['origin'] = suggestion['origin']
                 ids.append(key)
             result = dict(source_id=source_id, source_revision=revision_id, proposals=ids)
             if after:

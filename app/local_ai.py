@@ -55,7 +55,7 @@ def list_models(base_url):
     return models
 
 
-def complete_json(settings, messages, schema, name, timeout=600):
+def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     from meeting_assistant import post_json, extract_json
     base_url = validate_base_url(settings.get('local_ai_base_url', DEFAULT_BASE_URL))
     model = settings.get('local_ai_model', DEFAULT_MODEL)
@@ -85,7 +85,8 @@ def complete_json(settings, messages, schema, name, timeout=600):
     elif mode == 'json_object':
         payload['response_format'] = {'type': 'json_object'}
     try:
-        response = post_json(base_url + '/chat/completions', payload, timeout=timeout)
+        response = post_json(base_url + '/chat/completions', payload, timeout=timeout,
+            **({'headers': {'Authorization': 'Bearer ' + api_key}} if api_key else {}))
     except Exception as exc:
         raise ValueError('Local AI request failed. Check the API URL, model and response format in Settings. No cloud fallback was used.') from exc
     try:

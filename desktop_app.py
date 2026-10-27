@@ -127,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return
+        if url.path == '/api/projects/workspace':
+            return self.respond(200, self.server.service.project_workspace(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/search':
             return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
         if url.path == '/api/backups':
@@ -144,6 +146,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
         if url.path == '/api/github':
             return self.respond(200, self.server.service.github.status())
+        if url.path == '/api/github/reports':
+            return self.respond(200,self.server.service.repo_reports.listing())
+        if url.path == '/api/github/reports/detail':
+            return self.respond(200,self.server.service.repo_reports.detail(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/github/repos':
             return self.respond(200, self.server.service.github.repos())
         if url.path == '/api/github/overview':
@@ -293,13 +299,30 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_saved_meetings()
             elif path == '/api/import':
                 result = service.import_transcript(body['text'], body.get('filename', ''))
-            elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability'}:
+            elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability', '/api/work/project'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
             elif path == '/api/github/connect':
                 result = service.github.connection.connect(body['token'])
             elif path == '/api/github/disconnect':
+                service.repo_reports.stop()
                 service.github.stop()
                 result = service.github.connection.disconnect()
+            elif path == '/api/github/reports/clear':
+                result=service.repo_reports.clear_all(body.get('confirmed'))
+            elif path == '/api/github/reports/collect':
+                result=service.repo_reports.collect(body.get('repository',''),body.get('branch',''),body.get('start',''),body.get('end',''),body.get('id'))
+            elif path == '/api/github/reports/preview':
+                result=service.repo_reports.preview(body['id'])
+            elif path == '/api/github/reports/analyze':
+                result=service.repo_reports.start_analysis(body['id'],body.get('preview_token'),body.get('approved'))
+            elif path == '/api/github/reports/cancel':
+                result=service.repo_reports.stop()
+            elif path == '/api/github/reports/propose':
+                result=service.repo_reports.propose(body['id'],body['finding_id'])
+            elif path == '/api/github/reports/associate':
+                result=service.repo_reports.associate(body['id'],body.get('meeting_id'))
+            elif path == '/api/github/reports/delete':
+                result=service.repo_reports.delete(body['id'])
             elif path == '/api/github/overview/sync':
                 result = service.github.start_overview(body.get('filter', 'all'))
             elif path == '/api/github/sync':
@@ -361,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.reveal_backup(body['name'])
             elif path == '/api/ask':
                 result = service.ask(body['question'], body.get('project', ''), body.get('ai', True) is not False)
+            elif path == '/api/projects/create':
+                result = service.create_project(body.get('name'))
             elif path == '/api/projects/change':
                 result = service.change_scope(body['kind'], body['id'], body['action'], body.get('name'))
             elif path == '/api/marker':

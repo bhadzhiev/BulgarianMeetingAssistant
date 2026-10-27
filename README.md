@@ -86,7 +86,31 @@ recording or a microphone test, the timer and the level arrive on the same conne
 the connection and loads the current state when you show it again. The microphone list is scanned only
 while the new-meeting form is open.
 
+## Find your way around
+
+- **Sidebar:** New meeting, My Work, Library and Projects. **Library** holds Conversations, Search & ask
+  and Analytics as tabs. **Prepare me** opens from a project (**Projects → Prepare me**) or from the
+  project chip of a meeting.
+- **Back and Forward:** every view and tab has its own address. Use the ‹ › buttons in the top bar,
+  ⌘[ and ⌘], or Alt+← and Alt+→. A reload keeps the view, the tab and the selected project.
+- **Recording bar:** while a meeting records, a bar stays at the top of every other view. It shows the
+  meeting, the time, the microphone level and a warning when the microphone drops out. It has
+  Pause/Resume, Stop (it asks first) and a link back to the live transcript.
+- **Needs attention:** an open meeting lists what still needs a person after processing, each with the
+  step that resolves it: a processing error, speakers to name, new AI notes to review, notes to update
+  after transcript edits, mentions that look like existing work, AI-proposed decisions to confirm, and
+  tasks without an owner or a due date. When nothing is left, it offers **Prepare the next meeting**.
+- **Settings:** **Fast**, **Balanced**, **Best quality** and **Maximum privacy** fill the fields; nothing
+  changes until **Save settings**. **Show advanced settings** reveals audio preparation, voice detection
+  and the local AI response options. Closing Settings with unsaved changes asks first.
+
 ## Record an in-person meeting
+
+The new meeting form shows the name, the meeting type and the microphone. Backup microphone, when to
+transcribe, project and series, and the processing summary are under **More options**; its line shows
+the current choices. The last meeting type and microphone are remembered. Before Start, chips show
+whether the microphone, the system audio helper (online meetings), the transcription model and the
+disk space are ready. Import is under **Recorded elsewhere?**, below the form.
 
 1. Connect your iPhone as a macOS input device, or use the Mac microphone.
 2. Enter a name, select **In person**, and choose the microphone.

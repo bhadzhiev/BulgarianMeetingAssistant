@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from .work_graph import WorkGraph, validate_graph
 from .work_items import COLLECTIONS, normalize
 import json
+import shutil
 import hashlib
 import datetime as dt
 import os
@@ -182,6 +183,25 @@ class MeetingService:
                 self.api_key = key.strip()
             return dict(settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
 
+    def readiness(self):
+        """What the next recording needs, checked without downloading or opening devices."""
+        provider = self.settings['transcription']
+        if provider == 'openai':
+            model = dict(ready=bool(self.api_key), label='OpenAI key set' if self.api_key else 'Add an OpenAI key in Settings')
+        elif provider == 'parakeet':
+            cached = (self.models_dir / 'parakeet' / ('models--' + parakeet.MODEL_ID.replace('/', '--')) / 'snapshots'
+                      / parakeet.MODEL_REVISION / 'model.safetensors').is_file()
+            model = dict(ready=parakeet.availability()['available'] and cached,
+                         label=parakeet.MODEL_NAME + (' ready' if cached else ' downloads on first use'))
+        else:
+            name = self.settings['local_model']
+            cached = any((self.models_dir / candidate).is_file() for candidate in (name, name + '.bin', f'ggml-{name}.bin'))
+            model = dict(ready=cached, label='Whisper ' + name + (' ready' if cached else ' downloads on first use'))
+        free = shutil.disk_usage(self.library.root).free
+        # Online meetings keep both raw tracks and the mix: about 0.5 GB per hour.
+        return dict(model=model, system_audio=(self.project / 'bin/SystemAudio').is_file(),
+                    disk_free=free, disk_hours=round(free / 500_000_000, 1))
+
     def snapshot(self):
         with self.lock:
             try:
@@ -200,7 +220,7 @@ class MeetingService:
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
                 speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
-                settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
+                settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
                 system_audio_available=(self.project / 'bin/SystemAudio').exists())

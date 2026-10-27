@@ -335,11 +335,18 @@ class Registry:
             raise ValueError('One of these decisions replaces the other. They cannot be merged.')
         if item.get('source_evidence') or into.get('source_evidence'):
             raise ValueError('Use proposal Link for items with work graph sources.')
+        if ('project_ids' in item) != ('project_ids' in into):
+            raise ValueError('Choose explicit projects for both items before merging them')
         for link in item['links']:
             if not any(own['meeting_id'] == link['meeting_id'] for own in into['links']):
                 into['links'].append(link)
         into['history'] = sorted(into['history'] + item['history'], key=lambda event: event['at'])
         into['manual'] = sorted(set(into['manual']) | set(item['manual']))
+        if 'project_ids' in item or 'project_ids' in into:
+            if 'project_ids' in item and 'project_ids' in into:
+                into['project_ids'] = sorted(set(item['project_ids']) | set(into['project_ids']))
+            else:
+                raise ValueError('Choose explicit projects for both items before merging them')
         into['evidence'] = list({entry['id']: entry for entry in
                                 into.get('evidence', []) + item.get('evidence', [])}.values())
         self._event(into, 'merged', None, {'text': [item['text'], into['text']]}, by='user')

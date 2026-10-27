@@ -518,6 +518,44 @@ The app validates notes' structure and source timestamps, but factual correctnes
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
 
+## GitHub changes by period
+
+Open **My Work → GitHub → Changes by period**. Enter one repository, an optional branch
+(default: the repository's default branch), and From/Through dates. Dates use **Europe/Sofia**;
+the default is yesterday at 00:00 through now. Historical end dates include that entire day.
+Periods are limited to 31 days.
+
+**Collect changes** reads GitHub without sending code to AI. Private repositories need
+**Contents: Read-only** and **Pull requests: Read-only** on the connected fine-grained token.
+Collection pins the branch head SHA, gathers merged PRs by merge time and other reachable
+commits by committer time, and avoids reporting a PR and its commits twice. These timestamps
+do not reconstruct historical push times or prove that a change was deployed.
+
+The report stores commit/PR descriptions, available patches and bounded context from selected
+code files. It lists omitted binary, generated, sensitive-name and oversized files. Limits are
+30 PRs, 60 dated commits, 80 text files and 160 collected evidence parts; AI reads at most 80
+parts. Patch/context and GitHub pagination limits remain visible as partial coverage. This is
+not a full-repository audit, CI execution, deployment verification or a security guarantee.
+
+**Analyze with AI** previews the exact endpoint/model, reasoning/output limit and input size.
+Approve explicitly before the saved code snapshot leaves the app process. The configured
+notes provider selects Local API or OpenAI; there is no automatic fallback. Repository content
+is untrusted data, not instructions. Analysis runs in an isolated cancellable worker with
+bounded inputs, splitting on output truncation. Each finding needs an exact source quote and
+a saved evidence ID. Findings are AI interpretations that need review, even with valid quotes.
+
+Completed collection/AI parts are saved. Continue explicitly after interruption; a crash or
+restart never resumes an AI export automatically. Unchanged commit snapshots and completed
+analysis parts can be reused. Recording or meeting processing pauses repository jobs.
+**Suggest a task** creates a pending WorkItem proposal only; use the normal Accept/Link/Dismiss
+controls. Existing task statuses are never completed from code automatically. Reports can be
+linked to a meeting without editing that meeting's transcript or notes.
+
+Reports stay in `repo-reports.json`, are included in Archive/Restore, and are capped at 24.
+Existing reports are not overwritten by restore. Delete one report or use **Clear all local
+repository reports** under About GitHub; the latter works after disconnecting too. Promoted
+WorkItem evidence snapshots and previous archives remain. No automatic retention purge runs.
+
 ## Local Parakeet v3 transcription (Apple Silicon)
 
 In **Settings → Recording → Transcription**, select **Local · Parakeet TDT 0.6B v3**
@@ -982,3 +1020,22 @@ older while a refresh is incomplete. Recording/processing pauses further sync re
 Continue sync afterwards. Email AI shows progress and its result next to the selected message,
 including a successful analysis with zero task suggestions. Quote validation failures, endpoint
 failures and output-limit errors remain explicit and never auto-accept tasks.
+
+
+### Project workspace
+
+Open **Projects** to create a project independently of a meeting and see its
+meetings, tasks, decisions, questions and linked source evidence together.
+**Unassigned** collects meetings and work without an effective project.
+
+Each accepted WorkItem has an **Assign to project** control in My Work and the
+project workspace. Choose one or more projects and save. A saved empty selection
+means explicitly unassigned. **Use meeting projects** restores automatic grouping
+from linked meetings. Manual choices survive source sync and notes refresh;
+assigning a project does not accept a proposal or change a task/source status.
+External sources appear through their accepted/linked WorkItems and saved quotes.
+Moving a meeting updates inherited assignments, while preserving manual choices.
+Archive/Restore retains assignments and maps project IDs to restored projects.
+
+This version groups whole meetings. Attaching selected transcript passages and
+browsing all unlinked email/Chat conversations inside a project are follow-ups.

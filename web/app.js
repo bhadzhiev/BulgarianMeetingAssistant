@@ -92,7 +92,7 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
 }
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
 async function leaveEdits() { const leave=!hasEdits()||await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'});if(leave)speakerNaming=false;if(leave&&itemEditing){setItemEditing(false);lastTasks='';}return leave; }
-function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare','find']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); }
+function show(which) { view=which; for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); }
 function renderLibrary() {
  const query=$('search').value.toLocaleLowerCase();
  const meetings=state.meetings.filter(m=>!query||m.title.toLocaleLowerCase().includes(query));
@@ -666,13 +666,13 @@ function meetingChips(item,meetings,except) {
 }
 // The external sources (Gmail, Chat, GitHub) behind an item, from its saved source quotes.
 function itemSources(item){const graph=itemsData.graph||{},ids=new Set(item.source_evidence||[]),evidence=(graph.source_evidence||[]).filter(e=>ids.has(e.id));return [...new Map(evidence.map(e=>[e.source_id,(graph.sources||[]).find(s=>s.id===e.source_id)])).values()].filter(Boolean);}
-function sourceLabel(source){return source.remote?.authority==='github'?source.remote.repository+' #'+source.remote.number:'';}
+function sourceLabel(source){return source.remote?.authority==='github_code'?source.remote.repository+' · code':source.remote?.authority==='github'?source.remote.repository+' #'+source.remote.number:'';}
 function itemProviders(item){return new Set([...(item.links.length?['meeting']:[]),...itemSources(item).map(s=>s.provider)]);}
 function sourceChips(item,meetings){const box=meetingChips(item,meetings);for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
  for(const event of [...item.history].reverse()) {
-  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>(FIELD_LABELS[name]||name)+': '+(from??'—')+' → '+(to??'—')).join(' · ');
+  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>{if(name==='project_ids'){const label=ids=>ids===null?'Meeting projects':ids.map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')||'Unassigned';return 'Projects: '+label(from)+' → '+label(to);}return (FIELD_LABELS[name]||name)+': '+(from??'—')+' → '+(to??'—');}).join(' · ');
   // A meeting event belongs to the meeting's date, not to the moment the app processed it.
   const when=event.meeting_id&&meetings?.[event.meeting_id]?meetings[event.meeting_id].date:event.at;
   const entry=el('li'); entry.append(el('span','history-date',new Date(when).toLocaleDateString(undefined,{day:'numeric',month:'short'})),
@@ -681,7 +681,7 @@ function historyBlock(item,meetings) {
  }
  box.append(list); return box;
 }
-async function refreshAfterItemChange() { lastTasks=''; if(view==='tasks') await loadTasks(); else if(view==='prepare') await loadPrepare(); else if(view==='detail'&&selected) await openMeeting(selected,true); state=await api('/api/state'); renderState(); }
+async function refreshAfterItemChange() { lastTasks=''; if(view==='projects') await loadWorkspace(); else if(view==='tasks') await loadTasks(); else if(view==='prepare') await loadPrepare(); else if(view==='detail'&&selected) await openMeeting(selected,true); state=await api('/api/state'); renderState(); }
 async function changeItem(item,changes,finishEdit=false) { await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});if(finishEdit)setItemEditing(false);await refreshAfterItemChange(); }
 // A new mention that looks like an existing item: the person decides, nothing is linked before that.
 function linkCard(entry,meetings,itemsById) {
@@ -721,7 +721,7 @@ function setItemEditing(active,row=null){
  if(active&&row)for(const node of row.querySelectorAll('input,button'))node.disabled=true;
 }
 function itemActions(item,row) {
- const actions=el('div','tracked-actions'), edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
+ const actions=el('div','tracked-actions'); actions.append(projectAssignment(item)); const edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
  const main=row.querySelector('.tracked-main'), text=main.querySelector('.tracked-text');
  edit.onclick=()=>{if(itemEditing)return;setItemEditing(true,row);const box=el('textarea','tracked-edit'),bar=el('div','tracked-edit-bar'),save=el('button','primary','Save'),cancel=el('button','secondary','Cancel');let owner=null;
   box.value=item.text;box.setAttribute('aria-label','Text');bar.append(save,cancel);
@@ -801,9 +801,14 @@ function cacheAccounts(select,button,accounts,running){
  if(accounts.some(a=>a[1]===old))select.value=old;button.disabled=running||!accounts.length;
 }
 async function openSource(source){
+ if(view==='projects'){show('tasks');lastTasks='';await loadTasks();}
  if(source.provider==='gmail'){showWorkTab('gmail');await openMail(source.external_id);}
  else if(source.provider==='google_chat'){chatSpace=source.external_id.split('/messages/')[0];chatMessage=source.external_id;showWorkTab('chat');}
- else if(source.provider==='github'){showWorkTab('github');await openGitHubItem(Number(source.external_id.split(':')[1]));}
+ else if(source.provider==='github'&&source.remote?.authority==='github_code'){
+  showWorkTab('github');showGitHubSection('reports');
+  try{await openRepoReport(source.remote.report_id);}catch(exc){const box=$('repo-report-detail'),snapshot=(itemsData.graph?.source_revisions||[]).find(r=>r.id===source.current_revision);box.replaceChildren(el('h3','','Saved code evidence'),el('p','hint','The local report is unavailable. Promoted source evidence is kept.'),el('pre','report-source',snapshot?.text||''));const link=reportLink(source.remote.url,'Open code on GitHub');if(link)box.append(link);}
+ }
+ else if(source.provider==='github'){showWorkTab('github');showGitHubSection('items');await openGitHubItem(Number(source.external_id.split(':')[1]));}
 }
 
 let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false,mailThread='',mailThreads=[],mailAutoSynced=false,mailAIStatus={},mailAISeenJob='';
@@ -1000,12 +1005,98 @@ async function openGitHubItem(key){
  actions.append(el('span','reader-quote','Local task status stays independent of GitHub.'),suggest,refresh,link);
  $('github-detail').replaceChildren(head,body,actions);
 }
-$('github-connect').onclick=()=>perform(async()=>{const token=$('github-token').value.trim();try{await api('/api/github/connect',{token});await loadGitHub();}finally{$('github-token').value='';}});
-$('github-disconnect').onclick=()=>perform(async()=>{if(!(await ask('Remove the GitHub token from this Mac? The token stays valid on GitHub until you revoke it there.',{ok:'Disconnect',danger:true})))return;await api('/api/github/disconnect',{});await loadGitHub();});
+$('github-connect').onclick=()=>perform(async()=>{const token=$('github-token').value.trim();try{await api('/api/github/connect',{token});await loadGitHub();await loadRepoReports();}finally{$('github-token').value='';}});
+$('github-disconnect').onclick=()=>perform(async()=>{if(!(await ask('Remove the GitHub token from this Mac? The token stays valid on GitHub until you revoke it there.',{ok:'Disconnect',danger:true})))return;await api('/api/github/disconnect',{});await loadGitHub();repoReport=null;repoReportId='';$('repo-report-detail').replaceChildren();});
 $('github-connection').onclick=()=>perform(loadGitHub);
 $('github-sync').onclick=()=>perform(async()=>{await api('/api/github/overview/sync',{filter:ghFilter});ghWasRunning=true;await loadGitHub();});
 $('github-cancel').onclick=()=>perform(async()=>{await api('/api/github/cancel',{});await loadGitHub();});
 $('github-clear').onclick=()=>perform(async()=>{if(await ask('Clear the local GitHub cache for the selected account? Promoted source snapshots and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/github/clear',{account:$('github-cache-account').value});ghItem=0;$('github-detail').replaceChildren();await loadGitHub();}});
+
+let ghSection='items',repoTimer=null,repoAccount='',repoReportId='',repoReport=null,repoJob={},repoLoadSequence=0;
+function showGitHubSection(section){
+ ghSection=section;$('github-open-items').hidden=section!=='items';$('repo-reports').hidden=section!=='reports';
+ $('github-show-items').classList.toggle('selected',section==='items');$('github-show-reports').classList.toggle('selected',section==='reports');
+ if(section==='reports')perform(loadRepoReports);
+}
+$('github-show-items').onclick=()=>showGitHubSection('items');$('github-show-reports').onclick=()=>showGitHubSection('reports');
+function reportLink(url,label){
+ try{const parsed=new URL(url);if(parsed.protocol!=='https:'||parsed.hostname!=='github.com'||parsed.username||parsed.password)return null;
+ const a=el('a','',label);a.href=parsed.href;a.target='_blank';a.rel='noopener noreferrer';return a;}catch{return null;}
+}
+async function loadRepoReports(){
+ const sequence=++repoLoadSequence;
+ if(repoTimer)clearTimeout(repoTimer);repoTimer=null;
+ const connection=(await api('/api/github')).connection;
+ if(!connection.connected){$('report-job-status').textContent='Connect GitHub to collect or open reports.';$('repo-report-detail').replaceChildren();return;}
+ const data=await api('/api/github/reports');if(sequence!==repoLoadSequence)return;repoJob=data.job;
+ if(repoAccount!==data.account){repoAccount=data.account;repoReport=null;if(!data.reports.some(r=>r.id===repoReportId))repoReportId='';}
+ if(!$('report-start').value){$('report-start').value=data.defaults.start;$('report-end').value=data.defaults.end;}
+ const repos=[...new Set(ghItems.map(i=>i.repository))];$('report-repositories').replaceChildren(...repos.map(name=>option(name,name)));
+ if(!data.reports.some(r=>r.id===repoReportId))repoReportId=data.reports[0]?.id||'';
+ $('report-list').replaceChildren(option('Choose a saved report',''),...data.reports.map(r=>option(r.repository+' · '+r.branch+' · '+r.period.start+' → '+r.period.end+' · '+r.status,r.id)));$('report-list').value=repoReportId;
+ $('report-collect').disabled=!!data.job.running;$('report-cancel').hidden=!data.job.running;
+ $('report-job-status').textContent=data.error||data.job.error||data.job.status||'';
+ if(repoReportId){const selectedId=repoReportId,detail=await api('/api/github/reports/detail?id='+encodeURIComponent(selectedId));if(sequence!==repoLoadSequence||selectedId!==repoReportId)return;repoReport=detail;renderRepoReport();}
+ else $('repo-report-detail').replaceChildren(el('p','empty-content','Choose a repository and period to collect its changes. Collection does not send code to AI.'));
+ if(data.job.running&&view==='tasks'&&workTab==='github'&&ghSection==='reports')repoTimer=setTimeout(()=>perform(loadRepoReports),1500);
+}
+async function openRepoReport(id){const sequence=++repoLoadSequence;repoReportId=id;$('report-list').value=id;if(!id){repoReport=null;$('repo-report-detail').replaceChildren();return;}const detail=await api('/api/github/reports/detail?id='+encodeURIComponent(id));if(sequence!==repoLoadSequence||id!==repoReportId)return;repoReport=detail;renderRepoReport();}
+$('report-list').onchange=()=>perform(()=>openRepoReport($('report-list').value));
+$('report-clear-all').onclick=()=>perform(async()=>{if(await ask('Delete all local repository reports, cached diffs and AI results for every cached account? Promoted WorkItem quotes and existing archives remain.',{ok:'Clear reports',danger:true})){await api('/api/github/reports/clear',{confirmed:true});repoReportId='';repoReport=null;$('repo-report-detail').replaceChildren();toast('Local repository reports cleared');}});
+$('report-cancel').onclick=()=>perform(async()=>{await api('/api/github/reports/cancel',{});await loadRepoReports();});
+$('repo-report-form').onsubmit=event=>{event.preventDefault();perform(async()=>{const result=await api('/api/github/reports/collect',{repository:$('report-repository').value.trim(),branch:$('report-branch').value.trim(),start:$('report-start').value,end:$('report-end').value});repoReportId=result.report_id;await loadRepoReports();});};
+async function analyzeRepoReport(){
+ const id=repoReport.id,preview=await api('/api/github/reports/preview',{id}),t=preview.target;
+ const approved=await ask('Send this repository snapshot to AI?\n'+repoReport.repository+' · '+repoReport.branch+'\n'+repoReport.period.start+' → '+repoReport.period.end+'\nEndpoint: '+t.local_ai_base_url+'\nModel: '+t.local_ai_model+' · reasoning: '+t.local_ai_reasoning+' · output: '+t.local_ai_max_tokens+'\n'+preview.parts+' parts · '+preview.characters+' characters'+(preview.omitted_parts?' · '+preview.omitted_parts+' parts excluded by the AI limit':'')+(preview.partial?'\nCollection is partial; check the coverage below.':'')+'\nCode, PR descriptions and diff context will be sent. Suggestions require review. No GitHub writes.',{ok:'Approve & analyze',cancel:'Cancel'});
+ if(!approved)return;
+ await api('/api/github/reports/analyze',{id,preview_token:preview.preview_token,approved:true});await loadRepoReports();
+}
+function reportFindings(parts){
+ const combined=new Map();
+ for(const finding of Object.values(parts).flat()){
+  const key=finding.kind+'|'+finding.certainty+'|'+finding.text.trim().toLocaleLowerCase().replace(/\s+/g,' '),existing=combined.get(key);
+  if(!existing){combined.set(key,{...finding,evidence:[...finding.evidence]});continue;}
+  for(const ref of finding.evidence)if(existing.evidence.length<3&&!existing.evidence.some(r=>r.id===ref.id&&r.quote===ref.quote))existing.evidence.push(ref);
+ }
+ return [...combined.values()];
+}
+function renderRepoReport(){
+ const r=repoReport,box=$('repo-report-detail');box.replaceChildren();if(!r)return;
+ const busy=!!repoJob.running,head=el('div','card-heading');head.append(el('h3','',r.repository+' · '+r.branch));
+ const remove=el('button','quiet danger-text','Delete report');remove.type='button';remove.disabled=busy;remove.onclick=()=>perform(async()=>{if(await ask('Delete this local report and its cached code? Promoted WorkItem quotes and existing archives remain.',{ok:'Delete report',danger:true})){await api('/api/github/reports/delete',{id:r.id});repoReportId='';await loadRepoReports();}});head.append(remove);box.append(head);
+ box.append(el('p','hint',r.period.start+' → '+r.period.end+' · Europe/Sofia · '+r.status));
+ if(r.head){const link=reportLink('https://github.com/'+r.repository+'/commit/'+r.head,'Pinned branch head '+r.head.slice(0,8));if(link)box.append(link);}
+ if(r.error)box.append(el('p','notice',r.error));
+ const actions=el('div','work-actions');
+ if(!r.collection_complete){const resume=el('button','secondary','Continue collection');resume.type='button';resume.disabled=busy;resume.onclick=()=>perform(async()=>{await api('/api/github/reports/collect',{id:r.id});await loadRepoReports();});actions.append(resume);}
+ else {const ai=el('button','primary',r.analysis?.complete?'Analyze / use cached result':'Analyze with AI');ai.type='button';ai.disabled=busy||!r.evidence.length;ai.onclick=()=>perform(analyzeRepoReport);actions.append(ai);}
+ const suggested=el('button','quiet','View suggestions');suggested.type='button';suggested.onclick=()=>showWorkTab('suggested');actions.append(suggested);box.append(actions);
+ const coverage=el('details','report-coverage'),omitted=r.coverage?.omitted||[],warnings=r.coverage?.warnings||[];
+ const count=Object.values(r.changes||{}).filter(c=>!c.skipped).length,partial=omitted.length||warnings.length||r.evidence.length>80;
+ coverage.append(el('summary','',(partial?'Partial coverage':'Collected coverage')+' · '+count+' logical changes · '+(r.coverage?.files||0)+' files · '+r.evidence.length+' evidence parts'));
+ coverage.append(el('p','hint','PRs use merge time; other commits use committer time. Historic push times and complete branch history are not reconstructed. File context is bounded. CI and deployment status are not collected; AI findings are not proof of completed work.'));
+ if(r.evidence.length>80)coverage.append(el('p','notice','AI reads the first 80 parts. '+(r.evidence.length-80)+' collected parts are excluded from analysis.'));
+ for(const text of warnings)coverage.append(el('p','notice',text));
+ for(const entry of omitted)coverage.append(el('p','hint',entry.change+' · '+entry.file+' · '+entry.reason));box.append(coverage);
+ const association=el('div','work-actions'),meeting=el('select');meeting.setAttribute('aria-label','Link report to a meeting');meeting.append(option('No linked meeting',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=r.meeting_id||'';
+ const linkMeeting=el('button','secondary','Link meeting');linkMeeting.type='button';linkMeeting.disabled=busy;linkMeeting.onclick=()=>perform(async()=>{repoReport=await api('/api/github/reports/associate',{id:r.id,meeting_id:meeting.value||null});renderRepoReport();});association.append(meeting,linkMeeting);
+ if(r.meeting_id){const open=el('button','quiet','Open linked meeting');open.type='button';open.onclick=()=>perform(()=>openMeeting(r.meeting_id));association.append(open);}box.append(association);
+ if(r.related_items?.length){const related=el('section','report-findings');related.append(el('h4','','Related work (same repository or linked meeting)'));for(const item of r.related_items)related.append(el('p','hint',item.kind+' · '+item.status+' · '+item.text));const open=el('button','quiet','Open My Work');open.type='button';open.onclick=()=>{sourceFilter='';showWorkTab('task');};related.append(open);box.append(related);}
+ if(r.analysis){box.append(el('p','hint','AI interpretation · '+r.analysis.target.local_ai_model+' · '+r.analysis.target.local_ai_base_url+' · '+Object.keys(r.analysis.parts).length+' parts completed. Check conclusions against their source.'));
+  const findings=reportFindings(r.analysis.parts);
+  const groups={change:'What changed',impact:'Practical effect',risk:'Risks and uncertainties',verification:'Checks to make',follow_up:'Suggested follow-ups'};
+  if(!findings.length)box.append(el('p','empty-note',r.analysis.complete?'Analysis complete. No supported findings were returned.':'No completed analysis parts yet.'));
+  for(const [kind,title] of Object.entries(groups)){
+   const rows=findings.filter(f=>f.kind===kind);if(!rows.length)continue;const section=el('section','report-findings');section.append(el('h4','',title));
+   for(const f of rows){const card=el('article','report-finding');card.append(el('p','',f.text),el('span','hint','AI · '+(f.certainty==='inference'?'inference':'source-based observation')));
+    for(const ref of f.evidence){const ev=r.evidence.find(e=>e.id===ref.id);if(!ev)continue;const quote=el('blockquote','',ref.quote),source=reportLink(ev.url,ev.filename||ev.kind);card.append(quote);if(source)card.append(source);}
+    const suggest=el('button','secondary small-action','Suggest a task');suggest.type='button';suggest.disabled=busy;suggest.onclick=()=>perform(async()=>{await api('/api/github/reports/propose',{id:r.id,finding_id:f.id});await refreshAfterItemChange();toast('Saved in Suggested · no task status changed');});card.append(suggest);section.append(card);
+   }box.append(section);
+  }
+ }
+ const sources=el('details','report-sources');sources.append(el('summary','','Collected evidence · '+r.evidence.length));
+ for(const ev of r.evidence){const entry=el('details');entry.append(el('summary','',ev.filename||ev.kind),el('pre','report-source',ev.text));const link=reportLink(ev.url,'Open on GitHub');if(link)entry.append(link);sources.append(entry);}box.append(sources);
+}
 
 let proposalFilter='pending';
 async function graphAction(action,body){await api('/api/work/'+action,body);await refreshAfterItemChange();}
@@ -1019,7 +1110,7 @@ function renderWorkGraph(){
  const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
  for(const p of proposals){
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
-  const top=el('div','proposal-top');top.append(source?originChip(source.provider,sourceLabel(source),()=>openSource(source)):originChip('','Unavailable source'),el('span','hint',(p.origin==='gmail_ai'?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · snoozed until '+p.snoozed_until:'')));
+  const top=el('div','proposal-top');top.append(source?originChip(source.provider,sourceLabel(source),()=>openSource(source)):originChip('','Unavailable source'),el('span','hint',(['gmail_ai','repo_ai'].includes(p.origin)?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · snoozed until '+p.snoozed_until:'')));
   card.append(top,el('strong','proposal-text',p.text));
   if(p.fields&&Object.keys(p.fields).length)card.append(el('p','hint',Object.entries(p.fields).map(([name,value])=>(name==='due_date'?'Due date':name==='owner'?'Owner':'Deadline')+': '+value).join(' · ')));
   if(source?.remote?.authority==='github')card.append(el('p','hint','GitHub '+(source.remote.kind==='pull_request'?'PR':'issue')+' state: '+source.remote.state+' · local task status is independent'+(!source.available?' · Source unavailable':'')));
@@ -1041,7 +1132,7 @@ function renderWorkGraph(){
  for(const q of itemsData.items.filter(i=>i.kind==='question')){
   const row=el('div','work-proposal');row.append(el('strong','',q.text),el('p','hint',q.status==='answered'?'Answered':'Open'));
   if(q.answer)row.append(el('p','',q.answer));row.append(historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));
-  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b);questions.append(row);
+  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,projectAssignment(q));questions.append(row);
  }
  if(!questions.children.length)questions.append(el('p','hint','No questions yet. Add one or accept a question proposal.'));
 }
@@ -1052,9 +1143,9 @@ function renderTasks() {
  renderWorkGraph();
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
  const project=$('work-project'), oldProject=project.value;
- project.replaceChildren(option('All projects',''),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
+ project.replaceChildren(option('All projects',''),option('Unassigned','__none__'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
  if([...project.options].some(o=>o.value===oldProject))project.value=oldProject;
- const inProject=item=>!project.value||item.links.some(link=>meetings[link.meeting_id]?.project_id===project.value);
+ const inProject=item=>!project.value||(project.value==='__none__'?!item.effective_project_ids?.length:item.effective_project_ids?.includes(project.value));
  const tasks=itemsData.items.filter(item=>item.kind==='task'&&inProject(item)), decisions=itemsData.items.filter(item=>item.kind==='decision'&&inProject(item));
  const open=tasks.filter(t=>t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
@@ -1089,9 +1180,9 @@ function showWorkTab(tab){
  workTab=tab;try{localStorage.setItem('work-tab',tab);}catch{}
  for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab;button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
  for(const id of new Set(Object.values(WORK_PANELS)))$(id).hidden=id!==WORK_PANELS[tab];
- for(const timer of [mailTimer,chatTimer,ghTimer])if(timer)clearTimeout(timer);mailTimer=chatTimer=ghTimer=null;
+ for(const timer of [mailTimer,chatTimer,ghTimer,repoTimer])if(timer)clearTimeout(timer);mailTimer=chatTimer=ghTimer=repoTimer=null;
  if(tab==='task'||tab==='decision'){itemKind=tab;renderTasks();}
- else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(loadGitHub);
+ else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(async()=>{await loadGitHub();showGitHubSection(ghSection);});
 }
 for(const button of $('work-tabs').querySelectorAll('button')) button.onclick=()=>showWorkTab(button.dataset.workTab);
 // Projects group meetings; a series groups the meetings that repeat inside a project.
@@ -1420,3 +1511,61 @@ $('local-ai-model').addEventListener('input',renderLocalModels);
 $('load-local-models').onclick=()=>perform(async()=>{const button=$('load-local-models');button.disabled=true;$('local-ai-status').textContent='Connecting…';try{const result=await api('/api/local-ai/models',{base_url:$('local-ai-base-url').value.trim()});$('local-ai-models').replaceChildren(...result.models.map(id=>{const option=document.createElement('option');option.value=id;return option;}));localModels=result.models;$('local-ai-status').textContent=result.models.length+' models available. Click one to use it; embedding models cannot generate notes.';if(result.models.length===1)$('local-ai-model').value=result.models[0];renderLocalModels();}catch(error){$('local-ai-status').textContent='Could not load models. Check the endpoint and server.';throw error;}finally{button.disabled=false;}});
 
 $('audio-source').onchange=()=>{if(!detail)return;const audio=$('audio'),position=audio.currentTime,playing=!audio.paused;audio.src='/files/'+detail.id+'/'+$('audio-source').value;audio.currentTime=position;if(playing)audio.play().catch(e=>error(e.message));};
+
+
+let workspaceData=null, workspaceSection='overview', workspaceSequence=0;
+function projectAssignment(item){
+ const box=el('details','project-assignment'), names=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)?.name).filter(Boolean);
+ box.append(el('summary','',names.length?names.join(' · '):'Assign to project'));
+ const hint=el('p','hint',Object.hasOwn(item,'project_ids')?'Manual assignment · preserved during sync':'Inherited from linked meetings');box.append(hint);
+ const choices=[];
+ for(const project of projectList()){
+  const label=el('label','project-choice'),check=el('input');check.type='checkbox';check.checked=(item.effective_project_ids||[]).includes(project.id);label.append(check,document.createTextNode(project.name));box.append(label);choices.push([project.id,check]);
+ }
+ const save=el('button','secondary small-action','Save projects'),inherit=el('button','quiet','Use meeting projects');save.type=inherit.type='button';
+ save.onclick=()=>perform(()=>graphAction('project',{id:item.id,revision:item.revision,project_ids:choices.filter(([,check])=>check.checked).map(([id])=>id)}));
+ inherit.onclick=()=>perform(()=>graphAction('project',{id:item.id,revision:item.revision,project_ids:null}));box.append(save,inherit);return box;
+}
+async function loadWorkspace(){
+ const sequence=++workspaceSequence,key=$('workspace-project').value;
+ const fresh=await api('/api/projects/workspace?id='+encodeURIComponent(key));if(sequence!==workspaceSequence||view!=='projects')return;
+ workspaceData=fresh;state.projects={...state.projects,projects:fresh.projects.filter(p=>p.id!=='__none__').map(({id,name})=>({id,name}))};
+ fillProjects($('workspace-project'),fresh.project_id,'All projects',[option('Unassigned','__none__')]);renderWorkspace();
+}
+function renderWorkspace(){
+ const data=workspaceData;if(!data)return;
+ const cards=$('workspace-cards');cards.replaceChildren();
+ for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));b.append(el('strong','',project.name),el('span','hint',project.meetings+' meetings · '+project.open_tasks+' open tasks · '+project.open_questions+' questions'));b.onclick=()=>perform(async()=>{$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
+ for(const b of $('workspace-tabs').querySelectorAll('button')){b.classList.toggle('selected',b.dataset.section===workspaceSection);b.setAttribute('aria-selected',String(b.dataset.section===workspaceSection));}
+ const box=$('workspace-content');box.replaceChildren();
+ const today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
+ const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today));
+ const kinds={task:'Tasks',decision:'Decisions',question:'Questions'};
+ function itemCard(item){
+  const card=el('article','workspace-item');card.append(el('strong','',item.text),el('p','hint',item.kind+' · '+item.status+(item.owner?' · '+item.owner:'')),projectAssignment(item));
+  if(item.answer)card.append(el('p','',item.answer));card.append(sourceChips(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
+  const open=el('button','quiet','Open in My Work');open.onclick=()=>perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});card.append(open);return card;
+ }
+ if(workspaceSection==='overview'){
+  box.append(el('h2','',data.projects.find(p=>p.id===data.project_id)?.name||'All projects'));
+  box.append(el('p','hint','One work item can belong to several projects. Manual assignments take priority over linked meeting projects. Source states and saved quotes remain unchanged.'));
+  for(const [kind,title] of Object.entries(kinds)){
+   const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
+   box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));
+  }
+ }else if(workspaceSection==='meetings'){
+  box.append(el('h2','','Meetings · '+data.meetings.length));
+  for(const meeting of data.meetings){const row=el('article','workspace-item'),open=el('button','quiet',meeting.title);open.onclick=()=>perform(()=>openMeeting(meeting.id));row.append(open,el('p','hint',date(meeting.started_at||meeting.created)+' · '+(statusNames[meeting.status]||meeting.status)));
+   const assign=el('select');assign.setAttribute('aria-label','Project for '+meeting.title);fillProjects(assign,meeting.project_id||'','No project');const save=el('button','secondary small-action','Move meeting');save.onclick=()=>perform(async()=>{await api('/api/meetings/'+meeting.id+'/scope',{project:assign.value?{id:assign.value}:null,series:assign.value===meeting.project_id&&meeting.series_id?{id:meeting.series_id}:null});state=await api('/api/state');lastTasks='';itemsData=await api('/api/items');renderState();await loadWorkspace();});row.append(assign,save);box.append(row);}
+ }else if(workspaceSection==='sources'){
+  const evs=new Set(data.items.flatMap(i=>i.source_evidence||[])),ids=new Set((data.graph.source_evidence||[]).filter(e=>evs.has(e.id)).map(e=>e.source_id));
+  box.append(el('h2','','Sources linked through project work'),el('p','hint','Accept or link a proposal in My Work, then assign its item to a project. This view keeps the original source and its evidence.'));
+  for(const source of data.graph.sources||[])if(ids.has(source.id)){const row=el('article','workspace-item');row.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)),el('p','hint',source.available?'Available':'Saved evidence · source unavailable'));box.append(row);}
+ }else {const rows=visible.filter(i=>i.kind===workspaceSection);box.append(el('h2','',kinds[workspaceSection]+' · '+rows.length));for(const item of rows)box.append(itemCard(item));}
+ if(box.children.length<2)box.append(el('p','hint','Nothing assigned here yet.'));
+}
+$('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;history.replaceState(null,'','/');show('projects');itemsData=await api('/api/items');await loadWorkspace();});
+$('workspace-project').onchange=()=>perform(loadWorkspace);
+$('workspace-refresh').onclick=()=>perform(async()=>{itemsData=await api('/api/items');await loadWorkspace();});
+$('workspace-new').onclick=()=>perform(async()=>{const name=await ask('New project name',{ok:'Create project',value:''});if(name===null)return;const created=await api('/api/projects/create',{name});state.projects=created.projects;lastProjects='';syncProjects();fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
+for(const b of $('workspace-tabs').querySelectorAll('button'))b.onclick=()=>{workspaceSection=b.dataset.section;renderWorkspace();};

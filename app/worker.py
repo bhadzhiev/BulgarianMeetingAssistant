@@ -16,6 +16,9 @@ from .jobs import JobCancelled
 
 
 def execute(action, directory, settings, progress, key='', speakers=(), trackers=()):
+    if action == 'repo_report':
+        from .repo_reports import analyze
+        return analyze(settings['repo_evidence'],settings,progress,key)
     if action == 'gmail_extract':
         from .gmail_ai import extract
         return extract(settings['gmail_ai_input'],settings,progress)

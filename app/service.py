@@ -25,6 +25,7 @@ from . import correction
 from . import analytics as conversation
 from . import diarization
 from . import parakeet
+from .repo_reports import RepoReports, read_store as read_report_store
 from . import backup
 from . import items
 from . import briefing
@@ -106,6 +107,7 @@ class MeetingService:
                              self._refresh_chat_message,self._chat_unavailable)
         self.github = GitHubSync(root,GitHubConnection(root),lambda:self.closed.is_set() or bool(self.active or self.busy),
                                  self._refresh_github_source,self._github_unavailable)
+        self.repo_reports = RepoReports(self)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -932,6 +934,31 @@ class MeetingService:
             self.projects.save()
             return dict(projects=self.projects.data)
 
+    def create_project(self, name):
+        with self.lock, self.projects.lock:
+            key = self.projects.ensure_project({'name': name})
+            self.projects.save()
+            return dict(id=key, projects=self.projects.data)
+
+    def project_workspace(self, project_id=''):
+        with self.lock, self.items.lock, self.projects.lock:
+            data = self.item_list()
+            projects = self.projects.data['projects']
+            if project_id not in ('', '__none__') and not self.projects.get('projects', project_id):
+                raise ValueError('This project no longer exists. Reload and try again.')
+            def includes(ids, key):
+                return not key or (not ids if key == '__none__' else key in ids)
+            all_meetings = self.library.list()
+            meetings = [m for m in all_meetings if includes([m['project_id']] if m.get('project_id') else [], project_id)]
+            rows = [i for i in data['items'] if includes(i['effective_project_ids'], project_id)]
+            cards = []
+            for p in [dict(id='__none__', name='Unassigned'), *projects]:
+                items_here = [i for i in data['items'] if includes(i['effective_project_ids'], p['id'])]
+                cards.append(dict(p, meetings=sum(includes([m['project_id']] if m.get('project_id') else [], p['id']) for m in all_meetings),
+                    open_tasks=sum(i['kind']=='task' and i['status']=='open' and not i.get('dismissed') for i in items_here),
+                    open_questions=sum(i['kind']=='question' and i['status']=='open' for i in items_here)))
+            return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'])
+
     def prepare(self, project_id=None, series_id=None):
         """Open tasks, questions, decisions and an agenda for the next meeting of a project or series."""
         with self.lock, self.projects.lock:
@@ -1011,7 +1038,9 @@ class MeetingService:
             yield
 
     def restore_backup(self, name):
+        restored_reports={}
         def validate(staging):
+            restored_reports.update(read_report_store(staging / 'repo-reports.json')['reports'])
             path = staging / 'items.json'
             if path.exists():
                 portable = json.loads(path.read_text())
@@ -1019,6 +1048,7 @@ class MeetingService:
                 for item in portable['items'].values():
                     normalize(item)
         def merge(staging, restored):
+            self.repo_reports.restore(staging)
             try:
                 archived_projects = json.loads((staging / 'projects.json').read_text())
             except (OSError, ValueError):
@@ -1050,7 +1080,11 @@ class MeetingService:
                     for item_id, item in archived.items():
                         links = [link for link in item.get('links', []) if link.get('meeting_id') in restored]
                         if (links or item.get('managed_by') == 'work_graph' or item.get('source_evidence') or item_id in graph_ids) and item_id not in self.items.items:
-                            self.items.items[item_id] = dict(item, links=links)
+                            restored_item = dict(item, links=links)
+                            if 'project_ids' in restored_item:
+                                restored_item['project_ids'] = sorted({mapping['projects'].get(key, key) for key in restored_item['project_ids']
+                                    if self.projects.get('projects', mapping['projects'].get(key, key))})
+                            self.items.items[item_id] = restored_item
                     for collection in COLLECTIONS:
                         for key, record in portable.get(collection, {}).items():
                             self.items.data[collection].setdefault(key, record)
@@ -1059,7 +1093,15 @@ class MeetingService:
             except (OSError, ValueError, KeyError, AttributeError):
                 self.items.data, self.items.revision = self.items.store.load(repair_export=False)
                 raise
-        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge, guard=self._snapshot_guard, validate=validate)
+        @contextmanager
+        def restore_guard():
+            with self._snapshot_guard(), self.repo_reports.lock:
+                if self.repo_reports.thread and self.repo_reports.thread.is_alive():
+                    raise ValueError('Stop repository report jobs before restoring')
+                if len(set(self.repo_reports.data['reports']) | set(restored_reports)) > 24:
+                    raise ValueError('Restoring would exceed the 24-report limit')
+                yield
+        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge, guard=restore_guard, validate=validate)
         with self.lock:
             for meeting_id in result['restored']:
                 # A meeting archived during a job comes back as interrupted, like after a crash.
@@ -1332,7 +1374,14 @@ class MeetingService:
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
-            return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs(), graph=WorkGraph(self.items).snapshot())
+            meetings = self._meeting_refs()
+            known = {p['id'] for p in self.projects.data['projects']}
+            rows = []
+            for item in self.items.items.values():
+                assigned = item.get('project_ids')
+                effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
+                rows.append(dict(item, effective_project_ids=sorted({key for key in effective if key in known})))
+            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=WorkGraph(self.items).snapshot())
 
     def _github_publish(self,account,record,suggestions):
         graph=WorkGraph(self.items)
@@ -1456,6 +1505,21 @@ class MeetingService:
         # The same service/registry lock order as meeting edits and backup snapshots.
         with self.lock, self.items.lock:
             graph = WorkGraph(self.items)
+            if action == 'project':
+                ids = body.get('project_ids')
+                if ids is not None and (not isinstance(ids, list) or len(ids)>50 or any(not isinstance(key, str) or not self.projects.get('projects', key) for key in ids)):
+                    raise ValueError('Choose existing projects')
+                def assign(data):
+                    item = data['items'].get(body.get('id'))
+                    if not item or type(body.get('revision')) is not int or item.get('revision') != body.get('revision'):
+                        raise items.WorkItemConflict('Work item changed. Reload and try again.')
+                    previous = item.get('project_ids')
+                    if ids is None: item.pop('project_ids', None)
+                    else: item['project_ids'] = sorted(set(ids))
+                    item['history'].append(dict(at=items.now(), event='projects_changed', by='user', meeting_id=None, changes={'project_ids': [previous, ids]}))
+                    graph._activity(data, 'item_projects_changed', item_id=item['id'], project_ids=ids)
+                    return item
+                return graph._write(assign)
             if action == 'ingest':
                 return graph.ingest(body['source'], body['suggestions'])
             if action == 'availability':
@@ -1796,6 +1860,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.repo_reports.close()
         self.github.close()
         self.chat.close()
         self.gmail_ai.close()

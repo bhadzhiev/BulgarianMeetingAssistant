@@ -20,9 +20,9 @@ import uuid
 from contextlib import contextmanager, nullcontext
 
 FORMAT = 'meeting-assistant-backup'
-SHARED = ('settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json')
+SHARED = ('settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json', 'repo-reports.json')
 ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}(?:-[a-f0-9]{8})?\.tar\.gz')
-MEMBER = re.compile(r'(?:settings|speakers|trackers|projects|items|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
+MEMBER = re.compile(r'(?:settings|speakers|trackers|projects|items|repo-reports|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
 # Derived from recording.wav and the saved settings; large, and not needed to restore a meeting.
 DERIVED = {'transcription.wav'}

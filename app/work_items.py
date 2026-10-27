@@ -35,6 +35,11 @@ def normalize(item):
             or not isinstance(item.get('id'), str) or not re.fullmatch(r'[a-f0-9]{1,64}', item['id'])
             or not isinstance(item.get('links'), list)):
         raise ValueError('Invalid legacy WorkItem; the original items.json was kept')
+    if 'project_ids' in item:
+        ids = item['project_ids']
+        if (not isinstance(ids, list) or len(ids) > 50
+                or any(not isinstance(key, str) or not re.fullmatch(r'[a-f0-9]{12}', key) for key in ids) or len(set(ids)) != len(ids)):
+            raise ValueError('Invalid WorkItem projects')
     item.setdefault('dismissed', False)
     item.setdefault('snoozed_until', None)
     if type(item['dismissed']) is not bool:

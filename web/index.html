@@ -6,6 +6,7 @@
   <a class="brand" href="/" aria-label="Atlanta home"><span class="brand-icon">A</span><span><strong>Atlanta</strong><small>MEETING ASSISTANT</small></span></a>
   <button id="new-meeting" class="primary wide"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New meeting</button>
   <button id="open-tasks" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10"/></svg>My Work <span id="tasks-badge" class="count-badge" hidden></span></button>
+  <button id="open-projects" class="secondary wide tasks-link">Projects</button>
   <button id="open-analytics" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>Conversation analytics</button>
   <button id="open-prepare" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8M6 8h12a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM9 13h6M9 16h4"/></svg>Prepare me</button>
   <button id="open-find" class="secondary wide tasks-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Search &amp; ask</button>
@@ -55,6 +56,13 @@
       <p class="live-disclaimer">Provisional text may change. The full recording is used for the final transcript.</p>
     </div>
     <p id="recording-next-step" class="below-card"></p>
+  </section>
+  <section id="projects" hidden>
+    <div class="heading"><p class="eyebrow">YOUR WORKSPACE</p><h1>Projects</h1><p class="subheading">Meetings and work from every source, together.</p></div>
+    <div class="work-actions"><select id="workspace-project" aria-label="Project workspace"></select><button id="workspace-refresh" class="secondary">Refresh</button><button id="workspace-new" class="primary">＋ New project</button></div>
+    <div id="workspace-cards" class="project-cards"></div>
+    <div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="task">Tasks</button><button role="tab" data-section="decision">Decisions</button><button role="tab" data-section="question">Questions</button><button role="tab" data-section="sources">Sources</button></div>
+    <div id="workspace-content" class="card"></div>
   </section>
   <section id="tasks" hidden>
     <div class="heading"><p class="eyebrow">MY WORK · MEETINGS</p><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>
@@ -122,13 +130,28 @@
       </div>
       <p id="github-notice" class="source-notice" role="status" hidden></p>
       <div class="source-connect"><h3>Connect GitHub to see every open issue and pull request</h3><p class="hint">Use a fine-grained personal access token with Issues and Pull requests read-only access. Atlanta stores it in the macOS Keychain.</p><div class="work-actions"><input id="github-token" type="password" autocomplete="off" placeholder="github_pat_…" aria-label="Fine-grained personal access token"><button id="github-connect" class="primary" type="button">Connect GitHub</button></div></div>
-      <div class="source-work">
+      <div class="work-actions source-work github-sections" role="group" aria-label="GitHub views"><button id="github-show-items" class="secondary" type="button">Open issues &amp; PRs</button><button id="github-show-reports" class="secondary" type="button">Changes by period</button></div>
+      <div class="source-work" id="github-open-items">
         <div class="source-filters"><div id="github-filters" class="segmented" role="group" aria-label="Whose items"></div><div id="github-kinds" class="segmented" role="group" aria-label="Item kind"></div><select id="github-repo-filter" aria-label="Repository"></select><input id="github-search" type="search" placeholder="Filter by title or number" aria-label="Filter issues"></div>
         <div id="github-items" class="source-list" role="listbox" aria-label="Open issues and pull requests"></div>
         <div id="github-detail" class="reader" aria-live="polite"></div>
       </div>
+      <section id="repo-reports" class="source-work repo-reports" hidden>
+        <h3>Changes by period</h3><p class="hint">Collect a read-only snapshot first, then approve the AI endpoint before code is sent. Private repositories need Contents and Pull requests read-only access.</p>
+        <form id="repo-report-form" class="report-form">
+          <label>Repository<input id="report-repository" list="report-repositories" placeholder="owner/repository" required maxlength="200"></label><datalist id="report-repositories"></datalist>
+          <label>Branch<input id="report-branch" placeholder="Default branch" maxlength="200"></label>
+          <label>From<input id="report-start" type="date" required></label><label>Through<input id="report-end" type="date" required></label>
+          <button id="report-collect" class="primary" type="submit">Collect changes</button>
+        </form>
+        <p class="hint">Europe/Sofia · up to 31 days. Today ends at the current moment. Merged PRs use merge time; other commits use committer time, which does not prove when code was pushed or deployed.</p>
+        <div class="work-actions"><span id="report-job-status" role="status"></span><button id="report-cancel" class="quiet" type="button" hidden>Stop report job</button></div>
+        <label for="report-list">Saved reports on this Mac</label><select id="report-list"></select>
+        <div id="repo-report-detail" class="report-detail" aria-live="polite"></div>
+      </section>
       <details class="source-about"><summary>About GitHub in Atlanta</summary>
-        <p class="hint">Read-only. GitHub.com only. Atlanta reads the open issues and pull requests that the token can see, up to 300 per filter, newest change first. It uses GET requests only and cannot inspect whether your token has extra permissions. GitHub status stays separate from the local task status. No AI export or GitHub writes.</p>
+        <p class="hint">Read-only. GitHub.com only. Atlanta reads the open issues and pull requests that the token can see, up to 300 per filter, newest change first. It uses GET requests only and cannot inspect whether your token has extra permissions. GitHub status stays separate from the local task status. Repository reports send only an explicitly approved snapshot to the shown AI endpoint. No GitHub writes.</p>
+        <p class="hint">Repository reports stay on this Mac and are included in Archive/Restore. Delete reports individually, or clear all report data here even after disconnecting. Promoted WorkItem source quotes and existing archives remain.</p><button id="report-clear-all" class="danger-text" type="button">Clear all local repository reports</button>
         <p class="hint">Disconnect removes the local credential, not the token on GitHub. Clearing the cache keeps promoted source quotes and archives.</p>
         <div class="work-actions work-cache"><select id="github-cache-account" aria-label="Cached GitHub account"></select><button id="github-clear" class="danger" type="button">Clear local GitHub cache</button></div>
       </details>

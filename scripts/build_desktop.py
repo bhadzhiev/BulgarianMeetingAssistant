@@ -31,6 +31,21 @@ def keep_backend_links(app: Path, backend: Path, entitlements: Path) -> None:
     subprocess.run(['codesign', '--force', '--sign', '-', '--options', 'runtime', '--entitlements', str(entitlements), str(app)], check=True)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
 
+
+def link_mlx_metallib(sidecar):
+    # PyInstaller loads libmlx through its top-level alias. MLX searches beside
+    # that loader path, so its kernels must be available there too.
+    internal = Path(sidecar) / '_internal'
+    kernels = internal / 'mlx/lib/mlx.metallib'
+    if not kernels.is_file():
+        raise RuntimeError('Parakeet build is missing mlx.metallib')
+    alias = internal / 'mlx.metallib'
+    if alias.is_symlink() and not alias.exists():
+        alias.unlink()
+    if not alias.exists():
+        alias.symlink_to('mlx/lib/mlx.metallib')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ffmpeg-dir', type=Path)
@@ -72,6 +87,8 @@ def main():
         print('This build requires ffmpeg and ffprobe installed on the target Mac (brew install ffmpeg).', flush=True)
     command.append(str(ROOT / 'desktop_app.py'))
     subprocess.run(command, cwd=ROOT, check=True)
+    if args.with_parakeet:
+        link_mlx_metallib(ROOT / 'build/desktop-backend/meeting-backend')
     config = ROOT / 'build/desktop-bundle.json'
     config.write_text(json.dumps({'bundle': {'resources': {str(ROOT / 'build/desktop-backend'): 'backend/'}}}))
     build = ['npm', '--prefix', str(ROOT / 'desktop'), 'run', 'tauri', '--', 'build',

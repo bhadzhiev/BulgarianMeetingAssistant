@@ -112,6 +112,10 @@ class MeetingService:
         self.people = People(root / 'people.json')
         self.github_links = GitHubLinks(root / 'github-links.json')
         self.templates = Templates(root / 'meeting-templates.json')
+        from .prompts import Prompts
+        self.prompts = Prompts(root / 'ai-prompts.json')
+        from .prompt_lab import PromptLab
+        self.prompt_lab = PromptLab(self)
         self.conversations = Conversations(self)
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
@@ -376,6 +380,9 @@ class MeetingService:
             inherited = self._series_type(series_id)
             meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id,
                                           **self._type_changes(meeting_type or inherited, 'series' if (meeting_type or inherited) == inherited else 'manual'))
+            if not self.prompts.error:
+                settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting['id'])
+            meeting=self.library.update(meeting['id'],settings=settings)
             self.active = meeting['id']
             self.activity_changed(True)
             self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
@@ -621,6 +628,8 @@ class MeetingService:
                 action in {'all', 'summarize'} and settings['summarizer'] == 'openai' or
                 action in {'all', 'transcribe', 'correct'} and settings['transcript_correction'] == 'openai') and not key:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
+            if action in {'all','summarize','correct','reanalyze'} and '_prompt_snapshot' not in settings:
+                settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting_id)
             self.busy.add(meeting_id)
             self.library.update(meeting_id, status='processing', error=None, settings=settings, progress='Queued for processing')
             self.cancel_events[meeting_id] = threading.Event()
@@ -645,6 +654,12 @@ class MeetingService:
             return {'id': meeting_id, 'cancel_requested': True}
 
     def _execute(self, action, directory, settings, progress, key='', speakers=(), trackers=()):
+        if action in {'summarize','correct','analytics'} and '_prompt_snapshot' not in settings:
+            meeting=read_json(directory/'meeting.json',{})
+            settings=dict(settings,_prompt_snapshot=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting.get('id')))
+        if action in {'summarize','correct','analytics'}:
+            from .prompts import record_usage
+            record_usage(directory,action,settings['_prompt_snapshot'])
         if self.step_runner:
             return self.step_runner.run(action, directory, settings, progress, key, speakers, trackers,
                                         cancel=self.cancel_events.get(directory.name))
@@ -1333,7 +1348,7 @@ class MeetingService:
                       provider=self.settings.get('summarizer', 'none'))
         if sources and ai:
             try:
-                result['ai'] = search.ai_answer(dict(self.settings), self.api_key, question.strip(), sources)
+                result['ai'] = search.ai_answer(dict(self.settings,_prompt_snapshot=self.prompts.snapshot()), self.api_key, question.strip(), sources)
             except Exception as exc:
                 message = str(exc)
                 result['ai_error'] = message.replace(self.api_key, '[redacted]') if self.api_key else message
@@ -1352,7 +1367,7 @@ class MeetingService:
 
     @contextmanager
     def _snapshot_guard(self):
-        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock:
+        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.prompts.lock:
             self.library._finish_scope_batch()
             # Recover a projection interrupted after SQLite committed before pinning it.
             self.items.data, self.items.revision = self.items.store.load()
@@ -1361,6 +1376,7 @@ class MeetingService:
     def restore_backup(self, name):
         restored_reports={}
         def validate(staging):
+            self.prompts.read(staging/'ai-prompts.json')
             restored_reports.update(read_report_store(staging / 'repo-reports.json')['reports'])
             path = staging / 'items.json'
             if path.exists():
@@ -1370,6 +1386,7 @@ class MeetingService:
                     normalize(item)
         def merge(staging, restored):
             self.repo_reports.restore(staging)
+            if (staging/'ai-prompts.json').exists():self.prompts.merge(staging/'ai-prompts.json')
             for name, store in (('people.json', self.people), ('github-links.json', self.github_links), ('meeting-templates.json', self.templates)):
                 try:
                     store.merge(json.loads((staging / name).read_text()))
@@ -2197,6 +2214,7 @@ class MeetingService:
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.prompt_lab.close()
         self.task_drafts.close()
         self.repo_reports.close()
         self.github.close()

@@ -644,3 +644,10 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .segment-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.diagnostics-button{float:right;font-size:11px;padding:3px 6px;color:var(--muted)}.report-findings{min-width:0}.heading{margin-bottom:28px}#conversations>.heading,#tasks>.heading,#projects>.heading{margin-top:28px}#conversations h1,#tasks h1,#projects h1{font-size:clamp(28px,3vw,38px)}.date-error[hidden]{display:none}.date-trigger svg{width:18px;height:18px;display:block}
 
 .speaker-review-container{margin:14px 0;border:1px solid var(--line);border-radius:10px;padding:10px 14px}.speaker-review-container>summary{cursor:pointer;font-size:13px;color:var(--muted)}
+
+/* Prompt editor uses the same settings controls and spacing as other panels. */
+.prompt-grid {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:end;margin:16px 0}
+.prompt-grid label{min-width:0}.prompt-grid select{width:100%}
+.prompt-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;background:var(--surface);padding:16px;border-radius:12px;font-size:13px;line-height:1.6}
+#prompt-text{width:100%;resize:vertical;min-height:180px}#prompt-snippet{width:100%;resize:vertical}
+@media(max-width:650px){.prompt-grid{grid-template-columns:1fr}}

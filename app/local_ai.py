@@ -63,7 +63,8 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     if mode not in {'json_schema', 'json_object', 'text'}:
         raise ValueError('Invalid local AI response format')
     # Include the schema in the prompt even when the server cannot constrain output.
-    messages = [dict(m) for m in messages]
+    from .prompts import apply
+    messages = apply(settings,messages,name)
     messages.append({'role': 'user', 'content': 'Return only one JSON object matching this schema: ' + json.dumps(schema, ensure_ascii=False)})
     max_tokens = settings.get('local_ai_max_tokens', 4096)
     if type(max_tokens) is not int or not 128 <= max_tokens <= 32768:

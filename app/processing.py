@@ -275,6 +275,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
         raise ValueError('Add an OpenAI API key in Settings before generating cloud notes.')
     # Pass credentials explicitly; never alter the process environment across jobs.
     args.api_key = api_key
+    if settings.get('_prompt_snapshot'):args._prompt_snapshot=settings['_prompt_snapshot']
     args.speakers = list(speakers)
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
     from datetime import date

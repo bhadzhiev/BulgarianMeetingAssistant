@@ -16,6 +16,9 @@ from .jobs import JobCancelled
 
 
 def execute(action, directory, settings, progress, key='', speakers=(), trackers=()):
+    if action == 'prompt_test':
+        from .prompt_lab import generate
+        return generate(settings,key)
     if action == 'task_draft':
         from .task_draft import generate
         return generate(settings['task_draft_source'], settings, key)

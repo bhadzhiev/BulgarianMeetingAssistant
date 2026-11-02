@@ -87,6 +87,8 @@ class GmailAI:
         if (target['local_ai_reasoning'] == 'default'
                 and re.search(r'(?:^|/)qwen3\.5(?:-|$)', target['local_ai_model'], re.I)):
             target['local_ai_reasoning'] = 'none'
+        from .prompts import select_stages
+        target['_prompt_snapshot']=select_stages(self.service.prompts.snapshot(),('email_commitments',))
         return target
 
     def _preview(self, key, revision, message_id):

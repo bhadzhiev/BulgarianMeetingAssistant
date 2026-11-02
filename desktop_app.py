@@ -193,6 +193,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.gmail.listing(parse_qs(url.query).get('view',['needs_reply'])[0]))
         if url.path == '/api/gmail/thread':
             return self.respond(200, identity_channels.gmail_thread(self.server.service,parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/prompts':
+            from app.prompt_lab import catalog
+            return self.respond(200,catalog(self.server.service))
+        if url.path == '/api/prompts/test/status':
+            return self.respond(200,self.server.service.prompt_lab.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/task-draft/status':
             return self.respond(200,self.server.service.task_drafts.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
@@ -220,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
@@ -337,6 +342,19 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.repo_reports.start_analysis(body['id'],body.get('preview_token'),body.get('approved'))
             elif path == '/api/github/reports/cancel':
                 result=service.repo_reports.stop()
+            elif path == '/api/prompts/save':
+                from app.prompt_lab import save
+                result=save(service,body)
+            elif path == '/api/prompts/resolve':
+                from app.prompt_lab import resolve
+                result=resolve(service,body)[0]
+            elif path == '/api/prompts/test/preview':
+                from app.prompt_lab import preview
+                result=preview(service,body)
+            elif path == '/api/prompts/test/start':
+                result=service.prompt_lab.start(body)
+            elif path == '/api/prompts/test/cancel':
+                result=service.prompt_lab.stop(body['id'])
             elif path == '/api/task-draft/start':
                 result=service.task_drafts.start(body)
             elif path == '/api/task-draft/cancel':

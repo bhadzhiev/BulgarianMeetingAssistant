@@ -202,6 +202,8 @@ def ai_answer(settings: dict, api_key: str, question: str, sources: list[dict]) 
         from .local_ai import complete_json
         result = complete_json(settings, messages, ANSWER_SCHEMA, 'meeting_answer', timeout=300)
     elif provider == 'openai':
+        from .prompts import apply
+        messages=apply(settings,messages,'meeting_answer')
         from meeting_assistant import extract_json, post_json
         if not api_key:
             raise ValueError('Add an OpenAI API key in Settings, or choose local notes.')

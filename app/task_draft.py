@@ -65,6 +65,8 @@ def snapshot(service, body):
 
 def preview(service, body):
     source=snapshot(service,body);target=service.repo_reports.target()
+    from .prompts import select_stages
+    target['_prompt_snapshot']=select_stages(service.prompts.snapshot(),('task_draft',))
     token=digest(dict(source=source,target=target,nonce=service.repo_reports.nonce))
     quote=source.get('body') or source.get('finding',{}).get('text') or source.get('subject','')
     if source.get('finding'):quote='\n\n'.join(ref['quote'] for ref in source['finding']['evidence'])

@@ -55,6 +55,8 @@ def ask(settings, messages, response_schema, api_key):
         from .local_ai import complete_json
         return complete_json(settings, messages, response_schema, 'transcript_correction')
     if provider == 'openai':
+        from .prompts import apply
+        messages=apply(settings,messages,'transcript_correction')
         from meeting_assistant import post_json, extract_json
         if not api_key:
             raise ValueError('Add an OpenAI API key in Settings for cloud transcript correction.')

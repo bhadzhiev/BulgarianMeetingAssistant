@@ -130,6 +130,13 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(row['collection_complete']);self.assertEqual(len(row['evidence']),4)
         self.assertEqual(len({e['id'] for e in row['evidence']}),4)
 
+    def test_access_errors_name_the_repository_and_the_fix(self):
+        for status,text in [(404,"Add the repository to the token's repository access"),(403,'Contents and Pull requests read access'),(401,'expired or revoked')]:
+            error=GitHubError('synthetic');error.status=status;error.rate_limited=False
+            with patch.object(self.connection,'get',side_effect=error):row=self.collect()
+            self.assertEqual(row['status'],'error');self.assertIn(text,row['error'])
+            if status!=401:self.assertIn(REPO,row['error'])
+
     def test_ai_requires_current_explicit_approval_and_preserves_completed_parts(self):
         self.collect();preview=self.r.preview(self.key)
         self.assertEqual(preview['target']['local_ai_reasoning'],'none')

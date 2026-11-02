@@ -530,11 +530,12 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
         key = getattr(args, "api_key", None) or os.environ.get("OPENAI_API_KEY")
         if not key:
             raise ValueError("Set OPENAI_API_KEY or use --summarizer local")
+        from app.prompts import apply
         response = post_json(
             "https://api.openai.com/v1/chat/completions",
             {
                 "model": args.llm_model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": apply(vars(args),[{"role":"user","content":prompt}],"meeting_minutes"),
                 "temperature": 0,
                 "response_format": {
                     "type": "json_schema",

@@ -1234,3 +1234,42 @@ Project and meeting type are visible before recording. Project-level **Prepare m
 The desktop app warns before quitting with unsaved editor changes. **App menu → Recover interface** reloads the interface while recording and the local backend continue; unsaved edits require confirmation. Copy diagnostics omits credentials and source text.
 
 Repository reports analyze bounded groups of changes and then synthesize the supported source passages. Per-change findings and exact evidence remain available. See [UX validation and benchmark limits](docs/ux-flow-validation.md) for the implemented contracts and reproducible measurements.
+
+
+### Editable AI instructions
+
+**Settings → AI instructions** configures nine operations: meeting notes/tasks/decisions,
+transcript correction, meeting titles, Gmail commitments, task drafts, GitHub change analysis,
+GitHub report synthesis, search answers and semantic topic matching. Edit the task layer
+(language, style, focus and extraction priorities); source adapters, JSON schemas and
+runtime evidence checks remain in code. Transcription vocabulary remains under Recording.
+
+Instructions inherit in order: defaults → global → meeting type → individual meeting.
+Meeting-specific scopes apply to notes, correction, titles and topic matching. Operations
+spanning sources use global instructions. **AI instructions** next to a meeting's type
+opens its override. Save blank / Reset to inherited removes only that layer. The last
+20 versions per layer can be loaded into the editor and saved as a new version.
+Concurrent edits require reloading instead of overwriting another save.
+
+Recording start freezes the instructions. Processing retries keep the saved snapshot;
+explicit reprocessing uses the current configuration. Saving instructions never reruns
+old meetings or changes tasks automatically. Select a meeting in the notes editor and
+choose **Generate new notes for this meeting** to explicitly request a new proposal;
+saved notes remain until the existing review flow accepts changes. `prompt-history/`
+inside the meeting retains used snapshots, with the latest step snapshot in
+`prompt-<step>.json`. Archives include `ai-prompts.json`; restore adds missing prompt
+layers without replacing existing overrides.
+
+**Test with an excerpt** previews an explicitly pasted snippet (up to 4000 characters),
+assembled test messages, schema, destination and model before approval. Tests always
+use the saved **Notes & AI** destination, even for stages whose production provider is
+configured separately. The source is synthetic; normal whole-meeting chunking and
+source collection are not simulated. An isolated cancellable worker runs the request,
+validates the result and holds it in memory without writing meeting outputs or creating
+tasks. Recording/processing takes priority. The test never loads a meeting transcript
+automatically. No cloud/model quality claims follow from a successful test.
+
+**Meeting types → Customize a copy** copies a built-in's section definitions and
+preparation style into the editable template form. Save gives it a separate identity;
+existing meetings retain their saved template. Prepare me is deterministic from saved
+data and uses that preparation style, without an LLM request or a separate AI prompt.

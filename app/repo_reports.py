@@ -506,6 +506,8 @@ class RepoReports:
             result.update(local_ai_base_url='https://api.openai.com/v1',local_ai_model=settings['llm_model'],local_ai_format='json_schema',local_ai_reasoning='server')
         result['local_ai_base_url']=validate_base_url(result['local_ai_base_url'])
         if result['local_ai_reasoning']=='default' and re.search(r'(?:^|/)qwen3\.5(?:-|$)',result['local_ai_model'],re.I):result['local_ai_reasoning']='none'
+        from .prompts import select_stages
+        result['_prompt_snapshot']=select_stages(self.service.prompts.snapshot(),('repository_changes','repository_summary'))
         return result
 
     def preview(self,key):
@@ -576,7 +578,10 @@ class RepoReports:
             if isinstance(exc,GitHubError):
                 status=getattr(exc,'status',None)
                 if getattr(exc,'rate_limited',False):message='GitHub rate limit reached. Saved parts are kept; wait before continuing.'
-                elif status in {401,403,404}:message=f'GitHub access failed (HTTP {status}). Check token expiry, repository selection/approval and Contents/Pull requests read access.'
+                elif status==401:message='GitHub rejected the token (HTTP 401). The token is expired or revoked. Reconnect GitHub with a new token.'
+                # GitHub answers 404, not 403, for a private repository that the token cannot see.
+                elif status==404:message=f"GitHub cannot find {row['repository']} with this token (HTTP 404). Add the repository to the token's repository access, or check the name."
+                elif status==403:message=f"GitHub denied access to {row['repository']} (HTTP 403). Give the token Contents and Pull requests read access, and get organization approval."
                 else:message='GitHub could not be reached. Check the connection and retry collection; saved parts are kept.'
             elif isinstance(exc,OutputTruncatedError):message='AI output limit reached. Lower reasoning effort, increase the output limit or choose another model; completed parts are kept.'
             elif isinstance(exc,(ValueError,RuntimeError)):message=str(exc)

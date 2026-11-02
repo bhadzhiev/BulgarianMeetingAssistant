@@ -6,7 +6,7 @@ from pathlib import Path
 import threading
 import uuid
 
-from .storage import atomic_json
+from .safe_json import SafeJSON
 
 
 def _name(value) -> str:
@@ -15,20 +15,33 @@ def _name(value) -> str:
     return ' '.join(value.split())
 
 
-class Projects:
+class Projects(SafeJSON):
+    _data_attribute = 'data'
     def __init__(self, path: Path):
-        self.path = path
         self.lock = threading.RLock()
-        try:
-            data = json.loads(path.read_text())
-            if not isinstance(data.get('projects'), list) or not isinstance(data.get('series'), list):
-                raise ValueError
-        except (OSError, ValueError, AttributeError):
-            data = dict(projects=[], series=[])
-        self.data = data
+        self.data = self._load_file(path, 'Projects and series', dict(projects=[],series=[]), self._valid_library)
+
+    def _valid_library(self, data):
+        from .github_source import repo_name
+        from .meeting_types import CUSTOM_ID,TYPES
+        if not isinstance(data,dict) or not isinstance(data.get('projects'),list) or not isinstance(data.get('series'),list):raise ValueError('Invalid projects library')
+        for kind in ('projects','series'):
+            ids=set()
+            for entry in data[kind]:
+                if not isinstance(entry,dict) or not isinstance(entry.get('id'),str) or not entry['id'] or entry['id'] in ids:raise ValueError('Invalid project or series ID')
+                ids.add(entry['id']);_name(entry.get('name'))
+                if kind=='projects' and 'repositories' in entry:
+                    if not isinstance(entry['repositories'],list) or len(entry['repositories'])>30:raise ValueError('Invalid project repositories')
+                    for repository in entry['repositories']:repo_name(repository)
+                if kind=='series':
+                    if entry.get('project_id') not in {p['id'] for p in data['projects']}:raise ValueError('Series has no project')
+                    type_id=entry.get('type')
+                    # Unknown legacy type names fall back to General on read/merge.
+                    if type_id is not None and (not isinstance(type_id,str) or len(type_id)>128):raise ValueError('Invalid series type')
+        return data
 
     def save(self) -> None:
-        atomic_json(self.path, self.data)
+        self._write_file(self.data)
 
     def get(self, kind: str, entry_id):
         return next((entry for entry in self.data[kind] if entry['id'] == entry_id), None)
@@ -37,6 +50,7 @@ class Projects:
         """None, {"id": ...} for an existing project, or {"name": ...} for an existing or new one."""
         if spec is None:
             return None
+        self.guard_write()
         if not isinstance(spec, dict):
             raise ValueError('Invalid project')
         if 'id' in spec:
@@ -54,6 +68,7 @@ class Projects:
     def ensure_series(self, spec, project_id) -> str | None:
         if spec is None:
             return None
+        self.guard_write()
         if project_id is None:
             raise ValueError('Choose a project for the series')
         if not isinstance(spec, dict):
@@ -77,6 +92,7 @@ class Projects:
                      and (kind == 'projects' or e['project_id'] == project_id)), None)
 
     def rename(self, kind: str, entry_id, name) -> None:
+        self.guard_write()
         entry = self.get(kind, entry_id)
         if not entry:
             raise ValueError('This entry no longer exists. Reload and try again.')
@@ -88,6 +104,7 @@ class Projects:
 
     def set_series_type(self, series_id, kind) -> None:
         """The default meeting type of a series. New meetings of the series start with it. The caller checks the type."""
+        self.guard_write()
         series = self.get('series', series_id)
         if not series:
             raise ValueError('This series no longer exists. Reload and try again.')
@@ -101,6 +118,7 @@ class Projects:
     def set_repositories(self, project_id, repositories) -> list[str]:
         """The GitHub repositories of a project. One repository can belong to several projects."""
         from .github_source import repo_name
+        self.guard_write()
         project = self.get('projects', project_id)
         if not project:
             raise ValueError('This project no longer exists. Reload and try again.')
@@ -116,6 +134,7 @@ class Projects:
 
     def delete(self, kind: str, entry_id) -> set[str]:
         """Remove a project with its series, or one series. Returns the removed series IDs."""
+        self.guard_write()
         if not self.get(kind, entry_id):
             raise ValueError('This entry no longer exists. Reload and try again.')
         if kind == 'projects':
@@ -133,6 +152,8 @@ class Projects:
         whose ID is used locally for a different name gets a new ID, so its meetings keep their group.
         """
         from .meeting_types import CUSTOM_ID, TYPES
+        self.guard_write()
+        other=self._valid_library(other)
         mapping = dict(projects={}, series={})
         for kind in ('projects', 'series'):
             entries = other.get(kind, [])

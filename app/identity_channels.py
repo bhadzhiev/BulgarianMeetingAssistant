@@ -54,10 +54,10 @@ def remove(service, body):
         identity=body.get('identity')
         if identity not in person.get('identities',[]):raise ValueError('This confirmed identity no longer exists')
         value=copy.deepcopy(person)
-        if identity['provider']=='gmail':
-            value['identities']=[i for i in value['identities'] if not (i['provider']=='gmail' and i['external_id']==identity['external_id'])]
+        value['identities'].remove(identity)
+        if identity['provider']=='gmail' and not any(
+                i['provider']=='gmail' and i['external_id']==identity['external_id'] for i in value['identities']):
             value['emails']=[email for email in value['emails'] if email!=identity['external_id']]
-        else:value['identities'].remove(identity)
         saved=service.people.save(value)
         return dict(person=saved,people=service.people.list())
 

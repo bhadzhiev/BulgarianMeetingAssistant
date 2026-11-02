@@ -14,7 +14,7 @@ import re
 import threading
 import uuid
 
-from .storage import atomic_json
+from .safe_json import SafeJSON
 
 EMAIL = re.compile(r'[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,63}')
 LOGIN = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})')
@@ -39,19 +39,24 @@ def _names(person):
     return [person['name'], *person['aliases']]
 
 
-class People:
+class People(SafeJSON):
+    _data_attribute = 'people'
     def __init__(self, path: Path):
-        self.path = Path(path)
         self.lock = threading.RLock()
-        try:
-            data = json.loads(self.path.read_text())
-            self.people = [self._valid(p, keep=True) for p in data] if isinstance(data, list) else []
-        except (OSError, ValueError, TypeError, KeyError):
-            self.people = []
+        self.people = self._load_file(path, 'People', [], self._valid_library)
+
+    def _valid_library(self, data):
+        if not isinstance(data,list) or len(data)>MAX_PEOPLE:raise ValueError('Invalid people library')
+        result=[self._valid(row,keep=True) for row in data]
+        if len({p['id'] for p in result})!=len(result):raise ValueError('Duplicate person ID')
+        if any(type(p['revision']) is not int or p['revision']<1 for p in result):raise ValueError('Invalid person revision')
+        return result
 
     def _valid(self, value, keep=False):
         if not isinstance(value, dict):
             raise ValueError('Invalid person')
+        for field in ('emails','aliases','identities'):
+            if value.get(field) is not None and not isinstance(value[field],list):raise ValueError('Invalid person '+field)
         person = dict(id=value.get('id') if keep or value.get('id') else uuid.uuid4().hex[:12],
                       name=_text(value.get('name'), 'Name', required=True),
                       emails=[], aliases=[], identities=[], github=None, notes=_text(value.get('notes'), 'Notes', 1000),
@@ -94,8 +99,10 @@ class People:
             person['github'] = dict(login=login, id=account)
         return person
 
-    def save_file(self):
-        atomic_json(self.path, self.people)
+    def save_file(self, people=None):
+        candidate=self.people if people is None else people
+        self._write_file(candidate)
+        self.people=candidate
 
     def list(self):
         with self.lock:
@@ -107,6 +114,7 @@ class People:
     def save(self, value):
         """Create a person, or update one at its current revision. Names and GitHub accounts stay unique."""
         with self.lock:
+            self.guard_write()
             old = self.get(value.get('id')) if value.get('id') else None
             value=dict(value)
             if old:
@@ -131,17 +139,16 @@ class People:
                 raise ValueError('This GitHub account already belongs to another person')
             if not old and len(self.people) >= MAX_PEOPLE:
                 raise ValueError(f'At most {MAX_PEOPLE} people')
-            self.people = others + [person]
-            self.save_file()
+            self.save_file(others + [person])
             return copy.deepcopy(person)
 
     def delete(self, person_id, revision):
         with self.lock:
+            self.guard_write()
             old = self.get(person_id)
             if not old or old['revision'] != revision:
                 raise Conflict('This person changed. Reload and try again.')
-            self.people = [p for p in self.people if p['id'] != person_id]
-            self.save_file()
+            self.save_file([p for p in self.people if p['id'] != person_id])
 
     def match(self, name):
         """The person who has this exact name or confirmed other name, ignoring case."""
@@ -177,6 +184,9 @@ class People:
     def merge(self, other):
         """Add archived people that this library does not have, by ID; local people stay as they are."""
         with self.lock:
+            self.guard_write()
+            other=self._valid_library(other)
+            merged=copy.deepcopy(self.people)
             known = {p['id'] for p in self.people}
             names = {n.casefold() for p in self.people for n in _names(p)}
             for value in other if isinstance(other, list) else []:
@@ -187,7 +197,7 @@ class People:
                 if (person['id'] in known or any(n.casefold() in names for n in _names(person))
                         or any(set(person['emails']) & set(p['emails']) or any(i in p.get('identities',[]) for i in person['identities']) for p in self.people)):
                     continue
-                self.people.append(person)
+                merged.append(person)
                 known.add(person['id'])
                 names |= {n.casefold() for n in _names(person)}
-            self.save_file()
+            self.save_file(merged)

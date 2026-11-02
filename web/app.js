@@ -74,10 +74,10 @@ function renderAttention(busy){
   head.append(el('span','hint',d.minutes?'No automatic checks are flagged. Review AI statements against their source.':'Generate notes to collect decisions and tasks.'));
   if(d.project_id){const next=el('button','secondary small-action','Prepare the next meeting');next.type='button';next.onclick=()=>perform(()=>openPrepare(d.project_id,d.series_id||''));head.append(next);}
  }
- box.append(head,...items);box.classList.toggle('done',!items.length);
+ box.append(head);if(items.length){box.append(items[0]);if(items.length>1){const more=el('details','attention-more');more.append(el('summary','',AtlantaUX.count(items.length-1,'more review item')),...items.slice(1));box.append(more);}}box.classList.toggle('done',!items.length);
 }
 function renderSpeakerReview(busy) {
- const target=$('speaker-review');target.replaceChildren();$('speaker-review-count').textContent=String(new Set(detail.transcript.map(s=>s.speaker).filter(Boolean)).size)+' voices';
+ const target=$('speaker-review');target.replaceChildren();$('speaker-review-count').textContent=AtlantaUX.count(new Set(detail.transcript.map(s=>s.speaker).filter(Boolean)).size,'speaker');
  const hasAudio=detail.files.includes('recording.wav'), names=[...new Set(detail.transcript.map(s=>s.speaker).filter(Boolean))];
  if(!detail.transcript.length)return;
  target.append(el('h3','','Speakers · after recording'));
@@ -273,11 +273,11 @@ function renderReadiness(){
 }
 // The choices under More options, in one line, so a closed section still shows what will happen.
 function renderRecordMore(){
- const parts=[$('transcription-timing').value==='live'?'Live captions':'Transcribe after recording'];
- if($('record-type').value&&$('record-type').value!=='general')parts.push(typeOf($('record-type').value).label);
+ const mode=document.querySelector('input[name=mode]:checked')?.value;
+ const parts=[mode==='online'?'Online · Mac audio + mic':'In person',$('transcription-timing').value==='live'?'Live captions':'After recording'];
  const type=typeOf($('record-type').value),inherited=seriesType($('record-series').value);
  $('record-type-help').textContent=type.description+($('record-series').value&&type.id===inherited?' The default of this series.':'');
- const project=$('record-project').selectedOptions[0];if($('record-project').value&&project)parts.push(project.textContent+($('record-series').value?' · '+$('record-series').selectedOptions[0]?.textContent:''));
+ $('record-series-summary').textContent=$('record-series').value?'Series: '+$('record-series').selectedOptions[0]?.textContent:'Series and preparation';
  if($('fallback-microphone').value)parts.push('Backup: '+$('fallback-microphone').value);
  parts.push($('processing-name').textContent);$('record-more-summary').textContent=parts.join(' · ');
 }
@@ -289,8 +289,9 @@ function currentRoute(){
  const q=new URLSearchParams();
  if(view==='detail'&&selected){q.set('meeting',selected);if(meetingTab!=='transcript')q.set('tab',meetingTab);}
  else if(view==='tasks'){q.set('view','work');q.set('tab',workTab);if(workTab==='gmail'&&mailThread)q.set('source',mailThread);if(workTab==='chat'&&chatSpace)q.set('source',chatSpace);if(workTab==='github'){if(ghSection==='reports'){q.set('section','reports');if(repoReportId)q.set('report',repoReportId);}else if(ghItem)q.set('source',String(ghItem));}}
- else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);}
+ else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);if(workspaceSection==='work'&&workspaceWorkKind)q.set('kind',workspaceWorkKind);}
  else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);if(prepareScope.type)q.set('type',prepareScope.type);}
+ else if(view==='importing')q.set('view','importing');
  else if(LIBRARY_VIEWS.includes(view))q.set('view',view);
  const text=q.toString();return text?'/?'+text:'/';
 }
@@ -308,9 +309,10 @@ async function applyRoute(){
   else if(target==='projects'){
    const project=q.get('project')||'',select=$('workspace-project');
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
-   workspaceSection=q.get('section')||'overview';await $('open-projects').onclick();
+   workspaceSection=q.get('section')||'overview';workspaceWorkKind=['task','decision','question'].includes(q.get('kind'))?q.get('kind'):'';await $('open-projects').onclick();
   }
   else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
+  else if(target==='importing')await openImport();
   else if(target==='find')await openFind();
   else if(target==='analytics')await $('open-analytics').onclick();
   else if(target==='conversations')await perform(openConversations);
@@ -325,11 +327,11 @@ function historyKeys(event){
 }
 document.addEventListener('keydown',historyKeys);
 $('history-back').onclick=()=>history.back();$('history-forward').onclick=()=>history.forward();
-function show(which) {if(view!==which)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects','conversations']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
- $('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar(); syncRoute(); }
+function show(which) {const changed=view!==which;if(changed)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects','conversations','importing']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
+ $('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar();if(changed)window.scrollTo(0,0); syncRoute(); }
 function renderLibrary() {
- const query=$('search').value.toLocaleLowerCase();
- const meetings=state.meetings.filter(m=>!query||m.title.toLocaleLowerCase().includes(query));
+ const query='';
+ const meetings=state.meetings;
  // Server searches transcript content on demand; retain the regular status snapshot.
  const filter=$('project-filter').value;
  const rows=(query && window.searchResults ? window.searchResults : meetings).filter(m=>!filter||(filter==='__none__'?!m.project_id:m.project_id===filter));
@@ -353,6 +355,7 @@ async function openMeeting(id,force=false) {
  lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');renderLibrary();return true;
 }
 function renderState() {
+ const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
  syncSpeakers();
  syncProjects();
  const summary=state.task_summary||{open:0,overdue:0};
@@ -486,7 +489,7 @@ function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=
 async function withEditorSave(container,save){if(!validDates(container))return;editorDirty.set('saving',true);container.inert=true;try{return await save();}finally{container.inert=false;editorDirty.clear('saving');editorHeartbeat();}}
 function validDates(container){const bad=[...container.querySelectorAll('[data-date-display]')].find(input=>input.getClientRects().length&&!input.checkValidity());if(bad){bad.reportValidity();bad.focus();return false;}return true;}
 function markNotes() { dirtyNotes=true; $('save-notes').disabled=$('save-outcomes').disabled=false; }
-let transcriptEditing=false,refreshNotesAfterEdit=true;
+let transcriptEditing=false,refreshNotesAfterEdit=true,transcriptBaseline=null;
 // Group only adjacent segments: a participant returning later starts a new turn.
 function transcriptTurns(segments) {
  const turns=[];
@@ -499,9 +502,12 @@ function transcriptTurns(segments) {
 }
 function transcriptElement(index) { return $('transcript').querySelector('[data-segment-index="'+index+'"]'); }
 function renderTranscript(d,busy) {
- const target=$('transcript');target.replaceChildren();
+ const target=$('transcript');target.replaceChildren();if(transcriptEditing&&!dirtyTranscript)transcriptBaseline=structuredClone(d.transcript);
+ $('edit-transcript').disabled=busy||!d.transcript.length;$('save-transcript').hidden=!transcriptEditing;$('save-transcript').disabled=!dirtyTranscript||busy;$('save-excerpt').hidden=true;
+ $('transcript-heading').textContent='Transcript · '+AtlantaUX.count(d.transcript.length,'segment')+' · '+AtlantaUX.count(new Set(d.transcript.map(v=>v.speaker).filter(Boolean)).size,'speaker');
  if(!d.transcript.length){target.append(el('p','empty-content',d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));return;}
- const toolbar=el('div','transcript-view-actions'),toggle=el('button','quiet',transcriptEditing?'Read as dialogue':'Edit transcript');toggle.type='button';toggle.setAttribute('aria-pressed',String(transcriptEditing));toggle.onclick=()=>{transcriptEditing=!transcriptEditing;renderTranscript(detail,busy);};toolbar.append(toggle);target.append(toolbar);
+ $('edit-transcript').disabled=busy||!d.transcript.length;$('edit-transcript').textContent=transcriptEditing?'Cancel editing':'Edit transcript';$('edit-transcript').setAttribute('aria-pressed',String(transcriptEditing));$('save-transcript').hidden=!transcriptEditing;
+ const toolbar=el('div','transcript-view-actions');if(transcriptEditing)target.append(toolbar);
  if(transcriptEditing){
  const choice=el('label','transcript-refresh-choice'),check=el('input');check.type='checkbox';check.checked=refreshNotesAfterEdit;check.disabled=busy;check.onchange=()=>{refreshNotesAfterEdit=check.checked;if(dirtyTranscript)markTranscript();};choice.append(check,document.createTextNode(' Update notes and tasks after saving'));toolbar.prepend(choice);
  d.transcript.forEach((s,index)=>{ const row=el('div','segment');row.dataset.segmentIndex=String(index);const seek=listenButton(d.id,s.start); const content=el('div');const speaker=el('input','speaker');speaker.placeholder='Speaker (optional)';speaker.value=s.speaker||'';speaker.setAttribute('list','known-speakers');speaker.setAttribute('aria-label','Speaker for segment '+(index+1));speaker.disabled=busy;const badge=el('span');const annotate=()=>{speakerBadge(badge,speaker.value);row.classList.toggle('known-speaker',!!knownSpeaker(speaker.value));};annotate();speaker.oninput=()=>{s.speaker=speaker.value.trim()||null;annotate();renderSpeakerLegend();markTranscript();};const who=el('div','speaker-line');who.append(badge,speaker);const original=d.transcript_raw?.length===d.transcript.length?d.transcript_raw[index]:null;if(original&&original.text!==s.text){row.classList.add('ai-corrected');const restore=el('button','quiet restore-original','AI ↺');restore.title='Restore original transcription: '+original.text;restore.setAttribute('aria-label','Restore original transcription for segment '+(index+1));restore.disabled=busy;restore.onclick=()=>{s.text=original.text;text.value=original.text;row.classList.remove('ai-corrected');restore.remove();markTranscript();};who.append(restore);}const text=el('textarea');text.value=s.text;text.setAttribute('aria-label','Transcript segment '+(index+1));text.disabled=busy;text.rows=Math.max(2,Math.ceil(s.text.length/85));text.oninput=()=>{s.text=text.value;markTranscript();};content.append(who,text,transcriptSegmentTools(d,index,text,busy));row.append(seek,content);$('transcript').append(row); });
@@ -526,7 +532,7 @@ function transcriptSegmentTools(d,index,textarea,busy){
 function renderDetail() {
  $('detail-refresh-notice').hidden=!detailChangedWhileEditing;
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
- $('detail-title').textContent=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?'Ready for review':'Transcript ready'):statusNames[d.status]||d.status;
+ $('detail-title').textContent=d.title;$('detail-title').title=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?'Ready for review':'Transcript ready'):statusNames[d.status]||d.status;
  const titleMessages={pending:'AI title pending',generating:'Generating AI title…',generated:'AI-generated title',waiting:'AI title waiting for a transcript',manual:'',error:'AI title could not be generated'};
  $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
  const sync=d.calendar_sync; $('calendar-status').hidden=!sync;$('calendar-status').replaceChildren();
@@ -542,7 +548,7 @@ function renderDetail() {
  renderProcessingTime();
  const gaps=$('capture-gaps');gaps.replaceChildren();gaps.hidden=!d.input_gaps?.length;
  if(d.input_gaps?.length){gaps.append(el('p','','Microphone audio is missing in these intervals:'));for(const gap of d.input_gaps){const seek=el('button','quiet',time(gap.start)+'–'+time(gap.end??d.duration)+' · Play');seek.onclick=()=>{$('audio').currentTime=gap.start;$('audio').play().catch(e=>error(e.message));};gaps.append(seek);}}
- $('job-progress').textContent=d.progress||''; $('job-progress').hidden=!d.progress||d.progress===statusNames[d.status]||['Imported','Recording saved','Audio imported'].includes(d.progress); $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
+ $('job-progress').textContent=d.progress||''; $('job-progress').hidden=!busy||!d.progress||d.progress===statusNames[d.status]||['Imported','Recording saved','Audio imported'].includes(d.progress); $('detail-error').hidden=!d.error; $('detail-error').textContent=d.error||'';
  const prepared=d.files.includes('transcription.wav'), selector=$('audio-source'), sameMeeting=$('audio').dataset.meeting===d.id;
  const source=prepared&&sameMeeting&&selector.value==='transcription.wav'?'transcription.wav':'recording.wav';
  selector.replaceChildren(option('Original recording','recording.wav'),...(prepared?[option('Prepared for transcription','transcription.wav')]:[]));selector.value=source;
@@ -566,6 +572,7 @@ function renderDetail() {
  $('summarize').disabled=busy||!d.transcript.length; $('summarize').textContent=d.notes_need_refresh||d.notes_refresh_error?'Update notes & tasks':d.minutes?'Generate new AI notes':'Generate notes';
  $('process').textContent=d.transcript.length?'Transcribe again':'Transcribe';
  placeActions(d);
+ $('timestamp-note').hidden=!transcriptEditing;
  $('timestamp-note').textContent=d.transcript_metadata?.timestamps==='approximate chunk boundaries'?'Cloud timestamps mark approximate audio chunks. Click a time to listen.':'Consecutive speech is grouped by participant. Click a time to listen; choose Edit transcript to make corrections.';
  renderTranscript(d,busy);
  renderSpeakerLegend();renderSpeakerReview(busy);renderAttention(busy);
@@ -861,13 +868,13 @@ function renderGlobalAnalytics() {
  const data=analyticsData;if(!data)return;
  for(const [id,values,placeholder] of [['analytics-speaker',data.available_speakers,'All speakers'],['analytics-topic',data.available_topics,'All topics']]) {const select=$(id),current=select.value;select.replaceChildren(option(placeholder,''),...values.map(value=>option(value,value)));select.value=[...select.options].some(option=>option.value===current)?current:'';}
  const speech=data.total_speech_seconds?shortDuration(data.total_speech_seconds):'—';
- $('analytics-summary').textContent=data.meeting_count+(data.meeting_count===1?' meeting':' meetings')+(data.total_speech_seconds?' · '+speech+' diarized speech':'')+' · '+data.questions+' questions · '+data.unanswered_questions+' not marked as answered';
+ $('analytics-summary').textContent=data.meeting_count+(data.meeting_count===1?' meeting':' meetings')+(data.total_speech_seconds?' · '+speech+' diarized speech':'')+' · '+AtlantaUX.count(data.questions,'question')+' · '+data.unanswered_questions+' not marked as answered';
  $('analytics-overview').replaceChildren(metric('Meetings',data.meeting_count),metric('Diarized speech',speech),metric('Questions',data.questions),metric('Not marked as answered',data.unanswered_questions));
  speakerStats($('analytics-speakers'),data.speakers,true);
  $('analytics-topics').replaceChildren();if(!data.topics.length)$('analytics-topics').append(el('p','empty-content','No topic hits match these filters.'));
- for(const topic of data.topics){const box=el('div','metric');box.append(el('strong','',topic.matches),el('span','',topic.name+' · '+topic.meetings+' meetings'));$('analytics-topics').append(box);}
+ for(const topic of data.topics){const box=el('div','metric');box.append(el('strong','',topic.matches),el('span','',topic.name+' · '+AtlantaUX.count(topic.meetings,'meeting')));$('analytics-topics').append(box);}
  $('analytics-meetings').replaceChildren();if(!data.meetings.length)$('analytics-meetings').append(el('p','empty-content','No generated analytics match these filters.'));
- for(const meeting of data.meetings){const row=el('div','analytics-meeting'),button=el('button','quiet tracked-source',meeting.title);button.onclick=()=>perform(async()=>{await openMeeting(meeting.id);switchTab('analytics');});row.append(button,el('span','',date(meeting.date)),el('span','',meeting.talk_seconds?shortDuration(meeting.talk_seconds):'No talk time'),el('span','',meeting.questions+' questions · '+meeting.topic_matches+' topic hits'));$('analytics-meetings').append(row);}
+ for(const meeting of data.meetings){const row=el('div','analytics-meeting'),button=el('button','quiet tracked-source',meeting.title);button.onclick=()=>perform(async()=>{await openMeeting(meeting.id);switchTab('analytics');});row.append(button,el('span','',date(meeting.date)),el('span','',meeting.talk_seconds?shortDuration(meeting.talk_seconds):'No talk time'),el('span','',AtlantaUX.count(meeting.questions,'question')+' · '+AtlantaUX.count(meeting.topic_matches,'topic hit')));$('analytics-meetings').append(row);}
 }
 function renderTrackers() {
  const target=$('tracker-list');target.replaceChildren();if(!trackersData.length)target.append(el('p','empty-content','No topic trackers yet. Add topics such as Бюджет, Продажби or Риск.'));
@@ -891,19 +898,24 @@ function renderBackups(data) {
    el('span','backup-meta '+(archive.verified?'ok':'bad'),fileSize(archive.bytes)+' · '+(archive.verified?'✓ Restore test passed · '+archive.meetings+(archive.meetings===1?' meeting':' meetings'):'✗ '+(archive.error||'Restore test failed'))));
   const reveal=el('button','quiet','Show in Finder'); reveal.type='button'; reveal.onclick=()=>perform(()=>api('/api/backups/reveal',{name:archive.name}));
   const restore=el('button','secondary','Restore'); restore.type='button'; restore.disabled=!archive.verified;
-  restore.onclick=()=>perform(async()=>{if(!(await ask('Restore meetings from this archive?\n\nMeetings that this library does not have are added. Existing meetings and your settings do not change.',{ok:'Restore'})))return;
+  restore.onclick=()=>perform(async()=>{const damaged=Object.keys(state.storage_errors||{});const recovery=damaged.length?'\n\nRecover these metadata files: '+damaged.join(', ')+'. The original bytes are preserved in separate .corrupt-*.json files.':'';if(!(await ask('Restore this archive?\n\nMissing meetings are added. Existing meetings and settings stay as they are.'+recovery,{ok:'Restore'})))return;
    restore.disabled=true;$('backup-status').textContent='Restoring and checking…';
-   try{const result=await api('/api/backups/restore',{name:archive.name});renderBackups(result);$('backup-status').textContent=result.restored.length+' meetings restored · '+result.skipped.length+' already in the library';state=await api('/api/state');renderState();}
+   try{const result=await api('/api/backups/restore',{name:archive.name});renderBackups(result);$('backup-status').textContent=AtlantaUX.count(result.restored.length,'meeting')+' restored · '+result.skipped.length+' already in the library'+(result.recovered_metadata?.length?' · Metadata recovered: '+result.recovered_metadata.join(', '):'');state=await api('/api/state');renderState();}
    finally{restore.disabled=false;}});
   actions.append(reveal,restore); row.append(main,actions); list.append(row);
  }
 }
 async function loadBackups() { renderBackups(await api('/api/backups')); }
 $('backup-now').onclick=()=>perform(async()=>{const button=$('backup-now');button.disabled=true;$('backup-status').textContent='Archiving and running the restore test… Large libraries take a few minutes.';
- try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+result.created.meetings+' meetings'+(result.created.skipped_meetings?.length?' · '+result.created.skipped_meetings.length+' active or processing meetings left out':'');}
+ try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+AtlantaUX.count(result.created.meetings,'meeting')+(result.created.skipped_meetings?.length?' · '+result.created.skipped_meetings.length+' active or processing meetings left out':'');}
  catch(e){$('backup-status').textContent='';throw e;}finally{button.disabled=false;}});
+const SETTINGS_GROUPS={recording:['recording'],ai:['notes','prompts','trackers'],people:['speakers','calendar'],workspace:['projects','types'],advanced:['backup','help']};
 function showSettingsTab(name) {
- settingsTab=name; $('settings-save').hidden=name==='prompts'; document.querySelector('.advanced-toggle').hidden=name==='prompts';document.querySelector('.settings-footer').hidden=name==='prompts'; if(name==='prompts')perform(loadPromptEditor); if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings(); if(name==='types') renderTypeSettings();
+ const group=Object.keys(SETTINGS_GROUPS).find(key=>SETTINGS_GROUPS[key].includes(name))||'recording';
+ for(const button of document.querySelectorAll('[data-settings-group]')){button.setAttribute('aria-selected',String(button.dataset.settingsGroup===group));button.classList.toggle('selected',button.dataset.settingsGroup===group);}
+ document.querySelector('.settings-tabs').hidden=SETTINGS_GROUPS[group].length===1;
+ for(const button of document.querySelectorAll('.settings-tabs button'))button.hidden=!SETTINGS_GROUPS[group].includes(button.dataset.tab);
+ settingsTab=name; $('settings-save').hidden=!['recording','notes','calendar'].includes(name); document.querySelector('.advanced-toggle').hidden=!['recording','notes'].includes(name);document.querySelector('.settings-footer').hidden=!['recording','notes','calendar'].includes(name); if(name==='prompts')perform(loadPromptEditor); if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings(); if(name==='types') renderTypeSettings();
  for(const tab of document.querySelectorAll('.settings-tabs button')) { const yes=tab.dataset.tab===name; tab.classList.toggle('selected',yes); tab.setAttribute('aria-selected',String(yes)); }
  for(const panel of document.querySelectorAll('.settings-panel')) panel.hidden=panel.dataset.tab!==name;
  document.querySelector('.settings-body').scrollTop=0;
@@ -1559,10 +1571,13 @@ function renderTasks() {
  const tasks=itemsData.items.filter(item=>item.kind==='task'&&inProject(item)), decisions=itemsData.items.filter(item=>item.kind==='decision'&&inProject(item));
  const open=tasks.filter(t=>t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
+ $('tasks-summary').hidden=!itemsData.items.length&&!itemsData.pending.length;
  $('tasks-summary').textContent=open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':'');
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
+ const noKindItems=!itemsData.items.some(item=>item.kind===itemKind);
+ $('source-filter').hidden=noKindItems;$('status-filter').closest('.task-filters').hidden=noKindItems;document.querySelector('#items-panel .work-messages').hidden=noKindItems;
  const filter=statusFilter[itemKind];
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=el('button',key===filter?'selected':'',label);button.type='button';button.onclick=()=>{statusFilter[itemKind]=key;renderTasks();};return button;}));
  segmentedChoice($('source-filter'),[['','All sources'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;renderTasks();});
@@ -1580,7 +1595,7 @@ function renderTasks() {
  if(sourceFilter)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
  $('task-list').replaceChildren();
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
- if(!rows.length) $('task-list').append(el('p','empty-content',(itemKind==='task'?tasks:decisions).length?'Nothing matches this filter.':empty));
+ if(!rows.length){if(noKindItems){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Start with a meeting to collect your next actions.':'Open a meeting and generate notes to review its decisions.'));const next=el('button','primary',itemKind==='task'?'New meeting':'Open library');next.onclick=()=>itemKind==='task'?$('new-meeting').click():perform(openConversations);box.append(next);$('task-list').append(box);}else $('task-list').append(el('p','empty-content','Nothing matches this filter.'));}
  for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
@@ -1655,8 +1670,8 @@ function renderScope(d) {
    if(state.settings.summarizer==='none'){openSettings('notes');return;} await api('/api/meetings/'+d.id+'/process',{action:'summarize'}); await openMeeting(d.id,true);
   } else toast('Meeting type saved');});
  box.append(type);
- const instructions=el('button','quiet scope-chip','AI instructions');instructions.type='button';instructions.onclick=()=>{promptRequestedScope='meeting:'+d.id;openSettings('prompts');};box.append(instructions);
- if(project){const prepare=el('button','quiet scope-chip','Prepare the next meeting ›');prepare.type='button';prepare.onclick=()=>perform(()=>openPrepare(d.project_id,d.series_id||''));box.append(prepare);}
+ const instructions=el('button','quiet scope-chip','AI instructions');instructions.type='button';instructions.onclick=()=>{promptRequestedScope='meeting:'+d.id;openSettings('prompts');};$('detail-secondary-actions').replaceChildren(instructions);
+ if(project){const prepare=el('button','quiet','Prepare the next meeting');prepare.type='button';prepare.onclick=()=>perform(()=>openPrepare(d.project_id,d.series_id||''));$('detail-secondary-actions').append(prepare);}
 }
 function syncScopeSeries(value) {
  const project=$('scope-project').value; $('scope-project-name').hidden=project!=='__new__';
@@ -1845,14 +1860,14 @@ async function runAsk() {
 }
 
 function renderProcessingTime(){
- if(!detail||view!=='detail')return;
+ if(!detail)return;
  const d=detail, active=d.status==='processing', now=Date.now()/1000;
  const elapsed=active&&d.processing_started_at?Math.max(0,now-d.processing_started_at):d.processing_elapsed||0;
  const timings=Object.entries(d.processing_timings||{}).map(([name,seconds])=>name+': '+time(seconds));
  $('processing-details').hidden=!d.processing_stage;$('processing-time').hidden=false;
  $('processing-time').textContent=d.processing_stage+' · '+time(elapsed)+(active&&d.processing_stage_started_at?' · this stage '+time(Math.max(0,now-d.processing_stage_started_at)):'')+(timings.length?'\n'+timings.join('\n'):'');
 }
-setInterval(()=>{if(!document.hidden)renderProcessingTime();},1000);
+setInterval(()=>{if(!document.hidden&&view==='detail')renderProcessingTime();},1000);
 window.addEventListener('desktop-status',event=>{desktopStatus=String(event.detail||'');$('connection').textContent=desktopStatus;error(desktopStatus);});
 $('cancel-processing').onclick=()=>perform(async()=>{await api('/api/meetings/'+selected+'/cancel',{});toast('Cancellation requested');await openMeeting(selected,true);});
 // Profiles fill the form; nothing changes until Save settings.
@@ -1882,7 +1897,6 @@ $('find-form').onsubmit=event=>{event.preventDefault();$('find-answer').hidden=t
 $('find-ask').onclick=()=>perform(runAsk);
 $('find-project').onchange=()=>perform(runFind);
 $('open-find').onclick=()=>openFind();
-$('search').onkeydown=event=>{if(event.key==='Enter'&&$('search').value.trim()){event.preventDefault();openFind($('search').value.trim());}};
 // The server says when something changed; the tab loads data only then, and not at all while it is hidden.
 let events=null, refreshing=false, refreshPending=false, pendingChanged=[];
 // changed is the list of meetings that changed, or null for "anything may have changed".
@@ -1932,8 +1946,7 @@ $('work-project').onchange=()=>renderTasks();
 $('task-owner').onchange=renderTasks;
 // Transcript rows grow with their text instead of showing an inner scroll bar.
 document.addEventListener('input',event=>{const area=event.target;if(area.matches?.('.segment textarea')){area.style.height='auto';area.style.height=area.scrollHeight+2+'px';}});
-$('new-meeting').onclick=async()=>{const project=contextProject();if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;else{if(project){fillProjects($('record-project'),project,'No project');fillSeries($('record-series'),project,'','No series');renderRecordMore();}renderTranscriptionTiming(true);}renderLibrary();};
-let searchTimer;$('search').oninput=()=>{clearTimeout(searchTimer);const request=readers.start('sidebar-search');searchTimer=setTimeout(()=>perform(async()=>{const q=$('search').value.trim(),result=q?await api('/api/search?q='+encodeURIComponent(q)):null;if(!readers.current(request)||q!==$('search').value.trim())return;window.searchResults=result;lastLibrary='';renderLibrary();}),200);};
+$('new-meeting').onclick=async()=>{const project=contextProject();if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show(state?.active?'recording':'setup');window.scrollTo(0,0);if(state?.active)selected=state.active.id;else{if(project){fillProjects($('record-project'),project,'No project');fillSeries($('record-series'),project,'','No series');renderRecordMore();}renderTranscriptionTiming(true);}renderLibrary();};
 $('record-form').addEventListener('change',()=>{renderReadiness();renderRecordMore();});
 {const mode=document.querySelector(`input[name=mode][value="${stored('record-mode')}"]`);if(mode)mode.checked=true;}
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
@@ -2021,7 +2034,7 @@ $('delete-meeting').onclick=()=>perform(async()=>{
  $('audio').pause();$('audio').removeAttribute('src');
  dirtyTranscript=dirtyNotes=false;detail=null;selected=null;
  if(window.searchResults) window.searchResults=window.searchResults.filter(m=>m.id!==id);
- show(state?.active?'recording':'setup');if(state?.active)selected=state.active.id;
+ show(state?.active?'recording':'setup');window.scrollTo(0,0);if(state?.active)selected=state.active.id;
  state=await api('/api/state');lastLibrary='';renderState();toast('Meeting deleted');
 });
 $('sync-all-meetings').onclick=()=>perform(async()=>{const result=await api('/api/calendar/sync-all',{});toast(result.queued+' saved meetings queued for calendar sync');});
@@ -2168,9 +2181,11 @@ async function loadWorkspace(){
 }
 function renderWorkspace(){
  const data=workspaceData;if(!data)return;
- const cards=$('workspace-cards');cards.replaceChildren();
- for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));b.append(el('strong','',project.name),el('span','hint',project.meetings+' meetings · '+project.open_tasks+' open tasks · '+project.open_questions+' questions · '+(project.linked_conversations||0)+' linked conversations'));b.onclick=()=>perform(async()=>{$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
- for(const b of $('workspace-tabs').querySelectorAll('button')){b.classList.toggle('selected',b.dataset.section===workspaceSection);b.setAttribute('aria-selected',String(b.dataset.section===workspaceSection));}
+ const cards=$('workspace-cards');cards.replaceChildren();$('workspace-browser').hidden=!!data.project_id;
+ for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));b.append(el('strong','',project.name),el('span','hint',AtlantaUX.count(project.meetings,'meeting')+' · '+AtlantaUX.count(project.open_tasks,'open task')+' · '+AtlantaUX.count(project.open_questions,'question')));b.onclick=()=>perform(async()=>{$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
+ const activeSection=['task','decision','question'].includes(workspaceSection)?'work':workspaceSection;
+ for(const b of $('workspace-tabs').querySelectorAll('button')){const on=b.dataset.section===activeSection;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));const count=b.dataset.section==='meetings'?data.meetings.length:b.dataset.section==='work'?data.items.length:0;const title={overview:'Overview',work:'Work',meetings:'Meetings',timeline:'Timeline'}[b.dataset.section];b.textContent=title+(count?' · '+count:'');}
+ $('workspace-more-label').textContent=({sources:'Sources',conversations:'Conversations'}[activeSection]||'More')+' ▾';
  const box=$('workspace-content');box.replaceChildren();
  const today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
  const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today));
@@ -2183,13 +2198,13 @@ function renderWorkspace(){
  if(workspaceSection==='overview'){
   box.append(el('h2','',data.projects.find(p=>p.id===data.project_id)?.name||'All projects'));
   box.append(el('p','hint','One work item can belong to several projects. Manual assignments take priority over linked meeting projects. Source states and saved quotes remain unchanged.'));
-  const current=data.projects.find(p=>p.id===data.project_id);if(current&&current.id!=='__none__')box.append(repositoryEditor(current));
+  const current=data.projects.find(p=>p.id===data.project_id);if(current&&current.id!=='__none__'){const settings=el('details','project-settings');settings.append(el('summary','','Project settings & repositories'));settings.ontoggle=()=>{if(settings.open&&!settings.dataset.loaded){settings.dataset.loaded='true';settings.append(repositoryEditor(current));}};box.append(settings);}
   for(const [kind,title] of Object.entries(kinds)){
    const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
-   box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));
+   if(rows.length){box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));}
   }
  }else if(workspaceSection==='meetings'){
-  box.append(el('h2','','Meetings · '+data.meetings.length));
+  box.append(el('h2','',AtlantaUX.count(data.meetings.length,'meeting')));
   for(const meeting of data.meetings){const row=el('article','workspace-item'),open=el('button','quiet',meeting.title);open.onclick=()=>perform(()=>openMeeting(meeting.id));row.append(open,el('p','hint',date(meeting.started_at||meeting.created)+' · '+(statusNames[meeting.status]||meeting.status)));
    const assign=el('select');assign.setAttribute('aria-label','Project for '+meeting.title);fillProjects(assign,meeting.project_id||'','No project');const save=el('button','secondary small-action','Move meeting');save.onclick=()=>perform(async()=>{await api('/api/meetings/'+meeting.id+'/scope',{project:assign.value?{id:assign.value}:null,series:assign.value===meeting.project_id&&meeting.series_id?{id:meeting.series_id}:null});state=await api('/api/state');lastTasks='';itemsData=await api('/api/items');renderState();await loadWorkspace();});row.append(assign,save);box.append(row);}
  }else if(workspaceSection==='conversations'){
@@ -2202,9 +2217,11 @@ function renderWorkspace(){
   const evs=new Set(data.items.flatMap(i=>i.source_evidence||[])),ids=new Set((data.graph.source_evidence||[]).filter(e=>evs.has(e.id)).map(e=>e.source_id));
   box.append(el('h2','','Sources linked through project work'),el('p','hint','Accept or link a proposal in My Work, then assign its item to a project. This view keeps the original source and its evidence.'));
   for(const source of data.graph.sources||[])if(ids.has(source.id)){const row=el('article','workspace-item');row.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)),el('p','hint',source.available?'Available':'Saved evidence · source unavailable'));box.append(row);}
- }else {const rows=visible.filter(i=>i.kind===workspaceSection);box.append(el('h2','',kinds[workspaceSection]+' · '+rows.length));for(const item of rows)box.append(itemCard(item));}
+ }else if(['work','task','decision','question'].includes(workspaceSection)){const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;renderWorkspace();syncRoute(true);};box.append(filter);const rows=visible.filter(i=>!filter.value||i.kind===filter.value);for(const item of rows)box.append(itemCard(item));}
+ if(!visible.length&&['overview','work','task','decision','question'].includes(workspaceSection)){const empty=el('div','empty-work');empty.append(el('h3','','A place for your next conversation'),el('p','','Record a meeting or attach a conversation to bring this project to life.'));const next=el('button','primary','New meeting');next.onclick=()=>$('new-meeting').click();empty.append(next);box.append(empty);}
  if(box.children.length<2)box.append(el('p','hint','Nothing assigned here yet.'));
 }
+let workspaceWorkKind='';
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
 $('workspace-refresh').onclick=()=>perform(async()=>{itemsData=await api('/api/items');await loadWorkspace();});
@@ -2224,7 +2241,7 @@ async function openConversations(){
  if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('conversations');syncConversationFilters();if(!conversationPage){try{const saved=JSON.parse(sessionStorage.getItem('atlanta-library-filters')||'null');if(saved){for(const id of ['query','source','project','from','to'])$('conversation-'+id).value=saved[id]|| (id==='source'?'meeting':'');syncConversationFilters();$('conversation-participant').replaceChildren(option(saved.participant||'All participants',saved.participant||''));$('conversation-series').value=saved.series||'';conversationOffset=saved.offset||0;}}catch{}}await loadConversations();renderLibrary();
 }
 function rememberConversationFilters(){const values={offset:conversationOffset};for(const id of ['query','source','project','series','participant','from','to'])values[id]=$('conversation-'+id).value;try{sessionStorage.setItem('atlanta-library-filters',JSON.stringify(values));}catch{};renderConversationFilterChips();}
-function renderConversationFilterChips(){const box=$('conversation-filter-chips');box.replaceChildren();let extra=0;for(const [id,label,empty] of [['query','Search',''],['project','Project',''],['from','From',''],['to','Through',''],['source','Source','meeting'],['series','Series',''],['participant','Participant','']]){const control=$('conversation-'+id);if(control.value===empty)continue;const value=id==='from'||id==='to'?date(control.value):control.selectedOptions?.[0]?.textContent||control.value;const remove=el('button','quiet',label+': '+value+' ×');remove.type='button';remove.onclick=()=>{control.value=empty;if(id==='project')fillSeries($('conversation-series'),'','','All series');conversationOffset=0;selectedConversations.clear();perform(loadConversations);};box.append(remove);if(['source','series','participant'].includes(id))extra++;}$('conversation-filter-count').textContent=extra?'('+extra+')':'';}
+function renderConversationFilterChips(){const box=$('conversation-filter-chips');box.replaceChildren();let extra=0;for(const [id,label,empty] of [['query','Search',''],['project','Project',''],['from','From',''],['to','Through',''],['source','Source','meeting'],['series','Series',''],['participant','Participant','']]){const control=$('conversation-'+id);if(control.value===empty)continue;const value=id==='from'||id==='to'?date(control.value):control.selectedOptions?.[0]?.textContent||control.value;const remove=el('button','quiet',label+': '+value+' ×');remove.type='button';remove.onclick=()=>{control.value=empty;if(id==='project')fillSeries($('conversation-series'),'','','All series');conversationOffset=0;selectedConversations.clear();perform(loadConversations);};box.append(remove);if(id!=='query')extra++;}$('conversation-filter-count').textContent=extra?'('+extra+')':'';}
 async function loadConversations(){
  rememberConversationFilters();
  const sequence=++conversationSequence,query=new URLSearchParams({q:$('conversation-query').value,source:$('conversation-source').value,project:$('conversation-project').value,series:$('conversation-series').value,participant:$('conversation-participant').value,from:$('conversation-from').value,to:$('conversation-to').value,offset:String(conversationOffset)});
@@ -2245,8 +2262,12 @@ function attachmentCard(row){
 function renderConversations(){
  if(!conversationPage)return;const result=conversationPage,list=$('conversation-list');list.replaceChildren();
  $('conversation-select-page').disabled=!result.rows.some(row=>row.provider==='meeting');
- $('conversation-count').textContent=result.total+' conversations · '+(result.total?result.offset+1:0)+'–'+Math.min(result.offset+result.rows.length,result.total);
- $('conversation-selection').textContent=selectedConversations.size+' meetings selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;
+ const hasFilters=['query','project','series','participant','from','to'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
+ const emptyLibrary=!result.total&&!state.meetings.length&&!hasFilters;
+ $('conversation-empty').hidden=!emptyLibrary;$('conversation-filters').hidden=emptyLibrary;$('conversation-notices').hidden=emptyLibrary;
+ $('conversation-count').textContent=AtlantaUX.count(result.total,'conversation')+(result.total>result.rows.length?' · '+(result.offset+1)+'–'+Math.min(result.offset+result.rows.length,result.total):'');
+ $('conversation-count').parentElement.hidden=!result.total;document.querySelector('.conversation-pagination').hidden=result.total<=50;
+ $('conversation-selection').textContent=AtlantaUX.count(selectedConversations.size,'meeting')+' selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;
  $('conversation-prev').disabled=!result.offset;$('conversation-next').disabled=result.offset+result.rows.length>=result.total;
  for(const row of result.rows){
   const card=el('article','conversation-card'),main=el('div','conversation-main'),open=el('button','quiet conversation-title',row.title);open.type='button';
@@ -2256,13 +2277,13 @@ function renderConversations(){
   if(row.excerpt_projects?.length)main.append(el('p','hint','Contains project excerpts: '+row.excerpt_projects.map(id=>projectList().find(p=>p.id===id)?.name).filter(Boolean).join(', ')));
   if(row.provider==='meeting'){
    const check=el('input');check.type='checkbox';check.checked=selectedConversations.has(row.external_id);check.setAttribute('aria-label','Select '+row.title);
-   check.onchange=()=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=selectedConversations.size+' meetings selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;};card.append(check);
+   check.onchange=()=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=AtlantaUX.count(selectedConversations.size,'meeting')+' selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;};card.append(check);
   }else if(row.provider!=='attached'){
    const details=el('details','project-assignment'),choices=conversationProjectChoices(row.project_ids),save=el('button','secondary small-action','Attach conversation');details.append(el('summary','','Attach to projects'),choices.box);save.type='button';save.onclick=()=>perform(async()=>{const saved=await api('/api/conversations/attach',{provider:row.provider,external_id:row.external_id,account:row.account,revision:row.revision,attachment_revision:row.attachment_revision,project_ids:choices.value()});await loadConversations();await openAttachment(saved.id);});details.append(save);main.append(details);
   }
   card.append(main);list.append(card);
  }
- if(!result.rows.length)list.append(el('p','empty-content','No conversations match these filters.'));
+ if(!result.rows.length&&!emptyLibrary)list.append(el('p','empty-content','No conversations match these filters. Change or clear the active filters.'));
 }
 // A whole email thread or Chat conversation can join a project before any task exists.
 async function attachExternal(provider,id){
@@ -2292,7 +2313,7 @@ $('open-conversations').onclick=()=>{const last=stored('library-view');if(last==
 for(const b of $('library-tabs').querySelectorAll('button'))b.onclick=()=>b.dataset.library==='conversations'?perform(openConversations):$('open-'+b.dataset.library).click();
 // Prepare me belongs to a project: it opens for the project on screen.
 $('workspace-prepare').onclick=()=>perform(()=>openPrepare(['','__none__'].includes($('workspace-project').value)?'':$('workspace-project').value,''));
-$('conversation-filters').onsubmit=event=>{event.preventDefault();conversationOffset=0;selectedConversations.clear();perform(loadConversations);};
+$('conversation-filters').onsubmit=event=>{event.preventDefault();conversationOffset=0;selectedConversations.clear();perform(async()=>{await loadConversations();$('conversation-advanced').open=false;});};
 $('conversation-project').onchange=()=>fillSeries($('conversation-series'),$('conversation-project').value,'','All series');
 $('conversation-bulk-project').onchange=()=>fillSeries($('conversation-bulk-series'),$('conversation-bulk-project').value,'','Keep series when project stays the same');
 $('conversation-reset').onclick=()=>{for(const id of ['conversation-query','conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to'])$(id).value='';$('conversation-source').value='meeting';syncConversationFilters();conversationOffset=0;selectedConversations.clear();perform(loadConversations);};
@@ -2300,13 +2321,13 @@ $('conversation-select-page').onclick=()=>{for(const row of conversationPage?.ro
 $('conversation-clear').onclick=()=>{selectedConversations.clear();renderConversations();};
 $('conversation-prev').onclick=()=>{conversationOffset=Math.max(0,conversationOffset-50);perform(loadConversations);};
 $('conversation-next').onclick=()=>{conversationOffset+=50;perform(loadConversations);};
-$('conversation-move').onclick=()=>perform(async()=>{if(!selectedConversations.size)return;const project=$('conversation-bulk-project').value;if(!(await ask('Move '+selectedConversations.size+' meetings to '+(projectList().find(p=>p.id===project)?.name||'No project')+'? Manual work item assignments stay unchanged.',{ok:'Move meetings'})))return;await api('/api/conversations/bulk',{meetings:[...selectedConversations.values()],project_id:project||null,series_id:$('conversation-bulk-series').value||null});selectedConversations.clear();state=await api('/api/state');lastLibrary='';renderState();syncConversationFilters();await loadConversations();});
+$('conversation-move').onclick=()=>perform(async()=>{if(!selectedConversations.size)return;const project=$('conversation-bulk-project').value;if(!(await ask('Move '+AtlantaUX.count(selectedConversations.size,'meeting')+' to '+(projectList().find(p=>p.id===project)?.name||'No project')+'? Manual work item assignments stay unchanged.',{ok:'Move meetings'})))return;await api('/api/conversations/bulk',{meetings:[...selectedConversations.values()],project_id:project||null,series_id:$('conversation-bulk-series').value||null});selectedConversations.clear();state=await api('/api/state');lastLibrary='';renderState();syncConversationFilters();await loadConversations();});
 function openExcerpt(){
  if(hasEdits()){error('Save transcript corrections before selecting an excerpt.');return;}
  if(!detail?.transcript?.length){error('Finish transcription before selecting an excerpt.');return;}
  const turns=transcriptTurns(detail.transcript),first=$('excerpt-first'),last=$('excerpt-last');first.replaceChildren();last.replaceChildren();
  for(const turn of turns){const start=turn.segments[0],end=turn.segments.at(-1),label=time(start.segment.start)+' · '+(turn.speaker||'Speaker')+' · '+turn.segments.map(s=>s.segment.text).join(' ').slice(0,90);first.append(option(label,String(start.index)));last.append(option(label,String(end.index)));}
- last.value=String(turns[0].segments.at(-1).index);$('excerpt-from').value=time(detail.transcript[0].start);$('excerpt-to').value=time(Math.ceil(detail.transcript.at(-1).end));fillProjects($('excerpt-project'),detail.project_id||'','Choose a project');$('excerpt-error').hidden=true;$('excerpt-dialog').showModal();
+ last.value=String(turns[0].segments.at(-1).index);if(excerptSelection){for(const [control,index] of [[first,excerptSelection.first],[last,excerptSelection.last]]){if(![...control.options].some(o=>o.value===String(index)))control.append(option(time(detail.transcript[index].start)+' · Selected segment',String(index)));control.value=String(index);}}$('excerpt-from').value=time(detail.transcript[0].start);$('excerpt-to').value=time(Math.ceil(detail.transcript.at(-1).end));fillProjects($('excerpt-project'),detail.project_id||'','Choose a project');$('excerpt-error').hidden=true;$('excerpt-dialog').showModal();
 }
 $('save-excerpt').onclick=openExcerpt;
 $('excerpt-first').onchange=()=>{if(Number($('excerpt-last').value)<Number($('excerpt-first').value)){const first=Number($('excerpt-first').value),turn=transcriptTurns(detail.transcript).find(t=>t.segments[0].index===first);$('excerpt-last').value=String(turn.segments.at(-1).index);}};
@@ -2380,3 +2401,30 @@ document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG')edi
 document.addEventListener('cancel',event=>{const dialog=event.target;if(['task-draft-dialog','task-panel','ask-dialog'].includes(dialog.id)||!editorDirty.keys().includes('dialog:'+dialog.id))return;event.preventDefault();perform(async()=>{if(await ask('Discard unsaved changes in this editor?',{ok:'Discard',cancel:'Keep editing'})){editorDirty.clear('dialog:'+dialog.id);dialog.close();}});},true);
 // Expose only safe runtime metadata for support, never tokens or conversation text.
 $('copy-diagnostics').onclick=()=>perform(async()=>{const info={desktop:!!state?.desktop_mode,view,active_recording:!!state?.active,connection:$('connection').textContent,transcription:state?.settings?.transcription,notes_provider:state?.settings?.summarizer,ui_version:'ux-flow-2'};await navigator.clipboard.writeText(JSON.stringify(info,null,2));toast('Safe diagnostics copied');});
+
+$('metadata-recover').onclick=()=>openSettings('backup');
+
+
+async function openImport(){
+ if(!(await leaveEdits()))return;selected=null;show('importing');renderLibrary();
+}
+$('open-import').onclick=()=>perform(openImport);
+$('library-new').onclick=()=>$('new-meeting').click();
+$('library-import').onclick=()=>perform(openImport);
+$('library-sources').onclick=()=>{$('conversation-source').value='all';perform(loadConversations);};
+for(const button of document.querySelectorAll('[data-settings-group]'))button.onclick=()=>showSettingsTab(SETTINGS_GROUPS[button.dataset.settingsGroup][0]);
+for(const button of document.querySelectorAll('[data-project-section]'))button.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;workspaceSection=button.dataset.projectSection;$('workspace-more').open=false;renderWorkspace();syncRoute(true);});
+$('edit-transcript').onclick=()=>perform(async()=>{if(transcriptEditing&&dirtyTranscript){if(!(await ask('Discard the unsaved transcript corrections?',{ok:'Discard corrections',cancel:'Keep editing'})))return;detail.transcript=structuredClone(transcriptBaseline);dirtyTranscript=false;}transcriptEditing=!transcriptEditing;renderTranscript(detail,['starting','recording','paused','stopping','processing'].includes(detail.status));$('timestamp-note').hidden=!transcriptEditing;});
+let excerptSelection=null,excerptSelectionTimer=null;
+function selectedTranscriptRange(){
+ const selection=window.getSelection();if(view!=='detail'||transcriptEditing||!selection?.rangeCount||selection.isCollapsed||!selection.toString().trim())return null;
+ const range=selection.getRangeAt(0),root=$('transcript');if(!root.contains(range.commonAncestorContainer))return null;
+ const indices=[...root.querySelectorAll('[data-segment-index]')].filter(node=>range.intersectsNode(node)).map(node=>Number(node.dataset.segmentIndex));
+ return indices.length?{first:Math.min(...indices),last:Math.max(...indices)}:null;
+}
+document.addEventListener('selectionchange',()=>{clearTimeout(excerptSelectionTimer);excerptSelectionTimer=setTimeout(()=>{if($('excerpt-dialog').open)return;excerptSelection=selectedTranscriptRange();$('save-excerpt').hidden=!excerptSelection;$('save-excerpt').textContent='Attach selection to project';},100);});
+for(const button of document.querySelectorAll('.sidebar>button,.sidebar footer button')){
+ button.setAttribute('aria-label',button.id==='open-tasks'?'My Work':button.textContent.replace(/↗/g,'').trim());button.title=button.getAttribute('aria-label');
+ for(const node of [...button.childNodes])if(node.nodeType===3&&node.textContent.trim()){const label=el('span','nav-label',node.textContent);node.replaceWith(label);}
+}
+const settingsGlyph=el('span','settings-glyph','⚙');settingsGlyph.setAttribute('aria-hidden','true');$('settings-open').prepend(settingsGlyph);

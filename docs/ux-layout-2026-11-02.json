@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-02",
+  "fixture": "Synthetic local libraries; no real meetings, accounts or model requests.",
+  "measurements": [
+    {
+      "width": 1440,
+      "height": 900,
+      "record_identity_bottom": 235.5,
+      "start_top": 821.5,
+      "start_bottom": 869,
+      "first_conversation_top": 391.890625,
+      "first_conversation_bottom": 546.671875,
+      "project_content_top": 291.6953125,
+      "navigation_width": 216,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 900,
+      "height": 900,
+      "record_identity_bottom": 315.5,
+      "start_top": 821.5,
+      "start_bottom": 869,
+      "first_conversation_top": 380.390625,
+      "first_conversation_bottom": 535.171875,
+      "project_content_top": 280.1953125,
+      "navigation_width": 72,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "record_identity_bottom": 335,
+      "start_top": 777,
+      "start_bottom": 821,
+      "first_conversation_top": 400.890625,
+      "first_conversation_bottom": 548.9765625,
+      "project_content_top": 358.6953125,
+      "navigation_width": 390,
+      "horizontal_overflow": false
+    }
+  ],
+  "expanded_audio_scroll_check": {
+    "width": 390,
+    "height": 844,
+    "scroll_y": 730,
+    "document_height": 1665,
+    "start_top": 777,
+    "start_bottom": 821,
+    "button_uncovered": true
+  }
+}

@@ -14,7 +14,7 @@ import re
 import threading
 
 from .github_source import repo_name
-from .storage import atomic_json
+from .safe_json import SafeJSON
 
 KINDS = {'item', 'attachment'}
 RESOURCE_ID = re.compile(r'[a-f0-9]{8,64}')
@@ -46,18 +46,26 @@ def resource(value):
     return dict(kind=value['kind'], id=value['id'])
 
 
-class GitHubLinks:
+class GitHubLinks(SafeJSON):
+    _data_attribute = 'links'
     def __init__(self, path: Path):
-        self.path = Path(path)
         self.lock = threading.RLock()
-        try:
-            data = json.loads(self.path.read_text())
-            self.links = {key: row for key, row in data.items() if isinstance(row, dict)} if isinstance(data, dict) else {}
-        except (OSError, ValueError):
-            self.links = {}
+        self.links = self._load_file(path, 'GitHub links', {}, self._valid_library)
 
-    def _save(self):
-        atomic_json(self.path, self.links)
+    def _valid_library(self, data):
+        if not isinstance(data,dict) or len(data)>MAX_LINKS:raise ValueError('Invalid GitHub link library')
+        for key,row in data.items():
+            if not isinstance(row,dict) or row.get('id')!=key:raise ValueError('Invalid GitHub link')
+            target=resource(row.get('resource'));repository=repo_name(row.get('repository'));number=row.get('number')
+            if type(number) is not int or number<=0 or self.key(target,repository,number)!=key:raise ValueError('Invalid GitHub link key')
+            if type(row.get('revision')) is not int or row['revision']<1 or not isinstance(row.get('linked_at'),str):raise ValueError('Invalid GitHub link revision')
+            if not isinstance(row.get('url'),str) or not isinstance(row.get('title'),str) or not isinstance(row.get('kind'),str):raise ValueError('Invalid GitHub link details')
+        return data
+
+    def _save(self, links=None):
+        candidate=self.links if links is None else links
+        self._write_file(candidate)
+        self.links=candidate
 
     @staticmethod
     def key(target, repository, number):
@@ -70,6 +78,7 @@ class GitHubLinks:
             raise ValueError('Invalid issue number')
         details = details or {}
         with self.lock:
+            self.guard_write()
             key = self.key(target, repository, number)
             old = self.links.get(key)
             if not old and len(self.links) >= MAX_LINKS:
@@ -84,17 +93,16 @@ class GitHubLinks:
             if old and row['verification']=='offline':
                 for field in ('kind','title','state','issue_id','verified','checked_at','cached_at'):row[field]=old.get(field)
             elif old and not row.get('checked_at'):row['checked_at']=old.get('checked_at')
-            self.links[key] = row
-            self._save()
+            self._save(dict(self.links,**{key:row}))
             return copy.deepcopy(row)
 
     def unlink(self, key, revision):
         with self.lock:
+            self.guard_write()
             old = self.links.get(key)
             if not old or old['revision'] != revision:
                 raise Conflict('This link changed. Reload and try again.')
-            del self.links[key]
-            self._save()
+            self._save({k:v for k,v in self.links.items() if k!=key})
 
     def for_resource(self, kind, key):
         with self.lock:
@@ -111,6 +119,9 @@ class GitHubLinks:
     def merge(self, other):
         """Add archived links that this library does not have."""
         with self.lock:
+            self.guard_write()
+            other=self._valid_library(other)
+            merged=copy.deepcopy(self.links)
             for key, row in (other.items() if isinstance(other, dict) else []):
                 try:
                     if key in self.links or row['id'] != key:
@@ -119,7 +130,7 @@ class GitHubLinks:
                     repo_name(row['repository'])
                     if type(row['number']) is not int or row['number'] <= 0:
                         continue
-                    self.links[key] = row
+                    merged[key] = row
                 except (ValueError, TypeError, KeyError):
                     continue
-            self._save()
+            self._save(merged)

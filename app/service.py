@@ -235,7 +235,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
-                desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
+                storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
                 speakers=self.library.speakers(), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
@@ -1029,6 +1029,7 @@ class MeetingService:
     def delete_template(self, template_id, revision):
         """Delete an own template. Saved meetings keep their copy; series that used it become general."""
         with self.lock, self.projects.lock:
+            self.projects.guard_write()
             self.templates.delete(template_id, revision)
             for series in self.projects.data['series']:
                 if series.get('type') == template_id:
@@ -1354,6 +1355,19 @@ class MeetingService:
                 result['ai_error'] = message.replace(self.api_key, '[redacted]') if self.api_key else message
         return result
 
+    def metadata_stores(self):
+        return (('people.json',self.people),('projects.json',self.projects),
+                ('github-links.json',self.github_links),('meeting-templates.json',self.templates))
+
+    def metadata_errors(self):
+        errors={}
+        for name,store in self.metadata_stores():
+            with store.lock:
+                try:store.guard_write()
+                except ValueError:errors[name]=store.error
+        if self.prompts.error:errors['ai-prompts.json']=self.prompts.error
+        return errors
+
     def backups(self):
         return dict(folder=str(self.backup_dir), archives=backup.archives(self.backup_dir) if self.backup_dir.exists() else [])
 
@@ -1362,12 +1376,18 @@ class MeetingService:
             live = {meeting_id for meeting_id, session in self.live_sessions.items()
                     if session.thread and session.thread.is_alive()}
             return set(self.busy) | live | ({self.active} if self.active else set())
-        result = backup.create(self.library.root, self.backup_dir, skip, guard=self._snapshot_guard)
+        @contextmanager
+        def archive_guard():
+            with self._snapshot_guard():
+                errors=self.metadata_errors()
+                if errors:raise ValueError('Cannot create an archive while local metadata needs recovery. '+next(iter(errors.values())))
+                yield
+        result = backup.create(self.library.root, self.backup_dir, skip, guard=archive_guard)
         return dict(self.backups(), created=result, skipped_active=bool(result['skipped_meetings']))
 
     @contextmanager
     def _snapshot_guard(self):
-        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.prompts.lock:
+        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.people.lock, self.github_links.lock, self.templates.lock, self.prompts.lock:
             self.library._finish_scope_batch()
             # Recover a projection interrupted after SQLite committed before pinning it.
             self.items.data, self.items.revision = self.items.store.load()
@@ -1375,7 +1395,19 @@ class MeetingService:
 
     def restore_backup(self, name):
         restored_reports={}
+        recovered_metadata=[]
+        archived_metadata={}
+        archive_staging=[]
+        def require_recovery_files(staging):
+            for name in self.metadata_errors():
+                if not (staging/name).exists():raise ValueError(f"This archive has no {name}; choose an archive containing that metadata before restoring.")
         def validate(staging):
+            archive_staging.append(staging)
+            require_recovery_files(staging)
+            for name,store in self.metadata_stores():
+                if (staging/name).exists():
+                    try:archived_metadata[name]=store.validate_archive(staging/name)
+                    except (ValueError,TypeError,KeyError,AttributeError) as exc:raise ValueError(f"Invalid {name} in archive; nothing was restored.") from exc
             self.prompts.read(staging/'ai-prompts.json')
             restored_reports.update(read_report_store(staging / 'repo-reports.json')['reports'])
             path = staging / 'items.json'
@@ -1386,19 +1418,19 @@ class MeetingService:
                     normalize(item)
         def merge(staging, restored):
             self.repo_reports.restore(staging)
-            if (staging/'ai-prompts.json').exists():self.prompts.merge(staging/'ai-prompts.json')
-            for name, store in (('people.json', self.people), ('github-links.json', self.github_links), ('meeting-templates.json', self.templates)):
-                try:
-                    store.merge(json.loads((staging / name).read_text()))
-                except (OSError, ValueError):
-                    pass
-            try:
-                archived_projects = json.loads((staging / 'projects.json').read_text())
-            except (OSError, ValueError):
-                archived_projects = {}
+            if (staging/'ai-prompts.json').exists():
+                damaged=bool(self.prompts.error)
+                self.prompts.merge(staging/'ai-prompts.json')
+                if damaged:recovered_metadata.append('ai-prompts.json')
+            for name,store in self.metadata_stores():
+                if name in archived_metadata and store.error:
+                    store.recover_file(staging/name);recovered_metadata.append(name)
+                elif name in archived_metadata and name!='projects.json':store.merge(archived_metadata[name])
             with self.projects.lock:
-                mapping = self.projects.merge(archived_projects if isinstance(archived_projects, dict) else {})
-                self.projects.save()
+                mapping=dict(projects={},series={})
+                if 'projects.json' in archived_metadata:
+                    mapping=self.projects.merge(archived_metadata['projects.json'])
+                    self.projects.save()
                 # A restored meeting follows its project by name, not only by ID.
                 for meeting_id in restored:
                     meeting = self.library.get(meeting_id)
@@ -1441,6 +1473,7 @@ class MeetingService:
         @contextmanager
         def restore_guard():
             with self._snapshot_guard(), self.repo_reports.lock:
+                require_recovery_files(archive_staging[0])
                 if self.repo_reports.thread and self.repo_reports.thread.is_alive():
                     raise ValueError('Stop repository report jobs before restoring')
                 if len(set(self.repo_reports.data['reports']) | set(restored_reports)) > 24:
@@ -1454,7 +1487,7 @@ class MeetingService:
                     self.library.update(meeting_id, status='interrupted', progress='Restored from an archive',
                                         error='This meeting was busy when it was archived. Use Recover / Retry.')
             self._refresh_items()
-        return dict(self.backups(), **result)
+        return dict(self.backups(), recovered_metadata=recovered_metadata, **result)
 
     def reveal_backup(self, name):
         import subprocess

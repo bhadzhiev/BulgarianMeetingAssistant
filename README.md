@@ -1273,3 +1273,49 @@ automatically. No cloud/model quality claims follow from a successful test.
 preparation style into the editable template form. Save gives it a separate identity;
 existing meetings retain their saved template. Prepare me is deterministic from saved
 data and uses that preparation style, without an LLM request or a separate AI prompt.
+
+
+### Local metadata recovery
+
+Removing a confirmed channel identity uses the full provider/account/sender key.
+When the same email is confirmed for another account, that identity and the shared
+email stay attached to the person. Removing its final Gmail identity removes that
+email only; other emails and Chat identities remain.
+
+`people.json`, `projects.json`, `github-links.json` and `meeting-templates.json`
+distinguish an absent file (a new empty library) from an unreadable, malformed or
+structurally invalid file. Invalid metadata is read-only, including merge and low-level
+save paths. Changes outside the app after loading also block writes. A persistent
+warning identifies affected files and opens **Settings → Backup**. Recording remains
+available without assigning a project.
+
+Recovery requires an existing verified archive containing every affected metadata
+file. Archive metadata is validated before meetings are moved. Damaged stores recover
+as complete validated collections; healthy stores continue to merge missing entries.
+The original bytes are copied to `<name>.corrupt-<id>.json` before replacement, and
+these local recovery copies are not automatically removed. If the original cannot be
+read for preservation, recovery fails instead of overwriting it. No new archive is
+created while metadata needs recovery, avoiding a misleading verified backup of the
+broken data. Existing recording and transcript files are unaffected by metadata repair.
+
+
+### Compact everyday navigation
+
+**New meeting** keeps name, type and project together. Audio and recording controls
+live in a separate disclosure; Start recording remains visible at the bottom. **Import**
+opens its own view. **Library** starts with Search and closed Filters, with chips for
+active filters and an explicit Apply action. Empty Library and My Work views show the
+next useful action instead of unused controls.
+
+Projects use **Overview, Work, Meetings, Timeline**. Sources and Conversations are in
+**More**; Work includes its kind filter. The sidebar project selector is explicitly
+**Filter recent meetings**, separate from the project workspace, and full search lives
+in Library. Below 1000 px navigation becomes an icon rail; phones use a compact top bar.
+
+Meeting detail has one next primary action. Transcript editing is in its header; Save
+appears during editing, and cancel protects unsaved corrections. Select transcript text
+to attach an excerpt; the confirmation uses complete source segments to retain exact
+quotes and timestamps. Files, AI instructions and next-meeting preparation are in More.
+Settings groups the original panels under **Recording, AI, People & sources, Workspace,
+Advanced**. Diagnostics are in **Advanced → Help**. Existing project-section links remain
+valid. See `docs/ux-flow-validation.md` for measured layout and test boundaries.

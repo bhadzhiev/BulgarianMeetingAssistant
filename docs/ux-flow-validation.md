@@ -34,3 +34,54 @@ The committed JSON records this Mac's sample. At 5,000 synthetic meetings, warm 
 For an 80-part / 10-change synthetic snapshot, the plan changes from 80 worker steps to 11 including synthesis. That is a request-plan reduction, not a measured LLM speedup or quality claim. Report metrics expose worker steps, input characters and elapsed processing time for the selected model. Output-splitting retries can issue additional underlying model calls. The benchmark peak RSS belongs to the Python benchmark, not to Whisper, Parakeet or an LLM.
 
 The current 5,000-meeting sample does not justify a new persistent transcript/FTS store. The existing text cache and rebuilt search index remain; a broader index should follow evidence from long real libraries.
+
+
+## 2026-11-02 — content first workspace
+
+Browser QA used separate disposable libraries and viewport emulation. Their session
+cookies share a hostname, so each library was authenticated immediately before its
+mutating tests. No real account, audio capture or model inference was used.
+
+| Viewport | Start recording top/bottom | First Library card top/bottom | Project content top |
+| --- | --- | --- | --- |
+| 1440 × 900 | 822 / 869 px | 392 / 547 px | 292 px |
+| 900 × 900 | 822 / 869 px | 380 / 535 px | 280 px |
+| 390 × 844 | 777 / 821 px | 401 / 549 px | 359 px |
+
+The meeting name, type and project, Start recording, and the first full Library card
+fit without scrolling at all three sizes. No horizontal page overflow was measured.
+The navigation uses a 216 px rail on desktop, a 72 px icon rail at 900 px and a compact
+top navigation at 390 px. Raw measurements: `ux-layout-2026-11-02.json`.
+
+Verified flows:
+
+- New meeting: identity fields first; audio setup and advanced controls remain available.
+  The fixed Start action belongs to the original form and retains its disabled state.
+- Library: search plus closed Filters; apply project and Today, collapse the panel and
+  retain project/from/through chips with `dd.mm.yyyy` labels. One result reads
+  `1 conversation`, without the `1–1` range.
+- Empty library and My Work: hide unused filters and show a useful creation/import action.
+  A filtered zero-result list still keeps its controls, so the person can recover.
+- Transcript: header counts, explicit Edit transcript, save only in edit mode; cancel
+  with dirty text asks before restoring the original. Double-clicking a word in segment
+  1 exposed the contextual attachment action; saving it retained segment 1, its original
+  quotation and the chosen project. Excerpts retain whole source segments.
+- Meeting More: Files, AI instructions and Prepare the next meeting remain reachable.
+- Projects: four primary tabs; old task/decision/question and Sources/Conversations
+  sections remain reachable, and Work filters have shareable routes.
+- Settings: five groups, original panels underneath; AI, workspace and Help navigation
+  were checked. Copy diagnostics is available in Advanced → Help.
+- Separate import view: disable automatic AI processing in the synthetic library,
+  paste a two-participant transcript, import and open its saved dialogue.
+
+JavaScript regressions cover singular counts, valid/reversed/outside/editing transcript
+selection, project-kind routes, existing section routes, import routes, date parsing,
+request ordering and dirty edit preservation. Focus styling, theme variables and the
+processing profiles remain in use. This QA does not verify physical mobile recording,
+real connector credentials, transcription quality or live LLM behavior.
+
+Expanded audio setup was also checked at 390 × 844 with the page scrolled to
+730 px of a 1665 px document: Start recording stayed at 777–821 px and hit-testing
+confirmed it was uncovered. A first-paint regression checks that processing details
+do not briefly expose empty/stale metadata while changing views. Both JavaScript
+regression scripts run through the normal Python frontend test entry point.

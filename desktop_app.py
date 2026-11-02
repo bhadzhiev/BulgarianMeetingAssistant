@@ -443,6 +443,16 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.github_user(body.get('login'))
             elif path == '/api/projects/repositories':
                 result = service.set_project_repositories(body.get('id'), body.get('repositories'))
+            elif path == '/api/meeting-review':
+                from app.meeting_review import snapshot, act
+                result = act(service,body) if body.get('action') else snapshot(service,body.get('meeting_id'))
+            elif path in {'/api/github/preview','/api/github/publish','/api/github/verify','/api/github/reconcile'}:
+                from app.github_publish import Publisher
+                publisher=Publisher(service)
+                result=publisher.preview(body) if path.endswith('/preview') else publisher.publish(body.get('id'),body.get('repository')) if path.endswith('/publish') else publisher.reconcile(body.get('id'),body.get('repository')) if path.endswith('/reconcile') else publisher.verify(body.get('id'))
+            elif path == '/api/followup/check':
+                from app.followup import check
+                result=check(service,body)
             elif path == '/api/github/draft':
                 result = service.github_draft(body)
             elif path == '/api/github/link':

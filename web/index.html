@@ -29,13 +29,13 @@
   <div id="error" class="error" role="alert" hidden></div>
   <div id="metadata-warning" class="notice warning" role="alert" hidden><p id="metadata-warning-text"></p><button id="metadata-recover" type="button" class="secondary">Open Backup settings</button></div>
   <section id="setup">
-    <div class="heading setup-heading"><h1>New meeting</h1><button id="open-import" class="secondary" type="button" aria-label="Import audio or transcript">Import…</button></div>
+    <div class="heading setup-heading"><h1>New meeting</h1><div class="capture-shortcuts"><button id="repeat-capture" class="secondary" type="button" disabled>Repeat last setup</button><button id="open-import" class="secondary" type="button" aria-label="Import audio or transcript">Import…</button></div></div>
     <form id="record-form" class="card setup-card">
       <div class="record-identity-grid"><div class="record-name">      <label for="meeting-title">Meeting name</label><input id="meeting-title" placeholder="Leave blank for an AI-generated title" maxlength="160" autocomplete="off">
 </div><div>      <label for="record-type">Meeting type</label><select id="record-type" aria-describedby="record-type-help"></select><p id="record-type-help" class="visually-hidden"></p>
 </div><div><label for="record-project">Project</label><select id="record-project" aria-label="Project"></select></div></div>
       <details class="record-series-options"><summary id="record-series-summary">Series and preparation</summary><div class="input-row scope-select"><select id="record-series" aria-label="Series"></select><button id="record-prepare" type="button" class="secondary" disabled>Prepare me</button></div></details>
-      <div id="readiness" class="readiness" aria-live="polite"></div>
+      <p id="capture-setup-status" class="notice warning" role="status" hidden></p><div id="readiness" class="readiness" aria-live="polite"></div>
       <details id="record-more" class="record-more"><summary><span>Audio &amp; recording options</span><span id="record-more-summary" class="record-more-summary"></span></summary>
       <fieldset><legend>Where are you meeting?</legend><div class="mode-options">
         <label class="mode"><input type="radio" name="mode" value="in_person" checked><span class="mode-icon">◉</span><strong>In person</strong><small>iPhone or Mac microphone</small></label>
@@ -53,7 +53,7 @@
     <p class="below-card">Your recording is saved continuously. You can process it again whenever you need.</p>
   </section>
   <section id="importing" hidden><div class="heading"><h1>Import a conversation</h1><p class="subheading">Use an audio file or an existing transcript.</p></div>
-    <details class="card import-card" open>
+    <details id="import-drop-zone" class="card import-card" open><p id="import-drop-status" class="notice" role="status">Drop an audio or transcript file here, or choose a file below.</p>
       <summary class="card-heading"><div><p class="eyebrow">RECORDED ELSEWHERE?</p><h2>Import audio or a transcript</h2></div><span class="badge">AUDIO · .MD · .TXT · .SRT</span></summary>
       <p class="hint">Audio files (.m4a, .mp3, .wav and other formats) are processed like a new recording, with the settings above. The recording date comes from the file.</p><p class="hint">For transcripts, use lines like <code>[00:01:07] Maria Georgieva: text</code>. A first line such as <code>DevOps sync, 19 Oct 2026: transcript</code> becomes the name and date.</p>
       <div class="import-row"><input id="import-file" type="file" accept=".md,.markdown,.txt,.srt,text/plain,text/markdown,.m4a,.mp3,.wav,.aac,.ogg,.opus,.flac,.webm,.mp4,.mov,.caf,.aiff,.aif,.amr,.3gp,audio/*" aria-label="Audio or transcript file"><button id="import-button" class="primary" type="button" disabled>Import file</button></div>
@@ -204,7 +204,8 @@
     <div class="card prepare-scope"><div class="scope-row"><label>Project<select id="prepare-project"></select></label><label>Series<select id="prepare-series"></select></label><label class="prepare-purpose">What upcoming meeting are you preparing for?<select id="prepare-type"></select></label></div>
       <p id="prepare-empty" class="hint" hidden>No projects yet. Open a saved meeting and choose ＋ Add to a project. Put recurring meetings into a series.</p></div>
     <div id="prepare-content" hidden>
-      <div class="card"><div class="card-heading"><h2>Proposed agenda</h2><button id="copy-agenda" class="secondary" type="button">Copy as text</button></div><ol id="prepare-agenda" class="agenda"></ol></div>
+      <div class="card"><div class="card-heading"><h2>Follow-up</h2><button id="followup-check" class="secondary" type="button">Check GitHub now</button></div><p id="followup-boundary" class="hint"></p><div id="followup-content"></div></div>
+      <div class="card"><div class="card-heading"><h2>Proposed agenda</h2><button id="prepare-next-meeting" class="secondary" type="button">Start next meeting</button><button id="copy-agenda" class="secondary" type="button">Copy as text</button></div><ol id="prepare-agenda" class="agenda"></ol></div>
       <div id="prepare-sections-card" class="card" hidden><h2>From the last meeting</h2><div id="prepare-sections"></div></div>
       <div class="card"><h2 id="prepare-tasks-title">Open tasks</h2><div id="prepare-tasks"></div></div>
       <div class="card"><h2>Questions without a decision</h2><p class="hint">From the last three meetings. A question asked again shows once, with its newest source.</p><div id="prepare-questions"></div></div>
@@ -274,6 +275,7 @@
   <label for="github-draft-issue-title" id="github-draft-title-label">Issue title</label><input id="github-draft-issue-title" maxlength="256">
   <label for="github-draft-body">Text</label><textarea id="github-draft-body" rows="14"></textarea>
   <p class="hint">Atlanta does not publish anything. Review the text, copy it or open GitHub with it filled in, and publish there. The quote and the reference stay as evidence.</p>
+  <label>Target issue number (comments only)<input id="github-publish-target" type="number" min="1"></label><button id="github-publish-preview" class="secondary" type="button">Preview publication…</button><p id="github-publish-status" role="status"></p>
   <div class="review-footer"><a id="github-draft-open" class="secondary button-link" target="_blank" rel="noopener noreferrer">Open on GitHub ↗</a><span><button id="github-draft-copy-title" class="secondary" type="button">Copy title</button><button id="github-draft-copy" class="primary" type="button">Copy text</button></span></div>
 </dialog>
 <dialog id="github-link-dialog" aria-labelledby="github-link-title"><form id="github-link-form" method="dialog">
@@ -303,6 +305,7 @@
 <p class="hint">A series groups meetings that repeat. Prepare me uses it to get you ready for the next one.</p>
 <div class="review-footer"><span></span><button class="primary" type="submit">Save</button></div>
 </form></dialog>
+<dialog id="meeting-review-dialog"><div class="card-heading"><h2>Review meeting</h2><button id="meeting-review-close" type="button" class="quiet">Close</button></div><p class="hint">Confirm saves your review on this Mac. Publishing to GitHub requires a separate preview and approval.</p><div id="meeting-review-body"></div></dialog>
 <dialog id="review-dialog" aria-labelledby="review-title"><div class="card-heading"><div><p class="eyebrow">NEW AI NOTES</p><h2 id="review-title">Review changes</h2></div><button id="review-close" class="quiet" type="button" aria-label="Close review">✕</button></div><div id="review-error" class="error" role="alert" hidden></div><p class="hint">Your saved notes stay as they are until you apply changes. Task status is kept. A changed statement needs a new check.</p><div id="review-body" class="review-body"></div><div class="review-footer"><button id="review-discard" class="quiet danger-text" type="button">Discard new notes</button><button id="review-apply" class="primary" type="button">Apply selected</button></div></dialog>
 <dialog id="settings-dialog"><form id="settings-form"><div class="card-heading"><div><h2>Settings</h2></div><button id="settings-close" class="quiet" type="button" aria-label="Close settings">✕</button></div>
 <div id="settings-error" class="error" role="alert" hidden></div>

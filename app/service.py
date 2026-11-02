@@ -108,10 +108,14 @@ class MeetingService:
             if meeting.get('title_status') == 'generating':
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
+        from .commit_journal import CommitJournal
+        CommitJournal(self.items.store.path).recover()
         self.projects = Projects(root / 'projects.json')
         self.people = People(root / 'people.json')
         self.github_links = GitHubLinks(root / 'github-links.json')
         self.templates = Templates(root / 'meeting-templates.json')
+        from .capture_setup import CaptureSetup
+        self.capture_setup=CaptureSetup(root/'capture-setup.json')
         from .prompts import Prompts
         self.prompts = Prompts(root / 'ai-prompts.json')
         from .prompt_lab import PromptLab
@@ -235,7 +239,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
-                storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
+                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
                 speakers=self.library.speakers(), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
@@ -369,6 +373,7 @@ class MeetingService:
             self._stop_preview()
             settings = dict(self.settings, models_dir=str(self.models_dir))
             settings['fallback_microphone'] = fallback_device_name
+            settings['_capture_microphone']=next((d.get('name',device_name or '') for d in devices() if d['id']==device),device_name or '')
             if transcription_timing is not None:
                 settings['live_transcription'] = transcription_timing == 'live'
             with self.projects.lock:
@@ -483,6 +488,8 @@ class MeetingService:
                 return
             with self.lock:
                 self.library.update(meeting_id, status='recording', progress='Recording',started_at=dt.datetime.now().astimezone().isoformat())
+                try:self.capture_setup.remember(self.library.get(meeting_id))
+                except (ValueError,OSError):pass  # Metadata failure must never stop durable audio capture.
                 settings = self.library.get(meeting_id)['settings']
                 if settings.get('live_transcription', True):
                     # Caption failures must not take down the durable recorder.
@@ -1309,7 +1316,10 @@ class MeetingService:
             result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
                                     {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
                                     dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind, project_id=None if series else project['id'])
-            return dict(result, project_id=project['id'], series_id=series_id, requires_type=requires_type)
+            from .followup import build as build_followup
+            result.update(project_id=project['id'],series_id=series_id,requires_type=requires_type)
+            result['followup']=build_followup(self,result,registry,meetings,{m['id']:self._minutes(m['id']) for m in meetings})
+            return result
 
     SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
                      'transcript': {'transcript', 'draft'}}
@@ -1357,7 +1367,7 @@ class MeetingService:
 
     def metadata_stores(self):
         return (('people.json',self.people),('projects.json',self.projects),
-                ('github-links.json',self.github_links),('meeting-templates.json',self.templates))
+                ('github-links.json',self.github_links),('meeting-templates.json',self.templates),('capture-setup.json',self.capture_setup))
 
     def metadata_errors(self):
         errors={}
@@ -1387,10 +1397,12 @@ class MeetingService:
 
     @contextmanager
     def _snapshot_guard(self):
-        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.people.lock, self.github_links.lock, self.templates.lock, self.prompts.lock:
+        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.people.lock, self.github_links.lock, self.templates.lock, self.capture_setup.lock, self.prompts.lock:
             self.library._finish_scope_batch()
             # Recover a projection interrupted after SQLite committed before pinning it.
             self.items.data, self.items.revision = self.items.store.load()
+            from .commit_journal import CommitJournal
+            atomic_json(self.library.root/'commit-journal.json',CommitJournal(self.items.store.path).export())
             yield
 
     def restore_backup(self, name):
@@ -1408,6 +1420,8 @@ class MeetingService:
                 if (staging/name).exists():
                     try:archived_metadata[name]=store.validate_archive(staging/name)
                     except (ValueError,TypeError,KeyError,AttributeError) as exc:raise ValueError(f"Invalid {name} in archive; nothing was restored.") from exc
+            from .commit_journal import CommitJournal
+            if (staging/'commit-journal.json').exists():CommitJournal.validate_archive(json.loads((staging/'commit-journal.json').read_text()))
             self.prompts.read(staging/'ai-prompts.json')
             restored_reports.update(read_report_store(staging / 'repo-reports.json')['reports'])
             path = staging / 'items.json'
@@ -1417,6 +1431,8 @@ class MeetingService:
                 for item in portable['items'].values():
                     normalize(item)
         def merge(staging, restored):
+            from .commit_journal import CommitJournal
+            if (staging/'commit-journal.json').exists():CommitJournal(self.items.store.path).restore(json.loads((staging/'commit-journal.json').read_text()))
             self.repo_reports.restore(staging)
             if (staging/'ai-prompts.json').exists():
                 damaged=bool(self.prompts.error)

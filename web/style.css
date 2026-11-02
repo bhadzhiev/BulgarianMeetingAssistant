@@ -724,3 +724,5 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 
 @media(max-width:640px){.work-tabs{flex-wrap:nowrap;gap:14px;overflow-x:auto}.work-tabs button{white-space:nowrap;font-size:12px}}
 .sidebar:has(#project-filter[hidden]) .recent-filter-label{display:none}
+
+.capture-shortcuts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.drop-active{outline:3px dashed var(--green);outline-offset:4px}.setup-heading{flex-wrap:wrap}.capture-shortcuts button{font-size:12px}

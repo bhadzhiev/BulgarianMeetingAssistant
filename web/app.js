@@ -74,7 +74,7 @@ function renderAttention(busy){
   head.append(el('span','hint',d.minutes?'No automatic checks are flagged. Review AI statements against their source.':'Generate notes to collect decisions and tasks.'));
   if(d.project_id){const next=el('button','secondary small-action','Prepare the next meeting');next.type='button';next.onclick=()=>perform(()=>openPrepare(d.project_id,d.series_id||''));head.append(next);}
  }
- box.append(head);if(items.length){box.append(items[0]);if(items.length>1){const more=el('details','attention-more');more.append(el('summary','',AtlantaUX.count(items.length-1,'more review item')),...items.slice(1));box.append(more);}}box.classList.toggle('done',!items.length);
+ box.append(head,...items);box.classList.toggle('done',!items.length);
 }
 function renderSpeakerReview(busy) {
  const target=$('speaker-review');target.replaceChildren();$('speaker-review-count').textContent=AtlantaUX.count(new Set(detail.transcript.map(s=>s.speaker).filter(Boolean)).size,'speaker');
@@ -398,6 +398,7 @@ function renderState() {
  } else if(view==='recording' && selected) { perform(()=>openMeeting(selected,true)); }
  renderRecordingBar();
  renderLibrary();
+ renderCaptureSetup();
 }
 const MARKER_LABELS={important:'★ Important',decision:'✓ Decision',check:'? Check later'};
 // Recording markers during the meeting, and review shortcuts after it.
@@ -583,7 +584,7 @@ function renderDetail() {
 const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','delete-meeting'];
 // One clear next step is a button; the other actions wait in the More menu.
 function placeActions(d) {
- const action=$('review-primary');action.hidden=!d.minutes_proposal;action.disabled=d.status==='processing';
+ const action=$('review-primary');action.hidden=!d.minutes_proposal&&(!d.minutes||d.notes_need_refresh||d.notes_refresh_error);action.textContent=d.minutes_proposal?'Review updated notes':'Review decisions and tasks';action.disabled=d.status==='processing';
  const audio=d.files.includes('recording.wav');
  const primary=d.minutes_proposal?null:!$('recover').hidden&&!audio?'recover':!$('process').hidden&&!d.transcript.length?'process':d.transcript.length&&(d.notes_need_refresh||d.notes_refresh_error)?'summarize':d.transcript.length&&!d.minutes?'summarize':null;
  for(const id of ACTIONS) { const button=$(id); if(id===primary){button.className='primary';$('primary-action').append(button);} else {button.className=id==='delete-meeting'?'danger-text':'';$('more-actions').append(button);} }
@@ -1762,8 +1763,10 @@ async function loadPrepare() {
 $('prepare-project').onchange=()=>{prepareScope={project:$('prepare-project').value,series:'',type:''};perform(loadPrepare);};
 $('prepare-series').onchange=()=>{prepareScope.series=$('prepare-series').value;prepareScope.type='';perform(loadPrepare);};
 $('open-prepare').onclick=()=>perform(()=>openPrepare());
+$('prepare-next-meeting').onclick=()=>{prepareScope.type=$('prepare-type').value||prepareData?.meeting_type||'';$('new-meeting').click();};
 $('copy-agenda').onclick=()=>perform(async()=>{await navigator.clipboard.writeText(prepareData.markdown);toast('Agenda copied · paste it into the invitation or a chat');});
 function renderPrepare(data) {
+ renderFollowup(data);
  const last=data.meetings.at(-1);
  const type=typeOf(data.meeting_type), label=type.id==='general'?'':' · '+type.label;
  $('prepare-summary').textContent=data.meetings.length?data.title+label+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+label+' · no meetings yet';
@@ -1946,16 +1949,17 @@ $('work-project').onchange=()=>renderTasks();
 $('task-owner').onchange=renderTasks;
 // Transcript rows grow with their text instead of showing an inner scroll bar.
 document.addEventListener('input',event=>{const area=event.target;if(area.matches?.('.segment textarea')){area.style.height='auto';area.style.height=area.scrollHeight+2+'px';}});
-$('new-meeting').onclick=async()=>{const project=contextProject();if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show(state?.active?'recording':'setup');window.scrollTo(0,0);if(state?.active)selected=state.active.id;else{if(project){fillProjects($('record-project'),project,'No project');fillSeries($('record-series'),project,'','No series');renderRecordMore();}renderTranscriptionTiming(true);}renderLibrary();};
+$('new-meeting').onclick=async()=>{const context=view==='prepare'?{project_id:prepareScope.project||null,series_id:prepareScope.series||null,meeting_type:prepareScope.type||'general'}:view==='projects'?{project_id:$('workspace-project').value==='__none__'?null:$('workspace-project').value||null}:view==='detail'?{project_id:detail.project_id||null,series_id:detail.series_id||null,meeting_type:detail.meeting_type||'general'}:{};const project=contextProject();if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show(state?.active?'recording':'setup');window.scrollTo(0,0);if(state?.active)selected=state.active.id;else{if(project){fillProjects($('record-project'),project,'No project');fillSeries($('record-series'),project,'','No series');renderRecordMore();}renderTranscriptionTiming(true);captureContext=context;if(Object.keys(context).length)applyCaptureSetup(recordingSetupDraft(context),false);renderCaptureSetup();}renderLibrary();};
 $('record-form').addEventListener('change',()=>{renderReadiness();renderRecordMore();});
 {const mode=document.querySelector(`input[name=mode][value="${stored('record-mode')}"]`);if(mode)mode.checked=true;}
 for(const radio of document.querySelectorAll('input[name=mode]'))radio.onchange=()=>{$('mode-help').textContent=radio.value==='online'?'Captures audio from all Mac apps plus your microphone. Use headphones to avoid echo. macOS requires Screen & System Audio Recording permission.':'Place your iPhone near the centre of the table, or use your Mac microphone.';};
 // A remembered meeting type shows its own help text.
 document.querySelector('input[name=mode]:checked')?.onchange?.();
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent});toast('Microphone test started · 10 seconds');});
-$('microphone').onchange=()=>renderState();
+$('microphone').onchange=()=>{captureWantedMic=null;renderState();};
 $('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;store('record-mode',document.querySelector('input[name=mode]:checked').value);store('record-mic',$('microphone').selectedOptions[0]?.textContent||'');try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,transcription_timing:$('transcription-timing').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null,meeting_type:$('record-type').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
 async function importTranscript(text,filename) {
+ if(!(await approveImport(filename||'pasted transcript')))return;
  const d=await api('/api/import',{text,filename});
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;
  toast('Transcript imported · '+d.transcript.length+' segments');state=await api('/api/state');renderState();await openMeeting(d.id,true);
@@ -1975,7 +1979,7 @@ function uploadAudio(file) {
 }
 $('import-button').onclick=()=>perform(async()=>{const file=$('import-file').files[0];if(!file)return;$('import-button').disabled=true;
  try{
-  if(AUDIO_FILE.test(file.name)){const d=await uploadAudio(file);$('import-file').value='';toast('Audio imported · '+shortDuration(d.duration));state=await api('/api/state');renderState();await openMeeting(d.id,true);return;}
+  validateImportFile(file);if(AUDIO_FILE.test(file.name)){if(!(await approveImport(file.name)))return;const d=await uploadAudio(file);$('import-file').value='';toast('Audio imported · '+shortDuration(d.duration));state=await api('/api/state');renderState();await openMeeting(d.id,true);return;}
   if(file.size>5_000_000)throw new Error('Choose a transcript file of at most 5 MB');
   await importTranscript(await file.text(),file.name);
  }finally{$('import-button').textContent='Import file';$('import-button').disabled=!$('import-file').files.length;}});
@@ -2393,7 +2397,7 @@ let editorStateSent=null,editorHeartbeatAt=0;
 function editorHeartbeat(){if(!state?.desktop_mode)return;const dirty=hasEdits(),now=Date.now();if(dirty===editorStateSent&&now-editorHeartbeatAt<5000)return;editorStateSent=dirty;editorHeartbeatAt=now;api('/api/editor-state',{dirty}).catch(()=>{editorStateSent=null;});}
 document.addEventListener('input',()=>queueMicrotask(editorHeartbeat));document.addEventListener('change',()=>queueMicrotask(editorHeartbeat));setInterval(editorHeartbeat,500);
 
-$('review-primary').onclick=()=>perform(async()=>openReview());
+$('review-primary').onclick=()=>perform(async()=>{if(detail.minutes_proposal)openReview();else await openMeetingReview();});
 
 function markDialogDirty(event){const dialog=event.target.closest?.('dialog');if(dialog&&dialog.id!=='ask-dialog')editorDirty.set('dialog:'+dialog.id,true);}
 document.addEventListener('input',markDialogDirty);document.addEventListener('change',markDialogDirty);
@@ -2428,3 +2432,120 @@ for(const button of document.querySelectorAll('.sidebar>button,.sidebar footer b
  for(const node of [...button.childNodes])if(node.nodeType===3&&node.textContent.trim()){const label=el('span','nav-label',node.textContent);node.replaceWith(label);}
 }
 const settingsGlyph=el('span','settings-glyph','⚙');settingsGlyph.setAttribute('aria-hidden','true');$('settings-open').prepend(settingsGlyph);
+
+
+let captureInitialized=false,captureContext={},captureWantedMic=null,captureWantedFallback=null,captureMissing={},captureEdited=new Set();
+function recordingSetupDraft(context={}){
+ const saved=state?.capture_setup?.data||{},draft={mode:'in_person',meeting_type:'general',project_id:null,series_id:null,microphone_name:$('microphone').selectedOptions[0]?.textContent||'',fallback_microphone:'',transcription_timing:'after',...saved};
+ if(Object.hasOwn(context,'project_id')&&context.project_id!==draft.project_id){draft.series_id=null;draft.meeting_type='general';}
+ return {...draft,...context};
+}
+function applyCaptureSetup(draft,automatic){
+ const assign=(id,value)=>{if(automatic&&captureEdited.has(id))return;const control=$(id);if(value&&![...control.options].some(o=>o.value===value))control.append(option('Unavailable · choose another',value));control.value=value||'';};
+ captureMissing={};assign('record-project',draft.project_id);fillSeries($('record-series'),$('record-project').value,'','No series');assign('record-series',draft.series_id);assign('record-type',draft.meeting_type);
+ for(const [id,value] of [['record-project',draft.project_id],['record-series',draft.series_id],['record-type',draft.meeting_type]])if(value)captureMissing[id]=value;
+ if(!automatic||!captureEdited.has('microphone'))captureWantedMic=draft.microphone_name;
+ if(!automatic||!captureEdited.has('mode')){const mode=document.querySelector('input[name=mode][value="'+(draft.mode==='online'?'online':'in_person')+'"]');mode.checked=true;}
+ assign('transcription-timing',draft.transcription_timing);captureWantedFallback=draft.fallback_microphone;assign('fallback-microphone',draft.fallback_microphone);$('record-prepare').disabled=!$('record-project').value;
+ renderRecordMore();renderReadiness();renderCaptureSetup();
+}
+function renderCaptureSetup(){
+ if(!state)return;const saved=state.capture_setup;$('repeat-capture').disabled=!saved?.data||!!saved.error;
+ if(!captureInitialized){captureInitialized=true;if(saved?.data){applyCaptureSetup(recordingSetupDraft(),true);return;}}
+ const errors=[];
+ for(const [id,value] of Object.entries(captureMissing)){
+  const available=id==='record-project'?projectList().some(p=>p.id===value):id==='record-series'?seriesOf($('record-project').value).some(p=>p.id===value):typeList().some(p=>p.id===value);
+  if(!available){if(![...$(id).options].some(o=>o.value===value))$(id).append(option('Unavailable · choose another',value));$(id).value=value;errors.push(id==='record-project'?'Choose a project; the previous one is unavailable.':id==='record-series'?'Choose a series; the previous one is unavailable in this project.':'Choose a meeting type; the previous one is unavailable.');}
+ }
+ if(captureWantedMic){const matches=state.devices.filter(d=>d.name===captureWantedMic);if(matches.length===1)$('microphone').value=String(matches[0].id);else{if(![...$('microphone').options].some(o=>o.value==='__missing__'))$('microphone').append(option('Choose microphone · '+captureWantedMic,'__missing__'));$('microphone').value='__missing__';errors.push('Choose the microphone; the previous device is unavailable or ambiguous.');}}
+ if(captureWantedFallback!==null){if(captureWantedFallback&&![...$('fallback-microphone').options].some(o=>o.value===captureWantedFallback))$('fallback-microphone').append(option('Unavailable backup · choose another',captureWantedFallback));$('fallback-microphone').value=captureWantedFallback;}
+ if($('fallback-microphone').value&&!state.devices.some(d=>d.name===$('fallback-microphone').value))errors.push('Choose a valid backup microphone, or remove the backup.');
+ renderReadiness();renderRecordMore();renderTranscriptionTiming();
+ const note=$('capture-setup-status');note.textContent=errors.join(' ')||(saved?.error||'');note.hidden=!note.textContent;
+ $('start').disabled=!!state.active||!state.devices.length||pending||!!errors.length||$('microphone').value==='__missing__';
+}
+$('repeat-capture').onclick=()=>{captureEdited.clear();applyCaptureSetup(recordingSetupDraft(captureContext),false);toast('Previous setup restored · review it, then Start recording');};
+$('record-form').addEventListener('change',event=>{const id=event.target.id||event.target.name;captureEdited.add(id);if(id==='fallback-microphone')captureWantedFallback=null;delete captureMissing[id];if(id==='record-project'){delete captureMissing['record-series'];delete captureMissing['record-type'];}renderCaptureSetup();});
+function validateImportFile(file){if(!file||(!AUDIO_FILE.test(file.name)&&!/\.(md|markdown|txt|srt)$/i.test(file.name)))throw new Error('Choose an audio file or a .md, .txt or .srt transcript');if(!file.size||file.size>(AUDIO_FILE.test(file.name)?4_000_000_000:5_000_000))throw new Error('Choose a non-empty audio file up to 4 GB or transcript up to 5 MB');}
+async function approveImport(name){const settings=state.settings,cloud=settings.auto_process&&(settings.summarizer==='openai'||settings.transcription==='openai'||settings.transcript_correction==='openai');return !cloud||await ask('Import '+name+' and use the configured OpenAI processing? The file is saved locally first. Use Recording settings to disable automatic cloud processing.',{ok:'Import & process',cancel:'Cancel'});}
+const dropZone=$('import-drop-zone');
+for(const event of ['dragenter','dragover'])dropZone.addEventListener(event,e=>{e.preventDefault();dropZone.classList.add('drop-active');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drop-active'));
+dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('drop-active');perform(async()=>{if(event.dataTransfer.files.length!==1)throw new Error('Drop one file at a time');const file=event.dataTransfer.files[0];validateImportFile(file);const files=new DataTransfer();files.items.add(file);$('import-file').files=files.files;$('import-button').disabled=false;$('import-drop-status').textContent='Checked '+file.name+' · saving locally…';await $('import-button').onclick();});});
+
+async function openMeetingReview(){
+ if(hasEdits()){toast('Save your edits before reviewing');return;}
+ const meetingId=detail.id;
+ const data=await api('/api/meeting-review',{meeting_id:meetingId});
+ if(detail.id!==meetingId)return;
+ const box=$('meeting-review-body');box.replaceChildren();
+ if(data.summary)box.append(el('p','',typeof data.summary==='string'?data.summary:JSON.stringify(data.summary)));
+ if(data.source_changed)box.append(el('p','notice warning','Source changed — update the notes before confirming.'));
+ for(const item of data.items){
+  const row=el('section','note-section'),state=el('span','badge',item.state==='confirmed'?'Confirmed':item.state==='dismissed'?'Dismissed':item.state==='edited'?'Edited · needs confirmation':'Needs review');
+  row.append(state,el('p','',item.text));
+  if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
+  for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),el('span','hint',evidence.timestamp));
+  const edit=el('button','secondary','Edit');edit.type='button';
+  edit.onclick=()=>{
+   edit.disabled=true;const form=el('div','review-inline-editor'),text=el('textarea'),owner=el('input'),save=el('button','primary','Save edit'),cancel=el('button','secondary','Cancel');
+   text.value=item.text;text.setAttribute('aria-label','Task or decision text');owner.value=item.owner||'';owner.setAttribute('aria-label','Owner');
+   const dirty=()=>editorDirty.set('meeting-review',true);text.oninput=owner.oninput=dirty;
+   save.type=cancel.type='button';form.append(text);if(item.kind==='task')form.append(owner);form.append(save,cancel);row.append(form);
+   cancel.onclick=()=>{editorDirty.clear('meeting-review');form.remove();edit.disabled=false;};
+   save.onclick=()=>perform(async()=>{save.disabled=true;try{const changes={text:text.value};if(item.kind==='task')changes.owner=owner.value;await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action:'edit',changes});editorDirty.clear('meeting-review');await openMeetingReview();}finally{save.disabled=false;}});
+  };row.append(edit);
+
+  for(const link of item.links.filter(l=>l.meeting_id===meetingId)){
+   const stamp=link.evidence_timestamp;
+   if(stamp)row.append(listenButton(meetingId,stampSeconds(stamp),{label:'Listen to evidence',className:'secondary'}));
+  }
+  for(const [action,label] of [['confirm','Confirm locally'],['dismiss','Dismiss proposal']]){
+   if(item.state==='confirmed'||item.state==='dismissed')continue;
+   const button=el('button','secondary',label);button.type='button';button.disabled=data.source_changed;
+   button.onclick=()=>perform(async()=>{button.disabled=true;try{await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action});await openMeetingReview();}finally{button.disabled=false;}});row.append(button);
+  }
+  box.append(row);
+ }
+ if(!data.items.length)box.append(el('p','hint','No linked tasks or decisions. Review the saved notes and unresolved mentions in Tasks & decisions.'));
+ if(!$('meeting-review-dialog').open)$('meeting-review-dialog').showModal();
+}
+$('meeting-review-close').onclick=async()=>{if(await leaveEdits()){editorDirty.clear('meeting-review');$('meeting-review-dialog').close();}};
+$('meeting-review-dialog').addEventListener('cancel',event=>{event.preventDefault();$('meeting-review-close').click();});
+
+$('github-publish-preview').onclick=()=>perform(async()=>{
+ const button=$('github-publish-preview');button.disabled=true;
+ try{
+  const repository=$('github-draft-repo').value;
+  const preview=await api('/api/github/preview',{resource:draftResource,format:draftFormat,repository,title:$('github-draft-issue-title').value,body:$('github-draft-body').value,target:Number($('github-publish-target').value)||null});
+  const op=preview.operation,payload=op.payload;
+  if(op.state!=='approved'){
+   const status=$('github-publish-status');status.textContent='Existing publication: '+op.state+' · no new request sent';
+   if(['unknown','created'].includes(op.state)){const check=el('button','secondary','Check GitHub outcome');check.type='button';check.onclick=()=>perform(async()=>{const found=await api('/api/github/reconcile',{id:op.id,repository});status.textContent=found.state==='verified'?'Verified in GitHub: '+found.result.url:'Outcome still unconfirmed — no publication was retried';});status.append(check);}return;
+  }
+  const description=(payload.action==='issue'?'Create issue':'Add comment to #'+payload.target)+' in '+preview.repository+' as '+preview.account+'?\n\n'+payload.title+'\n\n'+payload.body;
+  if(!(await ask(description,{ok:payload.action==='issue'?'Create in GitHub':'Add comment'})))return;
+  const result=await api('/api/github/publish',{id:op.id,repository});
+  const status=$('github-publish-status');status.replaceChildren(document.createTextNode(result.state==='unknown'?'Outcome unknown — do not retry publication. Check GitHub before taking further action.':result.state==='verified'?'Verified in GitHub · '+dateTime(result.result.checked_at):'Created · remote verification pending'));
+  if(result.result?.url){const link=el('a','',' Open in GitHub ↗');link.href=result.result.url;link.target='_blank';link.rel='noopener noreferrer';status.append(link);}
+ }finally{button.disabled=false;}
+});
+
+function renderFollowup(data){
+ const follow=data.followup||{},box=$('followup-content');box.replaceChildren();
+ $('followup-boundary').textContent=follow.anchor?'Since '+withDate(follow.anchor.title,follow.anchor.started_at||follow.anchor.created):'No previous meeting of this type — no comparison period yet.';
+ for(const [key,label] of [['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
+  const rows=follow[key]||[];if(!rows.length)continue;
+  const section=el('section','note-section');section.append(el('h3','',label+' · '+rows.length));
+  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));
+   if(row.quote)card.append(el('blockquote','',row.quote));
+   if(row.source)card.append(sourceChip(row.source),sourceListen(row.source));
+   if(row.item_id){const open=el('button','quiet','Open work item');open.onclick=()=>perform(async()=>{if(row.kind==='task')await openTaskPanel(row.item_id);else{show('tasks');lastTasks='';await loadTasks();showWorkTab(row.kind==='question'?'questions':'decision');}});card.append(open);}
+   for(const link of row.external||[]){const remote=el('a','',link.repository+' #'+link.number+' ↗');remote.href=link.url;remote.target='_blank';remote.rel='noopener noreferrer';card.append(remote,el('p','hint',link.verification_label+' · '+(link.state||'unknown')+' · '+(link.checked_at?dateTime(link.checked_at):link.cached_at?dateTime(link.cached_at*1000):'No check time')));if(link.completion_suggested)card.append(el('p','notice','The last known external state is closed. Check GitHub and review whether the local commitment is fulfilled; it remains open.'));}
+   section.append(card);
+  }box.append(section);
+ }
+ if(!box.children.length)box.append(el('p','empty-content','No commitments or confirmed blockers yet. Review a meeting or link work to this project.'));
+ for(const error of follow.check_errors||[])box.append(el('p','notice warning',error));
+}
+$('followup-check').onclick=()=>perform(async()=>{const button=$('followup-check');button.disabled=true;try{const data=await api('/api/followup/check',{project_id:prepareScope.project,series_id:prepareScope.series||null,meeting_type:prepareData.meeting_type});if(view==='prepare'&&prepareScope.project===data.project_id){prepareData=data;renderPrepare(data);}}finally{button.disabled=false;}});

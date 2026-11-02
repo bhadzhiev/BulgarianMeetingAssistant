@@ -107,7 +107,9 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
         add('Overdue: ' + task['text'] + owner(task), [task['source']])
     last_date = dates[anchors[-1]['id']][:10] if anchors else ''
     done = [dict(item_id=item['id'], text=item['text'], owner=item.get('owner'), source=last_source(item)) for item in in_scope
-            if item['kind'] == 'task' and item['status'] == 'done' and _done_at(item) >= last_date]
+            if item['kind'] == 'task' and item['status'] == 'done' and last_date and _done_at(item) and _done_at(item) >= last_date]
+    done_unknown = [dict(item_id=item['id'], text=item['text'], owner=item.get('owner'), source=last_source(item)) for item in in_scope
+                    if item['kind'] == 'task' and item['status'] == 'done' and not _done_at(item)]
     decide = [q for q in open_questions if q['kind'] == 'decide'][:LIMIT]
     if style == 'daily':
         for entry in from_last.get('blockers', []):
@@ -124,6 +126,8 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
     elif style == 'sprint_review':
         for task in done[:LIMIT * 2]:
             add('Show: ' + task['text'] + owner(task), [task['source']])
+        for task in done_unknown[:LIMIT * 2]:
+            add('Completed, date unknown: ' + task['text'] + owner(task), [task['source']])
         for entry in from_last.get('carry_over', []):
             add('Not finished last time: ' + entry['text'], [entry['source']])
         for task in [t for t in tasks if not t['overdue']][:LIMIT]:
@@ -192,7 +196,7 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
             add('Check: ' + check['text'], [check['source']])
         add('New tasks, owners and dates', [])
 
-    return dict(title=title, meeting_type=definition['id'], done=done, meetings=[dict(id=m['id'], title=m['title'], date=_date(m)) for m in meetings],
+    return dict(title=title, meeting_type=definition['id'], done=done, done_unknown=done_unknown, meetings=[dict(id=m['id'], title=m['title'], date=_date(m)) for m in meetings],
                 tasks=tasks, questions=questions, decisions=decisions[:10], proposed=proposed, checks=checks, sections=sections,
                 agenda=agenda, markdown=markdown(title, today, agenda, tasks, questions, decisions[:10], sections))
 

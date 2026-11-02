@@ -21,6 +21,12 @@ from .storage import atomic_json
 
 SCOPES = ('https://www.googleapis.com/auth/calendar.calendarlist.readonly',
           'https://www.googleapis.com/auth/calendar.events')
+GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+CHAT_SCOPES = ('openid','https://www.googleapis.com/auth/userinfo.email',
+               'https://www.googleapis.com/auth/chat.spaces.readonly','https://www.googleapis.com/auth/chat.messages.readonly')
+CHAT_URL = 'https://chat.googleapis.com/v1'
+USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo'
+GMAIL_URL = 'https://gmail.googleapis.com/gmail/v1/users/me'
 AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 API_URL = 'https://www.googleapis.com/calendar/v3'
@@ -134,15 +140,17 @@ def http_json(url: str, method='GET', payload=None, token=None, form=False):
     request = urllib.request.Request(url,data=data,headers=headers,method=method)
     try:
         with urllib.request.urlopen(request,timeout=30) as response:
-            raw = response.read()
+            raw = response.read(8 * 1024 * 1024 + 1)
+            if len(raw) > 8 * 1024 * 1024:
+                raise CalendarError('Google response exceeds the local response limit.')
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
         # Keep authorization codes, tokens, response bodies, and client secrets out of errors.
-        error = CalendarError(f'Google Calendar request failed (HTTP {exc.code}). Reconnect for 401/403 errors, or retry later.')
+        error = CalendarError(f'Google request failed (HTTP {exc.code}). Reconnect for 401/403 errors, or retry later.')
         error.status = exc.code
         raise error from None
     except (urllib.error.URLError, TimeoutError):
-        raise CalendarError('Google Calendar could not be reached. Check your connection and retry.') from None
+        raise CalendarError('Google could not be reached. Check your connection and retry.') from None
 
 
 class GoogleCalendar:
@@ -169,16 +177,24 @@ class GoogleCalendar:
     def status(self):
         # Do not make the recorder/UI wait behind a Google request or OAuth exchange.
         acquired = self.lock.acquire(blocking=False)
+        bundle = {}
         try:
             try:
                 bundle = self._load() if acquired else (self.bundle or {})
+                if not isinstance(bundle,dict):
+                    raise CalendarError('Google credentials are invalid. Reconnect in Settings.')
                 connected = bool(bundle.get('refresh_token') and bundle.get('account_id'))
             except Exception as exc:
+                bundle = {}
                 connected = False
                 self.last_error = str(exc)
             return dict(configured=bool(self.state.get('configured')),connected=connected,
                         sign_in_available=bool(self.state.get('configured') or self.builtin),
                         account=self.state.get('account_id',''),error=self.last_error,
+                        chat_account_id=bundle.get('account_sub','') if connected else '',
+                        capabilities=dict(calendar=connected and set(SCOPES).issubset(self._scopes(bundle)),
+                                          gmail=connected and GMAIL_SCOPE in self._scopes(bundle),
+                                          chat=connected and set(CHAT_SCOPES).issubset(self._scopes(bundle))),
                         authorizing=bool(self.pending and time.monotonic()-self.pending['created'] < 600))
         finally:
             if acquired:self.lock.release()
@@ -204,7 +220,14 @@ class GoogleCalendar:
             atomic_json(self.state_path,self.state)
             return self.status()
 
-    def begin(self, origin):
+    def _scopes(self, bundle=None):
+        bundle = self._load() if bundle is None else bundle
+        # Credentials created before capability tracking were Calendar-only.
+        return set(bundle.get('scopes', SCOPES if bundle.get('account_id') else ()))
+
+    def begin(self, origin, capability='calendar'):
+        if capability not in {'calendar', 'gmail', 'chat'}:
+            raise ValueError('Unknown Google capability')
         parts = urllib.parse.urlsplit(origin)
         if parts.scheme != 'http' or parts.hostname != '127.0.0.1' or not parts.port or parts.path:
             raise ValueError('Google sign-in requires this app’s loopback address')
@@ -216,12 +239,14 @@ class GoogleCalendar:
             if not bundle.get('client_id'):
                 raise CalendarError('Google sign-in is not set up for this app. Add google_oauth_client.json '
                                     '(see README), or import a Desktop OAuth client JSON under Advanced.')
+            requested = {'calendar':set(SCOPES),'gmail':{GMAIL_SCOPE},'chat':set(CHAT_SCOPES)}[capability]
+            scopes = self._scopes(bundle) | requested
             verifier = secrets.token_urlsafe(48)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
             self.pending = dict(state=secrets.token_urlsafe(32),verifier=verifier,
-                                redirect_uri=origin+'/',created=time.monotonic())
+                                redirect_uri=origin+'/',created=time.monotonic(),scopes=sorted(scopes),capability=capability)
             query = dict(client_id=bundle['client_id'],redirect_uri=self.pending['redirect_uri'],
-                response_type='code',scope=' '.join(SCOPES),state=self.pending['state'],
+                response_type='code',scope=' '.join(sorted(scopes)),state=self.pending['state'],
                 code_challenge=challenge,code_challenge_method='S256',access_type='offline',prompt='consent')
             return AUTH_URL+'?'+urllib.parse.urlencode(query)
 
@@ -234,7 +259,7 @@ class GoogleCalendar:
                 raise CalendarError('Google sign-in expired or did not match this app. Click Sign in with Google again.')
             self.pending = None  # single use, including denied/failed exchanges
             if params.get('error'):
-                raise CalendarError('Google sign-in was cancelled or denied. No calendar was connected.')
+                raise CalendarError('Google sign-in was cancelled or denied. No new Google permissions were connected.')
             code = params.get('code')
             if not isinstance(code,str) or not code or len(code)>4096:
                 raise CalendarError('Google did not return an authorization code.')
@@ -243,14 +268,35 @@ class GoogleCalendar:
                 client_secret=old['client_secret'],code=code,code_verifier=pending['verifier'],
                 redirect_uri=pending['redirect_uri'],grant_type='authorization_code'),form=True)
             if not isinstance(token.get('access_token'),str) or not token.get('refresh_token'):
-                raise CalendarError('Google did not grant background access. Reconnect and approve Calendar access.')
-            if 'scope' in token and not set(SCOPES).issubset(set(token['scope'].split())):
-                raise CalendarError('Google Calendar access was not fully granted. Reconnect and allow both requested permissions.')
+                raise CalendarError('Google did not grant background access. Reconnect and approve the requested Google permissions.')
+            granted = set(token.get('scope', ' '.join(pending['scopes'])).split())
+            if 'email' in granted:
+                granted.discard('email');granted.add('https://www.googleapis.com/auth/userinfo.email')
+            if not set(pending['scopes']).issubset(granted):
+                raise CalendarError('Requested Google permissions were not fully granted. Existing connection was kept.')
             bundle = dict(old,access_token=token['access_token'],refresh_token=token['refresh_token'],
-                          expires_at=time.time()+float(token.get('expires_in',3600)))
+                          expires_at=time.time()+float(token.get('expires_in',3600)),scopes=sorted(granted))
             # Query calendars using this candidate credential before committing it.
-            calendars = self._calendars(bundle['access_token'])
+            calendars = self._calendars(bundle['access_token']) if set(SCOPES).issubset(granted) else []
             primary = next((c['id'] for c in calendars if c['primary']),None)
+            if GMAIL_SCOPE in granted:
+                profile = self.request(GMAIL_URL+'/profile',token=bundle['access_token'])
+                address = profile.get('emailAddress')
+                if not isinstance(address,str) or '@' not in address:
+                    raise CalendarError('Cannot verify the Gmail account.')
+                if primary and primary.casefold() != address.casefold():
+                    raise CalendarError('Calendar and Gmail account identities did not match. Existing connection was kept.')
+                primary = address
+            if set(CHAT_SCOPES).issubset(granted):
+                profile = self.request(USERINFO_URL,token=bundle['access_token'])
+                address = profile.get('email')
+                if (not isinstance(address,str) or '@' not in address or profile.get('email_verified') is not True
+                        or not isinstance(profile.get('sub'),str) or not profile['sub']):
+                    raise CalendarError('Cannot verify the Google Chat account identity.')
+                if primary and primary.casefold() != address.casefold():
+                    raise CalendarError('Google account identities did not match. Existing connection was kept.')
+                primary = address
+                bundle['account_sub'] = profile['sub']
             if not primary:
                 raise CalendarError('Cannot identify your primary calendar. Allow calendar-list access and reconnect.')
             bundle['account_id'] = primary
@@ -291,9 +337,34 @@ class GoogleCalendar:
 
     def list_calendars(self):
         with self.lock:
+            if not set(SCOPES).issubset(self._scopes()):
+                raise CalendarError('Connect Calendar permission in Settings first.')
             self.calendars = self._calendars(self._access())
             self.last_error = None
             return self.calendars
+
+    def gmail_get(self, path, query=None, expected_account=None):
+        # This adapter has no write method and accepts only the endpoints it uses.
+        if not re.fullmatch(r'/(profile|threads|history|threads/[A-Za-z0-9_-]{1,128})', path):
+            raise ValueError('Unsupported Gmail endpoint')
+        with self.lock:
+            if GMAIL_SCOPE not in self._scopes():
+                raise CalendarError('Connect Gmail read-only permission first.')
+            if expected_account and self._load().get('account_id') != expected_account:
+                raise CalendarError('The Google account changed. Start sync again for the connected account.')
+            url = GMAIL_URL + path + ('?' + urllib.parse.urlencode(query) if query else '')
+            return self.request(url, token=self._access())
+
+    def chat_get(self, resource, query=None, expected_account=None):
+        if not isinstance(resource,str) or not re.fullmatch(r'spaces(?:/[A-Za-z0-9_-]{1,128}(?:/messages(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127})?)?)?',resource):
+            raise ValueError('Unsupported Google Chat endpoint')
+        with self.lock:
+            if not set(CHAT_SCOPES).issubset(self._scopes()):
+                raise CalendarError('Connect Google Chat read-only permission first.')
+            if expected_account and self._load().get('account_sub') != expected_account:
+                raise CalendarError('The Google account changed. Reopen Google Chat.')
+            url = CHAT_URL+'/'+resource+('?' + urllib.parse.urlencode(query) if query else '')
+            return self.request(url,token=self._access())
 
     def disconnect(self):
         with self.lock:

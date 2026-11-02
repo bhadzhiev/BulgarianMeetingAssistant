@@ -18,13 +18,15 @@ from urllib.parse import urlsplit, parse_qs, quote, unquote
 import webbrowser
 
 from app.service import MeetingService
+from app import identity_channels
+from app.work_items import WorkItemConflict
 from app.google_calendar import CalendarError
 
 PROJECT = Path(__file__).resolve().parent
 if getattr(sys, 'frozen', False):
     import os
     os.environ['PATH'] = str(PROJECT / 'bin') + os.pathsep + os.environ.get('PATH', '')
-EXPORTS = {'recording.wav', 'transcription.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
+EXPORTS = {'transcript.before-speakers.json', 'transcript.alignment.json', 'speaker-turns.json', 'recording.wav', 'transcription.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
 
 
 class Server(ThreadingHTTPServer):
@@ -78,6 +80,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.get()
+        except WorkItemConflict as exc:
+            self.respond(409, {'error': str(exc)})
         except (ValueError, KeyError, TypeError) as exc:
             self.respond(400, {'error': str(exc)})
         except CalendarError as exc:
@@ -99,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
             # SameSite=Strict cookie. A refresh from this page makes the next step same-origin.
             target = '/session?token=' + quote(token)
             return self.respond(200, f'<!doctype html><meta http-equiv="refresh" content="0;url={target}">'
-                                     f'<title>Meeting Assistant</title><a href="{target}">Open Meeting Assistant</a>',
+                                     f'<title>Atlanta</title><a href="{target}">Open Atlanta</a>',
                                 'text/html; charset=utf-8')
         if url.path == '/session' and valid_token:
             self.send_response(303)
@@ -116,14 +120,30 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.server.service.google.complete({k:v[0] for k,v in parse_qs(url.query).items()})
                 self.server.service.google_connected()
-                message = 'You are signed in with Google. Return to Meeting Assistant and choose the destination calendar in Settings.'
+                message = 'You are signed in with Google. Return to Atlanta to use the permissions you approved.'
                 code = 200
             except Exception as exc:
                 message, code = str(exc), 400
-            return self.respond(code, '<!doctype html><html><head><title>Meeting Assistant · Google Calendar</title></head><body><h1>Meeting Assistant</h1><p>'+html.escape(message)+'</p><p><a href="/">Return to Meeting Assistant</a> or close this tab.</p></body></html>', 'text/html; charset=utf-8')
+            return self.respond(code, '<!doctype html><html><head><title>Atlanta · Google Calendar</title></head><body><h1>Atlanta</h1><p>'+html.escape(message)+'</p><p><a href="/">Return to Atlanta</a> or close this tab.</p></body></html>', 'text/html; charset=utf-8')
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return
+        if url.path == '/api/people/profile':
+            return self.respond(200, self.server.service.person_profile(parse_qs(url.query).get('id', [''])[0]))
+        if url.path == '/api/github/links':
+            query = {key: value[0] for key, value in parse_qs(url.query).items()}
+            if query.get('repository'):
+                return self.respond(200, self.server.service.github_links_for(repository=query['repository'], number=query.get('number', '0')))
+            return self.respond(200, self.server.service.github_links_for(query.get('kind'), query.get('id')))
+        if url.path == '/api/conversations':
+            return self.respond(200,self.server.service.conversations.listing({k:v[0] for k,v in parse_qs(url.query).items()}))
+        if url.path == '/api/conversations/external':
+            query = parse_qs(url.query)
+            return self.respond(200,self.server.service.conversations.external(query.get('provider',[''])[0],query.get('id',[''])[0]))
+        if url.path == '/api/conversations/attachment':
+            return self.respond(200,self.server.service.conversations.attachment(parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/projects/workspace':
+            return self.respond(200, self.server.service.project_workspace(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/search':
             return self.respond(200, self.server.service.library.list(parse_qs(url.query).get('q', [''])[0]))
         if url.path == '/api/backups':
@@ -138,7 +158,48 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.find(value('q'), value('kind'), value('project')))
         if url.path == '/api/prepare':
             query = parse_qs(url.query)
-            return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0]))
+            return self.respond(200, self.server.service.prepare(query.get('project', [None])[0], query.get('series', [None])[0], query.get('type', [None])[0]))
+        if url.path == '/api/github':
+            return self.respond(200, self.server.service.github.status())
+        if url.path == '/api/github/reports':
+            return self.respond(200,self.server.service.repo_reports.listing())
+        if url.path == '/api/github/reports/detail':
+            return self.respond(200,self.server.service.repo_reports.detail(parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/github/repos':
+            return self.respond(200, self.server.service.github.repos())
+        if url.path == '/api/github/overview':
+            query = parse_qs(url.query)
+            return self.respond(200, self.server.service.github.overview(query.get('filter', ['all'])[0], query.get('kind', ['all'])[0]))
+        if url.path == '/api/github/items':
+            query = parse_qs(url.query)
+            return self.respond(200, self.server.service.github.listing(int(query.get('repo',['0'])[0]),query.get('filter',['all'])[0],query.get('kind',['all'])[0]))
+        if url.path == '/api/github/item':
+            return self.respond(200, self.server.service.github.detail(int(parse_qs(url.query).get('id',['0'])[0])))
+        if url.path == '/api/chat':
+            return self.respond(200, self.server.service.chat.status())
+        if url.path == '/api/chat/spaces':
+            return self.respond(200, self.server.service.chat.spaces())
+        if url.path == '/api/chat/conversation':
+            return self.respond(200, identity_channels.chat_conversation(self.server.service,parse_qs(url.query).get('space', [''])[0]))
+        if url.path == '/api/chat/messages':
+            return self.respond(200, self.server.service.chat.messages(parse_qs(url.query).get('space',[''])[0]))
+        if url.path == '/api/chat/message':
+            return self.respond(200, self.server.service.chat.detail(parse_qs(url.query).get('name',[''])[0]))
+        if url.path == '/api/gmail/ai':
+            return self.respond(200, self.server.service.gmail_ai.status())
+        if url.path == '/api/gmail':
+            return self.respond(200, self.server.service.gmail.status())
+        if url.path == '/api/gmail/threads':
+            return self.respond(200, self.server.service.gmail.listing(parse_qs(url.query).get('view',['needs_reply'])[0]))
+        if url.path == '/api/gmail/thread':
+            return self.respond(200, identity_channels.gmail_thread(self.server.service,parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/prompts':
+            from app.prompt_lab import catalog
+            return self.respond(200,catalog(self.server.service))
+        if url.path == '/api/prompts/test/status':
+            return self.respond(200,self.server.service.prompt_lab.status(parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/task-draft/status':
+            return self.respond(200,self.server.service.task_drafts.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
             return self.respond(200, self.server.service.item_list())
         if url.path == '/api/tasks':
@@ -164,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
@@ -251,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/calendar/credentials':
                 result = service.google.configure(body['credentials'])
             elif path == '/api/calendar/connect':
-                url = service.google.begin(self.server.origin)
+                url = service.google.begin(self.server.origin, body.get('capability','calendar')) if body.get('capability') else service.google.begin(self.server.origin)
                 opened = webbrowser.open(url)
                 result = {'authorization_url':url,'browser_opened':opened}
             elif path == '/api/calendar/disconnect':
@@ -260,6 +321,92 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_saved_meetings()
             elif path == '/api/import':
                 result = service.import_transcript(body['text'], body.get('filename', ''))
+            elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability', '/api/work/project'}:
+                result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
+            elif path == '/api/editor-state':
+                if set(body)!={'dirty'} or type(body['dirty']) is not bool:raise ValueError('Invalid editor state')
+                service.editor_changed(body['dirty']);result=dict(ok=True)
+            elif path == '/api/github/connect':
+                result = service.github.connection.connect(body['token'])
+            elif path == '/api/github/disconnect':
+                service.repo_reports.stop()
+                service.github.stop()
+                result = service.github.connection.disconnect()
+            elif path == '/api/github/reports/clear':
+                result=service.repo_reports.clear_all(body.get('confirmed'))
+            elif path == '/api/github/reports/collect':
+                result=service.repo_reports.collect(body.get('repository',''),body.get('branch',''),body.get('start',''),body.get('end',''),body.get('id'))
+            elif path == '/api/github/reports/preview':
+                result=service.repo_reports.preview(body['id'])
+            elif path == '/api/github/reports/analyze':
+                result=service.repo_reports.start_analysis(body['id'],body.get('preview_token'),body.get('approved'))
+            elif path == '/api/github/reports/cancel':
+                result=service.repo_reports.stop()
+            elif path == '/api/prompts/save':
+                from app.prompt_lab import save
+                result=save(service,body)
+            elif path == '/api/prompts/resolve':
+                from app.prompt_lab import resolve
+                result=resolve(service,body)[0]
+            elif path == '/api/prompts/test/preview':
+                from app.prompt_lab import preview
+                result=preview(service,body)
+            elif path == '/api/prompts/test/start':
+                result=service.prompt_lab.start(body)
+            elif path == '/api/prompts/test/cancel':
+                result=service.prompt_lab.stop(body['id'])
+            elif path == '/api/task-draft/start':
+                result=service.task_drafts.start(body)
+            elif path == '/api/task-draft/cancel':
+                result=service.task_drafts.stop(body['id'])
+            elif path in {'/api/task-draft/preview', '/api/task-draft/generate', '/api/task-draft/create'}:
+                from app import task_draft
+                result = task_draft.preview(service, body) if path.endswith('/preview') else task_draft.create(service, body) if path.endswith('/create') else task_draft.draft(service, body)
+            elif path == '/api/github/reports/propose':
+                result=service.repo_reports.propose(body['id'],body['finding_id'],body.get('title'))
+            elif path == '/api/github/reports/associate':
+                result=service.repo_reports.associate(body['id'],body.get('meeting_id'))
+            elif path == '/api/github/reports/delete':
+                result=service.repo_reports.delete(body['id'])
+            elif path == '/api/github/overview/sync':
+                result = service.github.start_overview(body.get('filter', 'all'))
+            elif path == '/api/github/sync':
+                result = service.github.start(body['repository'],body.get('filter','all'),body.get('restart',False))
+            elif path == '/api/github/refresh':
+                result = service.github.start(key=body['id'])
+            elif path == '/api/github/cancel':
+                result = service.github.stop()
+            elif path == '/api/github/clear':
+                result = service.github.clear(body['account'])
+            elif path == '/api/github/propose':
+                result = service.github_proposal(body['id'],body['revision'],body['title'])
+            elif path == '/api/chat/discover':
+                result = service.chat.start('spaces',restart=body.get('restart',False))
+            elif path == '/api/chat/sync':
+                result = service.chat.start('messages',body['space'],body.get('restart',False))
+            elif path == '/api/chat/refresh':
+                result = service.chat.start('refresh',body['name'])
+            elif path == '/api/chat/cancel':
+                result = service.chat.stop()
+            elif path == '/api/chat/clear':
+                result = service.chat.clear(body['account'])
+            elif path == '/api/chat/propose':
+                result = service.chat_proposal(body['name'],body['revision'],body['title'])
+            elif path == '/api/gmail/sync':
+                result = service.gmail.start()
+            elif path == '/api/gmail/cancel':
+                result = service.gmail.stop()
+            elif path == '/api/gmail/ai/preview':
+                result = service.gmail_ai.preview(body['id'],body['revision'],body['message_id'])
+            elif path == '/api/gmail/ai/start':
+                result = service.gmail_ai.start(body['id'],body['revision'],body['message_id'],body.get('preview_token'),body.get('approved'))
+            elif path == '/api/gmail/ai/cancel':
+                result = service.gmail_ai.stop()
+            elif path == '/api/gmail/clear':
+                service.gmail_ai.stop()
+                result = service.gmail.clear(body.get('account'))
+            elif path == '/api/gmail/propose':
+                result = service.gmail_proposal(body['id'],body['revision'],body['message_id'],body['title'])
             elif path == '/api/speakers':
                 result = service.save_speakers(body['speakers'])
             elif path == '/api/trackers':
@@ -269,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/check-mic':
                 result = service.check_microphone(body['device'], body.get('device_name'))
             elif path == '/api/start':
-                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('project_id'), body.get('series_id'), body.get('device_name'))
+                result = service.start(body.get('title', ''), body['mode'], body['device'], body.get('project_id'), body.get('series_id'), body.get('device_name'), body.get('fallback_device_name', ''), transcription_timing=body.get('transcription_timing'), meeting_type=body.get('meeting_type'))
             elif path == '/api/pause':
                 if type(body['paused']) is not bool:
                     raise ValueError('Invalid pause state')
@@ -282,6 +429,38 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.reveal_backup(body['name'])
             elif path == '/api/ask':
                 result = service.ask(body['question'], body.get('project', ''), body.get('ai', True) is not False)
+            elif path == '/api/people/channel':
+                from app.identity_channels import confirm
+                result = confirm(service,body)
+            elif path == '/api/people/channel/remove':
+                from app.identity_channels import remove
+                result = remove(service,body)
+            elif path == '/api/people/save':
+                result = service.save_person(body)
+            elif path == '/api/people/delete':
+                result = service.delete_person(body.get('id'), body.get('revision'))
+            elif path == '/api/github/user':
+                result = service.github_user(body.get('login'))
+            elif path == '/api/projects/repositories':
+                result = service.set_project_repositories(body.get('id'), body.get('repositories'))
+            elif path == '/api/github/draft':
+                result = service.github_draft(body)
+            elif path == '/api/github/link':
+                result = service.github_link(body)
+            elif path == '/api/github/unlink':
+                result = service.github_unlink(body)
+            elif path == '/api/conversations/bulk':
+                result = service.conversations.bulk(body)
+            elif path == '/api/conversations/attach':
+                result = service.conversations.attach(body)
+            elif path == '/api/conversations/projects':
+                result = service.conversations.assign(body)
+            elif path == '/api/projects/create':
+                result = service.create_project(body.get('name'))
+            elif path == '/api/templates/save':
+                result = service.save_template(body)
+            elif path == '/api/templates/delete':
+                result = service.delete_template(body['id'], body['revision'])
             elif path == '/api/projects/change':
                 result = service.change_scope(body['kind'], body['id'], body['action'], body.get('name'))
             elif path == '/api/marker':
@@ -290,17 +469,25 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.stop()
             elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}(/delete|/merge)?', path):
                 item_id, _, action = path[len('/api/items/'):].partition('/')
-                if action == 'delete': result = service.delete_item(item_id, body['text'])
-                elif action == 'merge': result = service.merge_items(item_id, body['into'])
-                else: result = service.update_item(item_id, body['text'], body['changes'])
+                if type(body.get('revision')) is not int:
+                    raise ValueError('Reload the item list before making changes')
+                if action == 'delete': result = service.delete_item(item_id, body['text'], body['revision'])
+                elif action == 'merge':
+                    if type(body.get('into_revision')) is not int:
+                        raise ValueError('Reload both items before merging')
+                    result = service.merge_items(item_id, body['into'], body['revision'], body['into_revision'])
+                else: result = service.update_item(item_id, body['text'], body['changes'], body['revision'])
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope|type|type-export)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
+                elif match[2] == 'cancel': result = service.cancel_processing(match[1])
                 elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
                 elif match[2] == 'scope': result = service.set_scope(match[1], body.get('project'), body.get('series'))
+                elif match[2] == 'type': result = service.set_meeting_type(match[1], body.get('meeting_type'))
+                elif match[2] == 'type-export': result = service.type_export(match[1])
                 elif match[2] == 'link': result = service.resolve_link(match[1], body['field'], body['index'], body['text'], body['action'], body.get('item_id'))
                 elif match[2] == 'marker-delete': result = service.delete_marker(match[1], body['id'])
                 elif match[2] == 'notes-review': result = service.review_notes(match[1], body['action'], body.get('accept', []), body.get('revision', ''))
@@ -313,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, result)
         except FileNotFoundError:
             self.respond(404, {'error': 'Meeting not found'})
+        except WorkItemConflict as exc:
+            self.respond(409, {'error': str(exc)})
         except (ValueError, KeyError, TypeError) as exc:
             self.respond(400, {'error': str(exc)})
         except Exception as exc:
@@ -381,7 +570,14 @@ def main():
         # A new start replaces the old copy so that code changes take effect.
         stop_running_copy(args.library / '.app.lock')
         fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    service = MeetingService(args.library, PROJECT, backup_dir=args.backups)
+    from app.worker import ProcessingWorker
+    service = MeetingService(args.library, PROJECT, backup_dir=args.backups, step_runner=ProcessingWorker(PROJECT))
+    service.desktop_mode = args.desktop_control
+    if control is not None:
+        from app.desktop import activity, microphone_health, editor_state
+        service.activity_changed = lambda active: activity(active, control)
+        service.health_changed = lambda missing: microphone_health(missing, control)
+        service.editor_changed = lambda dirty: editor_state(dirty, control)
     if args.models:
         service.models_dir = args.models
     server = Server(('127.0.0.1', args.port), service)
@@ -416,5 +612,8 @@ if __name__ == '__main__':
         from app.live import main as live_main
         sys.argv.pop(1)
         live_main()
+    elif sys.argv[1:2] == ['--processing-worker']:
+        from app.worker import main as worker_main
+        worker_main()
     else:
         main()

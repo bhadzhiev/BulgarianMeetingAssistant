@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from contextlib import contextmanager
+from .work_graph import WorkGraph, validate_graph
+from .work_items import COLLECTIONS, normalize
+import copy
 import json
+import re
+import shutil
+import hashlib
 import datetime as dt
 import os
 from pathlib import Path
@@ -15,19 +22,32 @@ import sounddevice as sd
 
 from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
 from .storage import Library, atomic_json, atomic_text
+from .jobs import Job, JobCancelled
 from . import processing
 from . import correction
 from . import analytics as conversation
 from . import diarization
+from . import parakeet
+from .repo_reports import RepoReports, read_store as read_report_store
 from . import backup
 from . import items
 from . import briefing
+from . import meeting_types
 from . import search
 from .events import Watcher
 from .projects import Projects
+from .meeting_templates import Templates
+from .conversations import Conversations
+from .people import People
+from . import identity_channels
+from .github_links import GitHubLinks, parse as parse_github_reference
 from . import whisper
 from .live import LiveSession, read_json
-from .google_calendar import GoogleCalendar, bundled_client
+from .google_calendar import GoogleCalendar, bundled_client, CalendarError
+from .gmail import GmailSync
+from .gmail_ai import GmailAI
+from .google_chat import ChatSync
+from .github_source import GitHubConnection,GitHubSync,GitHubError
 from .meeting_automation import MeetingAutomation
 from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
 
@@ -50,7 +70,7 @@ MAX_AUDIO_BYTES = 4_000_000_000
 
 
 class MeetingService:
-    def __init__(self, root: Path, project: Path, google=None, backup_dir: Path | None = None):
+    def __init__(self, root: Path, project: Path, google=None, backup_dir: Path | None = None, step_runner=None):
         self.project = project
         self.models_dir = project / 'models'
         self.backup_dir = backup_dir or Path.home() / 'Documents' / 'Meeting Assistant Backups'
@@ -71,6 +91,13 @@ class MeetingService:
         self.live_sessions = {}
         self.busy = set()
         self.processing_slot = threading.Semaphore(1)
+        self.step_runner = step_runner
+        self.cancel_events = {}
+        self.processing_threads = {}
+        self.desktop_mode = False
+        self.activity_changed = lambda active: None
+        self.health_changed = lambda missing: None
+        self.editor_changed = lambda dirty: None
         self.task_cache = {}
         self.analytics_cache = {}
         self.preview = None
@@ -82,8 +109,25 @@ class MeetingService:
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
         self.projects = Projects(root / 'projects.json')
+        self.people = People(root / 'people.json')
+        self.github_links = GitHubLinks(root / 'github-links.json')
+        self.templates = Templates(root / 'meeting-templates.json')
+        from .prompts import Prompts
+        self.prompts = Prompts(root / 'ai-prompts.json')
+        from .prompt_lab import PromptLab
+        self.prompt_lab = PromptLab(self)
+        self.conversations = Conversations(self)
         self.search_index = search.SearchIndex(root / 'search.db')
         self._sync_all_items()
+        self.gmail = GmailSync(root, self.google, lambda: self.closed.is_set() or bool(self.active or self.busy), self._refresh_gmail_source)
+        self.gmail_ai = GmailAI(self)
+        self.chat = ChatSync(root,self.google,lambda:self.closed.is_set() or bool(self.active or self.busy),
+                             self._refresh_chat_message,self._chat_unavailable)
+        self.github = GitHubSync(root,GitHubConnection(root),lambda:self.closed.is_set() or bool(self.active or self.busy),
+                                 self._refresh_github_source,self._github_unavailable)
+        self.repo_reports = RepoReports(self)
+        from .task_draft import DraftJobs
+        self.task_drafts = DraftJobs(self)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -93,16 +137,16 @@ class MeetingService:
         if set(settings) - set(DEFAULTS):
             raise ValueError('Unknown setting')
         values = migrate_settings(dict(self.settings, **settings))
-        if values['audio_preparation'] not in {'off', 'light'}:
+        if values['audio_preparation'] not in {'off', 'light', 'strong'}:
             raise ValueError('Audio preparation must be Off or Light')
         values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
         if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:
             raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
-        if values['local_ai_reasoning'] not in {'default', 'none', 'low', 'medium', 'high'}:
+        if values['local_ai_reasoning'] not in {'default', 'server', 'none', 'low', 'medium', 'high'}:
             raise ValueError('Invalid local AI reasoning effort')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid local AI response format')
-        if (values['transcription'] not in {'local', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
+        if (values['transcription'] not in {'local', 'parakeet', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
                 or values['transcript_correction'] not in {'none', 'local', 'openai'}):
             raise ValueError('Invalid processing provider')
         vocabulary = values['whisper_vocabulary']
@@ -133,6 +177,11 @@ class MeetingService:
                 raise ValueError('Invalid API key')
             settings = self.validate_settings(values)
             previous = dict(self.settings)
+            # Choose Parakeet only where it can run, so a meeting does not fail after the recording.
+            if settings['transcription'] == 'parakeet' and previous.get('transcription') != 'parakeet':
+                runtime = parakeet.availability()
+                if not runtime['available']:
+                    raise ValueError(runtime['message'])
         status = self.google.status()
         changed = settings['calendar_id'] != previous['calendar_id'] or not previous['calendar_enabled']
         account_changed = status['connected'] and status['account'] != previous.get('calendar_account')
@@ -151,6 +200,25 @@ class MeetingService:
                 self.api_key = key.strip()
             return dict(settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
 
+    def readiness(self):
+        """What the next recording needs, checked without downloading or opening devices."""
+        provider = self.settings['transcription']
+        if provider == 'openai':
+            model = dict(ready=bool(self.api_key), label='OpenAI key set' if self.api_key else 'Add an OpenAI key in Settings')
+        elif provider == 'parakeet':
+            cached = (self.models_dir / 'parakeet' / ('models--' + parakeet.MODEL_ID.replace('/', '--')) / 'snapshots'
+                      / parakeet.MODEL_REVISION / 'model.safetensors').is_file()
+            model = dict(ready=parakeet.availability()['available'] and cached,
+                         label=parakeet.MODEL_NAME + (' ready' if cached else ' downloads on first use'))
+        else:
+            name = self.settings['local_model']
+            cached = any((self.models_dir / candidate).is_file() for candidate in (name, name + '.bin', f'ggml-{name}.bin'))
+            model = dict(ready=cached, label='Whisper ' + name + (' ready' if cached else ' downloads on first use'))
+        free = shutil.disk_usage(self.library.root).free
+        # Online meetings keep both raw tracks and the mix: about 0.5 GB per hour.
+        return dict(model=model, system_audio=(self.project / 'bin/SystemAudio').is_file(),
+                    disk_free=free, disk_hours=round(free / 500_000_000, 1))
+
     def snapshot(self):
         with self.lock:
             try:
@@ -160,13 +228,16 @@ class MeetingService:
                 inputs, device_error = [], str(exc)
             active = self.library.get(self.active) if self.active else None
             if active and self.recorder:
-                active.update(duration=self.recorder.clock.elapsed(), level=self.recorder.level)
+                active.update(duration=self.recorder.clock.elapsed(), level=self.recorder.level,
+                              microphone_status=getattr(self.recorder, 'input_status', 'connected'),
+                              microphone_name=getattr(self.recorder, 'input_name', ''))
                 live = self.live_sessions.get(self.active)
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
-            return dict(meetings=self.library.list(), active=active, google=self.google.status(),
-                speakers=self.library.speakers(), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
-                settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs,
+            return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
+                desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
+                speakers=self.library.speakers(), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
+                settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
                 system_audio_available=(self.project / 'bin/SystemAudio').exists())
@@ -188,6 +259,7 @@ class MeetingService:
                     validate_minutes(meeting['minutes'])  # adds fields that older notes lack
                 except ValueError:
                     notes_valid = False
+            meeting['transcript_revision'] = hashlib.sha256(json.dumps(meeting['transcript'], sort_keys=True).encode()).hexdigest()
             meeting['minutes_revision'] = self._minutes_revision(directory)
             meeting['minutes_proposal'] = None
             if notes_valid and (directory / 'minutes.proposed.json').exists():
@@ -208,12 +280,14 @@ class MeetingService:
             with self.items.lock:
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
+            meeting['github_links'] = [link for i in meeting['items'] for link in self.github_links.for_resource('item', i)]
             meeting['live'] = read_json(directory / 'live.json', None)
+            meeting['input_gaps'] = read_json(directory / 'capture.json', {}).get('input_gaps', [])
             meeting['markers'] = read_json(directory / 'markers.json', [])
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
                                'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json',
-                               'transcription.wav'] if (directory / name).exists()]
+                               'transcription.wav', 'transcript.before-speakers.json', 'transcript.alignment.json', 'speaker-turns.json'] if (directory / name).exists()]
             return meeting
 
     def _stop_preview(self):
@@ -271,28 +345,46 @@ class MeetingService:
                 raise
             return {'ok': True}
 
-    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None):
+    def start(self, title, mode, device, project_id=None, series_id=None, device_name=None, fallback_device_name='', transcription_timing=None,
+              meeting_type=None):
         if self.closed.is_set():
             raise ValueError('The app is closing')
         if mode not in {'in_person', 'online'}:
             raise ValueError('Choose an in-person or online meeting')
         if not isinstance(title, str):
             raise ValueError('Meeting title must be text')
+        if transcription_timing is not None and transcription_timing not in ('live', 'after'):
+            raise ValueError('Choose live captions or transcription after recording')
+        if meeting_type is not None:
+            self._meeting_type(meeting_type)
         ffmpeg_path()
         device = self._input_device(device, device_name)
+        if not isinstance(fallback_device_name, str) or len(fallback_device_name) > 300:
+            raise ValueError('Choose an available fallback microphone')
+        if fallback_device_name and not any(d['name'] == fallback_device_name and d['id'] != device for d in devices()):
+            raise ValueError('Choose another available microphone as fallback')
         with self.lock:
             if self.active:
                 raise ValueError('A meeting is already recording')
             self._stop_preview()
             settings = dict(self.settings, models_dir=str(self.models_dir))
+            settings['fallback_microphone'] = fallback_device_name
+            if transcription_timing is not None:
+                settings['live_transcription'] = transcription_timing == 'live'
             with self.projects.lock:
                 project_id = self.projects.ensure_project({'id': project_id} if project_id else None)
                 series_id = self.projects.ensure_series({'id': series_id} if series_id else None, project_id)
             # Missing credentials never prevent saving a recording.
             meeting = self.library.create(title, mode, settings)
-            if project_id:
-                meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id)
+            # A new meeting of a series starts with the type of the series; a different choice is the person's own.
+            inherited = self._series_type(series_id)
+            meeting = self.library.update(meeting['id'], project_id=project_id, series_id=series_id,
+                                          **self._type_changes(meeting_type or inherited, 'series' if (meeting_type or inherited) == inherited else 'manual'))
+            if not self.prompts.error:
+                settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting['id'])
+            meeting=self.library.update(meeting['id'],settings=settings)
             self.active = meeting['id']
+            self.activity_changed(True)
             self.start_thread = threading.Thread(target=self._start, args=(meeting['id'], int(device), mode), daemon=True)
             self.start_thread.start()
             return meeting
@@ -378,6 +470,7 @@ class MeetingService:
         recorder = None
         try:
             recorder = Recorder(self.library.directory(meeting_id), device, mode, self.project / 'bin/SystemAudio')
+            recorder.fallback_name = self.library.get(meeting_id)['settings'].get('fallback_microphone', '')
             with self.lock:
                 self.recorder = recorder
             recorder.start()
@@ -386,6 +479,7 @@ class MeetingService:
                 with self.lock:
                     self.library.update(meeting_id, status='interrupted', progress='App closed — saved audio can be recovered')
                     self.active, self.recorder = None, None
+                    self.activity_changed(False)
                 return
             with self.lock:
                 self.library.update(meeting_id, status='recording', progress='Recording',started_at=dt.datetime.now().astimezone().isoformat())
@@ -410,6 +504,7 @@ class MeetingService:
             with self.lock:
                 self.library.update(meeting_id, status='error', error=str(exc), progress='Recording could not start')
                 self.active, self.recorder = None, None
+                self.activity_changed(False)
 
     def add_marker(self, kind, note=''):
         """Mark this moment of the recording, so that the review after the meeting starts here."""
@@ -467,8 +562,10 @@ class MeetingService:
             duration = render_recording(self.library.directory(meeting_id))
             with self.lock:
                 meeting = self.library.update(meeting_id, status='recorded', duration=duration,
+                    warnings=list(getattr(recorder, 'warnings', [])),
                     error=failure, progress='Recording saved' if not failure else 'Stopped after an audio error; recording saved')
                 self.active, self.recorder = None, None
+                self.activity_changed(False)
                 if meeting['settings']['auto_process'] and not failure and not self.closed.is_set():
                     try:
                         self.process(meeting_id, 'all', use_saved=True)
@@ -484,6 +581,7 @@ class MeetingService:
                 self.library.update(meeting_id, status='interrupted', error=str(exc),
                                     progress='Raw audio saved — use Recover / Retry')
                 self.active, self.recorder = None, None
+                self.activity_changed(False)
         finally:
             self._queue_metadata(meeting_id,enrich=not processing_started)
 
@@ -491,7 +589,7 @@ class MeetingService:
     def process(self, meeting_id, action, use_saved=False):
         if self.closed.is_set():
             raise ValueError('The app is closing')
-        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze'}:
+        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze', 'speakers'}:
             raise ValueError('Unknown processing action')
         with self.lock:
             meeting = self.library.get(meeting_id)
@@ -500,7 +598,7 @@ class MeetingService:
             if meeting['mode'] == 'audio' and action == 'recover':
                 raise ValueError('An imported audio file has no raw tracks to recover')
             if meeting['mode'] == 'imported':
-                if action in {'transcribe', 'recover'}:
+                if action in {'transcribe', 'recover', 'speakers'}:
                     raise ValueError('An imported transcript has no audio to transcribe')
                 if action == 'all':
                     action = 'summarize'
@@ -519,6 +617,9 @@ class MeetingService:
                     raise ValueError('Choose Local API or OpenAI for transcript correction in Settings first')
                 if not (self.library.directory(meeting_id) / 'transcript.json').exists():
                     raise ValueError('Transcribe the recording before AI correction')
+            if action == 'speakers' and (not (self.library.directory(meeting_id) / 'transcript.json').exists()
+                    or not (self.library.directory(meeting_id) / 'recording.wav').exists()):
+                raise ValueError('A saved recording and final transcript are required for speaker separation')
             if action == 'reanalyze' and not (self.library.directory(meeting_id) / 'transcript.json').exists():
                 raise ValueError('Transcribe or import a meeting before running analytics')
             # Capture the key for this job; it is never persisted in metadata.
@@ -527,65 +628,144 @@ class MeetingService:
                 action in {'all', 'summarize'} and settings['summarizer'] == 'openai' or
                 action in {'all', 'transcribe', 'correct'} and settings['transcript_correction'] == 'openai') and not key:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
+            if action in {'all','summarize','correct','reanalyze'} and '_prompt_snapshot' not in settings:
+                settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting_id)
             self.busy.add(meeting_id)
             self.library.update(meeting_id, status='processing', error=None, settings=settings, progress='Queued for processing')
-            threading.Thread(target=self._process, args=(meeting_id, action, settings, key), daemon=True).start()
+            self.cancel_events[meeting_id] = threading.Event()
+            self.library.update(meeting_id, processing_cancel_requested=False, processing_stage='Queued',
+                                processing_started_at=time.time(), processing_stage_started_at=time.time(),
+                                processing_timings={}, processing_elapsed=0)
+            if self.active and self.active in self.live_sessions:
+                self.live_sessions[self.active].request_stop('Live captions paused to process a saved meeting. Audio recording continues.')
+            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key), daemon=True)
+            self.processing_threads[meeting_id] = thread
+            thread.start()
             return {'id': meeting_id, 'status': 'processing'}
 
+    def cancel_processing(self, meeting_id):
+        with self.lock:
+            self.library.get(meeting_id)
+            cancel = self.cancel_events.get(meeting_id)
+            if cancel is None or meeting_id not in self.busy:
+                raise ValueError('No processing job is running for this meeting')
+            cancel.set()
+            self.library.update(meeting_id, processing_cancel_requested=True, progress='Cancelling processing…')
+            return {'id': meeting_id, 'cancel_requested': True}
+
+    def _execute(self, action, directory, settings, progress, key='', speakers=(), trackers=()):
+        if action in {'summarize','correct','analytics'} and '_prompt_snapshot' not in settings:
+            meeting=read_json(directory/'meeting.json',{})
+            settings=dict(settings,_prompt_snapshot=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting.get('id')))
+        if action in {'summarize','correct','analytics'}:
+            from .prompts import record_usage
+            record_usage(directory,action,settings['_prompt_snapshot'])
+        if self.step_runner:
+            return self.step_runner.run(action, directory, settings, progress, key, speakers, trackers,
+                                        cancel=self.cancel_events.get(directory.name))
+        # In-process embedding uses the same dispatcher; progress checks cancel
+        # between chunks. The desktop launcher supplies an isolated worker.
+        from .worker import execute
+        return execute(action, directory, settings, progress, key, speakers, trackers)
+
     def _process(self, meeting_id, action, settings, key):
+        cancel = self.cancel_events.setdefault(meeting_id, threading.Event())
+        job = Job(cancel, lambda **changes: self.library.update(meeting_id, **changes))
+        acquired = False
         try:
-            with self.processing_slot:
-                directory = self.library.directory(meeting_id)
-                progress = lambda message: self.library.update(meeting_id, progress=message)
-                imported = self.library.get(meeting_id)['mode'] == 'imported'
-                if action != 'reanalyze' and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
-                    progress('Recovering saved audio')
-                    duration = render_recording(directory)
+            with job.step('Queued'):
+                while not self.processing_slot.acquire(timeout=.1):
+                    job.check()
+                acquired = True
+                job.check()
+            directory = self.library.directory(meeting_id)
+            progress = job.update
+            imported = self.library.get(meeting_id)['mode'] == 'imported'
+            if action != 'reanalyze' and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
+                with job.step('Recovering audio'):
+                    duration = self._execute('recover', directory, settings, progress)
                     self.library.update(meeting_id, duration=duration)
-                if action in {'all', 'transcribe'}:
-                    processing.transcribe(directory, settings, progress, key, self.library.speakers())
-                should_diarize = action in {'all', 'transcribe'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
-                if should_diarize and settings.get('diarization_enabled', True) and (directory / 'recording.wav').exists():
+            if action in {'all', 'transcribe'}:
+                with job.step('Transcription'):
+                    self._execute('transcribe', directory, settings, progress, key, self.library.speakers())
+            should_diarize = action in {'all', 'transcribe', 'speakers'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
+            if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
+                with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
-                if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
-                    try:
-                        correction.correct(directory, settings, progress, key, speakers=self.library.speakers())
+            if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
+                try:
+                    with job.step('Transcript correction'):
+                        self._execute('correct', directory, settings, progress, key, self.library.speakers())
                         self.library.update(meeting_id, correction_error=None)
-                    except Exception as exc:
-                        if action == 'correct':
-                            raise
-                        # A failed clean-up must not block notes; the Whisper transcript stays.
-                        message = str(exc).replace(key, '[redacted]') if key else str(exc)
-                        self.library.update(meeting_id, correction_error=message)
-                if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
-                    processing.summarize(directory, settings, progress, key, speakers=self.library.speakers())
-                if action != 'recover' and (directory / 'transcript.json').exists():
+                except JobCancelled:
+                    raise
+                except Exception as exc:
+                    if action == 'correct':
+                        raise
+                    message = str(exc).replace(key, '[redacted]') if key else str(exc)
+                    self.library.update(meeting_id, correction_error=message)
+            if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
+                with job.step('Meeting notes'):
+                    self._execute('summarize', directory, settings, progress, key, self.library.speakers())
+                    self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
+            if action != 'recover' and (directory / 'transcript.json').exists():
+                with job.step('Analytics'):
                     self._run_analytics(meeting_id, settings, progress)
-                self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
-                                    error=None, progress='Ready')
+            job.check()
+            self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
+                                error=None, progress='Ready', processing_stage='Complete')
+        except JobCancelled:
+            directory = self.library.directory(meeting_id)
+            self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
+                error=None, progress='Processing cancelled — saved audio and completed checkpoints are preserved', processing_stage='Cancelled')
         except Exception as exc:
-            # Never include request objects, headers, or keys in persisted errors.
-            message = str(exc)
-            if key:
-                message = message.replace(key, '[redacted]')
-            self.library.update(meeting_id, status='error', error=message, progress='Processing failed — recording preserved')
+            message = str(exc).replace(key, '[redacted]') if key else str(exc)
+            self.library.update(meeting_id, status='error', error=message, processing_stage='Failed',
+                                progress='Processing failed — recording preserved')
         finally:
+            if acquired:
+                self.processing_slot.release()
             try:
                 self._sync_items(meeting_id)
             except Exception as exc:
                 print(f'Task registry: {exc}', flush=True)
             with self.lock:
                 self.busy.discard(meeting_id)
-            self._queue_metadata(meeting_id,enrich=True)
+                self.cancel_events.pop(meeting_id, None)
+                self.processing_threads.pop(meeting_id, None)
+            self._queue_metadata(meeting_id, enrich=not cancel.is_set())
 
     def _run_diarization(self, meeting_id, directory, progress):
         from meeting_assistant import TranscriptSegment, save_transcript
         try:
-            timeline = diarization.diarize(directory, progress)
+            from .speaker_alignment import align
             source = json.loads((directory / 'transcript.json').read_text())
-            assigned = conversation.assign_speakers(source, timeline)
+            if any(s.get('speaker') and not conversation.is_generic_speaker(s['speaker']) for s in source):
+                raise ValueError('Existing speaker names were kept. Review them before running speaker separation again.')
+            timeline = self._execute('diarize', directory, self.settings, progress)
+            turns = read_json(directory / 'speaker-turns.json', timeline)
+            alignment = read_json(directory / 'transcript.alignment.json', None)
+            method = 'segment overlap'
+            try:
+                assigned = align(source, alignment, turns)
+                method = 'Parakeet word boundaries and speaker turns' if alignment.get('method') == parakeet.ALIGNMENT_METHOD else 'Whisper word boundaries and speaker turns'
+            except (ValueError, KeyError, TypeError):
+                # Old, cloud or edited transcripts have no trustworthy word alignment.
+                assigned = conversation.assign_speakers(source, turns)
+            if not (directory / 'transcript.before-speakers.json').exists():
+                atomic_json(directory / 'transcript.before-speakers.json', source)
+            # A correction snapshot may have a different segment layout; do not present it as row-aligned.
+            raw = directory / 'transcript.raw.json'
+            if raw.exists() and len(read_json(raw, [])) != len(assigned):
+                processing.archive(directory, ['transcript.raw.json'])
+                raw.unlink()
+            metadata = read_json(directory / 'transcript.metadata.json', {})
+            metadata['speaker_alignment'] = dict(method=method, experimental=True, names_confirmed=False)
+            atomic_json(directory / 'transcript.metadata.json', metadata)
             save_transcript(directory, [TranscriptSegment(**segment) for segment in assigned])
             self.library.update(meeting_id, diarization_error=None)
+        except JobCancelled:
+            raise
         except Exception as exc:
             # Diarization is optional; transcription and notes must still succeed.
             self.library.update(meeting_id, diarization_error=str(exc))
@@ -593,10 +773,11 @@ class MeetingService:
     def _run_analytics(self, meeting_id, settings, progress=lambda message: None):
         try:
             progress('Building conversation analytics')
-            result = conversation.analyze(self.library.directory(meeting_id), settings,
-                                          self.library.trackers(), progress)
+            result = self._execute('analytics', self.library.directory(meeting_id), settings, progress, trackers=self.library.trackers())
             self.library.update(meeting_id, analytics_error=result.get('semantic_error'))
             return result
+        except JobCancelled:
+            raise
         except Exception as exc:
             # Keep an earlier valid analytics file and never fail the transcript job.
             self.library.update(meeting_id, analytics_error=str(exc))
@@ -609,6 +790,16 @@ class MeetingService:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before editing')
             directory = self.library.directory(meeting_id)
+            if 'refresh_notes' in body and (type(body['refresh_notes']) is not bool or 'transcript' not in body):
+                raise ValueError('Choose whether to refresh notes after saving a transcript')
+            if 'transcript' in body:
+                # Like the notes: a copy without the current revision must not replace a newer transcript.
+                current = read_json(directory / 'transcript.json', [])
+                revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                if current and body.get('transcript_revision') != revision:
+                    raise items.WorkItemConflict('The transcript changed. Reload before saving your corrections.')
+            if 'speaker_name' in body and set(body) != {'speaker_name'}:
+                raise ValueError('Save other edits before naming speakers')
             if 'title' in body:
                 if not isinstance(body['title'], str) or not body['title'].strip():
                     raise ValueError('Meeting title is required')
@@ -616,6 +807,23 @@ class MeetingService:
                 self.library.update(meeting_id, title=body['title'].strip()[:160],title_source='manual',
                     title_revision=current.get('title_revision',0)+1,title_status='manual',title_error=None)
                 self._queue_metadata(meeting_id)
+            requested_rename = None
+            if 'speaker_name' in body:
+                value = body['speaker_name']
+                if not isinstance(value, dict):
+                    raise ValueError('Choose a speaker and name')
+                path = directory / 'transcript.json'
+                current = read_json(path, [])
+                revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                if value.get('revision') != revision:
+                    raise items.WorkItemConflict('The transcript changed. Reload before naming speakers.')
+                old, name = value.get('speaker'), value.get('name')
+                if (not isinstance(old, str) or not any(s.get('speaker') == old for s in current)
+                        or not isinstance(name, str) or not name.strip() or len(name) > 120
+                        or any(ord(c) < 32 for c in name) or conversation.is_generic_speaker(name)):
+                    raise ValueError('Enter a participant name for an existing speaker')
+                requested_rename = (old, name.strip())
+                body = dict(body, transcript=[dict(s, speaker=name.strip()) if s.get('speaker') == old else s for s in current])
             if 'transcript' in body:
                 if not isinstance(body['transcript'], list) or len(body['transcript']) > 100000:
                     raise ValueError('Invalid transcript')
@@ -634,24 +842,40 @@ class MeetingService:
                         raise ValueError('Invalid transcript segment')
                     previous = s.start
                     segments.append(s)
-                renames = {}
+                renames = dict([requested_rename]) if requested_rename else {}
                 for old, new in zip(old_segments, segments):
                     if (conversation.is_generic_speaker(old.speaker) and new.speaker
                             and not conversation.is_generic_speaker(new.speaker)
                             and new.speaker.strip() != old.speaker):
                         renames[old.speaker] = new.speaker.strip()
-                if renames:
-                    for segment in segments:
-                        if segment.speaker in renames:
-                            segment.speaker = renames[segment.speaker]
-                    timeline_path = directory / 'speaker-timeline.json'
-                    if timeline_path.exists():
-                        timeline = json.loads(timeline_path.read_text())
-                        for turn in timeline:
-                            if turn.get('speaker') in renames:
-                                turn['speaker'] = renames[turn['speaker']]
-                        atomic_json(timeline_path, timeline)
+                # A real name corrected on one segment moves only that segment's time, so talk time
+                # and questions keep the same speaker.
+                corrections = [(new.start, new.end, old.speaker, new.speaker.strip()) for old, new in zip(old_segments, segments)
+                               if old.speaker and new.speaker and old.speaker not in renames
+                               and not conversation.is_generic_speaker(old.speaker)
+                               and not conversation.is_generic_speaker(new.speaker) and new.speaker.strip() != old.speaker]
+                for segment in segments:
+                    if segment.speaker in renames:
+                        segment.speaker = renames[segment.speaker]
+                if renames or corrections:
+                    for filename in ('speaker-timeline.json', 'speaker-turns.json'):
+                        timeline_path = directory / filename
+                        if timeline_path.exists():
+                            timeline = json.loads(timeline_path.read_text())
+                            for turn in timeline:
+                                if turn.get('speaker') in renames:
+                                    turn['speaker'] = renames[turn['speaker']]
+                            for start, end, old_name, new_name in corrections:
+                                timeline = conversation.relabel_range(timeline, start, end, old_name, new_name)
+                            atomic_json(timeline_path, timeline)
+                changed = [vars(segment) for segment in old_segments] != [vars(segment) for segment in segments]
+                if changed:
+                    processing.archive(directory, ['transcript.json', 'transcript.md', 'transcript.srt', 'minutes.proposed.json'])
                 save_transcript(directory, segments)
+                if changed:
+                    # A draft derived from the previous transcript is no longer safe to apply.
+                    (directory / 'minutes.proposed.json').unlink(missing_ok=True)
+                    self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.json').exists(), notes_refresh_error=None)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
                 analytics_settings = dict(self.settings, models_dir=str(self.models_dir))
@@ -663,6 +887,14 @@ class MeetingService:
                 save_minutes(directory, minutes)
                 self._sync_items(meeting_id)
             if analytics_settings is None:
+                return self.detail(meeting_id)
+            if body.get('refresh_notes'):
+                # Queue one job for the saved text; its analytics run after the new notes.
+                # A queue failure must not hide the fact that the transcript was saved.
+                try:
+                    self.process(meeting_id, 'summarize')
+                except ValueError as exc:
+                    self.library.update(meeting_id, notes_refresh_error=str(exc))
                 return self.detail(meeting_id)
             self.busy.add(meeting_id)
         self._analyze_unlocked(meeting_id, analytics_settings)
@@ -688,7 +920,7 @@ class MeetingService:
     def _notes_revision(directory):
         import hashlib
         digest = hashlib.sha256()
-        for name in ['minutes.json', 'minutes.proposed.json']:
+        for name in ['minutes.json', 'minutes.proposed.json', 'transcript.json']:
             path = directory / name
             digest.update(path.read_bytes() if path.exists() else b'')
             digest.update(b'\0')
@@ -721,7 +953,13 @@ class MeetingService:
                 save_minutes(directory, result)
                 proposal.unlink()
                 self._sync_items(meeting_id)
+                self.library.update(meeting_id, notes_need_refresh=False, notes_refresh_error=None)
                 return self.detail(meeting_id)
+            # Dismissing a matching draft also confirms that the saved notes are current.
+            current = read_json(directory / 'minutes.json', None)
+            proposed = read_json(proposal, {})
+            if not notes.changes(current, proposed):
+                self.library.update(meeting_id, notes_need_refresh=False, notes_refresh_error=None)
             proposal.unlink()
             return self.detail(meeting_id)
 
@@ -732,15 +970,81 @@ class MeetingService:
             project_id = self.projects.ensure_project(project)
             series_id = self.projects.ensure_series(series, project_id)
             self.projects.save()
-            self.library.update(meeting_id, project_id=project_id, series_id=series_id)
+            meeting = self.library.get(meeting_id)
+            changes = dict(project_id=project_id, series_id=series_id)
+            # A type that the person chose stays; otherwise the meeting follows its series.
+            if meeting.get('meeting_type_source') != 'manual':
+                changes.update(self._type_changes(self._series_type(series_id), 'series'))
+            self.library.update(meeting_id, **changes)
             return self.detail(meeting_id)
 
+    def set_meeting_type(self, meeting_id, kind):
+        """Change the type of one meeting. Saved notes stay; new notes for the type wait for review."""
+        changes = self._type_changes(kind, 'manual')
+        with self.lock:
+            self.library.get(meeting_id)
+            self.library.update(meeting_id, **changes)
+            return self.detail(meeting_id)
+
+    def type_export(self, meeting_id):
+        """The result of the meeting in the format of its type, for example a postmortem document."""
+        from meeting_assistant import validate_minutes
+        from . import type_exports
+        with self.lock:
+            meeting = self.library.get(meeting_id)
+            minutes = read_json(self.library.directory(meeting_id) / 'minutes.json', None)
+            if not minutes:
+                raise ValueError('Generate meeting notes first')
+            validate_minutes(minutes)
+            ids = [task['item_id'] for task in minutes.get('tasks', []) if task.get('item_id')]
+            with self.items.lock:
+                items = {i: copy.deepcopy(self.items.items[i]) for i in ids if i in self.items.items}
+            links = {i: self.github_links.for_resource('item', i) for i in ids}
+            return type_exports.render(meeting, minutes, items, links)
+
+    def _meeting_type(self, kind):
+        """(type ID, copy of the own template or None). An unknown type raises."""
+        if kind in meeting_types.TYPES:
+            return kind, None
+        template = self.templates.get(kind) if isinstance(kind, str) else None
+        if not template:
+            raise ValueError('Choose a meeting type')
+        return kind, {key: template[key] for key in ('label', 'description', 'prepare', 'sections')}
+
+    def _type_changes(self, kind, source):
+        # A meeting keeps a copy of its template, so a later edit of the template never changes its notes.
+        kind, template = self._meeting_type(kind)
+        return dict(meeting_type=kind, meeting_template=template, meeting_type_source=source)
+
+    def _series_type(self, series_id):
+        """The default type of a series. A deleted template falls back to the general type."""
+        kind = self.projects.series_type(series_id)
+        return kind if kind in meeting_types.TYPES or self.templates.get(kind) else meeting_types.DEFAULT
+
+    def save_template(self, body):
+        with self.lock:
+            template = self.templates.save(body)
+            return dict(template=template, meeting_types=meeting_types.public(self.templates.list()))
+
+    def delete_template(self, template_id, revision):
+        """Delete an own template. Saved meetings keep their copy; series that used it become general."""
+        with self.lock, self.projects.lock:
+            self.templates.delete(template_id, revision)
+            for series in self.projects.data['series']:
+                if series.get('type') == template_id:
+                    series['type'] = meeting_types.DEFAULT
+            self.projects.save()
+            return dict(meeting_types=meeting_types.public(self.templates.list()), projects=self.projects.data)
+
     def change_scope(self, kind, entry_id, action, name=None):
-        """Rename or delete a project or series. Deleting never deletes meetings."""
-        if kind not in {'projects', 'series'} or action not in {'rename', 'delete'}:
+        """Rename or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
+        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type'} or action == 'type' and kind != 'series':
             raise ValueError('Invalid change')
         with self.lock, self.projects.lock:
-            if action == 'rename':
+            if action == 'type':
+                # Only new meetings use the new default; saved meetings keep their type.
+                self.projects.set_series_type(entry_id, self._meeting_type(name)[0])
+            elif action == 'rename':
                 self.projects.rename(kind, entry_id, name)
             else:
                 removed = self.projects.delete(kind, entry_id)
@@ -752,7 +1056,240 @@ class MeetingService:
             self.projects.save()
             return dict(projects=self.projects.data)
 
-    def prepare(self, project_id=None, series_id=None):
+    def set_project_repositories(self, project_id, repositories):
+        with self.lock, self.projects.lock:
+            result = self.projects.set_repositories(project_id, repositories)
+            self.projects.save()
+            return dict(repositories=result, projects=self.projects.data)
+
+    # People ------------------------------------------------------------------------------------------
+    def save_person(self, body):
+        return dict(person=self.people.save(body), people=self.people.list())
+
+    def delete_person(self, person_id, revision):
+        self.people.delete(person_id, revision)
+        return dict(people=self.people.list())
+
+    def github_user(self, login):
+        """The stable GitHub ID of a username, so a later rename keeps the same person."""
+        from .people import LOGIN
+        if not isinstance(login, str) or not LOGIN.fullmatch(login.strip().lstrip('@')):
+            raise ValueError('Enter a GitHub username')
+        user = self.github.connection.get('/users/' + login.strip().lstrip('@'))['data']
+        if type(user.get('id')) is not int or not isinstance(user.get('login'), str):
+            raise ValueError('GitHub returned an invalid user')
+        return dict(login=user['login'], id=user['id'])
+
+    def _person_names(self, person):
+        return {name.casefold() for name in [person['name'], *person['aliases']] if not re.fullmatch(r'SPEAKER[ _-]?\d+',name,re.I)}
+
+    def person_profile(self, person_id):
+        """What a person said (their confirmed names in transcripts) and what they took on.
+
+        Only a task whose owner a person confirmed is a commitment. An owner from the AI is shown apart,
+        as a suggestion, so taking part in a conversation never becomes a responsibility by itself.
+        """
+        person = self.people.get(person_id)
+        if not person:
+            raise ValueError('This person no longer exists. Reload and try again.')
+        names = self._person_names(person)
+        said, meetings = [], {}
+        for meeting in self.library.list():
+            path = self.library.directory(meeting['id']) / 'transcript.json'
+            rows = read_json(path, []) if path.exists() else []
+            mine = [row for row in rows if isinstance(row, dict) and isinstance(row.get('speaker'), str) and row['speaker'].casefold() in names]
+            if mine:
+                meetings[meeting['id']] = len(mine)
+                said += [dict(meeting_id=meeting['id'], meeting_title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
+                              start=row['start'], text=row.get('text', '')) for row in mine]
+        said.sort(key=lambda r: (r['date'], r['start']), reverse=True)
+        with self.items.lock:
+            tasks = [i for i in self.items.items.values() if i['kind'] == 'task' and isinstance(i.get('owner'), str) and i['owner'].casefold() in names]
+        row = lambda i: dict(id=i['id'], text=i['text'], status=i['status'], due_date=i.get('due_date'), links=i.get('links', []))
+        confirmed = [row(i) for i in tasks if 'owner' in i.get('manual', [])]
+        suggested = [row(i) for i in tasks if 'owner' not in i.get('manual', [])]
+        github = []
+        if person['github'] and person['github'].get('id'):
+            try:
+                github = self.github.assigned_to(person['github']['id'])
+            except (ValueError, GitHubError):
+                github = []
+        return dict(person=person, statements=len(said), meetings=len(meetings), said=said[:50],
+                    commitments=confirmed, suggested=suggested, github=github, channels=identity_channels.profile(self,person))
+
+    # GitHub drafts and local links -------------------------------------------------------------------
+    def _resource(self, value):
+        """The text, moment and projects of a task, decision, question or saved excerpt."""
+        from .github_links import resource
+        target = resource(value)
+        if target['kind'] == 'attachment':
+            row = self.conversations.attachment(target['id'])
+            moment = None
+            if row['kind'] == 'excerpt':
+                meeting = self.library.get(row['locator']['meeting_id'])
+                moment = dict(meeting_id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
+                              seconds=row['locator']['start'])
+            quote = '\n'.join(re.sub(r'^\[[0-9.]+–[0-9.]+\] ', '', line) for line in row['text'].splitlines() if line.strip())[:4000]
+            return dict(target=target, kind='excerpt' if row['kind'] == 'excerpt' else 'conversation', text=row['title'], quote=quote,
+                        speaker=None, moment=moment, project_ids=row['project_ids'], owner=None, owner_confirmed=False, due_date=None,
+                        source_label=None if moment else ('Gmail' if row['kind'] == 'gmail' else 'Google Chat'))
+        item = next((i for i in self.item_list()['items'] if i['id'] == target['id']), None)
+        if not item:
+            raise ValueError('This item no longer exists. Reload and try again.')
+        moment = quote = speaker = source = None
+        meetings = {m['id']: m for m in self.library.list()}
+        links = sorted((l for l in item['links'] if l['meeting_id'] in meetings),
+                       key=lambda l: meetings[l['meeting_id']].get('started_at') or meetings[l['meeting_id']]['created'])
+        for link in links:
+            stamp = link.get('evidence_timestamp')
+            if not stamp:
+                continue
+            seconds = sum(int(part) * 60 ** n for n, part in enumerate(reversed(stamp.split(':'))))
+            meeting = meetings[link['meeting_id']]
+            moment = dict(meeting_id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'], seconds=seconds)
+            rows = read_json(self.library.directory(meeting['id']) / 'transcript.json', [])
+            segment = next((r for r in rows if r['start'] <= seconds + .5 < max(r['end'], r['start'] + 1)), None)
+            if segment:
+                quote, speaker = segment['text'].strip(), segment.get('speaker')
+            break
+        if not quote:
+            graph = WorkGraph(self.items).snapshot()
+            evidence = next((e for e in graph['source_evidence'] if e['id'] in set(item.get('source_evidence', []))), None)
+            if evidence:
+                quote = evidence['quote']
+                found = next((x for x in graph['sources'] if x['id'] == evidence['source_id']), {})
+                remote = found.get('remote', {})
+                source = {'gmail': 'Gmail', 'google_chat': 'Google Chat'}.get(found.get('provider')) or (
+                    f"GitHub {remote.get('repository', '')}#{remote.get('number', '')}" if found.get('provider') == 'github' else None)
+        return dict(target=target, kind=item['kind'], text=item['text'], quote=quote, speaker=speaker, moment=moment,
+                    project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_confirmed='owner' in item.get('manual', []),
+                    due_date=item.get('due_date'), status=item['status'], source_label=source)
+
+    def github_draft(self, body):
+        """Markdown for a GitHub issue or comment that the person copies and publishes. Atlanta writes nothing."""
+        from .github_source import repo_name
+        fmt = body.get('format')
+        if fmt not in {'issue', 'comment'}:
+            raise ValueError('Choose an issue or a comment')
+        data = self._resource(body.get('resource'))
+        projects = [self.projects.get('projects', key) for key in data['project_ids']]
+        projects = [p for p in projects if p]
+        choices = [r for p in projects for r in p.get('repositories', [])]
+        repository = body.get('repository') or (choices[0] if choices else '')
+        if repository:
+            repository = repo_name(repository)
+        with_meeting, with_speaker = body.get('include_meeting', True) is not False, body.get('include_speaker') is True
+        notes, kind = [], {'task': 'Task', 'decision': 'Decision', 'question': 'Question', 'excerpt': 'Meeting excerpt', 'conversation': 'Conversation'}[data['kind']]
+        moment = data['moment']
+        when = ''
+        if moment:
+            day = dt.datetime.fromisoformat(moment['date']).strftime('%-d %B %Y')
+            stamp = f"{int(moment['seconds']) // 3600:02}:{int(moment['seconds']) // 60 % 60:02}:{int(moment['seconds']) % 60:02}"
+            when = (f"{moment['title']}, {day} · {stamp}" if with_meeting else f'A meeting on {day} · {stamp}')
+            if not with_meeting:
+                notes.append('The meeting title is hidden.')
+        elif data.get('source_label'):
+            when = data['source_label']
+        quote = data['quote']
+        if quote and data['speaker'] and not with_speaker and data['kind'] != 'excerpt':
+            notes.append('The speaker name is hidden.')
+        if data['kind'] == 'excerpt' and not with_speaker:
+            # Excerpt lines start with the speaker; keep only the words.
+            quote = '\n'.join(re.sub(r'^[^:\n]{1,80}: ', '', line) for line in quote.splitlines())
+            notes.append('Speaker names are hidden.')
+        quoted = '\n'.join('> ' + line for line in quote.splitlines()) if quote else ''
+        if quoted and data['speaker'] and with_speaker and data['kind'] != 'excerpt':
+            quoted += '\n> — ' + data['speaker']
+        owner = ''
+        if data['owner'] and data['owner_confirmed']:
+            person = self.people.match(data['owner'])
+            owner = '@' + person['github']['login'] if person and person['github'] else data['owner']
+            if person and person['github'] and not person['github'].get('id'):
+                notes.append(f"@{person['github']['login']} is not checked on GitHub yet; check it in Settings → People.")
+        elif data['owner']:
+            notes.append('The AI-suggested owner is not included; confirm the owner in Atlanta first.')
+        reference = data['target']['kind'] + ':' + data['target']['id']
+        footer = f"<sub>Atlanta reference: {reference}</sub>\n<!-- atlanta:resource={reference} -->"
+        details = ' · '.join(x for x in [owner and 'Owner: ' + owner, data.get('due_date') and 'Due: ' + data['due_date']] if x)
+        if fmt == 'comment':
+            parts = [f"**{kind}{' · ' + when if when else ''}**", quoted, data['text'] if data['text'] != quote and data['kind'] not in {'excerpt', 'conversation'} else '', details, footer]
+            title = ''
+        else:
+            context = ' · '.join(x for x in ['Project: ' + ', '.join(p['name'] for p in projects) if projects else '', 'From: ' + when if when else ''] if x)
+            title = (data['text'] if data['kind'] not in {'excerpt', 'conversation'} else (data['text'] or 'Follow up from a meeting'))[:120]
+            parts = [f'## {kind}\n\n' + data['text'] if data['kind'] not in {'excerpt', 'conversation'} else '',
+                     '## Context\n\n' + context if context else '', '## Evidence\n\n' + quoted if quoted else '',
+                     '## Details\n\n' + details if details else '', footer]
+        markdown = '\n\n'.join(p for p in parts if p)
+        return dict(format=fmt, title=title, body=markdown, repository=repository, repositories=choices,
+                    assignee=owner if owner.startswith('@') else None, notes=notes, resource=data['target'])
+
+    def github_link(self, body):
+        """Link a resource to an existing issue or pull request. Checks the local cache, then GitHub (read only)."""
+        data = self._resource(body.get('resource'))
+        repository, number = parse_github_reference(body.get('reference'), body.get('repository') or '')
+        details = dict(kind='unknown')
+        try:
+            cached = self.github.find(repository, number)
+        except (ValueError, GitHubError):
+            cached = None
+        force=body.get('verify_live',False)
+        if type(force) is not bool:raise ValueError('Invalid GitHub check option')
+        if cached and not force:
+            details = dict(kind=cached['kind'], title=cached['title'], state=cached['state'], issue_id=cached['issue_id'], verified=True,
+                           verification='cached', cached_at=cached.get('fetched_at'))
+        else:
+            try:
+                issue = self.github.connection.get(f'/repos/{repository}/issues/{number}')['data']
+                details = dict(kind='pull_request' if 'pull_request' in issue else 'issue', title=issue.get('title'), state=issue.get('state'),
+                               issue_id=issue.get('id'), verified=True, verification='github', checked_at=dt.datetime.now(dt.timezone.utc).isoformat())
+            except (ValueError, GitHubError):
+                details.update(verification='offline')
+        row = self.github_links.link(data['target'], repository, number, details)
+        return dict(link=row, links=self.github_links.for_resource(data['target']['kind'], data['target']['id']))
+
+    def github_unlink(self, body):
+        self.github_links.unlink(body.get('id'), body.get('revision'))
+        return dict(ok=True)
+
+    def github_links_for(self, kind=None, key=None, repository=None, number=None):
+        if repository:
+            rows = self.github_links.for_issue(repository, int(number))
+            for row in rows:
+                try:
+                    data = self._resource(row['resource'])
+                    row['resource_text'], row['resource_kind'] = data['text'], data['kind']
+                except ValueError:
+                    row['resource_text'], row['resource_kind'] = 'A deleted resource', 'deleted'
+            return rows
+        return self.github_links.for_resource(kind, key)
+
+    def create_project(self, name):
+        with self.lock, self.projects.lock:
+            key = self.projects.ensure_project({'name': name})
+            self.projects.save()
+            return dict(id=key, projects=self.projects.data)
+
+    def project_workspace(self, project_id=''):
+        with self.lock, self.items.lock, self.projects.lock:
+            data = self.item_list()
+            projects = self.projects.data['projects']
+            if project_id not in ('', '__none__') and not self.projects.get('projects', project_id):
+                raise ValueError('This project no longer exists. Reload and try again.')
+            def includes(ids, key):
+                return not key or (not ids if key == '__none__' else key in ids)
+            all_meetings = self.library.list()
+            meetings = [m for m in all_meetings if includes([m['project_id']] if m.get('project_id') else [], project_id)]
+            rows = [i for i in data['items'] if includes(i['effective_project_ids'], project_id)]
+            cards = []
+            for p in [dict(id='__none__', name='Unassigned'), *projects]:
+                items_here = [i for i in data['items'] if includes(i['effective_project_ids'], p['id'])]
+                cards.append(dict(p, linked_conversations=len(self.conversations.attachments(p['id'])), meetings=sum(includes([m['project_id']] if m.get('project_id') else [], p['id']) for m in all_meetings),
+                    open_tasks=sum(i['kind']=='task' and i['status']=='open' and not i.get('dismissed') for i in items_here),
+                    open_questions=sum(i['kind']=='question' and i['status']=='open' for i in items_here)))
+            return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'], conversations=self.conversations.attachments(project_id), timeline=self.conversations.timeline(project_id, rows, meetings))
+
+    def prepare(self, project_id=None, series_id=None, meeting_type=None):
         """Open tasks, questions, decisions and an agenda for the next meeting of a project or series."""
         with self.lock, self.projects.lock:
             series = self.projects.get('series', series_id) if series_id else None
@@ -762,11 +1299,16 @@ class MeetingService:
             meetings = [m for m in self.library.list() if (m.get('series_id') == series_id if series else m.get('project_id') == project['id'])]
             self._refresh_items()
             with self.items.lock:
-                registry = list(self.items.items.values())
+                registry = [item for item in self.item_list()['items'] if project['id'] in item['effective_project_ids']]
+            existing_types={meeting_types.of(m)['id'] for m in meetings}
+            requires_type=not series and meeting_type is None and len(existing_types)>1
+            kind = (self._meeting_type(meeting_type)[0] if meeting_type is not None else
+                    self._series_type(series_id) if series else next(iter(existing_types)) if len(existing_types)==1 else meeting_types.DEFAULT)
+            kind = meeting_types.definition(kind, self.templates.get(kind))
             result = briefing.build(meetings, {m['id']: self._minutes(m['id']) for m in meetings}, registry,
                                     {m['id']: read_json(self.library.directory(m['id']) / 'markers.json', []) for m in meetings},
-                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''))
-            return dict(result, project_id=project['id'], series_id=series_id)
+                                    dt.date.today(), project['name'] + (' · ' + series['name'] if series else ''), kind, project_id=None if series else project['id'])
+            return dict(result, project_id=project['id'], series_id=series_id, requires_type=requires_type)
 
     SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
                      'transcript': {'transcript', 'draft'}}
@@ -796,15 +1338,17 @@ class MeetingService:
             raise ValueError('Type a question')
         results = self.find(question, project=project)
         order = {'decision': 0, 'task': 1, 'transcript': 3, 'draft': 3}
-        sources = sorted(results, key=lambda r: order.get(r['kind'], 2))[:12]
-        decisions = [r for r in results if r['kind'] == 'decision']
+        # A replaced decision is no longer in force: it is not proposed and it is not an answer source.
+        current = [r for r in results if not (r['kind'] == 'decision' and r['status'] == 'superseded')]
+        sources = sorted(current, key=lambda r: order.get(r['kind'], 2))[:12]
+        decisions = [r for r in current if r['kind'] == 'decision']
         result = dict(question=question.strip(), sources=sources, decision_question=bool(search.DECISION_QUESTION.search(question)),
                       confirmed=[r for r in decisions if r['status'] == 'accepted'][:5],
                       proposed=[r for r in decisions if r['status'] != 'accepted'][:5], ai=None, ai_error=None,
                       provider=self.settings.get('summarizer', 'none'))
         if sources and ai:
             try:
-                result['ai'] = search.ai_answer(dict(self.settings), self.api_key, question.strip(), sources)
+                result['ai'] = search.ai_answer(dict(self.settings,_prompt_snapshot=self.prompts.snapshot()), self.api_key, question.strip(), sources)
             except Exception as exc:
                 message = str(exc)
                 result['ai_error'] = message.replace(self.api_key, '[redacted]') if self.api_key else message
@@ -814,34 +1358,95 @@ class MeetingService:
         return dict(folder=str(self.backup_dir), archives=backup.archives(self.backup_dir) if self.backup_dir.exists() else [])
 
     def create_backup(self):
-        # Archiving can take minutes; recording controls must not wait for it.
-        with self.lock:
-            skip = {self.active} if self.active else set()
-        result = backup.create(self.library.root, self.backup_dir, skip)
-        return dict(self.backups(), created=result, skipped_active=bool(skip))
+        def skip():
+            live = {meeting_id for meeting_id, session in self.live_sessions.items()
+                    if session.thread and session.thread.is_alive()}
+            return set(self.busy) | live | ({self.active} if self.active else set())
+        result = backup.create(self.library.root, self.backup_dir, skip, guard=self._snapshot_guard)
+        return dict(self.backups(), created=result, skipped_active=bool(result['skipped_meetings']))
+
+    @contextmanager
+    def _snapshot_guard(self):
+        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.prompts.lock:
+            self.library._finish_scope_batch()
+            # Recover a projection interrupted after SQLite committed before pinning it.
+            self.items.data, self.items.revision = self.items.store.load()
+            yield
 
     def restore_backup(self, name):
+        restored_reports={}
+        def validate(staging):
+            self.prompts.read(staging/'ai-prompts.json')
+            restored_reports.update(read_report_store(staging / 'repo-reports.json')['reports'])
+            path = staging / 'items.json'
+            if path.exists():
+                portable = json.loads(path.read_text())
+                validate_graph({key: portable.get(key, {}) for key in COLLECTIONS}, portable['items'])
+                for item in portable['items'].values():
+                    normalize(item)
         def merge(staging, restored):
+            self.repo_reports.restore(staging)
+            if (staging/'ai-prompts.json').exists():self.prompts.merge(staging/'ai-prompts.json')
+            for name, store in (('people.json', self.people), ('github-links.json', self.github_links), ('meeting-templates.json', self.templates)):
+                try:
+                    store.merge(json.loads((staging / name).read_text()))
+                except (OSError, ValueError):
+                    pass
             try:
-                with self.projects.lock:
-                    self.projects.merge(json.loads((staging / 'projects.json').read_text()))
-                    self.projects.save()
-            except (OSError, ValueError, AttributeError):
-                pass
+                archived_projects = json.loads((staging / 'projects.json').read_text())
+            except (OSError, ValueError):
+                archived_projects = {}
+            with self.projects.lock:
+                mapping = self.projects.merge(archived_projects if isinstance(archived_projects, dict) else {})
+                self.projects.save()
+                # A restored meeting follows its project by name, not only by ID.
+                for meeting_id in restored:
+                    meeting = self.library.get(meeting_id)
+                    project_id = mapping['projects'].get(meeting.get('project_id'), meeting.get('project_id'))
+                    series_id = mapping['series'].get(meeting.get('series_id'), meeting.get('series_id'))
+                    if not self.projects.get('projects', project_id):
+                        project_id = series_id = None
+                    series = self.projects.get('series', series_id)
+                    if not series or series['project_id'] != project_id:
+                        series_id = None
+                    if (project_id, series_id) != (meeting.get('project_id'), meeting.get('series_id')):
+                        self.library.update(meeting_id, project_id=project_id, series_id=series_id)
             try:
-                archived = json.loads((staging / 'items.json').read_text())['items']
+                if not (staging / 'items.json').exists():
+                    return
+                portable = json.loads((staging / 'items.json').read_text())
+                archived = portable['items']
+                graph_ids = {key for edge in portable.get('relationships', {}).values() for key in (edge['from_id'], edge['to_id'])}
                 with self.items.lock:
                     # Only items of the meetings that this restore added come back, with only those links.
                     # Items this library already has stay as they are.
                     for item_id, item in archived.items():
                         links = [link for link in item.get('links', []) if link.get('meeting_id') in restored]
-                        if links and item_id not in self.items.items:
-                            self.items.items[item_id] = dict(item, links=links)
+                        if (links or item.get('managed_by') == 'work_graph' or item.get('source_evidence') or item_id in graph_ids) and item_id not in self.items.items:
+                            restored_item = dict(item, links=links)
+                            if 'project_ids' in restored_item:
+                                restored_item['project_ids'] = sorted({mapping['projects'].get(key, key) for key in restored_item['project_ids']
+                                    if self.projects.get('projects', mapping['projects'].get(key, key))})
+                            self.items.items[item_id] = restored_item
+                    for collection in COLLECTIONS:
+                        for key, record in portable.get(collection, {}).items():
+                            if collection == 'conversation_links':
+                                record = dict(record, project_ids=sorted({mapping['projects'].get(p,p) for p in record['project_ids'] if self.projects.get('projects',mapping['projects'].get(p,p))}))
+                            self.items.data[collection].setdefault(key, record)
                     self.items.prune({m['id'] for m in self.library.list()})
                     self.items.save()
             except (OSError, ValueError, KeyError, AttributeError):
-                pass
-        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge)
+                self.items.data, self.items.revision = self.items.store.load(repair_export=False)
+                raise
+        @contextmanager
+        def restore_guard():
+            with self._snapshot_guard(), self.repo_reports.lock:
+                if self.repo_reports.thread and self.repo_reports.thread.is_alive():
+                    raise ValueError('Stop repository report jobs before restoring')
+                if len(set(self.repo_reports.data['reports']) | set(restored_reports)) > 24:
+                    raise ValueError('Restoring would exceed the 24-report limit')
+                yield
+        result = backup.restore(backup.archive_path(self.backup_dir, name), self.library, merge, guard=restore_guard, validate=validate)
         with self.lock:
             for meeting_id in result['restored']:
                 # A meeting archived during a job comes back as interrupted, like after a crash.
@@ -856,7 +1461,7 @@ class MeetingService:
         subprocess.run(['/usr/bin/open', '-R', str(backup.archive_path(self.backup_dir, name))], check=False, timeout=10)
         return {'ok': True}
 
-    NOTE_FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations')
+    NOTE_FIELDS = ('summary', 'decisions', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *meeting_types.SECTION_FIELDS)
 
     def _edited_minutes(self, directory, body):
         """The notes after an edit. A copy that is older than the saved notes must not undo newer changes:
@@ -963,15 +1568,19 @@ class MeetingService:
                           if not topic_key or str(row.get('id', '')).casefold() == topic_key or row.get('name', '').casefold() == topic_key]
             questions = [item for item in data.get('questions', [])
                          if not wanted_speaker or (item.get('speaker') or '').casefold() == wanted_speaker]
-            speaker_in_topics = any((hit.get('speaker') or '').casefold() == wanted_speaker
-                                    for row in topic_rows for hit in row.get('matches', []))
+            # With a speaker filter, a topic counts only the matches of that speaker.
+            hits = {id(row): [hit for hit in row.get('matches', [])
+                              if not wanted_speaker or (hit.get('speaker') or '').casefold() == wanted_speaker] for row in topic_rows}
+            if wanted_speaker:
+                topic_rows = [row for row in topic_rows if hits[id(row)]]
+            speaker_in_topics = bool(wanted_speaker and topic_rows)
             if wanted_speaker and not speaker_rows and not questions and not speaker_in_topics or topic_key and not topic_rows:
                 continue
             unanswered = sum(not item.get('answered', False) for item in questions)
             meetings.append(dict(id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'],
                                  talk_seconds=round(sum(row['talk_seconds'] for row in speaker_rows), 3),
                                  questions=len(questions), unanswered_questions=unanswered,
-                                 topic_matches=sum(len(row.get('matches', [])) for row in topic_rows)))
+                                 topic_matches=sum(len(hits[id(row)]) for row in topic_rows)))
             for row in speaker_rows:
                 name = row['speaker']
                 aggregate = speakers.setdefault(speaker_key(name, meeting), new_speaker(name, meeting))
@@ -990,7 +1599,7 @@ class MeetingService:
             for row in topic_rows:
                 key = row.get('name', '').casefold()
                 aggregate = topics.setdefault(key, dict(id=row.get('id'), name=row.get('name'), matches=0, meetings=set()))
-                aggregate['matches'] += len(row.get('matches', []))
+                aggregate['matches'] += len(hits[id(row)])
                 aggregate['meetings'].add(meeting['id'])
         total_speech = round(sum(row['talk_seconds'] for row in speakers.values()), 3)
         speaker_rows = []
@@ -1090,8 +1699,13 @@ class MeetingService:
         self.items_synced = {}
         self._refresh_items()
 
+    def _has_audio(self, meeting_id):
+        """A finished recording can play from any moment; a meeting that is still recording has none yet."""
+        return meeting_id != self.active and (self.library.directory(meeting_id) / 'recording.wav').is_file()
+
     def _meeting_refs(self):
-        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created']) for m in self.library.list()}
+        return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created'], project_id=m.get('project_id'), has_audio=self._has_audio(m['id']))
+                for m in self.library.list()}
 
     def pending_links(self, meetings=None):
         """Mentions that may be an existing task or decision and wait for a person to choose."""
@@ -1109,7 +1723,170 @@ class MeetingService:
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
-            return dict(items=list(self.items.items.values()), pending=self.pending_links(), meetings=self._meeting_refs())
+            meetings = self._meeting_refs()
+            known = {p['id'] for p in self.projects.data['projects']}
+            rows = []
+            for item in self.items.items.values():
+                assigned = item.get('project_ids')
+                effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
+                rows.append(dict(item, effective_project_ids=sorted({key for key in effective if key in known})))
+            graph = WorkGraph(self.items).snapshot()
+            conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
+            # Pinned conversation bodies are fetched on demand, not with every My Work refresh.
+            for revision in graph['source_revisions']:
+                if revision['source_id'] in conversations:revision.pop('text',None)
+            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=self.github_links.all())
+
+    def _github_publish(self,account,record,suggestions):
+        graph=WorkGraph(self.items)
+        def metadata(data,result):
+            data['sources'][result['source_id']]['remote']=dict(state=record['state'],kind=record['kind'],
+                repository_id=record['repository_id'],repository=record['repository'],number=record['number'],
+                authority='github',fetched_at=record['fetched_at'])
+        return graph.ingest(dict(provider='github',account='github.com:'+account,external_id='issue:'+str(record['issue_id']),
+            revision=record['revision'],text=record['text']),suggestions,after=metadata)
+
+    def _refresh_github_source(self,account,record):
+        with self.lock,self.items.lock:
+            if self.closed.is_set() or self.active or self.busy:raise InterruptedError('paused for recording or processing')
+            if self.github.connection.status()['account_id']!=account:raise GitHubError('GitHub account changed. Sync again.')
+            source=next((s for s in self.items.data['sources'].values() if s['provider']=='github' and
+                         s['account']=='github.com:'+account and s['external_id']=='issue:'+str(record['issue_id'])),None)
+            if source:
+                if record['available']:
+                    known=self.items.data['source_revisions'][source['current_revision']]
+                    if source['available'] and known['external_revision']==record['revision']:
+                        return
+                    self._github_publish(account,record,[])
+                else:WorkGraph(self.items).availability(source['id'],source['current_revision'],False)
+
+    def _github_unavailable(self,account,repo):
+        with self.lock,self.items.lock:
+            if self.github.connection.status()['account_id']!=account:raise GitHubError('GitHub account changed. Sync again.')
+            graph=WorkGraph(self.items)
+            def apply(data):
+                for source in data['sources'].values():
+                    if source['provider']=='github' and source['account']=='github.com:'+account and source.get('remote',{}).get('repository_id')==repo:
+                        source.update(available=False,ai_export_allowed=False);source.pop('ai_consent',None)
+                graph._activity(data,'github_repository_unavailable',account=account,repository_id=repo)
+            graph._write(apply)
+
+    def github_proposal(self,key,revision,title):
+        with self.github.lock,self.lock,self.items.lock:
+            account=self.github._account();record=self.github.detail(key,expected_account=account)
+            if not record['available']:raise ValueError('This GitHub source is unavailable. Refresh repository access first.')
+            if record['revision']!=revision or self.github.connection.status()['account_id']!=account:
+                raise items.WorkItemConflict('GitHub source/account changed. Reopen the object before proposing a task.')
+            quote=(record['body'] or record['title'])[:10000]
+            return self._github_publish(account,record,[dict(kind='task',text=title,quote=quote,
+                locator=dict(repository_id=record['repository_id'],repository=record['repository'],issue_id=key,
+                             number=record['number'],kind=record['kind'],url=record['url'],head_sha=record.get('head_sha')))])
+
+    def _refresh_chat_message(self, account, record):
+        with self.lock,self.items.lock:
+            if self.closed.is_set() or self.active or self.busy:
+                raise InterruptedError('paused for recording or processing')
+            if self.google.status().get('chat_account_id')!=account:
+                raise CalendarError('The Chat account changed. Sync again.')
+            source=next((s for s in self.items.data['sources'].values()
+                if s['provider']=='google_chat' and s['account']==account and s['external_id']==record['name']),None)
+            if source:
+                graph=WorkGraph(self.items)
+                if record['available'] and record['body']:
+                    graph.ingest(dict(provider='google_chat',account=account,external_id=record['name'],
+                                      revision=record['revision'],text=record['body']),[])
+                else:graph.availability(source['id'],source['current_revision'],False)
+
+    def _chat_unavailable(self,account,resource):
+        with self.lock,self.items.lock:
+            if self.google.status().get('chat_account_id')!=account:
+                raise CalendarError('The Chat account changed. Sync again.')
+            graph=WorkGraph(self.items)
+            def apply(data):
+                for source in data['sources'].values():
+                    if (source['provider']=='google_chat' and source['account']==account and
+                        (source['external_id'].startswith(resource) if resource.endswith('/') else source['external_id']==resource)):
+                        source.update(available=False,ai_export_allowed=False);source.pop('ai_consent',None)
+                graph._activity(data,'chat_source_unavailable',account=account,resource=resource)
+            graph._write(apply)
+
+    def chat_proposal(self,name,revision,title):
+        # Match the cache writer lock order: cache -> service -> registry.
+        with self.chat.lock,self.lock,self.items.lock:
+            account=self.chat._account()
+            record=self.chat.detail(name,expected_account=account)
+            if not record['available'] or not record['body']:
+                raise ValueError('This Chat message has no available text to quote')
+            if record['revision']!=revision or self.google.status().get('chat_account_id')!=account:
+                raise items.WorkItemConflict('The Chat message/account changed. Reopen it before proposing a task.')
+            return WorkGraph(self.items).ingest(dict(provider='google_chat',account=account,external_id=name,
+                revision=revision,text=record['body']),[dict(kind='task',text=title,quote=record['body'][:10000],
+                locator=dict(space=record['space'],thread=record['thread'],message=name,sender_id=record['sender_id'],created=record['date']))])
+
+    def _refresh_gmail_source(self, account, key, record):
+        with self.lock, self.items.lock:
+            if self.closed.is_set() or self.active or self.busy:
+                raise InterruptedError('paused for recording or processing')
+            status = self.google.status()
+            if status.get('account') != account or not status.get('capabilities', {}).get('gmail'):
+                raise CalendarError('The Google connection changed. Start sync again.')
+            graph = WorkGraph(self.items)
+            source = next((s for s in self.items.data.get('sources', {}).values()
+                if s['provider']=='gmail' and s['account']==account and s['external_id']==key), None)
+            if source:
+                if record:
+                    graph.ingest(dict(provider='gmail',account=account,external_id=key,
+                        revision=record['revision'],text=record['text']), [])
+                else:
+                    graph.availability(source['id'],source['current_revision'],False)
+
+    def gmail_proposal(self, key, revision, message_id, title):
+        with self.lock, self.items.lock:
+            account = self.gmail._account()
+            record = self.gmail.detail(key,expected_account=account)
+            if record['revision'] != revision:
+                raise items.WorkItemConflict('This email thread changed. Reopen it before proposing a task.')
+            message = next((m for m in record['messages'] if m['id']==message_id), None)
+            if not message or not message['body']:
+                raise ValueError('This message has no available text body')
+            if self.google.status().get('account') != account:
+                raise items.WorkItemConflict('The Google account changed. Reopen the email thread.')
+            return WorkGraph(self.items).ingest(dict(provider='gmail',account=account,external_id=key,
+                revision=record['revision'],text=record['text']),
+                [dict(kind='task',text=title,quote=message['body'][:10000],locator=dict(thread_id=key,message_id=message_id))])
+
+    def work_graph_action(self, action, body):
+        # The same service/registry lock order as meeting edits and backup snapshots.
+        with self.lock, self.items.lock:
+            graph = WorkGraph(self.items)
+            if action == 'project':
+                ids = body.get('project_ids')
+                if ids is not None and (not isinstance(ids, list) or len(ids)>50 or any(not isinstance(key, str) or not self.projects.get('projects', key) for key in ids)):
+                    raise ValueError('Choose existing projects')
+                def assign(data):
+                    item = data['items'].get(body.get('id'))
+                    if not item or type(body.get('revision')) is not int or item.get('revision') != body.get('revision'):
+                        raise items.WorkItemConflict('Work item changed. Reload and try again.')
+                    previous = item.get('project_ids')
+                    if ids is None: item.pop('project_ids', None)
+                    else: item['project_ids'] = sorted(set(ids))
+                    item['history'].append(dict(at=items.now(), event='projects_changed', by='user', meeting_id=None, changes={'project_ids': [previous, ids]}))
+                    graph._activity(data, 'item_projects_changed', item_id=item['id'], project_ids=ids)
+                    return item
+                return graph._write(assign)
+            if action == 'ingest':
+                return graph.ingest(body['source'], body['suggestions'])
+            if action == 'availability':
+                return graph.availability(body['source_id'], body['source_revision'], body['available'])
+            if action == 'review':
+                return graph.review(body['id'], body['revision'], body['action'],
+                    target_id=body.get('target_id'), target_revision=body.get('target_revision'),
+                    snoozed_until=body.get('snoozed_until'))
+            if action == 'question':
+                return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'))
+            if action == 'relate':
+                return graph.relate(body['from_id'], body['to_id'], body['kind'], body['from_revision'], body['to_revision'])
+            raise ValueError('Unknown work graph action')
 
     def tasks(self):
         """Every persistent task, each once, however many meetings discussed it."""
@@ -1119,7 +1896,8 @@ class MeetingService:
 
     def task_summary(self):
         today = dt.date.today().isoformat()
-        open_tasks = [t for t in self.tasks() if t['status'] == 'open']
+        open_tasks = [t for t in self.tasks() if t['status'] == 'open' and not t.get('dismissed')
+                      and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
                     today=today, review=len(self.pending_links()))
 
@@ -1135,19 +1913,36 @@ class MeetingService:
             validate_minutes(minutes)
             yield link, directory, minutes
 
-    def update_item(self, item_id, text, changes):
+    def update_item(self, item_id, text, changes, revision=None):
         if not isinstance(changes, dict) or not changes:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
+            if item and item['kind'] == 'question':
+                raise ValueError('Use question controls to answer or reopen this question')
             if not item or item['text'] != text:
-                raise ValueError('This item changed. Reload the list and try again.')
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
+            if revision is not None and (type(revision) is not int or revision != item.get('revision')):
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             allowed = {'text', 'owner', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+            allowed |= {'dismissed', 'snoozed_until'}
             if set(changes) - allowed:
                 raise ValueError('These fields cannot change here')
             clean = {}
             for name, value in changes.items():
-                if name == 'text':
+                if name == 'dismissed':
+                    if type(value) is not bool:
+                        raise ValueError('Dismissed must be true or false')
+                    clean[name] = value
+                elif name == 'snoozed_until':
+                    if value is not None:
+                        try:
+                            if dt.date.fromisoformat(value).isoformat() != value:
+                                raise ValueError()
+                        except (ValueError, TypeError):
+                            raise ValueError('Snooze date must use YYYY-MM-DD') from None
+                    clean[name] = value
+                elif name == 'text':
                     if not isinstance(value, str) or not value.strip():
                         raise ValueError('The text cannot be empty')
                     clean[name] = value.strip()[:1000]
@@ -1172,14 +1967,20 @@ class MeetingService:
             self._sync_linked({item_id})
             return dict(self.items.items[item_id])
 
-    def delete_item(self, item_id, text):
+    def delete_item(self, item_id, text, revision=None):
         """Remove a task or decision and its mentions from every meeting."""
         from meeting_assistant import save_minutes
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
             if not item or item['text'] != text:
-                raise ValueError('This item changed. Reload the list and try again.')
-            field = items.FIELD[item['kind']]
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
+            if revision is not None and (type(revision) is not int or revision != item.get('revision')):
+                raise items.WorkItemConflict('This item changed. Reload the list and try again.')
+            if self.items.has_graph_links(item_id):
+                raise ValueError('Dismiss this source-linked item to preserve its history')
+            field = items.FIELD.get(item['kind'])
+            if field is None:
+                raise ValueError('Use question controls for this item')
             for _, directory, minutes in list(self._linked_minutes(item)):
                 minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
                 save_minutes(directory, minutes)
@@ -1187,13 +1988,24 @@ class MeetingService:
             self.items.save()
             return dict(deleted=item_id)
 
-    def merge_items(self, item_id, into_id):
+    def merge_items(self, item_id, into_id, revision=None, into_revision=None):
         from meeting_assistant import save_minutes
         with self.lock, self.items.lock:
             item, into = self.items.items.get(item_id), self.items.items.get(into_id)
             if not item or not into or item_id == into_id or item['kind'] != into['kind']:
                 raise ValueError('Choose another item of the same kind')
-            field = items.FIELD[item['kind']]
+            if (revision is not None and (type(revision) is not int or revision != item.get('revision'))
+                    or into_revision is not None and (type(into_revision) is not int or into_revision != into.get('revision'))):
+                raise items.WorkItemConflict('These items changed. Reload the list and try again.')
+            if self.items.replaces(item_id, into_id):
+                raise ValueError('One of these decisions replaces the other. They cannot be merged.')
+            if self.items.has_graph_links(item_id):
+                raise ValueError('Dismiss this source-linked item to preserve its history')
+            if self.items.has_graph_links(into_id):
+                raise ValueError('Use proposal Link for source-linked items')
+            field = items.FIELD.get(item['kind'])
+            if field is None:
+                raise ValueError('Use question controls for this item')
             for _, directory, minutes in list(self._linked_minutes(item)):
                 if any(mention.get('item_id') == into_id for mention in minutes[field]):
                     # This meeting already mentions the item that stays; the other mention is the same thing.
@@ -1387,12 +2199,30 @@ class MeetingService:
                                 self.stop(error)
                             else:
                                 self.recorder.checkpoint()
+                                warnings = getattr(self.recorder, 'warnings', [])
+                                changes = dict(warnings=list(warnings),
+                                    microphone_status=getattr(self.recorder, 'input_status', 'connected'),
+                                    microphone_name=getattr(self.recorder, 'input_name', ''))
+                                meeting = self.library.get(self.active)
+                                if any(meeting.get(k) != v for k, v in changes.items()):
+                                    self.library.update(self.active, **changes)
+                                    if meeting.get('microphone_status', 'connected') != changes['microphone_status']:
+                                        self.health_changed(changes['microphone_status'] != 'connected')
                 self.automation.retry_pending()
             except Exception as exc:
                 print(f'Monitor: {exc}', flush=True)
 
     def close(self, finalize_recording=False):
         self.closed.set()
+        self.prompt_lab.close()
+        self.task_drafts.close()
+        self.repo_reports.close()
+        self.github.close()
+        self.chat.close()
+        self.gmail_ai.close()
+        self.gmail.close()
+        for cancel in list(self.cancel_events.values()):
+            cancel.set()
         self.automation.close()
         if self.start_thread and self.start_thread.is_alive():
             self.start_thread.join(timeout=35)
@@ -1417,4 +2247,6 @@ class MeetingService:
             live.request_stop()
         for live in self.live_sessions.values():
             live.close()
+        for thread in list(self.processing_threads.values()):
+            thread.join(timeout=3)
         self.search_index.close()

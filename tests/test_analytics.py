@@ -121,7 +121,7 @@ class AnalyticsServiceTests(unittest.TestCase):
         atomic_json(directory / 'speaker-timeline.json', [turn(0, 4, 'SPEAKER_00'), turn(4, 8, 'SPEAKER_00')])
         source = json.loads((directory / 'transcript.json').read_text())
         source[0]['speaker'] = 'Иван'
-        self.service.edit(meeting_id, {'transcript': source})
+        self.service.edit(meeting_id, {'transcript': source, 'transcript_revision': self.service.detail(meeting_id)['transcript_revision']})
         saved = json.loads((directory / 'transcript.json').read_text())
         timeline = json.loads((directory / 'speaker-timeline.json').read_text())
         result = json.loads((directory / 'analytics.json').read_text())
@@ -131,6 +131,32 @@ class AnalyticsServiceTests(unittest.TestCase):
         self.assertEqual(result['speakers'][0]['questions'], 1)
         self.assertIn('Иван', self.service.library.speakers())
         self.assertNotIn('SPEAKER_00', self.service.library.speakers())
+
+    def test_correcting_one_real_name_moves_only_that_segment_time(self):
+        meeting_id, directory = self.meeting()
+        atomic_json(directory / 'transcript.json', [segment(0, 10, 'Дали сме готови?', 'Иван'), segment(10, 20, 'Да, готови сме.', 'Иван')])
+        atomic_json(directory / 'speaker-timeline.json', [turn(0, 20, 'Иван')])
+        source = json.loads((directory / 'transcript.json').read_text())
+        source[0]['speaker'] = 'Мария'
+        self.service.edit(meeting_id, {'transcript': source, 'transcript_revision': self.service.detail(meeting_id)['transcript_revision']})
+        timeline = json.loads((directory / 'speaker-timeline.json').read_text())
+        result = {row['speaker']: row for row in json.loads((directory / 'analytics.json').read_text())['speakers']}
+        self.assertEqual([(t['start'], t['end'], t['speaker']) for t in timeline], [(0, 10, 'Мария'), (10, 20, 'Иван')])
+        self.assertEqual((result['Мария']['talk_seconds'], result['Мария']['questions']), (10, 1))
+        self.assertEqual((result['Иван']['talk_seconds'], result['Иван']['questions']), (10, 0))
+
+    def test_a_transcript_copy_without_the_current_revision_is_rejected(self):
+        from app import items
+        meeting_id, directory = self.meeting()
+        atomic_json(directory / 'transcript.json', [segment(0, 4, 'Здравей', 'Иван')])
+        stale = self.service.detail(meeting_id)
+        newer = json.loads((directory / 'transcript.json').read_text())
+        newer[0]['text'] = 'Здравейте всички'
+        self.service.edit(meeting_id, {'transcript': newer, 'transcript_revision': stale['transcript_revision']})
+        for body in ({'transcript': stale['transcript']}, {'transcript': stale['transcript'], 'transcript_revision': stale['transcript_revision']}):
+            with self.assertRaises(items.WorkItemConflict):
+                self.service.edit(meeting_id, body)
+        self.assertEqual(json.loads((directory / 'transcript.json').read_text())[0]['text'], 'Здравейте всички')
 
     def test_transcript_save_runs_analytics_outside_the_app_lock(self):
         meeting_id, directory = self.meeting()
@@ -143,8 +169,9 @@ class AnalyticsServiceTests(unittest.TestCase):
             probe.start(); probe.join()
             seen['busy'] = meeting_id in self.service.busy
             return {}
+        revision = self.service.detail(meeting_id)['transcript_revision']
         with patch('app.service.conversation.analyze', side_effect=slow_analyze):
-            self.service.edit(meeting_id, {'transcript': [segment(0, 4, 'Здравейте', 'Иван')]})
+            self.service.edit(meeting_id, {'transcript': [segment(0, 4, 'Здравейте', 'Иван')], 'transcript_revision': revision})
         self.assertTrue(seen['free'])
         self.assertTrue(seen['busy'])
         self.assertNotIn(meeting_id, self.service.busy)
@@ -210,6 +237,10 @@ class AnalyticsServiceTests(unittest.TestCase):
         ivan = self.service.analytics_overview(speaker='иван')
         self.assertEqual(ivan['total_speech_seconds'], 30)
         self.assertEqual(ivan['speakers'][0]['longest_monologue_seconds'], 20)
+        self.assertEqual(ivan['topics'][0]['matches'], 1)
+        self.assertEqual(sorted(row['topic_matches'] for row in ivan['meetings']), [0, 1])
+        maria = self.service.analytics_overview(speaker='мария', topic='budget')
+        self.assertEqual(([m['id'] for m in maria['meetings']], maria['topics'][0]['matches']), ([second], 1))
         topic = self.service.analytics_overview(topic='budget')
         self.assertEqual(topic['meeting_count'], 2)
         self.assertEqual(topic['topics'][0]['matches'], 2)

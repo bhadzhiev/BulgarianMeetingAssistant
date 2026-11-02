@@ -44,6 +44,13 @@ class ParseTests(unittest.TestCase):
     def test_srt(self):
         segments=parse_transcript('1\n00:00:01,000 --> 00:00:03,500\nИван: здравей\n')['segments']
         self.assertEqual(segments,[dict(start=1,end=3.5,text='здравей',speaker='Иван')])
+    def test_rejects_reversed_cues_and_impossible_times(self):
+        for text in ['1\n00:00:05,000 --> 00:00:02,000\nТекст\n', '1\n00:75:00,000 --> 00:76:00,000\nТекст\n',
+                     '1\n00:00:01,000 --> 00:00:61,000\nТекст\n', '[00:00:75] Иван: Здравей\n', '[01:60:00] Иван: Здравей\n']:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                parse_transcript(text)
+        self.assertEqual(parse_transcript('[75:30] Иван: Здравей\n')['segments'][0]['start'], 4530)
+
     def test_rejects_text_without_timestamps_or_going_back(self):
         with self.assertRaisesRegex(ValueError,'No timestamps'):parse_transcript('Просто текст')
         with self.assertRaisesRegex(ValueError,'forward'):parse_transcript('[00:01:00] a\n[00:00:10] b\n')

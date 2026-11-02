@@ -1,6 +1,6 @@
 """Tasks and decisions that live longer than one meeting.
 
-The registry (items.json) holds each task and decision once: its current state, its history and links
+The SQLite registry (with an items.json export) holds each task and decision once: its current state, its history and links
 to every meeting that discussed it. Meeting notes hold mentions; a mention points to its item by
 item_id. A new mention that looks like an existing item waits for a person to choose: the same item,
 a duplicate, a replacement (decisions) or a new item. The AI never changes a task status and never
@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import datetime as dt
 import difflib
-import json
 from pathlib import Path
 import re
 import threading
 import uuid
 
-from .storage import atomic_json
+from .work_items import WorkItemStore, WorkItemConflict
 
 FIELD = {'task': 'tasks', 'decision': 'decisions'}
 # Item field -> mention field. The mention fields are what one meeting said.
@@ -25,6 +24,8 @@ MENTION = {'task': {'text': 'task', 'owner': 'owner', 'deadline': 'deadline', 'd
 TASK_STATES = ('open', 'done')
 DECISION_STATES = ('proposed', 'accepted', 'superseded')
 AI_UPDATES = ('owner', 'deadline', 'due_date')
+# Fields that describe the current state of an item, not what a meeting said.
+STATE_FIELDS = ('owner', 'due_date')
 MATCH = 0.55
 # A decision's state shows in its mentions as the review state: accepted means checked.
 REVIEW_OF = {'accepted': 'verified', 'proposed': 'ai'}
@@ -64,13 +65,8 @@ class Registry:
     def __init__(self, path: Path):
         self.path = path
         self.lock = threading.RLock()
-        try:
-            data = json.loads(path.read_text())
-            if not isinstance(data, dict) or not isinstance(data.get('items'), dict):
-                raise ValueError
-        except (OSError, ValueError):
-            data = dict(version=1, items={})
-        self.data = data
+        self.store = WorkItemStore(path.with_name('work-items.sqlite3'), path)
+        self.data, self.revision = self.store.load()
         self.status_changed = set()  # items whose status a sync changed; other meetings must follow
 
     @property
@@ -78,7 +74,11 @@ class Registry:
         return self.data['items']
 
     def save(self) -> None:
-        atomic_json(self.path, self.data)
+        try:
+            self.revision = self.store.save(self.data, self.revision)
+        except WorkItemConflict:
+            self.data, self.revision = self.store.load(repair_export=False)
+            raise
 
     def _event(self, item, event, meeting_id=None, changes=None, by='ai', **extra):
         item['history'].append(dict(at=now(), event=event, meeting_id=meeting_id, changes=changes or {}, by=by, **extra))
@@ -131,9 +131,9 @@ class Registry:
             if new_status:
                 applied['status'] = [item['status'], new_status]
                 item['status'] = new_status
-        if 'status' in applied:
-            self.status_changed.add(item['id'])
         if applied:
+            # Other meetings that mention the item show the edit too.
+            self.status_changed.add(item['id'])
             self._event(item, 'changed', meeting_id, applied, by='user')
 
     @staticmethod
@@ -142,14 +142,23 @@ class Registry:
 
     @staticmethod
     def _reconcile(kind: str, item: dict, mention: dict) -> bool:
-        """The item holds the state; every meeting's notes show the same state."""
+        """The item holds the state; every meeting's notes show the same state.
+
+        State that a person set (owner, due date) reaches every mention. The wording (text and the
+        deadline as said) stays as each meeting's notes said it; the saved evidence keeps it too.
+        """
+        changed = False
+        for name, source in MENTION[kind].items():
+            if name in STATE_FIELDS and name in item['manual'] and mention.get(source) != item.get(name):
+                mention[source] = item.get(name)
+                changed = True
         if kind == 'task' and mention.get('status') != item['status']:
             mention['status'] = item['status']
-            return True
+            changed = True
         if kind == 'decision' and item['status'] in REVIEW_OF and mention.get('review') != REVIEW_OF[item['status']]:
             mention['review'] = REVIEW_OF[item['status']]
-            return True
-        return False
+            changed = True
+        return changed
 
     def detach(self, meeting_id: str) -> None:
         """The notes of a meeting are gone because it was transcribed again. Its items keep their identity
@@ -183,8 +192,11 @@ class Registry:
 
     def replace(self, old_id: str, mention: dict, meeting_id: str) -> str:
         """A new decision replaces an older one."""
+        if self.items[old_id]['status'] == 'superseded':
+            raise ValueError('This decision was already replaced. Reload and choose the current decision.')
         new_id = self.create('decision', mention, meeting_id)
         old, new = self.items[old_id], self.items[new_id]
+        old['superseded_previous_status'] = old['status']
         old['superseded_by'] = new_id
         new['supersedes'].append(old_id)
         self._event(old, 'superseded', meeting_id, {'status': [old['status'], 'superseded']}, by='user', by_item=new_id)
@@ -247,20 +259,31 @@ class Registry:
                                                 for link in item['links']):
                 continue
             item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id or minutes is not None and link.get('detached')]
-            if item['links']:
+            if item['links'] or self.has_graph_links(item['id']):
                 self._event(item, 'removed', meeting_id, by='user')
             else:
                 self.remove(item['id'])
         return changed
 
+    def has_graph_links(self, item_id):
+        return bool(self.items[item_id].get('source_evidence') or any(item_id in (edge['from_id'], edge['to_id'])
+            for edge in self.data.get('relationships', {}).values()))
+
     def remove(self, item_id: str) -> None:
+        if self.has_graph_links(item_id):
+            raise ValueError('This item has work graph links. Dismiss it to keep its source history.')
         item = self.items.pop(item_id)
         for old_id in item.get('supersedes', []):
             old = self.items.get(old_id)
             if old and old.get('superseded_by') == item_id:
-                # The replacement is gone, so the older decision applies again.
-                old.update(superseded_by=None, status='accepted')
-                self._event(old, 'changed', None, {'status': ['superseded', 'accepted']}, by='user')
+                # Removing a replacement must not accept an unverified proposal.
+                previous = old.pop('superseded_previous_status', None)
+                if previous not in {'proposed', 'accepted'}:
+                    previous = next((event.get('changes', {}).get('status', [None])[0]
+                        for event in reversed(old['history']) if event.get('event') == 'superseded'), 'proposed')
+                previous = previous if previous in {'proposed', 'accepted'} else 'proposed'
+                old.update(superseded_by=None, status=previous)
+                self._event(old, 'changed', None, {'status': ['superseded', previous]}, by='user')
         for other in self.items.values():
             if item_id in other.get('supersedes', []):
                 other['supersedes'].remove(item_id)
@@ -268,11 +291,18 @@ class Registry:
     def update(self, item_id: str, changes: dict) -> dict:
         item = self.items[item_id]
         applied = {name: [item.get(name), value] for name, value in changes.items() if item.get(name) != value}
+        # Saving the owner that the AI suggested confirms it: a person now stands behind it.
+        if changes.get('owner') and item.get('owner') == changes['owner'] and 'owner' not in item['manual']:
+            item['manual'].append('owner')
+            self._event(item, 'confirmed', None, {'owner': [changes['owner'], changes['owner']]}, by='user')
         for name, (_, value) in applied.items():
             item[name] = value
             if name not in item['manual']:
                 item['manual'].append(name)
         if 'status' in applied and item['kind'] == 'decision' and applied['status'][0] == 'superseded':
+            replacement = self.items.get(item.get('superseded_by'))
+            if replacement and item_id in replacement.get('supersedes', []):
+                replacement['supersedes'].remove(item_id)
             item['superseded_by'] = None
         if applied:
             self._event(item, 'changed', None, applied, by='user')
@@ -282,17 +312,47 @@ class Registry:
         """Drop links to meetings that the library does not have, and items that are left with none."""
         for item in list(self.items.values()):
             item['links'] = [link for link in item['links'] if link['meeting_id'] in meeting_ids]
-            if not item['links']:
+            if not item['links'] and item.get('managed_by') != 'work_graph' and not self.has_graph_links(item['id']):
                 self.remove(item['id'])
+
+    def newer(self, item_id: str) -> set[str]:
+        """The decisions that replace this one, directly or through a chain of replacements."""
+        found, todo = set(), [item_id]
+        while todo:
+            current = todo.pop()
+            following = {other['id'] for other in self.items.values() if current in other.get('supersedes', [])}
+            following.add(self.items.get(current, {}).get('superseded_by'))
+            for entry in following - found - {None}:
+                found.add(entry)
+                todo.append(entry)
+        return found
+
+    def replaces(self, item_id: str, other_id: str) -> bool:
+        """True when one decision replaces the other, at any distance in the replacement chain."""
+        return other_id in self.newer(item_id) or item_id in self.newer(other_id)
 
     def merge(self, item_id: str, into_id: str) -> None:
         """Two items are the same thing; keep one with all links and history."""
         item, into = self.items[item_id], self.items[into_id]
+        if self.replaces(item_id, into_id):
+            # Merging would make a decision replace itself.
+            raise ValueError('One of these decisions replaces the other. They cannot be merged.')
+        if item.get('source_evidence') or into.get('source_evidence'):
+            raise ValueError('Use proposal Link for items with work graph sources.')
+        if ('project_ids' in item) != ('project_ids' in into):
+            raise ValueError('Choose explicit projects for both items before merging them')
         for link in item['links']:
             if not any(own['meeting_id'] == link['meeting_id'] for own in into['links']):
                 into['links'].append(link)
         into['history'] = sorted(into['history'] + item['history'], key=lambda event: event['at'])
         into['manual'] = sorted(set(into['manual']) | set(item['manual']))
+        if 'project_ids' in item or 'project_ids' in into:
+            if 'project_ids' in item and 'project_ids' in into:
+                into['project_ids'] = sorted(set(item['project_ids']) | set(into['project_ids']))
+            else:
+                raise ValueError('Choose explicit projects for both items before merging them')
+        into['evidence'] = list({entry['id']: entry for entry in
+                                into.get('evidence', []) + item.get('evidence', [])}.values())
         self._event(into, 'merged', None, {'text': [item['text'], into['text']]}, by='user')
         for other in self.items.values():
             if other.get('superseded_by') == item_id:

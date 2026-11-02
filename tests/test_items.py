@@ -111,6 +111,51 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(self.service.item_list()['items'][0]['status'], 'accepted')
         self.assertEqual(self.minutes(second)['decisions'], [])
 
+    def test_decisions_in_one_replacement_chain_cannot_be_merged(self):
+        self.meeting('2026-10-19T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е LTE рутер')]))
+        old = next(i for i in self.service.item_list()['items'] if i['kind'] == 'decision')
+        second = self.meeting('2026-10-23T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е оптика, не LTE рутер')]))
+        middle = self.resolve(second, 'decisions', 'replaces', old['id'])['minutes']['decisions'][0]['item_id']
+        third = self.meeting('2026-10-26T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е оптика и 5G, не LTE рутер')]))
+        newest = self.resolve(third, 'decisions', 'replaces', middle)['minutes']['decisions'][0]['item_id']
+        before = json.dumps(self.service.item_list()['items'], sort_keys=True)
+        for item_id, into_id in [(old['id'], middle), (middle, old['id']), (old['id'], newest), (newest, old['id'])]:
+            with self.assertRaisesRegex(ValueError, 'replaces the other'):
+                self.service.merge_items(item_id, into_id)
+        self.assertEqual(json.dumps(self.service.item_list()['items'], sort_keys=True), before)
+        registry = {i['id']: i for i in self.service.item_list()['items']}
+        for item in registry.values():
+            self.assertNotEqual(item.get('superseded_by'), item['id'])
+            self.assertNotIn(item['id'], item.get('supersedes', []))
+        self.assertEqual((registry[middle]['supersedes'], registry[newest]['supersedes']), ([old['id']], [middle]))
+
+    def test_a_global_edit_reaches_the_notes_of_every_linked_meeting(self):
+        first = self.meeting('2026-10-19T10:00:00+03:00', notes([task('Провери VPN failover', 'Иван')]))
+        second = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Провери VPN failover', 'Иван')]))
+        self.resolve(second, 'tasks', 'same', self.service.tasks()[0]['id'])
+        [item] = self.service.tasks()
+        self.service.update_item(item['id'], item['text'], {'text': 'VPN failover в офиса', 'owner': 'Мария', 'due_date': '2026-11-01'})
+        for meeting_id in (first, second):
+            mention = self.minutes(meeting_id)['tasks'][0]
+            # State follows the item; the wording stays as each meeting said it.
+            self.assertEqual((mention['task'], mention['owner'], mention['due_date']), ('Провери VPN failover', 'Мария', '2026-11-01'))
+        history = len(self.service.tasks()[0]['history'])
+        self.service._sync_all_items()
+        self.assertEqual(len(self.service.tasks()[0]['history']), history)
+        edited = self.minutes(first)
+        edited['tasks'][0]['owner'] = 'Петър'
+        self.service.edit(first, {'minutes': edited, 'minutes_revision': self.service.detail(first)['minutes_revision']})
+        self.assertEqual(self.minutes(second)['tasks'][0]['owner'], 'Петър')
+
+    def test_deleting_a_replacement_keeps_a_proposed_decision_proposed(self):
+        first = self.meeting('2026-10-19T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е LTE рутер')]))
+        old = next(i for i in self.service.item_list()['items'] if i['kind'] == 'decision')
+        second = self.meeting('2026-10-23T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е оптика, не LTE рутер')]))
+        new_id = self.resolve(second, 'decisions', 'replaces', old['id'])['minutes']['decisions'][0]['item_id']
+        self.service.delete_item(new_id, next(i for i in self.service.item_list()['items'] if i['id'] == new_id)['text'])
+        self.assertEqual([i['status'] for i in self.service.item_list()['items']], ['proposed'])
+        self.assertEqual(self.minutes(first)['decisions'][0]['review'], 'ai')
+
     def test_merge_delete_and_removed_meetings(self):
         a = self.meeting('2026-10-19T10:00:00+03:00', notes([task('Купи UPS за сървърното')]))
         b = self.meeting('2026-10-20T10:00:00+03:00', notes([task('Обнови документацията на API')]))

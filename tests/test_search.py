@@ -88,6 +88,21 @@ class SearchTests(unittest.TestCase):
         self.assertIn('Не намирам потвърдено решение', prompt)
         self.assertIn('[1] Решение (accepted) · Инфраструктура, 2026-10-19 · 00:01:15', prompt)
 
+    def test_a_replaced_decision_is_neither_proposed_nor_an_answer_source(self):
+        first, _ = self.scenario()
+        old = next(i for i in self.service.item_list()['items'] if i['kind'] == 'decision' and 'LTE' in i['text'])
+        third = self.meeting('Инфраструктура 2', '2026-10-23T10:00:00+03:00', [(0, 'Иван', 'Сменяме резервния интернет.')],
+            dict(summary=[], tasks=[], open_questions=[], decisions=[dict(text='Резервният интернет ще е оптика, не LTE рутер', evidence_timestamp='00:00:00', review='verified')]))
+        mention = json.loads((self.service.library.directory(third) / 'minutes.json').read_text())['decisions'][0]
+        self.service.resolve_link(third, 'decisions', 0, mention['text'], 'replaces', old['id'])
+        with patch.object(self.service, 'settings', dict(DEFAULTS, summarizer='local')), \
+                patch('app.local_ai.complete_json', return_value={'found': False, 'answer': '', 'sources': []}) as model:
+            result = self.service.ask('Какво решихме за резервния интернет?')
+        self.assertNotIn('Резервният интернет ще е LTE рутер', [r['text'] for r in result['proposed'] + result['sources']])
+        self.assertEqual([r['text'] for r in result['confirmed']], ['Резервният интернет ще е оптика, не LTE рутер'])
+        self.assertNotIn('LTE рутер (superseded)', model.call_args.args[1][0]['content'])
+        self.assertNotIn('(superseded)', model.call_args.args[1][0]['content'])
+
     def test_no_confirmed_decision_and_uncited_answers(self):
         self.scenario()
         with patch.object(self.service, 'settings', dict(DEFAULTS, summarizer='local')), \

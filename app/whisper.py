@@ -118,3 +118,19 @@ def apply_prompted_text(segments: list, prompted: str, min_ratio: float = 0.5) -
         texts.setdefault(first if owner[k] is None else owner[k], []).append(word)
     return [dataclasses.replace(segment, text=' '.join(texts[index])) if index in texts else segment
             for index, segment in enumerate(segments)]
+
+
+def word_units(raw, offset=0):
+    """Keep native word-sized boundaries; do not merge turns before diarization."""
+    from meeting_assistant import TranscriptSegment, clean_text
+    import math
+    result = []
+    for segment in raw:
+        text = clean_text(segment.text)
+        if not text:
+            continue
+        start, end = offset + segment.t0 / 100, offset + segment.t1 / 100
+        if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start <= end:
+            raise ValueError('Whisper returned invalid word boundaries')
+        result.append(TranscriptSegment(start, end, text))
+    return result

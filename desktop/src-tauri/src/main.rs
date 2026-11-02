@@ -4,14 +4,18 @@ use std::{io::{BufRead, BufReader, Write}, path::PathBuf, process::{Child, Comma
     sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}, thread, time::{Duration, Instant}};
 use std::os::unix::process::CommandExt;
 use tauri::{Manager, RunEvent, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri::menu::{Menu, MenuItem};
 
 #[derive(Default)]
-struct Backend { child: Mutex<Option<Child>>, quitting: AtomicBool, stopped: AtomicBool }
+struct Backend { child: Mutex<Option<Child>>, quitting: AtomicBool, stopped: AtomicBool,
+    dirty: AtomicBool, ui_seen: Mutex<Option<Instant>>, recovery_url: Mutex<Option<tauri::Url>>, recording: AtomicBool, confirming: AtomicBool, exit_confirmed: AtomicBool }
 
 fn status(app: &tauri::AppHandle, message: &str) {
     if let Some(window) = app.get_webview_window("main") {
         let encoded = serde_json::to_string(message).unwrap();
         let _ = window.eval(format!("document.getElementById('status')?.replaceChildren(document.createTextNode({encoded}))"));
+        let _ = window.eval(format!("window.dispatchEvent(new CustomEvent('desktop-status', {{detail: {encoded}}}))"));
         let _ = window.set_title(message);
     }
 }
@@ -30,7 +34,11 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
     } else {
         command = Command::new(resources.join("backend/meeting-backend/meeting-backend"));
     }
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(data.join("backend.log")).map_err(|e| e.to_string())?;
+    let log_path = data.join("backend.log");
+    if log_path.metadata().map(|m| m.len() > 10_000_000).unwrap_or(false) {
+        std::fs::rename(&log_path, data.join("backend.previous.log")).map_err(|e| e.to_string())?;
+    }
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(log_path).map_err(|e| e.to_string())?;
     // A private pipe controls only this child. EOF also shuts it down if the native process dies.
     command.args(["--desktop-control", "--no-browser", "--port", "8765", "--library"])
         .arg(data.join("meetings")).arg("--models").arg(data.join("models"))
@@ -42,12 +50,32 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
     *owned = Some(child);
     drop(owned);
     let (sender, receiver) = std::sync::mpsc::channel();
+    let control_state = state.clone();
+    let control_app = app.clone();
     thread::spawn(move || {
         // Continue draining stdout after readiness so verbose libraries cannot fill the pipe.
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
                 if value["event"] == "ready" {
                     let _ = sender.send(value["url"].as_str().unwrap_or("").to_owned());
+                } else if value["event"] == "recording" {
+                    let active = value["active"].as_bool().unwrap_or(false);
+                    control_state.recording.store(active, Ordering::SeqCst);
+                    if !active {
+                        if let Some(window) = control_app.get_webview_window("main") {
+                            let _ = window.request_user_attention(None);
+                            if !control_state.quitting.load(Ordering::SeqCst) { let _ = window.set_title("Atlanta"); }
+                        }
+                    }
+                } else if value["event"] == "ui" {
+                    control_state.dirty.store(value["dirty"].as_bool().unwrap_or(true), Ordering::SeqCst);
+                    *control_state.ui_seen.lock().unwrap()=Some(Instant::now());
+                } else if value["event"] == "microphone" {
+                    if let Some(window) = control_app.get_webview_window("main") {
+                        let missing = value["missing"].as_bool().unwrap_or(false);
+                        let _ = window.set_title(if missing { "Microphone unavailable — recording has gaps" } else { "Atlanta" });
+                        let _ = window.request_user_attention(if missing { Some(tauri::UserAttentionType::Critical) } else { None });
+                    }
                 }
             }
         }
@@ -59,9 +87,32 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
     }
     if !state.quitting.load(Ordering::SeqCst) {
         let window = app.get_webview_window("main").ok_or("Window closed")?;
+        *state.recovery_url.lock().unwrap()=Some(url.clone());
+        *state.ui_seen.lock().unwrap()=Some(Instant::now());
         window.navigate(url).map_err(|e| e.to_string())?;
-        let _ = window.set_title("Meeting Assistant");
+        let _ = window.set_title("Atlanta");
     }
+    thread::spawn(move || {
+        let mut warned=false;
+        while !state.quitting.load(Ordering::SeqCst) {
+            let stopped = state.child.lock().unwrap().as_mut()
+                .map(|child| matches!(child.try_wait(), Ok(Some(_)))).unwrap_or(true);
+            if stopped {
+                state.recording.store(false, Ordering::SeqCst);
+                status(&app, "The local server stopped. Restart the app.");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
+                }
+                break;
+            }
+            let stale=state.ui_seen.lock().unwrap().as_ref().map(|at|at.elapsed()>Duration::from_secs(30)).unwrap_or(false);
+            if stale && !warned {
+                warned=true;
+                if let Some(window)=app.get_webview_window("main") {let _=window.set_title("Interface not responding · App menu → Recover interface");let _=window.request_user_attention(Some(tauri::UserAttentionType::Informational));}
+            } else if !stale && warned {warned=false;if let Some(window)=app.get_webview_window("main") {let _=window.set_title("Atlanta");}}
+            thread::sleep(Duration::from_millis(500));
+        }
+    });
     Ok(())
 }
 
@@ -86,10 +137,35 @@ fn stop(state: &Backend) {
 fn main() {
     let state = Arc::new(Backend::default());
     let startup = state.clone();
+    let menu_state=state.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
         }))
+        .plugin(tauri_plugin_dialog::init())
+        .menu(|app| {
+            let menu = Menu::default(app)?;
+            // Tauri's macOS default app submenu ends with the OS Quit item.
+            // Its terminate: action bypasses ExitRequested; use our own action.
+            // https://github.com/tauri-apps/tauri/issues/9198
+            if let Some(app_menu) = menu.items()?.first().and_then(|item| item.as_submenu()) {
+                let last = app_menu.items()?.len().saturating_sub(1);
+                app_menu.remove_at(last)?;
+                app_menu.append(&MenuItem::with_id(app, "recover-ui", "Recover interface", true, None::<&str>)?)?;
+                app_menu.append(&MenuItem::with_id(app, "safe-quit", "Quit Atlanta", true, Some("Cmd+Q"))?)?;
+            }
+            Ok(menu)
+        })
+        .on_menu_event(move |app, event| {
+            if event.id().as_ref()=="safe-quit" {app.exit(0);}
+            if event.id().as_ref()=="recover-ui" {
+                let state=menu_state.clone();let app_handle=app.clone();
+                let restore=move || {if let Some(url)=state.recovery_url.lock().unwrap().clone(){if let Some(window)=app_handle.get_webview_window("main"){let _=window.navigate(url);state.dirty.store(false,Ordering::SeqCst);*state.ui_seen.lock().unwrap()=Some(Instant::now());}}};
+                if menu_state.dirty.load(Ordering::SeqCst) {
+                    app.dialog().message("Recovering the interface discards unsaved edits. Recording and the local server continue.").title("Recover interface?").buttons(MessageDialogButtons::OkCancelCustom("Recover".into(),"Keep editing".into())).show(move |yes|{if yes{restore();}});
+                } else {restore();}
+            }
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             let state = startup.clone();
@@ -109,6 +185,22 @@ fn main() {
             if let RunEvent::ExitRequested { api, .. } = event {
                 if state.stopped.load(Ordering::SeqCst) { return; }
                 api.prevent_exit();
+                if (state.recording.load(Ordering::SeqCst)||state.dirty.load(Ordering::SeqCst)) && !state.exit_confirmed.load(Ordering::SeqCst)
+                    && !state.quitting.load(Ordering::SeqCst) {
+                    if !state.confirming.swap(true, Ordering::SeqCst) {
+                        let state = state.clone(); let app = app.clone();
+                        let message=if state.recording.load(Ordering::SeqCst) {"Quitting stops and saves the recording. Unsaved editor changes will be discarded."}else{"There are unsaved editor changes. Quit and discard them?"};
+                        let dialog = app.dialog().message(message)
+                            .title("Quit Atlanta?")
+                            .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Keep working".into()));
+                        let dialog = if let Some(window) = app.get_webview_window("main") { dialog.parent(&window) } else { dialog };
+                        dialog.show(move |confirmed| {
+                            state.confirming.store(false, Ordering::SeqCst);
+                            if confirmed { state.exit_confirmed.store(true, Ordering::SeqCst); app.exit(0); }
+                        });
+                    }
+                    return;
+                }
                 if !state.quitting.swap(true, Ordering::SeqCst) {
                     status(app, "Saving recording and closing…");
                     let state = state.clone(); let app = app.clone();

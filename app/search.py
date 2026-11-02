@@ -12,9 +12,12 @@ import re
 import sqlite3
 import threading
 
+from .meeting_types import SECTION_FIELDS
+
 KINDS = ('decision', 'task', 'summary', 'next_step', 'question', 'observation', 'marker', 'transcript', 'draft', 'meeting')
 NOTE_FIELDS = (('summary', 'summary'), ('next_steps', 'next_step'), ('needs_decision', 'question'),
-               ('open_questions', 'question'), ('observations', 'observation'), ('decisions', 'decision'), ('tasks', 'task'))
+               ('open_questions', 'question'), ('observations', 'observation'), ('decisions', 'decision'), ('tasks', 'task'),
+               *((field, 'summary') for field in SECTION_FIELDS))
 # Question words and verbs of talking match almost every passage and only add noise to the ranking.
 STOP_WORDS = {'какво', 'кога', 'кой', 'коя', 'кое', 'кои', 'как', 'защо', 'къде', 'дали', 'ли', 'за', 'на', 'от', 'по', 'със',
               'във', 'към', 'при', 'или', 'това', 'тази', 'този', 'тези', 'решихме', 'казахме', 'говорихме', 'обсъдихме',
@@ -199,6 +202,8 @@ def ai_answer(settings: dict, api_key: str, question: str, sources: list[dict]) 
         from .local_ai import complete_json
         result = complete_json(settings, messages, ANSWER_SCHEMA, 'meeting_answer', timeout=300)
     elif provider == 'openai':
+        from .prompts import apply
+        messages=apply(settings,messages,'meeting_answer')
         from meeting_assistant import extract_json, post_json
         if not api_key:
             raise ValueError('Add an OpenAI API key in Settings, or choose local notes.')

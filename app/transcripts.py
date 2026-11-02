@@ -15,6 +15,9 @@ MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 
 
 
 def _seconds(hours, minutes, seconds, millis='0'):
+    # Without hours, "[75:30]" means 75 minutes; with hours, minutes stay below 60. Seconds always do.
+    if int(seconds) >= 60 or hours is not None and int(minutes) >= 60:
+        raise ValueError(f'Invalid time {hours + ":" if hours else ""}{minutes}:{seconds}. Minutes and seconds must be below 60.')
     return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds) + int(millis.ljust(3, '0')) / 1000
 
 
@@ -49,7 +52,10 @@ def _parse_srt(text):
             if match:
                 body = ' '.join(lines[index + 1:]).strip()
                 if body:
-                    items.append((_seconds(*match.groups()[:4]), _seconds(*match.groups()[4:]), body))
+                    start, end = _seconds(*match.groups()[:4]), _seconds(*match.groups()[4:])
+                    if end < start:
+                        raise ValueError(f'An SRT cue ends before it starts: {line[:60]}')
+                    items.append((start, end, body))
                 break
     return items
 

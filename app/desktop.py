@@ -6,6 +6,24 @@ import os
 import sys
 import threading
 
+_output_lock = threading.Lock()
+
+
+def activity(active, output):
+    with _output_lock:
+        try:
+            print(json.dumps({'event': 'recording', 'active': bool(active)}), file=output, flush=True)
+        except (BrokenPipeError, OSError):
+            pass  # The parent EOF watcher owns shutdown.
+
+
+def microphone_health(missing, output):
+    with _output_lock:
+        try:
+            print(json.dumps({'event': 'microphone', 'missing': bool(missing)}), file=output, flush=True)
+        except (BrokenPipeError, OSError):
+            pass
+
 
 def watch_parent(stream, shutdown):
     """Quit on an explicit command or EOF, including when the window process crashes."""
@@ -31,3 +49,10 @@ def control_output():
 def ready(url, output):
     # stdout is a private pipe to the native parent; do not write the credential to logs.
     print(json.dumps({'event': 'ready', 'url': url}), file=output, flush=True)
+
+
+def editor_state(dirty, output):
+    """Authenticated UI heartbeat forwarded over the private native pipe; never includes text."""
+    with _output_lock:
+        try:print(json.dumps(dict(event='ui',dirty=bool(dirty))),file=output,flush=True)
+        except (BrokenPipeError,OSError):pass

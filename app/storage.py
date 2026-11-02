@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import copy
+from collections import OrderedDict
 import json
 import os
 from pathlib import Path
@@ -34,11 +36,14 @@ class Library:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self.metadata_cache = OrderedDict()
+        self.metadata_cache_bytes = 0
+        self._finish_scope_batch()
         self.speakers_path = self.root / 'speakers.json'
         self.trackers_path = self.root / 'trackers.json'
         # Finish deletions that a crash interrupted after the meeting left the library.
         # Uploads that a crash interrupted never became meetings.
-        for leftover in [*self.root.glob('.deleted-*'), *self.root.glob('.upload-*'), *self.root.glob('.restore-*')]:
+        for leftover in [*self.root.glob('.deleted-*'), *self.root.glob('.upload-*'), *self.root.glob('.restore-*'), *self.root.glob('.snapshot-*'), *self.root.glob('.gmail-ai-*')]:
             if leftover.is_dir() and not leftover.is_symlink():
                 shutil.rmtree(leftover, ignore_errors=True)
         # Audio preparation that a crash interrupted leaves a large temporary WAV in the meeting folder.
@@ -53,6 +58,28 @@ class Library:
         if not path.is_dir() or path.is_symlink():
             raise FileNotFoundError('Meeting not found')
         return path
+
+    def _finish_scope_batch(self):
+        journal = self.root / '.scope-batch.json'
+        if not journal.exists(): return
+        changes = json.loads(journal.read_text())
+        if not isinstance(changes,list) or not 1<=len(changes)<=200: raise ValueError('Invalid pending meeting group update')
+        for change in changes:
+            if (not isinstance(change,dict) or set(change)!={'id','project_id','series_id'}
+                    or any(change[key] is not None and (not isinstance(change[key],str) or not re.fullmatch(r'[a-f0-9]{12}',change[key])) for key in ('project_id','series_id'))):
+                raise ValueError('Invalid pending meeting scope')
+            self.directory(change['id'])
+        for change in changes:
+            path = self.directory(change['id']) / 'meeting.json'
+            meeting = json.loads(path.read_text());meeting.update({key:change[key] for key in ('project_id','series_id')});atomic_json(path,meeting)
+        journal.unlink()
+
+    def assign_scopes(self, changes):
+        with self.lock:
+            self._finish_scope_batch()
+            for change in changes:self.directory(change['id'])
+            atomic_json(self.root / '.scope-batch.json', changes)
+            self._finish_scope_batch()
 
     def create(self, title: str, mode: str, settings: dict) -> dict:
         with self.lock:
@@ -69,7 +96,22 @@ class Library:
             return meeting
 
     def get(self, meeting_id: str) -> dict:
-        return json.loads((self.directory(meeting_id) / 'meeting.json').read_text())
+        with self.lock:
+            self._finish_scope_batch()
+            path=self.directory(meeting_id)/'meeting.json'
+            stat=path.stat();signature=(stat.st_mtime_ns,stat.st_size,stat.st_ino)
+            cached=self.metadata_cache.get(meeting_id)
+            if cached and cached[0]==signature:
+                self.metadata_cache.move_to_end(meeting_id)
+                return copy.deepcopy(cached[1])
+            raw=path.read_bytes();meeting=json.loads(raw)
+            previous=self.metadata_cache.pop(meeting_id,None)
+            if previous:self.metadata_cache_bytes-=previous[2]
+            if len(raw)<=2_000_000:
+                self.metadata_cache[meeting_id]=(signature,copy.deepcopy(meeting),len(raw));self.metadata_cache_bytes+=len(raw)
+                while len(self.metadata_cache)>10000 or self.metadata_cache_bytes>20_000_000:
+                    _,expired=self.metadata_cache.popitem(last=False);self.metadata_cache_bytes-=expired[2]
+            return meeting
 
     def update(self, meeting_id: str, **changes) -> dict:
         with self.lock:
@@ -84,10 +126,13 @@ class Library:
 
     def delete(self, meeting_id: str) -> None:
         with self.lock:
+            self._finish_scope_batch()
             directory = self.directory(meeting_id)
             # Renaming first removes the meeting from the library atomically.
             trash = self.root / ('.deleted-' + meeting_id)
             os.replace(directory, trash)
+            cached=self.metadata_cache.pop(meeting_id,None)
+            if cached:self.metadata_cache_bytes-=cached[2]
         shutil.rmtree(trash, ignore_errors=True)
 
     def speakers(self) -> list[str]:

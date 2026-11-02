@@ -132,3 +132,81 @@ class PrepareTests(unittest.TestCase):
             self.assertEqual(other.item_list()['pending'], [])
         finally:
             other.close()
+
+
+class PrepareEdgeTests(unittest.TestCase):
+    setUp, tearDown, meeting, scenario = PrepareTests.setUp, PrepareTests.tearDown, PrepareTests.meeting, PrepareTests.scenario
+
+    def test_a_later_decision_in_the_same_meeting_answers_its_question(self):
+        devops = {'name': 'DevOps'}
+        asked = dict(text='Дали ще сменим доставчика на интернет?', evidence_timestamp='00:01:00', review='ai')
+        decided = dict(text='Сменяме доставчика на интернет с оптика', evidence_timestamp='00:20:00', review='verified')
+        meeting = self.service.library.create('Weekly', 'in_person', {})
+        meeting_id = meeting['id']
+        self.service.library.update(meeting_id, status='ready', duration=1300, started_at='2026-10-19T10:00:00+03:00', created='2026-10-19T10:00:00+03:00')
+        atomic_json(self.service.library.directory(meeting_id) / 'transcript.json',
+                    [dict(start=start, end=start + 5, text='Да.', speaker=None) for start in (0, 60, 1200)])
+        self.service.edit(meeting_id, {'minutes': dict(notes(decide=[asked]), decisions=[decided])})
+        self.service.set_scope(meeting_id, devops, None)
+        result = self.service.prepare(project_id=self.service.library.get(meeting_id)['project_id'])
+        [question] = result['questions']
+        self.assertEqual(question['maybe_answered_by']['text'], 'Сменяме доставчика на интернет с оптика')
+        self.assertNotIn('Decide:', ' '.join(a['title'] for a in result['agenda']))
+        self.assertNotIn('## Questions without a decision', result['markdown'])
+        self.assertIn('## Questions that a decision may answer', result['markdown'])
+
+    def test_answered_questions_leave_the_unresolved_markdown_section(self):
+        _, _, project_id, _ = self.scenario()
+        markdown = self.service.prepare(project_id=project_id)['markdown']
+        unresolved = markdown.split('## Questions without a decision')[1].split('##')[0]
+        self.assertIn('Кой плаща лиценза за VPN', unresolved)
+        self.assertNotIn('Дали ще сменим доставчика', unresolved)
+
+    def test_renames_keep_project_and_series_names_unique(self):
+        alpha = self.service.projects.ensure_project({'name': 'Alpha'})
+        beta = self.service.projects.ensure_project({'name': 'Beta'})
+        with self.assertRaisesRegex(ValueError, 'already has this name'):
+            self.service.change_scope('projects', beta, 'rename', 'ALPHA')
+        weekly = self.service.projects.ensure_series({'name': 'Weekly'}, alpha)
+        daily = self.service.projects.ensure_series({'name': 'Daily'}, alpha)
+        other = self.service.projects.ensure_series({'name': 'Daily'}, beta)
+        with self.assertRaisesRegex(ValueError, 'already has this name'):
+            self.service.change_scope('series', daily, 'rename', 'weekly')
+        self.service.change_scope('series', other, 'rename', 'Weekly')
+        self.service.change_scope('projects', alpha, 'rename', 'alpha')
+        self.assertEqual(self.service.projects.get('projects', alpha)['name'], 'alpha')
+        self.assertEqual(self.service.projects.get('series', weekly)['name'], 'Weekly')
+
+    def test_restore_keeps_a_meeting_in_its_archived_project_when_ids_collide(self):
+        meeting_id = self.meeting('Weekly 1', '2026-10-19T10:00:00+03:00', notes(), {'name': 'Archived name'}, {'name': 'Weekly'})
+        archived = self.service.library.get(meeting_id)
+        name = self.service.create_backup()['created']['name']
+        other = MeetingService(self.root / 'other', PROJECT, google=FakeGoogle(), backup_dir=self.root / 'backups')
+        try:
+            # The other library uses the same IDs for different groups, and has the archived name elsewhere.
+            other.projects.data = dict(projects=[dict(id=archived['project_id'], name='Local name')],
+                                       series=[dict(id=archived['series_id'], name='Daily', project_id=archived['project_id'])])
+            other.projects.save()
+            other.restore_backup(name)
+            restored = other.library.get(meeting_id)
+            self.assertEqual(other.projects.get('projects', restored['project_id'])['name'], 'Archived name')
+            self.assertNotEqual(restored['project_id'], archived['project_id'])
+            series = other.projects.get('series', restored['series_id'])
+            self.assertEqual((series['name'], series['project_id']), ('Weekly', restored['project_id']))
+            self.assertEqual(other.projects.get('projects', archived['project_id'])['name'], 'Local name')
+            self.assertEqual(sorted(p['name'] for p in other.projects.data['projects']), ['Archived name', 'Local name'])
+        finally:
+            other.close()
+
+    def test_restore_joins_a_local_project_with_the_same_name(self):
+        meeting_id = self.meeting('Weekly 1', '2026-10-19T10:00:00+03:00', notes(), {'name': 'DevOps'})
+        name = self.service.create_backup()['created']['name']
+        other = MeetingService(self.root / 'other', PROJECT, google=FakeGoogle(), backup_dir=self.root / 'backups')
+        try:
+            local = other.projects.ensure_project({'name': 'devops'})
+            other.projects.save()
+            other.restore_backup(name)
+            self.assertEqual(other.library.get(meeting_id)['project_id'], local)
+            self.assertEqual(len(other.projects.data['projects']), 1)
+        finally:
+            other.close()

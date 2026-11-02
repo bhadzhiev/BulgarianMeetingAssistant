@@ -34,6 +34,28 @@ class BackupTests(unittest.TestCase):
         self.service.close()
         self.tmp.cleanup()
 
+    def test_backups_started_in_the_same_second_make_two_verified_archives(self):
+        import threading
+        from unittest.mock import patch
+        frozen = __import__('datetime').datetime(2026, 10, 27, 10, 0, 0)
+        results, errors = [], []
+        def run():
+            try:
+                results.append(self.service.create_backup()['created'])
+            except Exception as exc:
+                errors.append(exc)
+        with patch('app.backup.dt') as clock:
+            clock.datetime.now.return_value = frozen
+            threads = [threading.Thread(target=run) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(60)
+        self.assertEqual(errors, [])
+        self.assertEqual(len({r['name'] for r in results}), 2)
+        self.assertTrue(all(r['verified'] for r in results))
+        self.assertEqual(list((self.root / 'backups').glob('.*.partial')), [])
+
     def test_archive_passes_a_restore_test_and_restores_only_missing_meetings(self):
         created = self.service.create_backup()['created']
         self.assertTrue(created['verified'])

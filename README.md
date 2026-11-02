@@ -37,6 +37,13 @@ npm --prefix desktop ci
 python scripts/build_desktop.py
 ```
 
+To build and install (or reinstall) in one step, run `scripts/install_desktop.sh`. The script makes
+a packaging environment in `.venv-build`, installs the Tauri CLI, and builds the app. It then quits a
+running copy and replaces `/Applications/Bulgarian Meeting Assistant.app`. `BMA_INSTALL_DIR` selects
+another folder. The script accepts the same options as `build_desktop.py`. It also installs
+`requirements-diarization.txt` and builds with `--with-diarization` by default. Add
+`--without-diarization` for a smaller app without speaker separation.
+
 The result is under `desktop/src-tauri/target/release/bundle/macos/`. Add `--debug` for a development
 bundle. This packages Python, the web interface, Whisper libraries and the native audio helper.
 By default, ffmpeg/ffprobe must be installed on the target Mac (`brew install ffmpeg`). To package
@@ -79,19 +86,49 @@ recording or a microphone test, the timer and the level arrive on the same conne
 the connection and loads the current state when you show it again. The microphone list is scanned only
 while the new-meeting form is open.
 
+## Find your way around
+
+- **Sidebar:** New meeting, My Work, Library and Projects. **Library** holds Conversations, Search & ask
+  and Analytics as tabs. **Prepare me** opens from a project (**Projects → Prepare me**) or from the
+  project chip of a meeting.
+- **Back and Forward:** every view and tab has its own address. Use the ‹ › buttons in the top bar,
+  ⌘[ and ⌘], or Alt+← and Alt+→. A reload keeps the view, the tab and the selected project.
+- **Recording bar:** while a meeting records, a bar stays at the top of every other view. It shows the
+  meeting, the time, the microphone level and a warning when the microphone drops out. It has
+  Pause/Resume, Stop (it asks first) and a link back to the live transcript.
+- **Needs attention:** an open meeting lists what still needs a person after processing, each with the
+  step that resolves it: a processing error, speakers to name, new AI notes to review, notes to update
+  after transcript edits, mentions that look like existing work, AI-proposed decisions to confirm, and
+  tasks without an owner or a due date. When nothing is left, it offers **Prepare the next meeting**.
+- **Settings:** **Fast**, **Balanced**, **Best quality** and **Maximum privacy** fill the fields; nothing
+  changes until **Save settings**. **Show advanced settings** reveals audio preparation, voice detection
+  and the local AI response options. Closing Settings with unsaved changes asks first.
+
 ## Record an in-person meeting
+
+The new meeting form shows the name, the meeting type and the microphone. Backup microphone, when to
+transcribe, project and series, and the processing summary are under **More options**; its line shows
+the current choices. The last meeting type and microphone are remembered. Before Start, chips show
+whether the microphone, the system audio helper (online meetings), the transcription model and the
+disk space are ready. Import is under **Recorded elsewhere?**, below the form.
 
 1. Connect your iPhone as a macOS input device, or use the Mac microphone.
 2. Enter a name, select **In person**, and choose the microphone.
 3. Use **Test mic** for a ten-second level check. It does not save audio.
-4. Click **Start recording**. **Pause** discards audio until you resume and removes
+4. Choose **When to transcribe**: **After recording · no live captions** saves audio without
+   running live Whisper, or **Live captions + final transcript after recording** shows a draft
+   while you speak. Both modes use the full saved audio for the final pass; with Local transcription,
+   that pass uses Whisper. Enabled spelling correction runs afterwards. This choice applies only
+   to this meeting; Settings keeps the default for future meetings.
+   Click **Start recording**. **Pause** discards audio until you resume and removes
    the pause from the saved timeline.
 5. To mark a moment, press **1** (Important), **2** (Decision) or **3** (Check later), or click the
    buttons under the timer. Type a short note first if you want. Markers are saved in `markers.json`.
    After the meeting, **Moments you marked** at the top of the transcript plays each moment.
    Notes generation gets the markers as hints; the AI must still find the moment in the transcript.
 6. Click **Stop & save**. The meeting appears in the library immediately; processing
-   continues in the background when automatic processing is enabled.
+   continues in the background when automatic processing is enabled. Otherwise choose **Transcribe**
+   from the saved meeting. Disabling live captions does not disable the final transcription.
 
 For the iPhone: use the same Apple Account on both devices, enable Wi-Fi/Bluetooth and
 Continuity Camera, and confirm **iPhone Microphone** appears under macOS Sound → Input.
@@ -127,9 +164,16 @@ chosen microphone hears. ScreenCaptureKit reference:
 
 ## Transcription and notes
 
-**Audio preparation before final transcription** in Settings → Recording has two options:
-**Off** (default, including older meetings) and **Light**. Light removes low-frequency rumble,
+**Audio preparation before final transcription** in Settings → Recording has three options:
+**Off** (default, including older meetings), **Light** and **Strong**. Light removes low-frequency rumble,
 reduces steady noise gently, balances levels with gain capped at 2×, and limits output peaks.
+Strong replaces the gentle denoiser with RNNoise (FFmpeg `arnndn`, the "leavened-quisling" model for
+voice in a noisy room, about 300 KB, downloaded into `models/` on first use at a pinned revision).
+It removes more fan, traffic and room noise, but it can also change voices. In a synthetic check
+with one Bulgarian sentence, Strong lowered word errors with fan-like noise and raised them with
+white noise. Whisper is trained on noisy speech, so compare Original and Prepared audio and the
+transcript on your own recordings before you keep Strong. Without its model, Strong stops with a
+clear reason; it never changes to another profile silently.
 It does not remove pauses, change speed or promise to repair clipped or reverberant speech.
 Both local and cloud final transcription can use it; live captions are unchanged.
 
@@ -162,8 +206,16 @@ the settings it started with for automatic processing.
 - **Voice detection (VAD):** on by default. The final local pass uses the Silero model of
   whisper.cpp (under 1 MB, downloads into `models/` on first use) to skip silence. On silence,
   Whisper can invent text such as "Абонирайте се!"; VAD stops this and makes timestamps more exact.
-  If the model cannot download, transcription continues without VAD and the reason is saved
-  in `transcript.metadata.json`. Turn it off in **Settings → Recording**.
+  Live captions and Parakeet use the ONNX release of the same Silero version (v5.1.2, about
+  2.3 MB, through `onnxruntime`). Live captions send only the detected speech to Whisper instead of
+  everything above a loudness threshold, so steady noise no longer starts a caption. With Silero, a
+  short answer that only repeats vocabulary terms (for example "Kubernetes.") is kept. Parakeet skips
+  chunks without speech and trims each chunk to its speech. In a synthetic check with 20 s of fan noise
+  between two sentences, live captions decoded half as much audio and kept both sentences whole;
+  Parakeet finished 2.3× faster. If a model or `onnxruntime` is unavailable (for example on macOS 13,
+  which the current `onnxruntime` wheel does not support), transcription continues as before and the
+  reason is saved in `transcript.metadata.json` or `live-caption.log`. Turn it off in
+  **Settings → Recording**.
 - **Hallucination filter:** the app removes known Whisper inventions (subtitle credits,
   "subscribe" and "thanks for watching" phrases) and loops where one phrase repeats four or more times.
 - **Vocabulary:** enter names and terms in **Settings → Recording → Vocabulary for transcription**.
@@ -183,8 +235,11 @@ the settings it started with for automatic processing.
   Keep your model server running. It must accept unauthenticated requests on this endpoint.
   JSON schema is the default; choose JSON object or Prompt only if your server needs it.
   All modes still validate generated notes and task evidence timestamps before saving.
-  Reasoning effort defaults to the server setting; choose **Off** for faster extraction
-  when the server supports `reasoning_effort`. The shared maximum output defaults to
+  Reasoning effort defaults to **Automatic**: Qwen3.5 notes, transcript correction and titles
+  send `reasoning_effort=none` before the first request. Selected-email analysis resolves Automatic
+  to Off for Qwen3.5 and shows the effective reasoning/output limit before approval. Other models
+  keep the server default. Explicit Off/Low/Medium/High choices are kept. Choose
+  **Server default** if your endpoint does not accept `reasoning_effort`. The shared maximum output defaults to
   4096 tokens (including reasoning on many servers). Truncated responses are rejected.
   Local requests allow up to 10 minutes for slower inference.
   Requests never fall back to a cloud provider. A remote base URL sends transcript text
@@ -226,13 +281,26 @@ From a saved meeting you can:
 
 - Play the recording or click a transcript timestamp to seek.
 - Read the notes as lists. Click a timestamp in the notes to see that moment in the transcript.
-- Tick a task as done directly in **Tasks & decisions**.
+- Tick a task as done directly in **My Work**.
 - Correct transcript text and manually label speakers, then **Save corrections**.
 - Choose speakers from the shared list of known speakers. Known speakers show a coloured badge.
 - Delete the meeting with **More ▾ → Delete meeting**. You can also delete its Google Calendar event.
 - Click **Edit** to change summaries, decisions, tasks, owners, deadlines, and source timestamps, then **Save notes**.
 - Search meeting names and saved transcripts, rename a meeting, and export audio/Markdown/JSON/SRT.
 - Transcribe again with the current settings or generate notes independently.
+
+### Listen to a moment
+
+Every time next to a meeting moment is a start/stop control: **▶** plays from that
+moment, **■** stops it. Only one moment plays at a time; starting another stops the
+first. The control is in the transcript, speaker review, notes and analytics of a
+meeting, and also outside the meeting: task and decision sources in My Work and
+Projects, the project trace and events, Prepare me and Search & ask. You listen in
+place; the page does not change. A note's source plays only its cited segment, and
+a saved excerpt plays only its time range. In the open meeting the control uses
+the meeting's player, so its position stays in sync. Opening a meeting from a link
+shows the moment in the transcript without starting playback. Meetings without a
+recording (for example, imported transcripts) show the control as unavailable.
 
 ### Conversation analytics
 
@@ -243,11 +311,20 @@ scores, and does not perform sentiment analysis.
 
 - **Offline speaker diarization and talk time.** After transcription, optional
   `pyannote/speaker-diarization-community-1` processing creates `speaker-timeline.json`.
-  Whisper segments receive the speaker with the greatest timeline overlap, with midpoint
-  fallback. Talk time is calculated from merged speaker intervals, not transcript lengths;
+  Local Whisper can retain experimental word-sized boundaries and split the final text at
+  speaker changes. The exclusive speaker turns align the text; the regular, overlapping timeline
+  remains the source for talk-time statistics. Old, cloud or edited transcripts without matching
+  word boundaries keep segment-overlap assignment; no word times are fabricated. Talk time is calculated from merged speaker intervals, not transcript lengths;
   silence is excluded. The view includes turns, talk percentage, longest monologue,
   average turn length, and question count. Overlapping intervals for the same speaker are
   merged first. Simultaneous speech by different speakers counts toward each speaker.
+- **Speaker review after the meeting.** Open the Transcript tab, find **Speakers · after recording**,
+  listen from an example and use **Apply name**. The name applies to that voice throughout this
+  meeting, with a transcript revision check to reject stale reviews. This does not identify the
+  same person in another meeting. Names already confirmed are not overwritten by a speaker retry.
+  **Identify speakers after recording** retries this stage without rerunning Whisper or correction.
+  Runtime/model errors appear next to the transcript; model dependencies are checked without
+  importing torch during recording. An installed runtime does not prove model access.
 - **Speaker renaming.** Changing a generic label such as `SPEAKER_00` to a person's name
   updates every matching segment and timeline interval in that meeting, then rebuilds its
   analytics. Generic IDs are not assumed to represent the same person in other meetings.
@@ -277,6 +354,21 @@ Accept the model's access conditions on Hugging Face if requested. The first mod
 download model files. Processing uses Apple MPS when available and otherwise CPU. Diarization
 or analytics failures do not mark an otherwise successful transcript/notes job as failed.
 Imported transcripts receive topic and question analytics but no invented talk-time data.
+For a desktop bundle, install the extras in the **packaging environment** and build with
+`python scripts/build_desktop.py --with-diarization`. Installing them in a separate venv does not
+add them to an already frozen application. The build includes pyannote/torch dependencies, not a
+Hugging Face credential or gated model weights. A local Hugging Face login (`hf auth login`) can
+provide model access; alternatively supply `HF_TOKEN` to the app process. The login needs access
+to the gated model and its required submodels. Credentials are never included in library archives.
+
+`transcript.before-speakers.json` keeps the pre-separation text, and `transcript.alignment.json`
+keeps native estimated word units. Both are included in library archives and downloadable Files.
+Retranscribing archives the old artifacts. Original segment starts remain available so existing
+notes keep their timestamp references. The worker reuses a private, rebuildable matplotlib cache
+outside meeting archives instead of rescanning macOS fonts on every speaker job. AI correction keeps a separate `transcript.raw.json`
+with the same turn layout for per-row restoration. Numbers, negations and known participant names
+are protected from AI rewrites; this is a guard, not proof of semantic equivalence.
+
 Real meeting diarization accuracy and MPS inference have not been measured by the automated
 suite; verify a short recording before relying on speaker statistics.
 
@@ -341,12 +433,39 @@ becomes the source moment. Other old statements show "No source moment" until yo
 Notes made before the task tracker still open. Their new sections are empty, and their tasks are open.
 Generate notes again to fill the new sections.
 
-Click **✓ Tasks & decisions** in the sidebar. Each task and decision appears **once**, however many
-meetings discussed it. The app keeps them in `meetings/items.json`, with:
+Click **✓ My Work** in the sidebar. Each task and decision appears **once**, however many
+meetings discussed it. Filter by project, owner and status. Snooze or dismiss an item without changing
+its task or decision status; use **Snoozed** or **Dismissed** to bring it back. **In force** shows only
+accepted decisions. **Sources** keeps earlier meeting-note wording, separate from the current item text.
+These are note snapshots, not independently verified transcript quotations.
+
+The app keeps the registry in `meetings/work-items.sqlite3`, with:
 
 - a permanent ID and the current state (text, owner, deadline, due date, status);
 - links to every meeting that discussed it, with the source moment;
 - a history: created, discussed again, changed (old → new), merged, replaced — by you or by the AI.
+
+On first launch, the app migrates `items.json` and keeps `items.before-sqlite.json`. IDs, history and
+manual edits survive. `items.json` remains a generated portable export; do not edit it by hand.
+A stale edit from another window is rejected; cancel the editor to load the newer version.
+Migration copies and archives retain earlier data until you remove those copies.
+
+The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
+the next stages. This foundation supports meeting tasks, decisions and questions.
+The Gmail, Google Chat and GitHub read-only pilots are described below.
+
+**Suggested** stores source-backed proposals separately. **Accept** creates an item; **Link** attaches
+the quote to an existing item of the same kind without changing its text, owner or status. Dismiss,
+Snooze and Restore keep proposals reachable. A changed or unavailable source blocks acceptance of
+its older proposal. **All** includes reviewed and stale proposals. Reprocessing an identical revision
+does not create another proposal or reset a dismissal. Automatic extraction from Gmail or Chat is
+not enabled yet.
+
+**Questions** holds personal open questions and questions accepted from proposals. Add a question,
+save an answer, or reopen it; the earlier answer stays in its history. Existing meeting-note open
+questions are not automatically imported into this list. Suggested and Questions cover all sources,
+independent of the meeting project filter. For source-linked items use Dismiss instead of Delete;
+proposal Link adds sources without merging away IDs or history.
 
 Example: "Test the SAP permissions" is created on 19 Oct; on 23 Oct a meeting says "до петък", the due
 date changes, and the task stays open. The history shows both meetings.
@@ -451,13 +570,293 @@ The app validates notes' structure and source timestamps, but factual correctnes
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable
 local-versus-cloud quality evaluation; no provider quality ranking has been established yet.
 
+## People, project repositories and GitHub drafts
+
+Atlanta keeps the conversation and its evidence; GitHub keeps the work. Atlanta does not write to
+GitHub. You copy a draft, or open GitHub with it filled in, and publish it yourself.
+
+- **People** (Settings → People): a person joins one real person's name, other names that appear in
+  transcripts and as task owners, emails and a GitHub username. **Check on GitHub** saves the stable
+  GitHub user ID (a read-only `GET /users/{login}`), so a renamed account stays the same person. Names
+  and GitHub accounts belong to one person only. Nothing is guessed from a voice. Emails stay on this
+  Mac and never enter GitHub text. A person shows what they said (transcript rows with one of their
+  names) and what they took on. **Only a task whose owner a person confirmed is a commitment.** An owner
+  from the AI shows as "AI suggestion · Confirm"; saving the same owner confirms it and adds a history
+  entry. Unconfirmed owners are listed apart and never reach GitHub drafts.
+- **Project repositories** (Projects → Overview): a project lists its GitHub repositories. One
+  repository can belong to several projects. Drafts and links offer these repositories first.
+- **Copy as issue / comment** (GitHub ▾ on a task, decision or question, and on a saved excerpt): the
+  draft has the text, the project, the quoted transcript moment with its date and time, a confirmed
+  owner (as `@login` when the person has a GitHub username) and due date, and an Atlanta reference
+  (`<!-- atlanta:resource=item:… -->`). Meeting titles are included by default and speaker names are
+  hidden by default; both are switches. You can edit the text before you copy it. **Open on GitHub**
+  opens the new-issue page of the chosen repository with the title and text filled in.
+- **Link existing issue or PR**: enter `#123`, `owner/name#123`, a GitHub URL, or words of a title from
+  the GitHub cache. The link lives only on this Mac; GitHub does not know about it unless the published
+  text includes the Atlanta reference. A link is checked against the GitHub cache, then with a
+  read-only request; offline it is saved as "not checked". Linked issues and PRs appear in the project
+  trace and events, and an open issue in My Work → GitHub lists the Atlanta resources linked to it.
+
+`people.json` and `github-links.json` are in library archives; restore adds the archived ones that this
+library does not have.
+
+## GitHub changes by period
+
+Open **My Work → GitHub → Changes by period**. Enter one repository, an optional branch
+(default: the repository's default branch), and From/Through dates. Dates use **Europe/Sofia**;
+the default is yesterday at 00:00 through now. Historical end dates include that entire day.
+Periods are limited to 31 days.
+
+**Collect changes** reads GitHub without sending code to AI. Private repositories need
+**Contents: Read-only** and **Pull requests: Read-only** on the connected fine-grained token.
+Collection pins the branch head SHA, gathers merged PRs by merge time and other reachable
+commits by committer time, and avoids reporting a PR and its commits twice. These timestamps
+do not reconstruct historical push times or prove that a change was deployed.
+
+The report stores commit/PR descriptions, available patches and bounded context from selected
+code files. It lists omitted binary, generated, sensitive-name and oversized files. Limits are
+30 PRs, 60 dated commits, 80 text files and 160 collected evidence parts; AI reads at most 80
+parts. Patch/context and GitHub pagination limits remain visible as partial coverage. This is
+not a full-repository audit, CI execution, deployment verification or a security guarantee.
+
+**Analyze with AI** previews the exact endpoint/model, reasoning/output limit and input size.
+Approve explicitly before the saved code snapshot leaves the app process. The configured
+notes provider selects Local API or OpenAI; there is no automatic fallback. Repository content
+is untrusted data, not instructions. Analysis runs in an isolated cancellable worker with
+bounded inputs, splitting on output truncation. Each finding needs an exact source quote and
+a saved evidence ID. Findings are AI interpretations that need review, even with valid quotes.
+
+Completed collection/AI parts are saved. Continue explicitly after interruption; a crash or
+restart never resumes an AI export automatically. Unchanged commit snapshots and completed
+analysis parts can be reused. Recording or meeting processing pauses repository jobs.
+**Suggest a task** asks the selected LLM to draft a task from the finding and its evidence.
+Review/edit the draft, then **Create task** creates an open local task. Cancel creates nothing. Existing task statuses are never completed from code automatically. Reports can be
+linked to a meeting without editing that meeting's transcript or notes.
+
+Reports stay in `repo-reports.json`, are included in Archive/Restore, and are capped at 24.
+Existing reports are not overwritten by restore. Delete one report or use **Clear all local
+repository reports** under About GitHub; the latter works after disconnecting too. Promoted
+WorkItem evidence snapshots and previous archives remain. No automatic retention purge runs.
+
+## Local Parakeet v3 transcription (Apple Silicon)
+
+In **Settings → Recording → Transcription**, select **Local · Parakeet TDT 0.6B v3**
+for the final transcription. Whisper remains available; live captions always use the selected
+Whisper model. Existing settings do not change automatically.
+
+Parakeet v3 supports Bulgarian and English, with automatic language detection. The Whisper
+vocabulary does not apply; voice detection does (see Voice detection above). Compare the results on representative recordings before
+assuming better accuracy for Bulgarian with English technical terms. AI correction, notes and
+post-recording speaker separation remain separate steps.
+
+The Apple Silicon installer includes the runtime by default; `--without-parakeet` omits it.
+For a manual build, install `requirements-parakeet.txt` and add `--with-parakeet` to
+`build_desktop.py`. Intel Macs can continue using Whisper. The first transcription downloads
+model files from `mlx-community/parakeet-tdt-0.6b-v3` at a pinned revision into the app's models
+folder. Audio stays local. Long recordings use bounded, restartable chunks; original audio and
+previous transcript versions are retained. Parakeet's token boundaries provide word anchors for
+speaker alignment, rather than estimating word times from text length.
+The original [NVIDIA model](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) uses CC BY 4.0;
+the [Parakeet MLX runtime](https://github.com/senstella/parakeet-mlx) uses Apache 2.0.
+
+## My Work: one place for meetings, Gmail, Chat and GitHub
+
+Every task, decision and proposal shows a coloured source chip: **Meeting**, **Gmail**, **Chat** or
+**GitHub**. Click a chip to open the source. **All sources** filters the task and decision lists.
+
+The Gmail, Chat and GitHub tabs use the same layout. The bar on top shows the connection and the sync
+state. A list of threads, conversations or issues comes next; arrow keys move through it. The open
+item fills a fixed-height reader below, with its actions under it. Rare actions (reconnect, stop,
+reload) are in the **⋯** menu. Explanations and cache clearing are under **About**.
+
+- **Gmail** shows the selected thread message by message, with **Suggest a task** and **Analyze with
+  AI** on each message.
+- **Chat** shows the conversation as a chat: sender names, times and day separators, newest at the
+  bottom. Select a message to suggest a task from it. The first visit loads the conversation list,
+  and the first open of a conversation syncs it. Direct messages are named after the other person.
+- **GitHub** lists every open issue and pull request without a repository choice. See below.
+
+## Gmail: local read-only pilot
+
+Open **My Work → Gmail → Connect Gmail read-only**. Use the shared Google connection and approve
+`gmail.readonly`. Calendar permission is requested only if already used or separately connected.
+This desktop OAuth flow requests the complete selected scope set again; it does not use incremental
+authorization. Tokens stay in macOS Keychain. Enable the Gmail API for the app's OAuth project;
+Workspace admin policy, OAuth testing users or restricted-scope verification can block access.
+See [desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app) and
+[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
+
+Choose **Refresh connection**, then **Sync / Continue**. Each run handles one page of up to 20 threads.
+The first sync covers up to 200 threads with Inbox/Sent activity in the preceding 30 days. Continue
+until the status says synced. A limit message means the initial window is incomplete. Subsequent runs
+use Gmail history; an expired history cursor asks you to start a bounded rebuild. Recording/processing
+pauses further work, and Cancel stops before the next cache commit. A network request already in
+flight can take up to its 30-second timeout; it does not hold recording controls.
+
+**Needs reply** means the latest non-draft message is incoming; **Waiting for** means it is sent.
+These are direction-based candidates, not AI judgments that someone owes a reply. Open a thread to
+read its cached text and fetch time. HTML becomes plain text; remote images, scripts and attachments
+are not fetched or rendered. A thread includes at most its latest 100 non-draft messages and local
+size limits apply. Matching threads can contain older messages. This version does not send, modify,
+label or draft email. Email content reaches an AI endpoint only through the selected-message approval below.
+
+**Suggest a task** previews the AI provider and generates an editable task draft from this message.
+**Create task** confirms the edited text and saves an open task with a pinned source quote.
+Cancel discards the draft; owners and dates are not assigned automatically. Syncing a
+changed previously-linked thread marks its old pending proposals stale. A removed/out-of-window
+thread becomes unavailable without completing its WorkItems. Review uses the last synced revision;
+it is not a live Gmail check at the instant you click Accept.
+
+The rebuildable `gmail-cache.sqlite3` holds email text locally. Accounts have separate caches; only
+the connected account is shown. **Clear local email cache** can remove a selected cached account even
+after sign-out. This keeps promoted WorkItem source snapshots and archives. The email cache and
+cursor are excluded from library archives; promoted sources/proposals remain in the portable graph.
+Incremental sync can grow the cache beyond the initial cap; lists show at most 200 threads. There is
+no automatic email retention purge or automatic background sync in this pilot.
+
+### Analyze one email message with AI
+
+Open a cached message and choose **Analyze this message with AI**. Preview shows the account,
+subject, character count, configured API endpoint and model from **Settings → Notes & AI**. The
+endpoint can be remote, even when the provider is called local. **Cancel** sends nothing. **Approve
+and analyze** permits one request for that message revision and those settings; there is no cloud
+fallback and the OpenAI API key is not used for this feature.
+
+The worker receives only the selected body, sender, subject and message ID. It does not send the
+other messages in the thread or any meeting transcripts. Inputs are limited to 20,000 characters
+including metadata; larger messages need a manual proposal. Up to 20 candidate tasks can be returned.
+Quotes must occur verbatim in the selected body. Owners and deadlines must occur in that quote;
+`due_date` accepts only an explicit `YYYY-MM-DD` date in the quote. Relative dates remain literal
+text rather than guessed calendar dates. These checks do not prove that the AI understood the email;
+review the task and fields before **Accept** or **Link**.
+
+A successful run creates proposals only. Accept applies proposed owner/date fields to a new open
+task. Link adds evidence to the existing item and preserves its human text, owner, dates and status.
+Proposals, the replay checkpoint and consumed consent commit together. **Show saved analysis**
+reuses the exact message/settings result, including earlier Dismiss/Accept/Link states, without
+another AI request. A changed message or settings requires a new preview.
+
+**Cancel email AI analysis**, recording/processing, account/settings changes and source revocation
+stop the owned client worker; no new proposals are published from that cancelled run. Data already
+sent cannot be recalled, and an endpoint may continue computing after its client disconnects.
+Consent expires when the run ends and is revoked on restart/restore. Interrupted jobs never resume
+automatically. The private input pipe carries email text; it is not written to job argument files.
+Analyzed source snapshots remain local in the WorkItem graph and archives, even if the model finds
+no tasks. Clearing the email cache does not purge those snapshots.
+
+The connector and extraction flow are tested with synthetic Gmail responses and a local mock AI
+endpoint. Live consent, Workspace policy, a real mailbox sync and real-model extraction quality still
+need validation with the app owner's account. Broad background email analysis is not enabled.
+
+## Google Chat: selected conversations, read-only
+
+Open **My Work → Google Chat → Connect Chat read-only**. The shared Google connection requests
+`chat.spaces.readonly`, `chat.messages.readonly` and OpenID/email identity. Gmail and Calendar are
+not required for Chat-only sign-in; previously selected Google permissions are retained in explicit
+re-consent. Enable the Chat API in the OAuth project. Workspace policy or OAuth verification can
+still block access. This is user authentication, with no bot, service account, administrator search,
+send or edit permission. See [Chat authorization](https://developers.google.com/workspace/chat/authenticate-authorize).
+
+**Refresh conversation list** (in the **⋯** menu) fetches conversation metadata only. It reads at most 50 spaces per page and 200 per
+discovery cycle; use Load more until complete. Choose a conversation explicitly before **Sync /
+Continue** downloads message text. Named spaces use their names; DMs/group chats without a display
+name show their resource ID. Empty DMs/group chats and system membership messages are excluded by
+the provider. This view covers conversations the signed-in user can access, not the whole organization.
+
+Each message refresh cycle fixes a 30-day creation-time window and reads at most 200 messages,
+20 per page, newest first. Continue keeps that window/page token after interruption. Once complete,
+Sync starts a new recent-window refresh. **Restart recent window** discards only the unfinished
+cursor, keeping cached messages and source history. Cancel and recording/processing stop further
+work; an in-flight request can take up to 30 seconds. There is no automatic background polling,
+Workspace Events subscription or complete historical mirror.
+
+Open a cached message to see its sender, message/thread resource names, text and fetch time.
+**Refresh this message from Chat** checks that individual resource for edits or deletion, including
+older cached messages. Observed edits invalidate older pending proposals; deletion/403/404 makes
+its source unavailable without completing or reopening the WorkItem. Losing space access also
+removes cached text for that space. Prior pinned source snapshots and archives remain local.
+Absence from a capped refresh does not prove deletion; messages outside its range need an individual
+refresh. Old cache records can remain until cleared, and message lists show at most 200 entries.
+
+**Suggest a task** asks for AI approval for this Chat message, then opens an editable draft.
+**Create task** saves the confirmed task with the exact quoted message and
+space/thread/message/sender references. Cancel creates nothing. This never sends or edits a Chat message. Cards, attachments and remote resources are not
+fetched or executed. Chat content reaches the shown AI provider only after its own task-draft approval; Gmail AI approval does not
+cover Chat. Quotes and known versions reflect the last observed API response, not a live check at
+the moment of acceptance.
+
+`chat-cache.sqlite3` is a rebuildable local cache excluded from library archives. Partitioning uses
+the verified Google user ID, so an email rename keeps the same cache. **Clear local Chat cache**
+can remove a cached identity after sign-out and keeps promoted WorkItem snapshots in the graph and
+archives. There is no automatic retention purge. All development tests use synthetic Chat responses;
+live Workspace consent, API access and real conversation sync still need account-owner validation.
+
+## GitHub: open issues and pull requests, read-only
+
+Open **My Work → GitHub**. Create a **fine-grained personal access token** for the selected repositories
+with **Issues: Read-only**, **Pull requests: Read-only** and the required metadata access, then Connect.
+The app verifies the account with GitHub and stores the token in a separate macOS Keychain entry.
+It does not reuse `gh` credentials or environment tokens. The token input clears after submission;
+status, settings, archives and command arguments never include it. Token creation, organization
+approval and SSO remain GitHub/account-owner setup. See
+[GitHub token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
+The app cannot introspect all token permissions; its own adapter only makes GET requests.
+
+After Connect, the GitHub tab lists every open issue and pull request that the token can read, from all
+repositories (`GET /issues`, at most 300 per filter, newest change first). You do not choose a repository
+first. The first visit syncs the list. Choose **All open**, **Assigned to me**, **Created by me** or
+**Mentioning me**; each filter keeps its own result set. Narrow the list by kind, repository or text.
+**Sync** reads the list again. Open pull requests also read their PR record, so their revision matches
+a single-item refresh.
+
+The per-repository search sync (`/api/github/sync`) remains for compatibility. Each action handles at
+most 20 search matches and at most 200 per repository/filter refresh. Search indexing can lag or report
+incomplete results. This is not a full mirror or a webhook subscription; absence from the capped
+results never proves deletion.
+
+Open an item to read its cached Markdown as plain text and fetch time. PR states distinguish open,
+closed without merge and merged; the PR detail is checked separately from the issue representation.
+The cache uses the issue database ID returned by the Issues API for both issues and PRs, with the PR
+ID retained separately. These IDs differ, as noted in
+[GitHub's issue API](https://docs.github.com/en/rest/issues/issues). Stable source IDs survive repository
+renames, although redirects are deliberately not followed with credentials: enter the current
+repository path and restart its refresh. Login changes during a page sequence also need a restart.
+
+**Suggest a task** generates an editable draft after approval of the shown AI provider.
+**Create task** saves the edited text as an open local task with a quote and repository/number/kind
+references. Cancel creates nothing; existing task fields and statuses stay unchanged. GitHub remains authoritative for the remote issue/PR state. A close or merge never
+silently completes or reopens the local task. Observed source changes invalidate older pending
+proposals; individual **Refresh this issue / PR** rechecks the object. Access loss blocks new
+acceptance and clears cached text; historical quotes remain. Rate limits halt without inferring
+that the repository was deleted. There are no GitHub writes, AI exports, comments, diffs, code reads
+or automatic task executions in this pilot.
+
+The indexed `github-cache.sqlite3` is per verified GitHub user ID and excluded from library archives;
+promoted sources remain in the portable WorkItem graph. Lists show at most 200 matches for the current
+filter generation. Cache records can accumulate across filters/refreshes until cleared. Clear cache
+can remove an old identity after disconnect and keeps source snapshots/archives. **Disconnect locally**
+removes the local Keychain credential; revoke the token separately on GitHub if needed. Cancelling,
+recording/processing and account changes stop further work, with an in-flight request taking up to
+30 seconds. No automatic background sync, OAuth app registration or GitHub Enterprise host is supported.
+
+Tests use synthetic GitHub data and an in-memory token store. Real token permissions/organization
+approval, live repository behavior and actual Keychain prompts still need account-owner validation.
+
 ## Archive and restore the library
 
-**Settings → Backup → Archive library now** writes `meetings-<date>-<time>.tar.gz` into
+**Settings → Backup → Archive library now** writes `meetings-<date>-<time>-<unique suffix>.tar.gz` into
 `~/Documents/Meeting Assistant Backups` (change it with `desktop_app.py --backups <folder>`).
 The archive holds every meeting folder (audio, transcripts, notes, markers, `versions/`), known speakers,
 topic trackers, projects, the task and decision registry and settings, plus a manifest with the size and SHA-256 of each file. A recording in
-progress is left out.
+progress, a meeting being processed, or a meeting with a live-caption writer is left out. The archive
+records these exclusions. A short lock pins a snapshot of the selected files; compression runs after
+that lock is released. This requires a library filesystem that supports hard links, such as APFS.
+The snapshot protects app writes that replace files atomically; external tools that modify files in
+place are outside this guarantee. The portable registry is `items.json`, including questions, pinned source revisions, quotations,
+proposals, relationships and activity. Restore keeps existing local records authoritative. Source
+quotes and earlier message revisions remain local until their library or archive copies are removed.
+Live SQLite and WAL files
+are not copied into the archive.
 
 After writing, the app runs a **restore test**: it extracts the archive into a temporary folder,
 compares every file with the manifest, and opens the folder as a library with every meeting.
@@ -495,13 +894,81 @@ Shared topic trackers are stored in `meetings/trackers.json`.
 Raw tracks are written continuously and synced approximately every second. A crash may lose
 the in-flight callback/queue; abrupt power failure can lose the latest unsynced data. The app
 never promises zero loss. No entire-meeting audio array is retained in memory during capture.
-A bounded writer queue stops recording explicitly if disk IO cannot keep up. Microphone gaps,
-disconnects, native helper exit, and PortAudio overflow become visible errors.
+A bounded writer queue stops recording explicitly if disk IO cannot keep up. A temporary microphone
+input overflow keeps recording and shows a warning: some audio was lost and gaps may be present.
+The overflow count is saved in `capture.json`. A disconnected or inactive microphone, or no callbacks
+for five seconds, starts microphone recovery. Recording keeps its clock and saved audio; the missing
+microphone interval is silence and appears as a playable gap in the meeting. The app retries the
+selected device by name, including after device renumbering. It never guesses between duplicate names.
+Choose **Backup microphone** before starting if the app may use another input; no backup is selected
+automatically. The backup must accept the original recording sample rate. Online system audio keeps
+recording during microphone recovery. If no microphone reconnects, the app can keep recording silence:
+check the visible warning and input level. The desktop title and Dock attention signal also warn of
+missing input. Disk writer errors, native system-audio helper exit and other capture errors still stop
+recording and preserve audio.
+
+While recording, macOS idle sleep is inhibited with a recording-scoped `caffeinate` process. This does
+not override lid closure, explicit sleep, power loss or iPhone Continuity rules. USB and a locked iPhone
+are useful checks when troubleshooting wireless capture. Unlocking or answering a call can pause the
+iPhone microphone: [Apple Continuity Camera](https://support.apple.com/102546).
+
+Notes use smaller transcript parts. If the local endpoint starts a JSON answer but truncates it,
+notes and transcript correction can split the failed part, with at most two splits per attempt.
+A model that exhausts its budget without starting an answer needs a different reasoning/output
+setting; the app does not repeat it through split requests. Completed, validated notes parts are
+saved in `.notes-progress.json` until the run succeeds. Retrying notes reuses them only when the
+transcript, model settings, speakers, date and markers match. Saved notes stay unchanged on failure.
+Transcript correction does not yet resume completed parts.
+
+### Processing controls and recovery
+
+The launcher runs heavy steps in separate Python workers. **Cancel processing** removes a queued job
+or terminates its worker and owned conversion processes without stopping a recording. API keys cross
+a private pipe and are not written to job files or command arguments. A parent-death guardian prevents
+orphan workers even while native inference holds Python's interpreter lock. Already completed outputs
+can remain after cancellation. A remote or separately running model server may continue a request
+after its client disconnects; the app does not terminate that server.
+
+The meeting shows elapsed time, queue wait and stage timings, including model loading, audio
+preparation and speech inference where available. The transcription estimate applies only to the
+remaining audio in the current pass, not later correction or notes. An AI HTTP request's timing includes
+any queueing inside that server; the app cannot observe its internal model-load time.
+
+When processing is requested while another meeting has live captions, captions stop and save their
+draft to release the single model slot. Durable audio capture continues. Captions do not automatically
+restart in that recording. This prioritizes completion of saved meetings without loading more models
+at the same time.
+
+Finished transcription chunks are saved in `.transcription-progress.json`. Retry checks the audio
+content hash, provider, model file metadata, vocabulary, voice-detection state and preparation profile,
+then resumes from the exact saved sample boundary. Legacy partial files without that fingerprint are
+not reused. Changed inputs or malformed checkpoints start a fresh pass. Original audio and previous
+final output remain available while the retry runs. Checkpoints are removed after successful publication.
+
+**Use faster local settings** selects `large-v3-turbo`, disables live captions, transcript correction and
+speaker diarization, and turns reasoning off for Qwen 3.5. It leaves the notes provider unchanged.
+Review the fields and save to apply; an update does not silently replace existing preferences.
+
+The native close button, app-menu Quit and Cmd+Q ask **Stop & quit / Keep recording** while recording.
+The dialog is attached to the window. System termination, Force Quit and Dock Quit may bypass that
+dialog; the backend's parent-EOF path still attempts to save audio. A backend crash shows
+**The local server stopped. Restart the app.** instead of launcher advice. Backend logs rotate at
+startup above 10 MB; each processing log rotates between steps above 5 MB. A long individual run can
+still exceed those sizes.
+
+For faster processing, start with `large-v3-turbo`, disable live captions if you do not need them,
+and turn off transcript correction and speaker diarization unless you need those extra stages.
+For the default Qwen3.5 model, **Reasoning effort → Automatic** (including previously saved
+`default`) turns reasoning off for notes, transcript correction and titles. The server default can
+spend the output budget on thinking before producing JSON, even for a short meeting. Choose
+**Server default** to explicitly leave reasoning to the endpoint, or **Off** to disable it for all
+local AI features. Explicit Low/Medium/High choices are not overridden. Truncation errors distinguish
+an empty answer from a partial answer and report the requested output budget and reasoning setting. Measure transcription quality on your own speech before choosing a smaller model.
 
 After an interrupted recording or job, reopen the app and select **Recover audio** to rebuild
 a playable WAV from raw tracks. Then **Transcribe** to retry. Recovery works without a finalized
-WAV header. Failed model/API jobs preserve audio and previous final transcripts. Retries currently
-restart transcription rather than resuming partial chunks. Do not remove the raw tracks until you
+WAV header. Failed model/API jobs preserve audio and previous final transcripts. Retries resume
+compatible completed transcription chunks. Do not remove the raw tracks until you
 have checked the recording. **Delete meeting** removes all files of a meeting permanently.
 
 The library is independent of the original CLI's `output/` folders; those can still be reprocessed
@@ -617,3 +1084,192 @@ Google OAuth, token refresh, event writes, conflict handling, account changes, A
 and browser deep links are tested with isolated fakes. The production connection and
 macOS Keychain prompts require your actual client JSON, Google sign-in, and chosen calendar;
 no live event creation has been verified as part of this setup.
+
+### Compare Whisper accuracy locally
+
+Use `scripts/evaluate_whisper.py --audio /path/clip-source.wav --reference /path/human.txt
+--output /private/tmp/new-whisper-comparison --models-dir /path/models` on a representative clip.
+The default compares `large-v3-turbo` and `large-v3` on the first 120 seconds; `--start` and
+`--seconds` select the exact clip that the human reference describes. This runs local Whisper
+only, preserves the input and refuses an existing output directory. It may download missing
+Whisper models. The private output contains transcripts and `metrics.json` with word error rate
+(case-insensitive, punctuation ignored) and wall time including model loading/download. Use warm,
+already cached models when comparing speed. A lower error rate on one clip does not establish
+quality on every meeting. No AI correction or speaker processing changes the comparison.
+
+Source sync and AI feedback: GitHub refresh keeps earlier cached items visible until the new
+refresh completes, and an interrupted page resumes from its saved queue. Cached results may be
+older while a refresh is incomplete. Recording/processing pauses further sync requests; choose
+Continue sync afterwards. Email AI shows progress and its result next to the selected message,
+including a successful analysis with zero task suggestions. Quote validation failures, endpoint
+failures and output-limit errors remain explicit and never auto-accept tasks.
+
+
+### Project workspace
+
+Open **Projects** to create a project independently of a meeting and see its
+meetings, tasks, decisions, questions and linked source evidence together.
+**Unassigned** collects meetings and work without an effective project.
+
+Each accepted WorkItem has an **Assign to project** control in My Work and the
+project workspace. Choose one or more projects and save. A saved empty selection
+means explicitly unassigned. **Use meeting projects** restores automatic grouping
+from linked meetings. Manual choices survive source sync and notes refresh;
+assigning a project does not accept a proposal or change a task/source status.
+External sources appear through their accepted/linked WorkItems and saved quotes.
+Moving a meeting updates inherited assignments, while preserving manual choices.
+Archive/Restore retains assignments and maps project IDs to restored projects.
+
+Projects now also link transcript excerpts and cached Gmail/Chat conversations directly, without requiring a WorkItem.
+
+
+### Conversations library
+
+**Conversations** is the full browser; the sidebar keeps five recent matching
+meetings and a link to the library. Search saved transcript text or titles and
+filter by project, series, participant and inclusive Europe/Sofia dates. Results
+are paginated, 50 per page. Meeting speaker names come from the current saved
+transcript (draft captions are used only when no final transcript exists).
+
+Select up to 200 meetings and move them to a project together. Scope revisions
+prevent overwriting a newer project assignment; active meetings cannot be moved.
+The app journals the scope update so an interrupted batch completes on restart.
+Explicit WorkItem project assignments are preserved. A series is retained only
+when its parent project stays the same, unless a new series is selected.
+
+From a saved transcript choose **Attach excerpt to project** and select speaker
+turns or a time range. Ranges include complete overlapping transcript segments,
+up to 500 segments per excerpt. The app checks the transcript revision and saves
+a pinned quote with its timestamps, speaker labels and original meeting link.
+It does not copy audio. Editing or removing the transcript preserves the quote
+and marks its original as changed/unavailable. Saved excerpts support multiple
+projects through **Save project links**.
+
+Choose **Gmail threads** or **Chat conversations** to attach cached conversations
+without accepting or creating a task. This is a bounded snapshot of the existing
+cache, not a request for complete remote history; attachments are not fetched.
+Snapshots do not update automatically and no AI request or connector write is
+made. Refresh normal source sync, then explicitly attach the new cached revision
+if needed. Saved snapshots remain readable after disconnecting or clearing the
+source cache. Unassigning them retains the local evidence and existing archives.
+
+In **My Work → Gmail** or **Chat**, **Attach to project** on an open thread or
+conversation saves the same snapshot directly. It shows the projects that already
+have it; choosing again saves the current cached version.
+
+**Timeline → Trace** shows one row for each group of linked work: the conversation
+where it started, the decision, the tasks, their GitHub issue or PR, and the merged
+code change. Items join a row only through links that a person saves with **Link to
+another item** on a task, decision or question (implements, comes from, supports,
+same as). The other steps join by identity, never by similar text or dates: the
+item's meetings and source quotes, the attached excerpt that contains the quoted
+moment, the attached thread or Chat space of a Gmail or Chat source, and the merged
+PR with the same repository and number in a repository report of the connected
+GitHub account. Each step opens its evidence. **Timeline → Events** lists the same
+records by day, including those merged code changes.
+
+Projects have **Conversations** and **Timeline** tabs. The timeline combines
+meeting/source dates, recorded WorkItem history and dated GitHub source captures,
+with evidence navigation and explicitly stored relationships. It does not infer
+causality, completed work, successful CI or deployments. It shows current item
+wording/status alongside event dates, up to 300 newest events. Links and pinned
+quotes are included in Archive/Restore; project IDs are remapped on restore.
+The additive conversation-link collection upgrades the WorkItem SQLite schema
+to version 3; older app builds refuse this database rather than discarding links.
+
+
+### Consistent periods, preparation and confirmed identities
+
+The Library, repository reports, analytics and task dates share the Atlanta date
+picker, with keyboard navigation, typed ISO dates and Today/Yesterday/Last 7 days
+period shortcuts. A calendar day uses local dates, preserving DST boundaries.
+Library batch actions appear only after selecting meetings.
+
+Meeting type is visible before recording. Prepare me asks which upcoming meeting
+to prepare when a project contains mixed types; an explicit choice can override a
+series default. Preparation retains the whole project's work but takes typed
+context from the last matching meeting. Backlog refinement adds readiness,
+acceptance criteria and estimation blockers. Sprint review distinguishes shown,
+finished and explicitly accepted changes. Saved templates and prior notes remain
+unchanged until the user reprocesses or edits them.
+
+GitHub draft options regenerate untouched fields while keeping manual edits.
+Issue and comment edits are retained separately in memory during the page session.
+Review regenerated text compares both versions before explicit replacement.
+Drafts are not published, stored in browser storage or sent to AI by this feature.
+
+Confirm a message sender with Link sender to person. Gmail matches a manually
+confirmed exact email; Chat requires a confirmed stable users/ ID scoped to its
+Google account. Display names and voice are never used to guess channel links.
+Renaming a person retains the previous name as an alias. Numbered speakers stay
+scoped to their meeting. Profiles join saved statements/commitments, existing
+GitHub assignments and matching local email/Chat cache messages. Profile channel
+coverage is bounded to 1000 cached threads/messages and 50 matching messages per
+channel. Clearing a source cache removes its profile message preview, while
+confirmed identities remain in people.json and library archives.
+
+GitHub resource links distinguish Found in local cache, Checked in GitHub and
+Not checked/offline. They show the cache timestamp and/or last live check when
+known. Check in GitHub performs an explicit read-only refresh; a failed refresh
+preserves the previous title/state and labels it unavailable. Legacy links whose
+verification origin is unknown ask for a new check. These labels never mark a
+local task completed or claim CI/deployment success.
+
+
+**Suggest a task** now drafts one task with the selected Notes & AI model from the selected
+Gmail message, Chat message, GitHub issue/PR or saved repository finding and its evidence.
+Review the model/provider before generating, then edit the multiline draft and choose
+**Create task**. Only that confirmation creates an open local task in My Work, with pinned
+source evidence. Cancel discards the draft. Generation does not create a proposal or task,
+assign an owner/deadline, or publish anything to GitHub. A changed source requires a new draft.
+
+### Reliable editing and a consistent workspace
+
+Dates are shown/entered as **dd.mm.yyyy** (date/time: **dd.mm.yyyy · HH:MM**, Europe/Sofia), while API and archive date-only fields retain ISO values. The compact Library keeps Search, Project and Period visible, with additional filters under More filters. Filters stay in session state when returning to the Library.
+
+**My Work → Sources** groups Gmail, Chat and GitHub. **Suggest a task** opens a source-aware editor; generate with the shown AI provider or write manually, choose a project, then **Create task**. Generation can be cancelled. Draft retention is optional and limited to 24 hours on this Mac. A successful task creation remains successful even if refreshing its list fails; **Open task** returns directly to it.
+
+Project and meeting type are visible before recording. Project-level **Prepare me** includes externally sourced tasks explicitly assigned to that project. Transcript/note edits are protected from late refreshes and navigation races, and calendar Clear updates the saved due date.
+
+The desktop app warns before quitting with unsaved editor changes. **App menu → Recover interface** reloads the interface while recording and the local backend continue; unsaved edits require confirmation. Copy diagnostics omits credentials and source text.
+
+Repository reports analyze bounded groups of changes and then synthesize the supported source passages. Per-change findings and exact evidence remain available. See [UX validation and benchmark limits](docs/ux-flow-validation.md) for the implemented contracts and reproducible measurements.
+
+
+### Editable AI instructions
+
+**Settings → AI instructions** configures nine operations: meeting notes/tasks/decisions,
+transcript correction, meeting titles, Gmail commitments, task drafts, GitHub change analysis,
+GitHub report synthesis, search answers and semantic topic matching. Edit the task layer
+(language, style, focus and extraction priorities); source adapters, JSON schemas and
+runtime evidence checks remain in code. Transcription vocabulary remains under Recording.
+
+Instructions inherit in order: defaults → global → meeting type → individual meeting.
+Meeting-specific scopes apply to notes, correction, titles and topic matching. Operations
+spanning sources use global instructions. **AI instructions** next to a meeting's type
+opens its override. Save blank / Reset to inherited removes only that layer. The last
+20 versions per layer can be loaded into the editor and saved as a new version.
+Concurrent edits require reloading instead of overwriting another save.
+
+Recording start freezes the instructions. Processing retries keep the saved snapshot;
+explicit reprocessing uses the current configuration. Saving instructions never reruns
+old meetings or changes tasks automatically. Select a meeting in the notes editor and
+choose **Generate new notes for this meeting** to explicitly request a new proposal;
+saved notes remain until the existing review flow accepts changes. `prompt-history/`
+inside the meeting retains used snapshots, with the latest step snapshot in
+`prompt-<step>.json`. Archives include `ai-prompts.json`; restore adds missing prompt
+layers without replacing existing overrides.
+
+**Test with an excerpt** previews an explicitly pasted snippet (up to 4000 characters),
+assembled test messages, schema, destination and model before approval. Tests always
+use the saved **Notes & AI** destination, even for stages whose production provider is
+configured separately. The source is synthetic; normal whole-meeting chunking and
+source collection are not simulated. An isolated cancellable worker runs the request,
+validates the result and holds it in memory without writing meeting outputs or creating
+tasks. Recording/processing takes priority. The test never loads a meeting transcript
+automatically. No cloud/model quality claims follow from a successful test.
+
+**Meeting types → Customize a copy** copies a built-in's section definitions and
+preparation style into the editable template form. Save gives it a separate identity;
+existing meetings retain their saved template. Prepare me is deterministic from saved
+data and uses that preparation style, without an LLM request or a separate AI prompt.

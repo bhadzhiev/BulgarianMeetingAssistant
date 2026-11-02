@@ -1,0 +1,50 @@
+{
+  "library": [
+    {
+      "meetings": 100,
+      "uncached_metadata": {
+        "cold_seconds": 0.0091,
+        "warm_p50_seconds": 0.0056,
+        "warm_max_seconds": 0.0057
+      },
+      "cached_metadata": {
+        "cold_seconds": 0.0079,
+        "warm_p50_seconds": 0.0044,
+        "warm_max_seconds": 0.0044
+      }
+    },
+    {
+      "meetings": 1000,
+      "uncached_metadata": {
+        "cold_seconds": 0.0896,
+        "warm_p50_seconds": 0.0893,
+        "warm_max_seconds": 0.0895
+      },
+      "cached_metadata": {
+        "cold_seconds": 0.0912,
+        "warm_p50_seconds": 0.0767,
+        "warm_max_seconds": 0.0776
+      }
+    },
+    {
+      "meetings": 5000,
+      "uncached_metadata": {
+        "cold_seconds": 0.4823,
+        "warm_p50_seconds": 0.4889,
+        "warm_max_seconds": 0.5179
+      },
+      "cached_metadata": {
+        "cold_seconds": 0.4969,
+        "warm_p50_seconds": 0.4289,
+        "warm_max_seconds": 0.4513
+      }
+    }
+  ],
+  "report_plan": {
+    "previous_worker_steps": 80,
+    "batched_worker_steps": 11,
+    "includes_synthesis": true
+  },
+  "peak_rss_bytes": 49184768,
+  "model_inference_benchmarked": false
+}

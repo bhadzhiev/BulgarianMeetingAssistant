@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import gc
+import hashlib
+from importlib.metadata import PackageNotFoundError, version
 import io
 import json
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
 import urllib.request
 import uuid
 import wave
+import time
 
 from .storage import atomic_json
 from .model_cache import ensure_model, ensure_vad_model
@@ -46,11 +50,42 @@ def archive(directory: Path, names) -> Path | None:
     return previous
 
 
+def audio_digest(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def transcription_checkpoint(path, signature, total, rate):
+    from meeting_assistant import TranscriptSegment
+    try:
+        saved = json.loads(path.read_text())
+        cursor = saved['cursor']
+        if saved['signature'] != signature or type(cursor) is not int or not 0 <= cursor <= total:
+            return 0, []
+        segments = [TranscriptSegment(**s) for s in saved['segments']]
+        previous = 0
+        for segment in segments:
+            if (type(segment.start) not in {int, float} or type(segment.end) not in {int, float}
+                or not math.isfinite(segment.start) or not math.isfinite(segment.end)
+                or not previous <= segment.start <= segment.end <= cursor / rate + 1
+                or not isinstance(segment.text, str) or not segment.text.strip()
+                or segment.speaker is not None and not isinstance(segment.speaker, str)):
+                return 0, []
+            previous = segment.start
+        return cursor, segments
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0, []
+
+
 def transcribe(directory: Path, settings: dict, progress, api_key: str = '', speakers=()) -> None:
     import numpy as np
     from meeting_assistant import TranscriptSegment, clean_text, merge_segments, save_transcript
     provider = settings['transcription']
     model = None
+    model_path = None
     vad = prompt = None
     if provider == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before processing with cloud transcription.')
@@ -67,20 +102,52 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 # Voice detection only improves quality; transcription continues without it.
                 vad = f'unavailable: {exc}'
         prompt = whisper.build_prompt(settings.get('whisper_vocabulary', ''), speakers)
+        progress('Loading local Whisper model into memory')
         model = Model(model_path, models_dir=str(Path(settings['models_dir'])),
             language='bg', translate=False, print_progress=False, print_realtime=False,
             print_timestamps=False, no_context=True, suppress_blank=True,
             suppress_non_speech_tokens=True, temperature=0, n_threads=6, **options)
+    detector = None
+    if provider == 'parakeet':
+        from . import parakeet
+        model = parakeet.Decoder(settings['models_dir'], progress)
+        if settings.get('whisper_vad', True):
+            # Silero skips silent chunks and trims each chunk to its speech; it only improves quality.
+            from . import vad as voice
+            detector, reason = voice.load(Path(settings['models_dir']), progress)
+            vad = voice.LABEL if detector else reason
+    word_alignment = provider in {'local', 'parakeet'} and settings.get('diarization_enabled', True)
+    model_name = parakeet.MODEL_NAME if provider == 'parakeet' else settings['local_model'] if provider == 'local' else settings['cloud_model']
     segments = []
     audio_path = directory / 'recording.wav'
     try:
-        audio_path, preparation = audio_preparation.prepare(directory, settings.get('audio_preparation', 'off'), progress)
+        audio_path, preparation = audio_preparation.prepare(directory, settings.get('audio_preparation', 'off'), progress,
+            Path(settings['models_dir']) if settings.get('models_dir') else None)
+        progress('Checking saved transcription progress')
+        model_stat = None
+        if model_path and Path(model_path).is_file():
+            stat = Path(model_path).stat()
+            model_stat = [str(model_path), stat.st_size, stat.st_mtime_ns]
+        try:
+            backend_version = version('parakeet-mlx') if provider == 'parakeet' else version('pywhispercpp') if provider == 'local' else None
+        except PackageNotFoundError:
+            backend_version = 'unknown'
+        signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
+            provider=provider, model=model_name,
+            model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation,
+            **({'model_revision': parakeet.MODEL_REVISION} if provider == 'parakeet' else {})), sort_keys=True).encode()).hexdigest()
+        checkpoint = directory / '.transcription-progress.json'
         with wave.open(str(audio_path), 'rb') as source:
             rate = source.getframerate()
             total = source.getnframes()
             if (rate, source.getnchannels(), source.getsampwidth()) != (16000, 1, 2):
                 raise ValueError('Processing requires a 16 kHz mono PCM recording')
-            cursor = 0
+            cursor, segments = transcription_checkpoint(checkpoint, signature, total, rate)
+            resumed_from = cursor / rate
+            if cursor:
+                source.setpos(cursor)
+                progress(f'Resuming transcription from {int(cursor / rate)} seconds')
+            first_cursor, inference_started = cursor, time.monotonic()
             while cursor < total:
                 # Bound memory and cloud request size. Prefer a quiet boundary in the last 5s.
                 raw = source.readframes(min(rate * 60, total - cursor))
@@ -99,11 +166,24 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 if provider == 'local':
                     audio = samples.astype(np.float32) / 32768
                     # The model keeps call parameters, so every call sets the prompt explicitly.
-                    timed = merge_segments(model.transcribe(audio, language='bg', no_context=True, initial_prompt=''), start)
+                    raw = model.transcribe(audio, language='bg', no_context=True, initial_prompt='',
+                        token_timestamps=word_alignment, max_len=1 if word_alignment else 0, split_on_word=word_alignment)
+                    timed = whisper.word_units(raw, start) if word_alignment else merge_segments(raw, start)
                     if prompt and timed:
-                        prompted = model.transcribe(audio, language='bg', no_context=True, initial_prompt=prompt)
+                        prompted = model.transcribe(audio, language='bg', no_context=True, initial_prompt=prompt,
+                            token_timestamps=False, max_len=0, split_on_word=False)
                         timed = whisper.apply_prompted_text(timed, ' '.join(clean_text(s.text) for s in prompted))
                     segments.extend(timed)
+                elif provider == 'parakeet':
+                    from .speaker_alignment import group_units
+                    part, offset = samples, start
+                    if detector:
+                        from . import vad as voice
+                        spans = voice.speech_spans(detector.probabilities(samples.astype(np.float32) / 32768))
+                        first, last = (max(0, spans[0][0] - 4800), min(count, spans[-1][1] + 4800)) if spans else (0, 0)
+                        part, offset = samples[first:last], start + first / rate
+                    decoded = model.transcribe(part, offset, rate) if len(part) else []
+                    segments.extend(TranscriptSegment(**unit) for unit in (decoded if word_alignment else group_units(decoded)))
                 else:
                     buffer = io.BytesIO()
                     with wave.open(buffer, 'wb') as chunk:
@@ -120,31 +200,50 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                         segments.append(TranscriptSegment(start, end, text.strip()))
                 cursor += count
                 atomic_json(directory / 'transcript.partial.json', [asdict(s) for s in segments])
+                atomic_json(checkpoint, dict(signature=signature, cursor=cursor, segments=[asdict(s) for s in segments]))
+                processed = cursor - first_cursor
+                eta = (total - cursor) * (time.monotonic() - inference_started) / max(1, processed)
+                progress(f'Transcribing {int(100 * cursor / max(1, total))}% · {provider} · about {int(eta)}s left')
         if not segments:
+            checkpoint.unlink(missing_ok=True)
             raise ValueError('No speech was recognized. The recording is saved; try another model or provider.')
+        from .speaker_alignment import group_units, revision
+        units = [asdict(s) for s in segments] if word_alignment else None
+        if units:
+            segments = [TranscriptSegment(**s) for s in group_units(units)]
+        progress('Publishing transcript')
         # transcription.wav is not archived: about 115 MB per hour, and recording.wav plus the profile in the
         # archived metadata can produce it again.
         if archive(directory, ['transcript.json', 'transcript.raw.json', 'transcript.md', 'transcript.srt', 'minutes.json',
                                'minutes.md', 'minutes.proposed.json', 'analytics.json', 'speaker-timeline.json',
-                               'transcript.metadata.json']):
+                               'transcript.metadata.json', 'transcript.alignment.json', 'speaker-turns.json', 'speaker-diarization.json', 'transcript.before-speakers.json']):
             # Previous notes and analytics no longer refer to the current transcription.
             # The kept Whisper text belongs to the old transcription.
-            for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json']:
+            for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json', 'transcript.alignment.json', 'speaker-turns.json', 'speaker-diarization.json', 'transcript.before-speakers.json']:
                 (directory / name).unlink(missing_ok=True)
         save_transcript(directory, segments)
+        if units:
+            atomic_json(directory / 'transcript.alignment.json', dict(version=1, source_revision=revision([asdict(s) for s in segments]),
+                method=parakeet.ALIGNMENT_METHOD if provider == 'parakeet' else 'whisper.cpp experimental word boundaries', units=units))
         if preparation['profile'] == 'light':
             os.replace(audio_path, directory / 'transcription.wav')
         else:
             (directory / 'transcription.wav').unlink(missing_ok=True)
         metadata = dict(provider=provider,
-            model=settings['local_model'] if provider == 'local' else settings['cloud_model'],
-            timestamps='segment' if provider == 'local' else 'approximate chunk boundaries',
-            audio_preparation=preparation)
+            model=model_name,
+            timestamps='segment' if provider in {'local', 'parakeet'} else 'approximate chunk boundaries',
+            audio_preparation=preparation, resumed_from_seconds=resumed_from)
         if provider == 'local':
-            metadata.update(vad=vad is True, prompt=prompt or None)
+            metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):
                 metadata['vad_error'] = vad
+        if provider == 'parakeet':
+            metadata.update(model_repository=parakeet.MODEL_ID, model_revision=parakeet.MODEL_REVISION, word_boundaries=bool(units), language='auto', vocabulary_applied=False,
+                vad=bool(detector))
+            if isinstance(vad, str) and vad.startswith('unavailable'):
+                metadata['vad_error'] = vad
         atomic_json(directory / 'transcript.metadata.json', metadata)
+        checkpoint.unlink(missing_ok=True)
     finally:
         if audio_path != directory / 'recording.wav':
             audio_path.unlink(missing_ok=True)
@@ -159,7 +258,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
         raise ValueError('Transcribe the recording before generating notes')
     groups, group, length = [], [], 0
     for segment in segments:
-        if group and length + len(segment.text) > 10000:
+        if group and length + len(segment.text) > 4000:
             groups.append(group)
             group, length = [], 0
         group.append(segment)
@@ -176,15 +275,63 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
         raise ValueError('Add an OpenAI API key in Settings before generating cloud notes.')
     # Pass credentials explicitly; never alter the process environment across jobs.
     args.api_key = api_key
+    if settings.get('_prompt_snapshot'):args._prompt_snapshot=settings['_prompt_snapshot']
     args.speakers = list(speakers)
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
-    args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or None
+    from datetime import date
+    args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or date.today().isoformat()
+    from . import meeting_types
+    args.meeting_type = meeting_types.of(meeting)
     from .live import read_json
     args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
-    result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[])
-    for index, group in enumerate(groups):
-        progress(f'Generating notes · part {index + 1} of {len(groups)}')
-        minutes = generate_minutes(args, group)
+    # Cache only validated parts of an unfinished run. Settings, sources and
+    # prompts must match exactly before a retry can reuse them. No API key is saved.
+    identity = dict(version=2, segments=[asdict(s) for s in segments],
+                    args={k: v for k, v in vars(args).items() if k != 'api_key'})
+    signature = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    checkpoint = directory / '.notes-progress.json'
+    saved = read_json(checkpoint, {})
+    parts = saved.get('parts', {}) if isinstance(saved, dict) and saved.get('signature') == signature else {}
+    if not isinstance(parts, dict):
+        parts = {}
+    saved_splits = saved.get('splits', []) if isinstance(saved, dict) and saved.get('signature') == signature else []
+    splits = {key for key in saved_splits if isinstance(key, str)} if isinstance(saved_splits, list) else set()
+    split_attempts = 0
+    result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[],
+                  **{field: [] for field in meeting_types.sections(args.meeting_type)})
+
+    def generate_part(group, label, depth=0):
+        nonlocal split_attempts
+        from .local_ai import OutputTruncatedError
+        key = hashlib.sha256(json.dumps([asdict(s) for s in group], sort_keys=True).encode()).hexdigest()
+        cached = parts.get(key)
+        if cached is not None:
+            try:
+                validate_minutes(cached, group)
+                progress(f'Reusing completed notes · part {label}')
+                return [cached]
+            except (ValueError, TypeError, KeyError):
+                parts.pop(key, None)
+        def split_part():
+            middle = len(group) // 2
+            return (generate_part(group[:middle], label + '.1', depth + 1)
+                    + generate_part(group[middle:], label + '.2', depth + 1))
+
+        if key in splits and len(group) > 1:
+            return split_part()
+        progress(f'Generating notes · part {label}')
+        try:
+            minutes = generate_minutes(args, group)
+        except OutputTruncatedError as exc:
+            # Keep the configured provider and reasoning preference. Bound retries
+            # even when the model spends its whole budget on internal reasoning.
+            if not exc.can_split or len(group) < 2 or depth >= 2 or split_attempts >= 2:
+                raise
+            split_attempts += 1
+            splits.add(key)
+            atomic_json(checkpoint, dict(signature=signature, parts=parts, splits=sorted(splits)))
+            progress(f'Output limit reached · splitting notes part {label}')
+            return split_part()
         stamps = {timestamp(s.start) for s in group}
         for field in ITEM_FIELDS:
             # A wrong source on a statement is dropped, not fatal: the statement then shows no source.
@@ -192,11 +339,18 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
                 if isinstance(item, dict) and item.get('evidence_timestamp') not in stamps:
                     item['evidence_timestamp'] = None
         validate_minutes(minutes, group)
-        for field in result:
-            result[field].extend(minutes[field])
+        parts[key] = minutes
+        atomic_json(checkpoint, dict(signature=signature, parts=parts, splits=sorted(splits)))
+        return [minutes]
+
+    for index, group in enumerate(groups):
+        for minutes in generate_part(group, f'{index + 1} of {len(groups)}'):
+            for field in result:
+                result[field].extend(minutes.get(field, []))
     validate_minutes(result, segments)
     if (directory / 'minutes.json').exists():
         # Saved notes may hold checked statements and manual edits; the new run waits for review.
         atomic_json(directory / 'minutes.proposed.json', result)
     else:
         save_minutes(directory, result)
+    checkpoint.unlink(missing_ok=True)

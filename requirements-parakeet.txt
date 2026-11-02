@@ -1,0 +1,2 @@
+# Optional local Parakeet v3 transcription on Apple Silicon.
+parakeet-mlx==0.5.3; sys_platform == "darwin" and platform_machine == "arm64"

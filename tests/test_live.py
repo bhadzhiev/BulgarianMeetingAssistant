@@ -46,6 +46,23 @@ class CaptionTests(unittest.TestCase):
         engine=CaptionEngine(self.directory,lambda _:self.fail('Silence should not invoke Whisper'))
         engine.step(self.info,3)
         self.assertEqual(engine.cursor,3)
+    def test_voice_detection_ignores_steady_noise_that_passes_the_energy_gate(self):
+        noise=(np.random.default_rng(1).normal(0,600,16000*3)).astype(np.int16)
+        (self.directory/'microphone.pcm').write_bytes(noise.tobytes())
+        class Quiet:
+            def probabilities(self,samples):return np.zeros(-(-len(samples)//512))
+        engine=CaptionEngine(self.directory,lambda _:self.fail('Noise should not invoke Whisper'),Quiet())
+        engine.step(self.info,3)
+        self.assertEqual(engine.cursor,3)
+    def test_voice_detection_decodes_only_the_speech_with_context(self):
+        (self.directory/'microphone.pcm').write_bytes(b'\0\0'*16000*3)
+        class Speech:
+            def probabilities(self,samples):return np.array([.9 if 16000<=i*512<32000 else 0 for i in range(-(-len(samples)//512))])
+        lengths=[]
+        engine=CaptionEngine(self.directory,lambda samples:lengths.append(len(samples)) or 'Да.',Speech())
+        engine.step(self.info,3)
+        # Speech windows 32-62 (1.02-2.02 s), with 0.3 s (4800 samples) of context on each side.
+        self.assertEqual(lengths,[(63*512+4800)-(32*512-4800)]);self.assertEqual(engine.state['segments'][0]['text'],'Да.')
     def test_pausing_flushes_short_tail_without_duplicates(self):
         (self.directory/'microphone.pcm').write_bytes(speech(1).tobytes())
         engine=CaptionEngine(self.directory,lambda _:'Кратка фраза')

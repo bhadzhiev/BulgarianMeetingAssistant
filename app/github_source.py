@@ -96,7 +96,10 @@ class GitHubConnection:
     def get(self,resource,query=None,expected_account=None):
         allowed=resource in {'/user','/issues','/search/issues'} or re.fullmatch(r'/users/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})',resource)
         if not allowed:
-            match=re.fullmatch(r'/repos/([^/]+/[^/]+)(?:/(issues|pulls)/([1-9][0-9]*))?',resource)
+            listing=re.fullmatch(r'/repos/([^/]+/[^/]+)/(?:issues|issues/[1-9][0-9]*/comments)',resource)
+            if listing:repo_name(listing[1]);allowed=True
+        if not allowed:
+            match=re.fullmatch(r'/repos/([^/]+/[^/]+)(?:/(issues|pulls|issues/comments)/([1-9][0-9]*))?',resource)
             if not match:
                 match=re.fullmatch(r'/repos/([^/]+/[^/]+)/(?:commits(?:/[a-f0-9]{40}(?:/pulls)?)?|pulls/[1-9][0-9]*/files|git/blobs/[a-f0-9]{40}|compare/[a-f0-9]{40}\.\.\.[a-f0-9]{40})',resource)
             if not match:raise ValueError('Unsupported GitHub read endpoint')

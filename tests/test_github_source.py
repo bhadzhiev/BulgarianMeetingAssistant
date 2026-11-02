@@ -69,9 +69,10 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(self.store.value,old)
     def test_get_adapter_rejects_unsupported_paths_and_wrong_account(self):
         self.connection.connect(self.token)
-        for path in ('/repos/synthetic/repository/issues','/user/repos','https://example.invalid','/repos/a/../issues/1'):
+        for path in ('/repos/synthetic/repository/unknown','/user/repos','https://example.invalid','/repos/a/../issues/1'):
             with self.assertRaises(ValueError):self.connection.get(path)
         with self.assertRaises(GitHubError):self.connection.get('/user',expected_account='2')
+        self.connection.get('/repos/synthetic/repository/issues',expected_account='1')
         self.connection.get('/repos/synthetic/repository/issues/1',expected_account='1')
         self.assertEqual(self.calls[-1][0],'/repos/synthetic/repository/issues/1')
     def test_http_contract_preserves_merged_pr_commit_identity(self):

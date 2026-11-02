@@ -15,7 +15,7 @@ import threading
 TICK = 0.5            # live values (timer, level) while a recording or test runs
 CHECK_EVERY = 2       # file times every second (2 ticks)
 HEARTBEAT = 15        # a ping keeps the connection open and finds closed tabs
-LIBRARY_FILES = ('settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json', 'people.json', 'github-links.json', 'meeting-templates.json', 'ai-prompts.json')
+LIBRARY_FILES = ('capture-setup.json', 'settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json', 'people.json', 'github-links.json', 'meeting-templates.json', 'ai-prompts.json')
 MEETING_FILES = ('meeting.json', 'transcript.json', 'transcript.metadata.json', 'transcript.raw.json', 'minutes.json',
                  'minutes.proposed.json', 'markers.json', 'analytics.json', 'live.json', 'live-transcript.json', 'recording.wav')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')

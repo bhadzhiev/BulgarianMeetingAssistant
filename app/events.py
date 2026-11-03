@@ -17,7 +17,7 @@ CHECK_EVERY = 2       # file times every second (2 ticks)
 HEARTBEAT = 15        # a ping keeps the connection open and finds closed tabs
 LIBRARY_FILES = ('capture-setup.json', 'settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json', 'people.json', 'github-links.json', 'meeting-templates.json', 'ai-prompts.json')
 MEETING_FILES = ('meeting.json', 'transcript.json', 'transcript.metadata.json', 'transcript.raw.json', 'minutes.json',
-                 'minutes.proposed.json', 'markers.json', 'analytics.json', 'live.json', 'live-transcript.json', 'recording.wav')
+                 'minutes.proposed.json', 'markers.json', 'analytics.json', 'live.json', 'live-transcript.json', 'recording.wav', 'voiceprints.json', 'speaker-turns.json', 'speaker-timeline.json')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
 
 
@@ -46,7 +46,7 @@ class Watcher:
             if MEETING_ID.fullmatch(directory.name) and directory.is_dir():
                 meetings[directory.name] = [_stamp(directory / name) for name in MEETING_FILES]
         with service.lock:
-            memory = [service.active, service.preview is not None, sorted(service.busy), bool(service.api_key)]
+            memory = [service.active, service.preview is not None, sorted(service.busy), bool(service.api_key), dict(service.voice_job)]
         overall = [dt.date.today().isoformat(), memory, service.google.status(),
                    [_stamp(root / name) for name in LIBRARY_FILES], sorted(meetings.items())]
         return json.dumps(overall, sort_keys=True, default=str), meetings
@@ -98,6 +98,11 @@ class Watcher:
                     return
                 if state_seq != seen_state:
                     changed = sorted(key for key in set(current) | set(meetings) if current.get(key) != meetings.get(key))
+                    # A changed bank profile affects suggestions in every open meeting.
+                    indices = [MEETING_FILES.index(name) for name in ('voiceprints.json', 'speaker-turns.json', 'speaker-timeline.json')]
+                    if any((current[key][index] if key in current else 0) != (meetings[key][index] if key in meetings else 0)
+                           for key in set(current) | set(meetings) for index in indices):
+                        changed = None
                     seen_state, meetings = state_seq, current
                     yield 'state', {'changed': changed}
                 elif live_seq != seen_live:

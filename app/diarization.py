@@ -34,7 +34,7 @@ def _load(progress):
     except ImportError as exc:
         raise RuntimeError(
             'Speaker diarization is optional. Install requirements-diarization.txt '
-            'in the app environment, then retry Analytics.'
+            'in the app environment, then retry speaker separation.'
         ) from exc
     if _pipeline is None:
         progress('Loading offline speaker-diarization model')

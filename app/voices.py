@@ -6,9 +6,12 @@ a person listens and applies the name, and the name then teaches the next meetin
 
 Thresholds come from same-person and different-person pairs across real meetings:
 the same person scored 0.82-0.90, different people at most 0.68.
+These observations do not establish identity; distinct confirmed people remain rivals.
 """
 import hashlib
 import json
+import os
+import secrets
 import re
 import threading
 import wave
@@ -38,6 +41,15 @@ def turns_file(directory):
 
 def compute(directory, embed, model, progress=lambda message: None):
     """Embed each speaker's longest turns; embed takes float32 16 kHz samples and returns a vector."""
+    # Keep the original directory open: publishing must never recreate a deleted path.
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        return _compute(directory, fd, embed, model, progress)
+    finally:
+        os.close(fd)
+
+
+def _compute(directory, fd, embed, model, progress):
     path = turns_file(directory)
     if path is None or not (directory / 'recording.wav').is_file():
         raise ValueError('Voice prints need a recording and speaker turns')
@@ -64,6 +76,7 @@ def compute(directory, embed, model, progress=lambda message: None):
                     samples = np.interp(np.arange(0, len(samples), rate / 16000), np.arange(len(samples)), samples).astype(np.float32)
                 if len(samples) < 16000 * MIN_TURN:
                     continue
+                progress('Learning voice sample')
                 vector = np.asarray(embed(samples), dtype=np.float64)
                 if vector.ndim != 1 or not np.all(np.isfinite(vector)) or not np.linalg.norm(vector):
                     continue
@@ -75,15 +88,37 @@ def compute(directory, embed, model, progress=lambda message: None):
                 mean = np.average(vectors, axis=0, weights=weights)
                 speakers[speaker] = dict(vector=[round(float(v), 5) for v in mean / np.linalg.norm(mean)],
                                          seconds=round(sum(weights), 1))
-    atomic_json(directory / FILE, dict(model=model, turns=hashlib.sha256(data).hexdigest(), speakers=speakers))
+    progress('Publishing voice profiles')
+    if (turns_file(directory) != path or path.read_bytes() != data
+            or os.stat(directory).st_ino != os.fstat(fd).st_ino):
+        raise ValueError('Speaker turns changed during voice learning; retry from the saved corrections')
+    _publish(fd, dict(model=model, turns=hashlib.sha256(data).hexdigest(), speakers=speakers))
     return speakers
+
+
+def _publish(fd, value):
+    temporary = '.voiceprints-' + secrets.token_hex(12)
+    handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=fd)
+    try:
+        with os.fdopen(handle, 'w') as output:
+            json.dump(value, output, ensure_ascii=False, allow_nan=False)
+            output.write('\n'); output.flush(); os.fsync(output.fileno())
+        os.replace(temporary, FILE, src_dir_fd=fd, dst_dir_fd=fd)
+    finally:
+        try:
+            os.unlink(temporary, dir_fd=fd)
+        except FileNotFoundError:
+            pass
 
 
 def current(directory):
     """True when the voice prints were made from the present speaker turns."""
     path = turns_file(directory)
     prints = read(directory)
-    return bool(prints and path and prints.get('turns') == hashlib.sha256(path.read_bytes()).hexdigest())
+    try:
+        return bool(prints and path and prints.get('turns') == hashlib.sha256(path.read_bytes()).hexdigest())
+    except OSError:
+        return False
 
 
 def read(directory):
@@ -130,8 +165,9 @@ def bank(library, exclude, identity, model):
     for meeting in library.list():
         if meeting['id'] == exclude:
             continue
-        prints = read(library.directory(meeting['id']))
-        if not prints or prints.get('model') != model:
+        directory = library.directory(meeting['id'])
+        prints = read(directory)
+        if not current(directory) or not prints or prints.get('model') != model:
             continue
         for name, row in prints['speakers'].items():
             if GENERIC.match(name) or row['seconds'] < MIN_SECONDS:
@@ -151,18 +187,13 @@ def suggest(prints, groups, present):
         if not GENERIC.match(speaker) or row['seconds'] < MIN_SECONDS:
             continue
         vector = _unit(row['vector'])
-        scores = sorted(((float(max(v @ vector for v in g['vectors'])), k) for k, g in candidates.items()), reverse=True)
+        scores = sorted(((float(max(v @ vector for v in g['vectors'])), k) for k, g in candidates.items()), key=lambda row: row[0], reverse=True)
         if not scores or scores[0][0] < MATCH:
             continue
-        best = candidates[scores[0][1]]
-        same = lambda k: max(float(a @ b) for a in best['vectors'] for b in candidates[k]['vectors']) >= MATCH
-        # A runner-up with the same voice is the same person under another name, not a rival.
-        rivals = [s for s, k in scores[1:] if not same(k)]
-        if rivals and scores[0][0] - rivals[0] < MARGIN:
+        # Identity aliases were grouped by bank(); voice similarity cannot merge identities.
+        if len(scores) > 1 and scores[0][0] - scores[1][0] < MARGIN:
             continue
-        # Among names of one voice, a name from People wins over a bare speaker label.
-        known = [(s, k) for s, k in scores if candidates[k].get('person') and same(k) and scores[0][0] - s < MARGIN]
-        scored.append(known[0] + (speaker,) if known and not best.get('person') else (scores[0][0], scores[0][1], speaker))
+        scored.append((scores[0][0], scores[0][1], speaker))
     result, used = {}, set()
     for score, key, speaker in sorted(scored, key=lambda row: row[0], reverse=True):
         if key in used:

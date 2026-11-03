@@ -95,6 +95,7 @@ class MeetingService:
         self.busy = set()
         self.processing_slot = threading.Semaphore(1)
         self.voice_job = dict(running=False, done=0, total=0, failed=0)
+        self.voice_thread = None
         self.step_runner = step_runner
         self.cancel_events = {}
         self.processing_threads = {}
@@ -705,7 +706,7 @@ class MeetingService:
                     self._execute('transcribe', directory, settings, progress, key, self.library.speakers())
                     if settings.get('_reprocess_preserve_notes'):
                         self.library.update(meeting_id,notes_need_refresh=(directory/'minutes.json').exists(),notes_refresh_error=None)
-            should_diarize = action in {'all', 'transcribe', 'speakers'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
+            should_diarize = action in {'all', 'transcribe', 'speakers'}
             if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
@@ -799,7 +800,7 @@ class MeetingService:
     def _voice_suggestions(self, meeting_id, directory, transcript):
         prints = voices.read(directory)
         labels = {s['speaker'] for s in transcript if s.get('speaker') and voices.GENERIC.match(s['speaker'])}
-        if not prints or not labels:
+        if not prints or not labels or not voices.current(directory):
             return {}
         present = {self._voice_identity(s['speaker'])[0] for s in transcript if s.get('speaker') and not voices.GENERIC.match(s['speaker'])}
         groups = voices.bank(self.library, meeting_id, self._voice_identity, prints.get('model'))
@@ -811,6 +812,8 @@ class MeetingService:
         if not diarization.availability()['available']:
             raise ValueError('Speaker separation is not installed in this build')
         with self.lock:
+            if self.closed.is_set():
+                raise ValueError('The app is closing')
             if self.voice_job['running']:
                 return dict(self.voice_job)
             pending = [m['id'] for m in self.library.list() if m.get('status') == 'ready' and m['id'] != self.active
@@ -818,29 +821,50 @@ class MeetingService:
                        and voices.turns_file(self.library.directory(m['id'])) and not voices.current(self.library.directory(m['id']))]
             self.voice_job = dict(running=bool(pending), done=0, total=len(pending), failed=0)
             if pending:
-                threading.Thread(target=self._learn_voices, args=(pending,), daemon=True).start()
+                self.voice_thread = threading.Thread(target=self._learn_voices, args=(pending,), name='voice-learning', daemon=True)
+                self.voice_thread.start()
             return dict(self.voice_job)
 
     def _learn_voices(self, pending):
         try:
             for meeting_id in pending:
-                # Recording and processing keep priority; this waits for the shared slot.
                 while not self.processing_slot.acquire(timeout=.5):
                     if self.closed.is_set():
                         return
+                reserved = False
                 try:
-                    if self.closed.is_set():
-                        return
-                    if meeting_id not in self.busy and meeting_id != self.active:
-                        self._execute('voices', self.library.directory(meeting_id), self.settings, lambda message: None)
+                    # Reserve under the same lock used by edits, deletion and processing.
+                    with self.lock:
+                        if self.closed.is_set():
+                            return
+                        if meeting_id in self.busy or meeting_id == self.active:
+                            continue
+                        directory = self.library.directory(meeting_id)
+                        self.busy.add(meeting_id)
+                        cancel = threading.Event()
+                        self.cancel_events[meeting_id] = cancel
+                        settings = copy.deepcopy(self.settings)
+                        reserved = True
+                    def progress(message):
+                        if cancel.is_set() or self.closed.is_set():
+                            raise JobCancelled()
+                    self._execute('voices', directory, settings, progress)
+                except JobCancelled:
+                    return
                 except Exception as exc:
-                    self.voice_job['failed'] += 1
+                    with self.lock:
+                        self.voice_job['failed'] += 1
                     print(f'Voice prints: {exc}', flush=True)
                 finally:
+                    with self.lock:
+                        if reserved:
+                            self.busy.discard(meeting_id)
+                            self.cancel_events.pop(meeting_id, None)
+                        self.voice_job['done'] += 1
                     self.processing_slot.release()
-                self.voice_job['done'] += 1
         finally:
-            self.voice_job['running'] = False
+            with self.lock:
+                self.voice_job['running'] = False
 
     def _run_analytics(self, meeting_id, settings, progress=lambda message: None):
         try:
@@ -946,6 +970,7 @@ class MeetingService:
                 for segment in segments:
                     if segment.speaker in renames:
                         segment.speaker = renames[segment.speaker]
+                prints_current = voices.current(directory) if renames else False
                 if renames or corrections:
                     for filename in ('speaker-timeline.json', 'speaker-turns.json'):
                         timeline_path = directory / filename
@@ -957,10 +982,10 @@ class MeetingService:
                             for start, end, old_name, new_name in corrections:
                                 timeline = conversation.relabel_range(timeline, start, end, old_name, new_name)
                             atomic_json(timeline_path, timeline)
-                    if renames:
-                        # A segment correction changes the turns, so the voice prints wait for a new learn.
+                    if renames and prints_current and not corrections:
+                        # Only a complete relabel of a current profile preserves its audio evidence.
                         turns = voices.turns_file(directory)
-                        voices.rename(directory, renames, None if corrections or not turns else hashlib.sha256(turns.read_bytes()).hexdigest())
+                        voices.rename(directory, renames, hashlib.sha256(turns.read_bytes()).hexdigest())
                 changed = [vars(segment) for segment in old_segments] != [vars(segment) for segment in segments]
                 if changed:
                     processing.archive(directory, ['transcript.json', 'transcript.md', 'transcript.srt', 'minutes.proposed.json'])
@@ -2420,4 +2445,6 @@ class MeetingService:
             live.close()
         for thread in list(self.processing_threads.values()):
             thread.join(timeout=3)
+        if self.voice_thread and self.voice_thread is not threading.current_thread():
+            self.voice_thread.join(timeout=3)
         self.search_index.close()

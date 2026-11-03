@@ -34,6 +34,8 @@ def _cached(path, read):
 
 def _transcript(data):
     transcript = json.loads(data)
+    if not isinstance(transcript, list) or any(not isinstance(row, dict) for row in transcript):
+        raise ValueError('Invalid transcript')
     return dict(revision=hashlib.sha256(json.dumps(transcript, sort_keys=True).encode()).hexdigest(),
                 speakers=len({s['speaker'] for s in transcript if s.get('speaker') and GENERIC.match(s['speaker'])}))
 
@@ -41,11 +43,7 @@ def _transcript(data):
 def _minutes(data):
     from meeting_assistant import validate_minutes
     minutes, ids = json.loads(data), set()
-    try:
-        validate_minutes(minutes)
-    except ValueError:
-        # The meeting view shows no items for notes that do not validate; the queue does the same.
-        return dict(revision=hashlib.sha256(data).hexdigest(), ids=ids)
+    validate_minutes(minutes)
     for field in items.FIELD.values():
         for mention in minutes.get(field, []):
             ids.add(mention.get('item_id'))
@@ -60,19 +58,27 @@ def build(service):
             if meeting.get('status') != 'ready':
                 continue
             directory = service.library.directory(meeting['id'])
-            transcript = _cached(directory / 'transcript.json', _transcript)
-            if transcript is None:
+            repair = []
+            def read(name, parser, fallback):
+                try:
+                    return _cached(directory / name, parser) or fallback
+                except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                    repair.append(name)
+                    return fallback
+            transcript = read('transcript.json', _transcript, None)
+            if transcript is None and not repair:
                 continue
-            minutes = _cached(directory / 'minutes.json', _minutes) or dict(revision=None, ids=set())
+            transcript = transcript or dict(revision=None, speakers=0)
+            minutes = read('minutes.json', _minutes, dict(revision=None, ids=set()))
             source = source_digest(transcript['revision'], minutes['revision'])
             pending = [item for key in minutes['ids'] if (item := service.items.items.get(key))
                        and linked(item, meeting['id']) and meeting_state(item, meeting['id'], source) == 'needs_review']
             notes = ('proposal' if (directory / 'minutes.proposed.json').exists()
                      else 'refresh' if meeting.get('notes_need_refresh') or meeting.get('notes_refresh_error') else None)
-            if not (pending or transcript['speakers'] or notes):
+            if not (pending or transcript['speakers'] or notes or repair):
                 continue
             rows.append(dict(id=meeting['id'], title=meeting['title'], created=meeting['created'],
                              speakers=transcript['speakers'], notes=notes,
-                             items=len(pending)))
+                             items=len(pending), repair=repair))
         return dict(meetings=rows, totals=dict(meetings=len(rows), speakers=sum(r['speakers'] for r in rows),
                                                items=sum(r['items'] for r in rows), notes=sum(bool(r['notes']) for r in rows)))

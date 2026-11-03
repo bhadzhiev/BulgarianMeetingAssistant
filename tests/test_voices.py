@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import hashlib
 import tempfile
 import unittest
 from unittest import mock
@@ -44,13 +45,13 @@ class SuggestTests(unittest.TestCase):
         tie = {'a': group('Мария', unit(np.cos(a), np.sin(a))), 'b': group('Иван', unit(np.cos(b), -np.sin(b)))}
         self.assertEqual(voices.suggest(prints(SPEAKER_00=unit(1, 0)), tie, set()), {})
 
-    def test_the_same_voice_under_another_name_is_not_a_rival(self):
+    def test_unconfirmed_names_remain_rivals_even_with_similar_voices(self):
         groups = {'a': group('Мария Петрова', unit(1, .05)), 'b': group('Мария', unit(1, -.05))}
-        self.assertEqual(voices.suggest(prints(SPEAKER_00=unit(1, .04)), groups, set())['SPEAKER_00']['name'], 'Мария Петрова')
+        self.assertEqual(voices.suggest(prints(SPEAKER_00=unit(1, .04)), groups, set()), {})
 
-    def test_a_person_wins_over_a_bare_name_of_the_same_voice(self):
+    def test_a_person_and_unlinked_bare_name_remain_rivals(self):
         groups = {'a': group('Мария', unit(1, .02)), ('person', 'p1'): dict(group('Мария Петрова', unit(1, .2)), person=True)}
-        self.assertEqual(voices.suggest(prints(SPEAKER_00=unit(1, 0)), groups, set())['SPEAKER_00']['name'], 'Мария Петрова')
+        self.assertEqual(voices.suggest(prints(SPEAKER_00=unit(1, 0)), groups, set()), {})
 
     def test_people_in_the_meeting_short_audio_and_named_speakers_are_skipped(self):
         groups = {'a': group('Мария', unit(1, 0))}
@@ -110,7 +111,7 @@ class ServiceVoiceTests(unittest.TestCase):
         directory = self.s.library.directory(key)
         atomic_json(directory / 'transcript.json', [dict(start=0, end=20, speaker=speaker, text='Добре.')])
         atomic_json(directory / 'speaker-turns.json', [dict(start=0, end=20, speaker=speaker)])
-        atomic_json(directory / voices.FILE, dict(model=MODEL, turns='x', speakers={speaker: dict(vector=list(vector), seconds=20.0)}))
+        atomic_json(directory / voices.FILE, dict(model=MODEL, turns=hashlib.sha256((directory / 'speaker-turns.json').read_bytes()).hexdigest(), speakers={speaker: dict(vector=list(vector), seconds=20.0)}))
         return key
 
     def test_detail_suggests_and_the_applied_name_renames_the_prints(self):
@@ -130,6 +131,8 @@ class ServiceVoiceTests(unittest.TestCase):
         stale = self.meeting('Sync', 'Иван', unit(0, 1))
         for key in (self.known, self.new, stale):
             (self.s.library.directory(key) / 'recording.wav').write_bytes(b'')
+            if key != self.known:
+                atomic_json(self.s.library.directory(key) / 'speaker-turns.json', [dict(start=0, end=30, speaker='Changed')])
         (directory / voices.FILE).write_text(json.dumps(dict(voices.read(directory), turns=__import__('hashlib').sha256((directory / 'speaker-turns.json').read_bytes()).hexdigest())))
         calls = []
         with mock.patch('app.diarization.availability', return_value=dict(available=True)), \

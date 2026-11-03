@@ -124,11 +124,14 @@ function thisIs(name,busy,apply) {
  });
  return select;
 }
-function renderSpeakerSettings() {
- const list=$('speaker-list'), names=state.speakers||[]; list.replaceChildren();
+function renderVoiceStatus(){
  const voice=state.voices||{},available=state.diarization?.available;
  $('voice-status').textContent=!available?'Voice learning needs the speaker model, which this build does not include.':voice.running?'Learning voices · '+voice.done+' of '+AtlantaUX.count(voice.total,'meeting'):voice.total?'Learned voices from '+AtlantaUX.count(voice.done-voice.failed,'meeting')+(voice.failed?' · '+voice.failed+' failed, see backend.log':''):'';
  $('learn-voices').disabled=!available||voice.running;
+}
+function renderSpeakerSettings() {
+ const list=$('speaker-list'), names=state.speakers||[]; list.replaceChildren();
+ renderVoiceStatus();
  if(!names.length) list.append(el('p','hint','No known speakers yet.'));
  for(const name of names) { const chip=el('span','speaker-chip'); const remove=el('button','quiet','✕'); remove.type='button'; remove.setAttribute('aria-label','Remove '+name); remove.onclick=()=>perform(()=>saveSpeakers(names.filter(n=>n!==name))); chip.append(speakerBadge(el('span'),name),el('span','',name),remove); list.append(chip); }
 }
@@ -368,6 +371,7 @@ async function openMeeting(id,force=false) {
 function renderState() {
  const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
  syncSpeakers();
+ if($('settings-dialog').open)renderVoiceStatus();
  syncProjects();
  const summary=state.task_summary||{open:0,overdue:0};
  // Mentions that wait for a choice come first; then late tasks, then open tasks.
@@ -1650,9 +1654,10 @@ async function loadReviewQueue(){
  if(!data.meetings.length){box.append(el('p','empty-content','Nothing waits for review. A processed meeting appears here while it has open steps.'));return;}
  for(const row of data.meetings){
   const card=el('div','attention review-queue-row'),head=el('div','attention-head'),title=el('button','quiet review-queue-title',withDate(row.title,row.created));
-  title.type='button';title.onclick=()=>perform(()=>openMeeting(row.id));head.append(title);card.append(head);
+  title.type='button';title.onclick=()=>row.repair?.length?openSettings('backup'):perform(()=>openMeeting(row.id));head.append(title);card.append(head);
   const add=(tone,text,label,run)=>{const line=el('div','attention-item '+tone),go=el('button','secondary small-action',label);go.type='button';
    go.onclick=()=>perform(async()=>{await openMeeting(row.id);if(view==='detail'&&detail?.id===row.id)await run();});line.append(el('i'),el('span','',text),go);card.append(line);};
+  if(row.repair?.length){const line=el('div','attention-item warn'),go=el('button','secondary small-action','Open Backup settings');go.type='button';go.onclick=()=>openSettings('backup');line.append(el('i'),el('span','','Needs repair · '+row.repair.join(', ')+'. Original files are preserved.'),go);card.append(line);box.append(card);continue;}
   // Names change the transcript and new notes change the items, so a confirm comes last.
   if(row.speakers)add('warn','Name '+AtlantaUX.count(row.speakers,'speaker'),'Name speakers',async()=>{switchTab('transcript');$('speaker-review-container').open=true;$('speaker-review').scrollIntoView({block:'center'});});
   if(row.notes==='proposal')add('info','New AI notes are ready','Review changes',async()=>openReview());

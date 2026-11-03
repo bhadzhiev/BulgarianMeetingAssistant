@@ -15,7 +15,7 @@ PROJECT=Path(__file__).resolve().parents[1]
 
 class FrontendTests(unittest.TestCase):
  def test_actual_reader_functions_and_shared_helpers(self):
-  for suite in ('tests/web_ux_regressions.cjs','tests/web_layout_regressions.cjs'):
+  for suite in ('tests/web_ux_regressions.cjs','tests/web_layout_regressions.cjs','tests/web_status_regressions.cjs'):
    subprocess.run(['node',suite],cwd=PROJECT,check=True,capture_output=True)
  def test_editor_private_pipe_does_not_include_content(self):
   import io

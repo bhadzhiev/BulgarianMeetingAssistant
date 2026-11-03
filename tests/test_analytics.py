@@ -204,7 +204,7 @@ class AnalyticsServiceTests(unittest.TestCase):
         atomic_json(directory / 'transcript.json', [segment(0, 4, 'Дали сме готови?')])
         (directory / 'recording.wav').write_bytes(b'not-used-by-mocked-diarizer')
         with patch('app.service.diarization.diarize', side_effect=RuntimeError('model unavailable')):
-            self.service._process(meeting_id, 'reanalyze', dict(DEFAULTS, diarization_enabled=True), '')
+            self.service._process(meeting_id, 'speakers', dict(DEFAULTS, diarization_enabled=True), '')
         meeting = self.service.library.get(meeting_id)
         self.assertEqual(meeting['status'], 'ready')
         self.assertEqual(meeting['diarization_error'], 'model unavailable')

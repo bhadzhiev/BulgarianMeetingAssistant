@@ -324,6 +324,7 @@ scores, and does not perform sentiment analysis.
   propose a name from earlier meetings (see **Voice suggestions**). Names already confirmed are
   not overwritten by a speaker retry.
   **Identify speakers after recording** retries this stage without rerunning Whisper or correction.
+  Re-running Analytics uses saved text and timelines only; it never starts speaker separation.
   Runtime/model errors appear next to the transcript; model dependencies are checked without
   importing torch during recording. An installed runtime does not prove model access.
 - **Speaker renaming.** Changing a generic label such as `SPEAKER_00` to a person's name
@@ -334,8 +335,10 @@ scores, and does not perform sentiment analysis.
   When a speaker has a name, the print learns that name. A new meeting then shows
   "Sounds like …" for an unnamed speaker, with **Use** to apply the name. A suggestion needs a
   similarity of at least 0.75, at least 10 s of audio, and a gap of 0.10 to another voice.
-  When two names share one voice, the name from People wins. Nothing changes until you apply
-  it. In real meetings the same person scored 0.82–0.90 and different people at most 0.68.
+  Only confirmed People aliases join names into one candidate. Similar voices belonging to
+  different people remain rivals. A changed speaker timeline invalidates the old print until
+  it is learned again. Nothing changes until you apply a suggestion. The observed scores
+  (0.82–0.90 for the same person, at most 0.68 for different people) are not identity guarantees.
   **Settings → Voices → Learn voices from saved meetings** makes prints for meetings that were
   separated before this feature. The prints stay on this Mac and are deleted with the meeting.
 - **Topic trackers.** Manage shared trackers in **Settings → Topic trackers**. Literal

@@ -358,7 +358,7 @@ MARKER_NAMES = {"important": "Важно", "decision": "Решение", "check"
 def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date: str | None = None,
                markers: list[dict[str, Any]] | None = None, meeting_type: str | dict = meeting_types.DEFAULT) -> str:
     kind = meeting_types.prompt(meeting_type)
-    kind = f"\n{kind}\n" if kind else ""
+    kind = f"\n<atlanta-meeting-type-instructions>{kind}</atlanta-meeting-type-instructions>\n"
     marked = ""
     if markers:
         lines = "\n".join(f"[{timestamp(m['time'])}] {MARKER_NAMES.get(m['kind'], m['kind'])}" + (f" — {m['note']}" if m.get("note") else "")

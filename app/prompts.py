@@ -14,7 +14,7 @@ from .work_items import WorkItemConflict,canonical
 
 STAGES={
  'meeting_minutes':('Meeting notes, tasks and decisions','Обобщи срещата на български. Разграничавай приети решения, изрични ангажименти и отворени въпроси. Запази английските технически термини. Не измисляй собственици или срокове.'),
- 'transcript_correction':('Transcript spelling correction','Поправи правописа и пунктуацията на българската реч. Запази смисъла, отрицанията, числата, имената и английските технически термини. При съмнение запази оригинала.'),
+ 'transcript_correction':('Transcript spelling correction','Коригирай българска реч с английски компютърни термини, продукти, съкращения и лични имена. Използвай зададения речник и известните участници за точно изписване, без превод на техническите термини и без добавяне на неподкрепени думи. Запази смисъла, отрицанията и числата. При съмнение запази оригинала.'),
  'meeting_title':('Meeting title','Предложи кратко конкретно заглавие, подкрепено от темите в транскрипта, без измислени имена или решения.'),
  'email_commitments':('Gmail commitments','Извлечи само изричните ангажименти и искания за действие от избраното писмо. Подкрепи ги с точен цитат.'),
  'task_draft':('Task draft from a source','Формулирай ясна изпълнима задача от избрания източник. Добави контекст и критерий за завършване само ако са подкрепени от текста.'),
@@ -43,6 +43,9 @@ def validate_store(data):
   for version in row['history']:
    if not isinstance(version,dict):raise ValueError('Invalid prompt version')
    if type(version.get('revision')) is not int or not isinstance(version.get('at'),str) or version.get('text') is not None and (not isinstance(version['text'],str) or not version['text'].strip() or len(version['text'])>MAX_TEXT):raise ValueError('Invalid prompt version')
+  if row.get('mode')=='replace' and (stage!='meeting_minutes' or not scope.startswith('type:')):raise ValueError('Invalid replacement scope')
+  if row.get('mode','append') not in {'append','replace'} or any(v.get('mode','append') not in {'append','replace'} for v in row['history']):raise ValueError('Invalid prompt mode')
+  if row.get('mode','append')!=row['history'][-1].get('mode','append'):raise ValueError('Prompt mode does not match its latest version')
   if row.get('text')!=row['history'][-1].get('text'):raise ValueError('Prompt does not match its latest version')
   if row.get('text') is not None and (not isinstance(row['text'],str) or not row['text'].strip() or len(row['text'])>MAX_TEXT):raise ValueError('Invalid saved prompt')
  return data
@@ -65,14 +68,15 @@ class Prompts:
   validate_store(data)
   if len(canonical(data).encode())>4_000_000:raise ValueError('Prompt library is full; shorten older instructions')
   atomic_json(self.path,data);self.data=data
- def save(self,stage,scope,text,revision):
+ def save(self,stage,scope,text,revision,mode='append'):
   key=key_for(stage,scope)
+  if mode not in {'append','replace'} or mode=='replace' and (stage!='meeting_minutes' or not scope.startswith('type:')):raise ValueError('Replacement is only available for meeting-type notes')
   if text is not None and (not isinstance(text,str) or not text.strip() or len(text)>MAX_TEXT):raise ValueError('Enter 1–8000 characters or reset to inherited instructions')
   with self.lock:
    if type(revision) is not int or revision!=self.data['revision']:raise WorkItemConflict('Prompt library changed. Reload before saving.')
    candidate=copy.deepcopy(self.data);row=candidate['entries'].setdefault(key,dict(text=None,history=[]));candidate['revision']+=1
-   row.update(text=text.strip() if text is not None else None)
-   row['history'].append(dict(revision=candidate['revision'],at=now(),text=row['text']));row['history']=row['history'][-20:]
+   row.update(text=text.strip() if text is not None else None,mode=mode)
+   row['history'].append(dict(revision=candidate['revision'],at=now(),text=row['text'],mode=mode));row['history']=row['history'][-20:]
    self._write(candidate);return copy.deepcopy(row)
  def snapshot(self,type_id=None,meeting_id=None):
   with self.lock:
@@ -83,8 +87,12 @@ class Prompts:
     layers=[]
     for scope in scopes:
      row=self.data['entries'].get(key_for(stage,scope))
-     if row and row['text'] is not None:layers.append(dict(scope=scope,text=row['text'],revision=row['history'][-1]['revision']))
-    stages[stage]=dict(default=default,layers=layers,effective='\n\n'.join([default]+[layer['text'] for layer in layers]))
+     if row and row['text'] is not None:layers.append(dict(scope=scope,text=row['text'],revision=row['history'][-1]['revision'],**({'mode':'replace'} if row.get('mode')=='replace' else {})))
+    effective=[default]
+    for layer in layers:
+     if layer.get('mode')=='replace':effective=[]
+     effective.append(layer['text'])
+    stages[stage]=dict(default=default,layers=layers,effective='\n\n'.join(effective))
    result=dict(revision=self.data['revision'],type_id=type_id,meeting_id=meeting_id,stages=stages)
    return dict(result,id=digest(result))
  def catalog(self):
@@ -112,6 +120,11 @@ def apply(settings,messages,stage):
  messages=[dict(message) for message in messages]
  snapshot=settings.get('_prompt_snapshot') or {};config=snapshot.get('stages',{}).get(stage,{})
  if not config.get('layers'):return messages
+ if stage=='meeting_minutes' and any(layer.get('mode')=='replace' for layer in config['layers']):
+  for message in messages:
+   if isinstance(message.get('content'),str):
+    header,separator,source=message['content'].partition('\nТРАНСКРИПТ:\n')
+    if separator:message['content']=re.sub(r'<atlanta-meeting-type-instructions>.*?</atlanta-meeting-type-instructions>','',header,count=1,flags=re.S)+separator+source
  context=dict(meeting_type=snapshot.get('type_id') or 'general',language='Bulgarian')
  instruction=config['effective']
  for key,value in context.items():instruction=instruction.replace('{'+key+'}',value)

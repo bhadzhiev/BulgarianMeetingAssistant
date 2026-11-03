@@ -595,10 +595,10 @@ class MeetingService:
             self._queue_metadata(meeting_id,enrich=not processing_started)
 
 
-    def process(self, meeting_id, action, use_saved=False):
+    def process(self, meeting_id, action, use_saved=False, preserve_notes=False):
         if self.closed.is_set():
             raise ValueError('The app is closing')
-        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'reanalyze', 'speakers'}:
+        if action not in {'all', 'transcribe', 'summarize', 'recover', 'correct', 'correct_summarize', 'reanalyze', 'speakers'}:
             raise ValueError('Unknown processing action')
         with self.lock:
             meeting = self.library.get(meeting_id)
@@ -613,15 +613,18 @@ class MeetingService:
                     action = 'summarize'
             settings = meeting['settings'] if use_saved else dict(self.settings, models_dir=str(self.models_dir))
             settings = migrate_settings(settings)
+            if preserve_notes:
+                if action!='all':raise ValueError('Preserve notes applies to full reprocessing')
+                settings['_reprocess_preserve_notes']=True
             # Processing retries do not opt old meetings into a different calendar or AI provider.
             for field in ['calendar_enabled','calendar_id','calendar_name','calendar_account','auto_title','title_provider','title_model']:
                 settings[field] = meeting['settings'].get(field, DEFAULTS[field] if field != 'auto_title' else False)
             settings = migrate_settings(settings)
-            if action == 'summarize' and settings['summarizer'] == 'none':
+            if action in {'summarize','correct_summarize'} and settings['summarizer'] == 'none':
                 raise ValueError('Choose Local API or OpenAI for notes in Settings first')
             settings.setdefault('transcript_correction', 'none')
             settings.setdefault('diarization_enabled', True)
-            if action == 'correct':
+            if action in {'correct','correct_summarize'}:
                 if settings['transcript_correction'] == 'none':
                     raise ValueError('Choose Local API or OpenAI for transcript correction in Settings first')
                 if not (self.library.directory(meeting_id) / 'transcript.json').exists():
@@ -634,10 +637,10 @@ class MeetingService:
             # Capture the key for this job; it is never persisted in metadata.
             key = self.api_key
             if (action in {'all', 'transcribe'} and settings['transcription'] == 'openai' or
-                action in {'all', 'summarize'} and settings['summarizer'] == 'openai' or
-                action in {'all', 'transcribe', 'correct'} and settings['transcript_correction'] == 'openai') and not key:
+                action in {'all', 'summarize','correct_summarize'} and settings['summarizer'] == 'openai' or
+                action in {'all', 'transcribe', 'correct','correct_summarize'} and settings['transcript_correction'] == 'openai') and not key:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
-            if action in {'all','summarize','correct','reanalyze'} and '_prompt_snapshot' not in settings:
+            if action in {'all','summarize','correct','correct_summarize','reanalyze'} and '_prompt_snapshot' not in settings:
                 settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting_id)
             self.busy.add(meeting_id)
             self.library.update(meeting_id, status='processing', error=None, settings=settings, progress='Queued for processing')
@@ -690,30 +693,37 @@ class MeetingService:
             directory = self.library.directory(meeting_id)
             progress = job.update
             imported = self.library.get(meeting_id)['mode'] == 'imported'
-            if action != 'reanalyze' and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
+            if action in {'all','transcribe','recover'} and not imported and (not (directory / 'recording.wav').exists() or action == 'recover'):
                 with job.step('Recovering audio'):
                     duration = self._execute('recover', directory, settings, progress)
                     self.library.update(meeting_id, duration=duration)
             if action in {'all', 'transcribe'}:
                 with job.step('Transcription'):
                     self._execute('transcribe', directory, settings, progress, key, self.library.speakers())
+                    if settings.get('_reprocess_preserve_notes'):
+                        self.library.update(meeting_id,notes_need_refresh=(directory/'minutes.json').exists(),notes_refresh_error=None)
             should_diarize = action in {'all', 'transcribe', 'speakers'} or (action == 'reanalyze' and not (directory / 'speaker-timeline.json').exists())
             if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
-            if action in {'all', 'transcribe', 'correct'} and settings.get('transcript_correction', 'none') != 'none':
+            if action in {'all', 'transcribe', 'correct','correct_summarize'} and settings.get('transcript_correction', 'none') != 'none':
                 try:
                     with job.step('Transcript correction'):
+                        before_correction=(directory/'transcript.json').read_bytes()
                         self._execute('correct', directory, settings, progress, key, self.library.speakers())
+                        if (directory/'transcript.json').read_bytes()!=before_correction:
+                            processing.archive(directory,['minutes.proposed.json'])
+                            (directory/'minutes.proposed.json').unlink(missing_ok=True)
+                            self.library.update(meeting_id,notes_need_refresh=(directory/'minutes.json').exists(),notes_refresh_error=None)
                         self.library.update(meeting_id, correction_error=None)
                 except JobCancelled:
                     raise
                 except Exception as exc:
-                    if action == 'correct':
+                    if action in {'correct','correct_summarize'}:
                         raise
                     message = str(exc).replace(key, '[redacted]') if key else str(exc)
                     self.library.update(meeting_id, correction_error=message)
-            if action == 'summarize' or action == 'all' and settings['summarizer'] != 'none':
+            if action in {'summarize','correct_summarize'} or action == 'all' and settings['summarizer'] != 'none':
                 with job.step('Meeting notes'):
                     self._execute('summarize', directory, settings, progress, key, self.library.speakers())
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
@@ -783,7 +793,7 @@ class MeetingService:
         try:
             progress('Building conversation analytics')
             result = self._execute('analytics', self.library.directory(meeting_id), settings, progress, trackers=self.library.trackers())
-            self.library.update(meeting_id, analytics_error=result.get('semantic_error'))
+            self.library.update(meeting_id, analytics_error=result.get('semantic_error'),analytics_need_refresh=bool(result.get('semantic_error')))
             return result
         except JobCancelled:
             raise
@@ -799,6 +809,7 @@ class MeetingService:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before editing')
             directory = self.library.directory(meeting_id)
+            if 'defer_analysis' in body and (type(body['defer_analysis']) is not bool or 'transcript' not in body):raise ValueError('Deferred analysis applies to a saved transcript')
             local_assignment=False
             if 'speaker_assignment' in body:
                 if set(body)!={'speaker_assignment'}:raise ValueError('Save other edits before assigning this speaker')
@@ -811,7 +822,7 @@ class MeetingService:
                 if not isinstance(indices,list) or not indices or len(indices)>100000 or any(type(index) is not int or not 0<=index<len(current) for index in indices) or len(set(indices))!=len(indices):raise ValueError('Choose existing transcript segments')
                 if name is not None and (not isinstance(name,str) or not name.strip() or len(name)>120 or any(ord(c)<32 for c in name)):raise ValueError('Enter a participant name, or choose Unidentified speaker')
                 selected=set(indices);name=name.strip() if name is not None else None
-                body=dict(transcript=[dict(segment,speaker=name) if index in selected else segment for index,segment in enumerate(current)],transcript_revision=revision)
+                body=dict(transcript=[dict(segment,speaker=name) if index in selected else segment for index,segment in enumerate(current)],transcript_revision=revision,defer_analysis=value.get('defer_analysis') is True)
                 local_assignment=True
             if 'refresh_notes' in body and (type(body['refresh_notes']) is not bool or 'transcript' not in body):
                 raise ValueError('Choose whether to refresh notes after saving a transcript')
@@ -920,6 +931,9 @@ class MeetingService:
                     self.process(meeting_id, 'summarize')
                 except ValueError as exc:
                     self.library.update(meeting_id, notes_refresh_error=str(exc))
+                return self.detail(meeting_id)
+            if body.get('defer_analysis'):
+                self.library.update(meeting_id,analytics_need_refresh=True)
                 return self.detail(meeting_id)
             self.busy.add(meeting_id)
         self._analyze_unlocked(meeting_id, analytics_settings)

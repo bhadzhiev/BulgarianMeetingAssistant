@@ -453,6 +453,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/followup/check':
                 from app.followup import check
                 result=check(service,body)
+            elif path in {'/api/reprocess/candidates','/api/reprocess/preview','/api/reprocess/start'}:
+                from app import reprocess
+                result=getattr(reprocess,path.rsplit('/',1)[1])(service,body)
             elif path == '/api/github/draft':
                 result = service.github_draft(body)
             elif path == '/api/github/link':

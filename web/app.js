@@ -1163,21 +1163,22 @@ $('github-link-close').onclick=()=>$('github-link-dialog').close();
 $('github-link-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
  try{await api('/api/github/link',{resource:linkResource,reference:$('github-link-ref').value,repository:$('github-link-repo').value});$('github-link-dialog').close();toast('Linked in Atlanta · GitHub is not changed');await afterGitHubLink(linkResource);}
  catch(e){$('github-link-error').textContent=e.message;$('github-link-error').hidden=false;}});};
-// Only a meeting proposal that no person has confirmed carries a badge.
-function reviewBadge(state){return state==='needs_review'?el('span','badge badge-review','AI proposed · needs review'):state==='edited'?el('span','badge badge-review','Edited · needs confirmation'):'';}
+// Statuses come from one vocabulary (status.js).
+function statusBadge(status,detail){return el('span','status-badge status-'+status.tone,status.label+(detail?' · '+detail:''));}
+function workReviewBadge(state){return ['needs_review','edited'].includes(state)?statusBadge(AtlantaStatus.status('review',state)):'';}
 function globalTaskRow(item,today) {
  const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), done=el('input'), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  done.type='checkbox';done.checked=item.status==='done';done.setAttribute('aria-label','Mark task as done');done.onchange=()=>perform(()=>changeItem(item,{status:done.checked?'done':'open'}));
  who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
  if(item.owner&&!item.manual?.includes('owner')){const confirm=el('button','quiet small-action owner-confirm','AI suggestion · Confirm');confirm.type='button';confirm.title='A person confirms this owner. Only confirmed owners count as commitments and reach GitHub drafts.';confirm.onclick=()=>perform(()=>changeItem(item,{owner:item.owner}));who.append(confirm);}
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
- meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline)); meta.append(reviewBadge(item.review_state));
+ meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline)); meta.append(workReviewBadge(item.review_state));
  main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(done,main); row.append(itemActions(item,row)); return row;
 }
 function decisionRow(item,byId) {
  const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
- meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status])); meta.append(reviewBadge(item.review_state));
+ meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status])); meta.append(workReviewBadge(item.review_state));
  if(item.superseded_by&&byId[item.superseded_by]) meta.append(el('span','hint','Replaced by: '+byId[item.superseded_by].text));
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
@@ -2348,11 +2349,9 @@ $('excerpt-form').onsubmit=async event=>{event.preventDefault();$('excerpt-error
 
 $('prepare-type').onchange=()=>{prepareScope.type=$('prepare-type').value;perform(loadPrepare);};
 function githubVerificationLabel(link){
- const checked=link.checked_at?' · last live check '+dateTime(link.checked_at):'';
- if(link.verification==='github')return 'Checked in GitHub'+checked;
- if(link.verification==='cached'){const cached=link.cached_at?dateTime(typeof link.cached_at==='number'?link.cached_at*1000:link.cached_at):'';return 'Found in local cache'+(cached?' · cached '+cached:'')+checked;}
- if(link.verification==='offline')return 'Not checked · offline or unavailable'+checked;
- return 'Verification source unknown · check again';
+ const status=AtlantaStatus.verification(link),checked=link.checked_at?' · last live check '+dateTime(link.checked_at):'';
+ const cached=status.state==='cached'&&link.cached_at?' · '+dateTime(typeof link.cached_at==='number'?link.cached_at*1000:link.cached_at):'';
+ return status.label+(status.state==='verified'?' in GitHub':'')+cached+checked;
 }
 $('github-draft-review').onclick=()=>{
  captureDraft();const buffer=draftBuffers.get(draftActiveKey);if(!buffer)return;
@@ -2491,9 +2490,9 @@ async function openMeetingReview(){
  if(summary.length){const list=el('ul','review-summary');for(const entry of summary){const line=el('li','',entry.text);if(entry.evidence_timestamp)line.append(' ',stampButton(entry.evidence_timestamp));list.append(line);}box.append(el('h3','','What Atlanta understood'),list);}
  const open=data.items.filter(item=>['needs_review','edited'].includes(item.state)).length;
  if(data.items.length)box.append(el('h3','',open?open+' of '+data.items.length+' need your review':'All '+data.items.length+' reviewed'));
- if(data.source_changed)box.append(el('p','notice warning','Source changed — update the notes before confirming.'));
+ if(data.source_changed)box.append(el('p','notice warning',AtlantaStatus.label('verification','changed')+' · update the notes before confirming.'));
  for(const item of data.items){
-  const row=el('section','note-section'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=el('span','badge',item.state==='confirmed'?'Confirmed':item.state==='dismissed'?'Dismissed':item.state==='edited'?'Edited · needs confirmation':'Needs review');
+  const row=el('section','note-section'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
   row.append(state,el('p','',item.text));
   if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
   for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen to evidence · '+evidence.timestamp,until:evidence.end,className:'secondary'}));
@@ -2524,11 +2523,12 @@ $('meeting-review-dialog').addEventListener('cancel',event=>{event.preventDefaul
 // The publication state and the next safe step. Atlanta never sends again by itself.
 function renderPublication(op,repository){
  const status=$('github-publish-status'),result=op.result||{},check=result.last_check;
- const text={verified:'Verified in GitHub · '+(result.checked_at?dateTime(result.checked_at):''),created:'Created · GitHub check pending',
-  failed:result.offline?'Offline — will not retry without approval. Your text is kept: copy it, or preview again later.':(result.error||'GitHub refused the request.')+' Nothing was created. Your text is kept: preview again to retry.',
-  unknown:check&&!check.matches?'Outcome unknown · a complete check at '+dateTime(check.at)+' found nothing in GitHub.':check?'Outcome unknown · GitHub has '+check.matches+' results with this operation. Open GitHub and resolve them there.':'Outcome unknown — Atlanta will not retry. Check GitHub before you try again.',
-  abandoned:'Not in GitHub · you can preview again for a new attempt.'}[op.state]||op.state;
- status.replaceChildren(document.createTextNode(text+' '));
+ const shown=AtlantaStatus.publication(op);
+ const detail={verified:'in GitHub'+(result.checked_at?' · '+dateTime(result.checked_at):''),created:'GitHub check pending.',
+  failed:(result.error||'GitHub refused the request.')+' Nothing was created. Your text is kept: preview again to retry.',offline:'Your text is kept: copy it, or preview again later.',
+  unknown:check&&!check.matches?'A complete check at '+dateTime(check.at)+' found nothing in GitHub.':check?'GitHub has '+check.matches+' results with this operation. Open GitHub and resolve them there.':'Atlanta will not retry. Check GitHub before you try again.',
+  abandoned:'You can preview again for a new attempt.',cancelled:'A newer preview replaced it.',approved:'Approve the preview to send it.'}[shown.state]||'';
+ status.replaceChildren(statusBadge(shown),document.createTextNode(' '+detail+' '));
  if(result.url){const link=el('a','','Open in GitHub ↗');link.href=result.url;link.target='_blank';link.rel='noopener noreferrer';status.append(link);}
  if(['unknown','created'].includes(op.state)){const button=el('button','secondary','Check GitHub outcome');button.type='button';button.onclick=()=>perform(async()=>{button.disabled=true;try{renderPublication(await api('/api/github/reconcile',{id:op.id,repository}),repository);}finally{button.disabled=false;}});status.append(button);}
  if(op.state==='unknown'&&check&&!check.matches){const button=el('button','secondary','Not in GitHub — allow a new attempt');button.type='button';button.onclick=()=>perform(async()=>{
@@ -2554,11 +2554,11 @@ function renderFollowup(data){
  for(const [key,label] of [['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
   const rows=follow[key]||[];if(!rows.length)continue;
   const section=el('section','note-section');section.append(el('h3','',label+' · '+rows.length));
-  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));card.append(reviewBadge(row.review));
+  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));card.append(workReviewBadge(row.review));
    if(row.quote)card.append(el('blockquote','',row.quote));
    if(row.source)card.append(sourceChip(row.source),sourceListen(row.source));
    if(row.item_id){const open=el('button','quiet','Open work item');open.onclick=()=>perform(async()=>{if(row.kind==='task')await openTaskPanel(row.item_id);else{show('tasks');lastTasks='';await loadTasks();showWorkTab(row.kind==='question'?'questions':'decision');}});card.append(open);}
-   for(const link of row.external||[]){const remote=el('a','',link.repository+' #'+link.number+' ↗');remote.href=link.url;remote.target='_blank';remote.rel='noopener noreferrer';card.append(remote,el('p','hint',link.verification_label+' · '+(link.state||'unknown')+' · '+(link.checked_at?dateTime(link.checked_at):link.cached_at?dateTime(link.cached_at*1000):'No check time')));if(link.completion_suggested)card.append(el('p','notice','The last known external state is closed. Check GitHub and review whether the local commitment is fulfilled; it remains open.'));}
+   for(const link of row.external||[]){const remote=el('a','',link.repository+' #'+link.number+' ↗');remote.href=link.url;remote.target='_blank';remote.rel='noopener noreferrer';card.append(remote,el('p','hint',githubVerificationLabel(link)+' · '+(link.state||'state unknown')));if(link.completion_suggested)card.append(el('p','notice','The last known external state is closed. Check GitHub and review whether the local commitment is fulfilled; it remains open.'));}
    section.append(card);
   }box.append(section);
  }

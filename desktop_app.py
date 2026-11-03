@@ -225,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/status.js': 'status.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})

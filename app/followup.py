@@ -15,8 +15,7 @@ def build(service, briefing, registry, meetings, minutes):
         links=service.github_links.for_resource('item',item['id'])
         external=[]
         for link in links:
-            external.append(dict(link,verification_label='Offline — last known state' if link.get('verification')=='offline' else 'Last checked in GitHub' if link.get('verification')=='github' else 'Cached — current state unknown',
-                                 completion_suggested=item.get('status')=='open' and link.get('state') in {'closed','merged'}))
+            external.append(dict(link,completion_suggested=item.get('status')=='open' and link.get('state') in {'closed','merged'}))
         source=next((t.get('source') for t in briefing['tasks'] if t['item_id']==item['id']),None)
         if not source:
             linked=[l for l in item.get('links',[]) if any(m['id']==l['meeting_id'] for m in meetings) and not l.get('detached')]

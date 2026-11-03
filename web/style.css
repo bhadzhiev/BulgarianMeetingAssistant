@@ -738,3 +738,6 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 .type-structure{margin-top:20px}.type-structure .work-actions{flex-wrap:wrap}
 #type-prompt-select,#type-prompt-text{width:100%;box-sizing:border-box}#type-prompt-text{resize:vertical;min-height:180px;line-height:1.6}
 @media(max-width:650px){.profile-said{grid-template-columns:28px minmax(0,1fr)}.profile-said small{grid-column:2}.profile-message{padding:12px}}
+
+/* One status vocabulary (status.js): the tone says how much attention a status needs. */
+.status-badge{display:inline-block;font-size:10px;letter-spacing:.6px;border-radius:5px;padding:4px 8px;white-space:nowrap;font-weight:600}.status-ok{background:var(--ok-soft);color:var(--ok)}.status-warn{background:var(--warn-soft);color:var(--warn-ink)}.status-danger{background:var(--danger-soft);color:var(--danger-ink)}.status-muted{background:var(--line-soft);color:var(--muted)}

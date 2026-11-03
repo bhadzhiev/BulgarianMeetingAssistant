@@ -13,7 +13,7 @@ class FollowupTests(unittest.TestCase):
         result=build(self.service,self.brief,[self.item],[self.meeting],{})
         row=result['commitments'][0]
         self.assertEqual(row['status'],'open');self.assertTrue(row['external'][0]['completion_suggested'])
-        self.assertIn('unknown',row['external'][0]['verification_label'])
+        self.assertEqual(row['external'][0]['verification'],'cached')
         self.assertEqual(row['quote'],'Maria will update the runbook')
         self.assertEqual(row['person_id'],'person');self.assertEqual(len(result['unchanged']),1)
     def test_inactivity_does_not_invent_blocker(self):

@@ -2517,21 +2517,30 @@ async function openMeetingReview(){
 $('meeting-review-close').onclick=async()=>{if(await leaveEdits()){editorDirty.clear('meeting-review');$('meeting-review-dialog').close();}};
 $('meeting-review-dialog').addEventListener('cancel',event=>{event.preventDefault();$('meeting-review-close').click();});
 
+// The publication state and the next safe step. Atlanta never sends again by itself.
+function renderPublication(op,repository){
+ const status=$('github-publish-status'),result=op.result||{},check=result.last_check;
+ const text={verified:'Verified in GitHub · '+(result.checked_at?dateTime(result.checked_at):''),created:'Created · GitHub check pending',
+  failed:result.offline?'Offline — will not retry without approval. Your text is kept: copy it, or preview again later.':(result.error||'GitHub refused the request.')+' Nothing was created. Your text is kept: preview again to retry.',
+  unknown:check&&!check.matches?'Outcome unknown · a complete check at '+dateTime(check.at)+' found nothing in GitHub.':check?'Outcome unknown · GitHub has '+check.matches+' results with this operation. Open GitHub and resolve them there.':'Outcome unknown — Atlanta will not retry. Check GitHub before you try again.',
+  abandoned:'Not in GitHub · you can preview again for a new attempt.'}[op.state]||op.state;
+ status.replaceChildren(document.createTextNode(text+' '));
+ if(result.url){const link=el('a','','Open in GitHub ↗');link.href=result.url;link.target='_blank';link.rel='noopener noreferrer';status.append(link);}
+ if(['unknown','created'].includes(op.state)){const button=el('button','secondary','Check GitHub outcome');button.type='button';button.onclick=()=>perform(async()=>{button.disabled=true;try{renderPublication(await api('/api/github/reconcile',{id:op.id,repository}),repository);}finally{button.disabled=false;}});status.append(button);}
+ if(op.state==='unknown'&&check&&!check.matches){const button=el('button','secondary','Not in GitHub — allow a new attempt');button.type='button';button.onclick=()=>perform(async()=>{
+  if(!(await ask('GitHub has no result for this publication. Allow a new attempt? A late result can still appear in GitHub; check it before you send again.',{ok:'Allow a new attempt'})))return;
+  renderPublication(await api('/api/github/abandon',{id:op.id}),repository);});status.append(button);}
+}
 $('github-publish-preview').onclick=()=>perform(async()=>{
  const button=$('github-publish-preview');button.disabled=true;
  try{
   const repository=$('github-draft-repo').value;
   const preview=await api('/api/github/preview',{resource:draftResource,format:draftFormat,repository,title:$('github-draft-issue-title').value,body:$('github-draft-body').value,target:Number($('github-publish-target').value)||null});
   const op=preview.operation,payload=op.payload;
-  if(op.state!=='approved'){
-   const status=$('github-publish-status');status.textContent='Existing publication: '+op.state+' · no new request sent';
-   if(['unknown','created'].includes(op.state)){const check=el('button','secondary','Check GitHub outcome');check.type='button';check.onclick=()=>perform(async()=>{const found=await api('/api/github/reconcile',{id:op.id,repository});status.textContent=found.state==='verified'?'Verified in GitHub: '+found.result.url:'Outcome still unconfirmed — no publication was retried';});status.append(check);}return;
-  }
+  if(op.state!=='approved'){renderPublication(op,repository);return;}
   const description=(payload.action==='issue'?'Create issue':'Add comment to #'+payload.target)+' in '+preview.repository+' as '+preview.account+'?\n\n'+payload.title+'\n\n'+payload.body;
   if(!(await ask(description,{ok:payload.action==='issue'?'Create in GitHub':'Add comment'})))return;
-  const result=await api('/api/github/publish',{id:op.id,repository});
-  const status=$('github-publish-status');status.replaceChildren(document.createTextNode(result.state==='unknown'?'Outcome unknown — do not retry publication. Check GitHub before taking further action.':result.state==='verified'?'Verified in GitHub · '+dateTime(result.result.checked_at):'Created · remote verification pending'));
-  if(result.result?.url){const link=el('a','',' Open in GitHub ↗');link.href=result.result.url;link.target='_blank';link.rel='noopener noreferrer';status.append(link);}
+  renderPublication(await api('/api/github/publish',{id:op.id,repository}),repository);
  }finally{button.disabled=false;}
 });
 

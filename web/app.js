@@ -2556,13 +2556,24 @@ $('github-publish-preview').onclick=()=>perform(async()=>{
  }finally{button.disabled=false;}
 });
 
+// Who took on a commitment. Only a person's choice links it; a name match or a shared name asks for one.
+function followupOwner(row){
+ const box=el('div','followup-owner'),link=person=>perform(async()=>{await api('/api/items/'+row.item_id,{text:row.text,revision:row.revision,changes:{owner_person_id:person}});await loadPrepare();});
+ const name=row.person_name||row.owner;
+ if(row.person_link==='linked'){const open=el('button','quiet','✓ '+name);open.type='button';open.title='Open this person';open.onclick=()=>perform(()=>openPerson(row.person_id));box.append(el('span','hint','Owner:'),open);return box;}
+ box.append(el('span','hint',row.owner?'Owner: '+row.owner+({name:' · matched by name, not confirmed',ambiguous:' · several people have this name'}[row.person_link]||' · not linked to a person'):'No owner'));
+ if(row.person_link==='name'){const confirm=el('button','quiet small-action','Confirm '+row.person_name);confirm.type='button';confirm.onclick=()=>link(row.person_id);box.append(confirm);}
+ const choose=el('select');choose.setAttribute('aria-label','Link a person');choose.append(option(row.person_link==='name'?'Someone else…':'Link a person…',''),...(state.people||[]).filter(p=>p.id!==row.person_id).map(p=>option(p.name,p.id)));
+ choose.onchange=()=>{if(choose.value)link(choose.value);};box.append(choose);
+ return box;
+}
 function renderFollowup(data){
  const follow=data.followup||{},box=$('followup-content');box.replaceChildren();
  $('followup-boundary').textContent=follow.anchor?'Since '+withDate(follow.anchor.title,follow.anchor.started_at||follow.anchor.created):'No previous meeting of this type — no comparison period yet.';
  for(const [key,label] of [['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
   const rows=follow[key]||[];if(!rows.length)continue;
   const section=el('section','note-section');section.append(el('h3','',label+' · '+rows.length));
-  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));card.append(workReviewBadge(row.review));
+  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.kind==='task')card.append(followupOwner(row));else if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));card.append(workReviewBadge(row.review));
    if(row.quote)card.append(el('blockquote','',row.quote));
    if(row.source)card.append(sourceChip(row.source),sourceListen(row.source));
    if(row.item_id){const open=el('button','quiet','Open work item');open.onclick=()=>perform(async()=>{if(row.kind==='task')await openTaskPanel(row.item_id);else{show('tasks');lastTasks='';await loadTasks();showWorkTab(row.kind==='question'?'questions':'decision');}});card.append(open);}

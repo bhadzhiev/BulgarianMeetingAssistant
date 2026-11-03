@@ -1114,10 +1114,11 @@ class MeetingService:
                               start=row['start'], text=row.get('text', '')) for row in mine]
         said.sort(key=lambda r: (r['date'], r['start']), reverse=True)
         with self.items.lock:
-            tasks = [i for i in self.items.items.values() if i['kind'] == 'task' and isinstance(i.get('owner'), str) and i['owner'].casefold() in names]
+            owned = [(i, self.people.owner_of(i)) for i in self.items.items.values() if i['kind'] == 'task']
+            tasks = [(i, how) for i, (owner, how) in owned if owner and owner['id'] == person_id]
         row = lambda i: dict(id=i['id'], text=i['text'], status=i['status'], due_date=i.get('due_date'), links=i.get('links', []))
-        confirmed = [row(i) for i in tasks if 'owner' in i.get('manual', [])]
-        suggested = [row(i) for i in tasks if 'owner' not in i.get('manual', [])]
+        confirmed = [row(i) for i, how in tasks if how == 'linked' or 'owner' in i.get('manual', [])]
+        suggested = [row(i) for i, how in tasks if how != 'linked' and 'owner' not in i.get('manual', [])]
         github = []
         if person['github'] and person['github'].get('id'):
             try:
@@ -1172,7 +1173,8 @@ class MeetingService:
                 source = {'gmail': 'Gmail', 'google_chat': 'Google Chat'}.get(found.get('provider')) or (
                     f"GitHub {remote.get('repository', '')}#{remote.get('number', '')}" if found.get('provider') == 'github' else None)
         return dict(target=target, kind=item['kind'], text=item['text'], quote=quote, speaker=speaker, moment=moment,
-                    project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_confirmed='owner' in item.get('manual', []),
+                    project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_person_id=item.get('owner_person_id'),
+                    owner_confirmed='owner' in item.get('manual', []) or bool(item.get('owner_person_id')),
                     due_date=item.get('due_date'), status=item['status'], source_label=source)
 
     def github_draft(self, body):
@@ -1212,7 +1214,7 @@ class MeetingService:
             quoted += '\n> — ' + data['speaker']
         owner = ''
         if data['owner'] and data['owner_confirmed']:
-            person = self.people.match(data['owner'])
+            person, _ = self.people.owner_of(data)
             owner = '@' + person['github']['login'] if person and person['github'] else data['owner']
             if person and person['github'] and not person['github'].get('id'):
                 notes.append(f"@{person['github']['login']} is not checked on GitHub yet; check it in Settings → People.")
@@ -1975,7 +1977,7 @@ class MeetingService:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
-            allowed = {'text', 'owner', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+            allowed = {'text', 'owner', 'owner_person_id', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
             allowed |= {'dismissed', 'snoozed_until'}
             if set(changes) - allowed:
                 raise ValueError('These fields cannot change here')
@@ -2001,6 +2003,14 @@ class MeetingService:
                     if value not in (items.TASK_STATES if item['kind'] == 'task' else items.DECISION_STATES):
                         raise ValueError('Invalid status')
                     clean[name] = value
+                elif name == 'owner_person_id':
+                    # A person chooses who owns the task. That also confirms the owner.
+                    person = self.people.get(value) if value is not None else None
+                    if value is not None and not person:
+                        raise ValueError('This person no longer exists. Reload and try again.')
+                    clean[name] = value
+                    if person and 'owner' not in changes:
+                        clean['owner'] = item.get('owner') if item.get('owner') and item['owner'].casefold() in self._person_names(person) else person['name']
                 elif name == 'due_date':
                     if value is not None:
                         try:
@@ -2012,6 +2022,11 @@ class MeetingService:
                     if value is not None and not isinstance(value, str):
                         raise ValueError(f'{name} must be text')
                     clean[name] = (value or '').strip()[:160] or None
+            # A new owner name that the linked person does not have ends the link.
+            linked = self.people.get(item.get('owner_person_id')) if item.get('owner_person_id') else None
+            if 'owner' in clean and 'owner_person_id' not in clean and item.get('owner_person_id') and (
+                    not linked or not clean['owner'] or clean['owner'].casefold() not in self._person_names(linked)):
+                clean['owner_person_id'] = None
             self.items.update(item_id, clean)
             self.items.save()
             # The notes of each meeting show the same state, so exports and searches agree.

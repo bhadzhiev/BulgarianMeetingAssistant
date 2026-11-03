@@ -41,6 +41,8 @@ def normalize(item):
                 or any(not isinstance(key, str) or not re.fullmatch(r'[a-f0-9]{12}', key) for key in ids) or len(set(ids)) != len(ids)):
             raise ValueError('Invalid WorkItem projects')
     item.setdefault('dismissed', False)
+    if item.get('owner_person_id') is not None and not (isinstance(item['owner_person_id'], str) and re.fullmatch(r'[a-f0-9]{12}', item['owner_person_id'])):
+        raise ValueError('Invalid WorkItem owner link')
     item.setdefault('snoozed_until', None)
     if type(item['dismissed']) is not bool:
         raise ValueError('Invalid WorkItem disposition')

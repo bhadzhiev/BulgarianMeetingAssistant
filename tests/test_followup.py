@@ -7,7 +7,7 @@ class FollowupTests(unittest.TestCase):
         self.meeting=dict(id='m',title='Review',created='2026-01-10T12:00:00',meeting_type='daily')
         self.item=dict(id='t',kind='task',status='open',text='Runbook',created='2026-01-01',owner='Maria',history=[],links=[dict(meeting_id='m',evidence_timestamp='00:00:03')],effective_project_ids=['p'])
         self.links=[dict(repository='org/repo',number=123,state='closed',verification='cached',cached_at=1,url='https://github.com/org/repo/issues/123')]
-        self.service=SimpleNamespace(github_links=SimpleNamespace(for_resource=lambda *a:self.links),people=SimpleNamespace(match=lambda name:dict(id='person')),detail=lambda key:dict(transcript=[dict(start=0,end=10,text='Maria will update the runbook')]))
+        self.service=SimpleNamespace(github_links=SimpleNamespace(for_resource=lambda *a:self.links),people=SimpleNamespace(owner_of=lambda item:(dict(id='person',name='Maria Ivanova'),'name')),detail=lambda key:dict(transcript=[dict(start=0,end=10,text='Maria will update the runbook')]))
         self.brief=dict(meeting_type='daily',project_id='p',series_id=None,tasks=[dict(item_id='t',source=None)],decisions=[],proposed=[],done=[],done_unknown=[])
     def test_closed_cached_issue_does_not_complete_local_work(self):
         result=build(self.service,self.brief,[self.item],[self.meeting],{})
@@ -15,7 +15,7 @@ class FollowupTests(unittest.TestCase):
         self.assertEqual(row['status'],'open');self.assertTrue(row['external'][0]['completion_suggested'])
         self.assertEqual(row['external'][0]['verification'],'cached')
         self.assertEqual(row['quote'],'Maria will update the runbook')
-        self.assertEqual(row['person_id'],'person');self.assertEqual(len(result['unchanged']),1)
+        self.assertEqual((row['person_id'],row['person_name'],row['person_link']),('person','Maria Ivanova','name'));self.assertEqual(len(result['unchanged']),1)
     def test_inactivity_does_not_invent_blocker(self):
         result=build(self.service,self.brief,[self.item],[self.meeting],{})
         self.assertEqual(result['blocked'],[])

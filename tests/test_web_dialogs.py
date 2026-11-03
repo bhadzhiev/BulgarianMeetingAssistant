@@ -11,3 +11,12 @@ class WebDialogTests(unittest.TestCase):
         code = re.sub(r'//[^\n]*', '', (WEB / 'app.js').read_text())
         self.assertEqual(re.findall(r'(?<![\w.])(?:window\.)?(?:confirm|prompt|alert)\(', code), [])
         self.assertIn('id="ask-dialog"', (WEB / 'index.html').read_text())
+
+    def test_meeting_review_is_a_tab_not_a_dialog(self):
+        # Review keeps the transcript, notes and player of the meeting one click away.
+        page, code = (WEB / 'index.html').read_text(), (WEB / 'app.js').read_text()
+        self.assertNotIn('meeting-review-dialog', page + code)
+        self.assertIn('id="tab-review"', page)
+        self.assertIn('<div id="review-panel" class="card" hidden>', page)
+        self.assertIn("['review','review-panel']", code)
+        self.assertIn("['review','outcomes','notes','analytics'].includes(tab)", code)

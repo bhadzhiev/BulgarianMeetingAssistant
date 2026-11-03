@@ -799,6 +799,20 @@ class MeetingService:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before editing')
             directory = self.library.directory(meeting_id)
+            local_assignment=False
+            if 'speaker_assignment' in body:
+                if set(body)!={'speaker_assignment'}:raise ValueError('Save other edits before assigning this speaker')
+                value=body['speaker_assignment']
+                if not isinstance(value,dict):raise ValueError('Choose a speaker for this turn')
+                current=read_json(directory/'transcript.json',[])
+                revision=hashlib.sha256(json.dumps(current,sort_keys=True).encode()).hexdigest()
+                if value.get('revision')!=revision:raise items.WorkItemConflict('The transcript changed. Reload before changing this speaker.')
+                indices=value.get('indices');name=value.get('name')
+                if not isinstance(indices,list) or not indices or len(indices)>100000 or any(type(index) is not int or not 0<=index<len(current) for index in indices) or len(set(indices))!=len(indices):raise ValueError('Choose existing transcript segments')
+                if name is not None and (not isinstance(name,str) or not name.strip() or len(name)>120 or any(ord(c)<32 for c in name)):raise ValueError('Enter a participant name, or choose Unidentified speaker')
+                selected=set(indices);name=name.strip() if name is not None else None
+                body=dict(transcript=[dict(segment,speaker=name) if index in selected else segment for index,segment in enumerate(current)],transcript_revision=revision)
+                local_assignment=True
             if 'refresh_notes' in body and (type(body['refresh_notes']) is not bool or 'transcript' not in body):
                 raise ValueError('Choose whether to refresh notes after saving a transcript')
             if 'transcript' in body:
@@ -853,7 +867,7 @@ class MeetingService:
                     segments.append(s)
                 renames = dict([requested_rename]) if requested_rename else {}
                 for old, new in zip(old_segments, segments):
-                    if (conversation.is_generic_speaker(old.speaker) and new.speaker
+                    if (not local_assignment and conversation.is_generic_speaker(old.speaker) and new.speaker
                             and not conversation.is_generic_speaker(new.speaker)
                             and new.speaker.strip() != old.speaker):
                         renames[old.speaker] = new.speaker.strip()
@@ -863,6 +877,8 @@ class MeetingService:
                                if old.speaker and new.speaker and old.speaker not in renames
                                and not conversation.is_generic_speaker(old.speaker)
                                and not conversation.is_generic_speaker(new.speaker) and new.speaker.strip() != old.speaker]
+                if local_assignment:
+                    corrections=[(new.start,new.end,old.speaker,new.speaker) for old,new in zip(old_segments,segments) if old.speaker!=new.speaker]
                 for segment in segments:
                     if segment.speaker in renames:
                         segment.speaker = renames[segment.speaker]

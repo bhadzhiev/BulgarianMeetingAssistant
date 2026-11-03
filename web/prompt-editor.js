@@ -1,6 +1,6 @@
 /* Versioned AI task layers. Test results never write meeting data. */
-let promptCatalog=null,promptRequestedScope=null,promptSelection=null,promptOriginal='',promptPreview=null,promptJob=null,promptTimer=null,promptSequence=0;
-function promptBody(){return {stage:$('prompt-stage').value,scope:$('prompt-scope').value,text:$('prompt-text').value.trim()||null,revision:promptCatalog.revision};}
+let promptCatalog=null,promptRequestedScope=null,promptSelection=null,promptOriginal='',promptPreview=null,promptJob=null,promptTimer=null,promptSequence=0,promptDraftMode='append';
+function promptBody(){return {stage:$('prompt-stage').value,scope:$('prompt-scope').value,text:$('prompt-text').value.trim()||null,revision:promptCatalog.revision,mode:promptDraftMode};}
 function promptError(error){$('prompt-error').textContent=error?.message||'';$('prompt-error').hidden=!error;}
 function promptDirty(){return $('prompt-text').value!==promptOriginal;}
 async function leavePromptEditor(){
@@ -27,7 +27,7 @@ async function renderPromptEffective(){
  }catch(error){if(seq===promptSequence)promptError(error);}
 }
 function renderPromptSelection(){
- const body=promptBody(),row=promptCatalog.entries[body.stage+'|'+body.scope];promptSelection={stage:body.stage,scope:body.scope};
+ const body=promptBody(),row=promptCatalog.entries[body.stage+'|'+body.scope];promptSelection={stage:body.stage,scope:body.scope};promptDraftMode=row?.mode||'append';
  $('prompt-text').value=row?.text||'';promptOriginal=$('prompt-text').value;editorDirty.clear('ai-prompts');invalidatePromptTest();promptError(null);
  $('prompt-history').replaceChildren(option('Choose a saved version…',''),...(row?.history||[]).slice().reverse().map(v=>option('v'+v.revision+' · '+date(v.at)+(v.text===null?' · inherited':''),String(v.revision))));
  $('prompt-reprocess').hidden=!(body.stage==='meeting_minutes'&&body.scope.startsWith('meeting:'));
@@ -56,7 +56,7 @@ async function savePrompt(reset=false){
 }
 $('prompt-save').onclick=()=>perform(()=>savePrompt());$('prompt-reset').onclick=()=>perform(async()=>{if(await ask('Reset this layer to inherited instructions? The previous text stays in version history.',{ok:'Reset layer'}))await savePrompt(true);});
 $('prompt-restore').onclick=()=>{const body=promptBody(),row=promptCatalog.entries[body.stage+'|'+body.scope],version=row?.history.find(v=>String(v.revision)===$('prompt-history').value);if(!version)return;
- $('prompt-text').value=version.text||'';$('prompt-text').dispatchEvent(new Event('input',{bubbles:true}));toast('Version loaded · choose Save instructions to restore it');};
+ promptDraftMode=version.mode||'append';$('prompt-text').value=version.text||'';$('prompt-text').dispatchEvent(new Event('input',{bubbles:true}));toast('Version loaded · choose Save instructions to restore it');};
 $('prompt-preview').onclick=()=>perform(async()=>{
  promptError(null);try{const body={...promptBody(),snippet:$('prompt-snippet').value},seq=++promptSequence,result=await api('/api/prompts/test/preview',body);if(seq!==promptSequence||JSON.stringify(body)!==JSON.stringify({...promptBody(),snippet:$('prompt-snippet').value}))return;
   promptPreview={...body,preview_token:result.preview_token};$('prompt-messages').textContent=JSON.stringify({messages:result.messages,schema:result.schema},null,2);$('prompt-request').hidden=false;$('prompt-request').open=true;

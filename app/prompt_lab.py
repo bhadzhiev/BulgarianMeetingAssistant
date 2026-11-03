@@ -37,26 +37,32 @@ def resolve(service,body):
         text=body['text']
         if text is not None and (not isinstance(text,str) or not text.strip() or len(text)>MAX_TEXT):raise ValueError('Enter 1–8000 characters, or reset to inherited instructions')
         saved=service.prompts.catalog()['entries'].get(stage+'|'+scope,{})
-        if text==saved.get('text'):return snapshot,kind
+        mode=body.get('mode',saved.get('mode','append'))
+        if mode not in {'append','replace'} or mode=='replace' and (stage!='meeting_minutes' or not scope.startswith('type:')):raise ValueError('Invalid replacement scope')
+        if text==saved.get('text') and mode==saved.get('mode','append'):return snapshot,kind
         config=snapshot['stages'][stage];config['layers']=[v for v in config['layers'] if v['scope']!=scope]
-        if text is not None:config['layers'].append(dict(scope=scope,text=text.strip(),revision='draft'))
-        config['effective']='\n\n'.join([config['default']]+[v['text'] for v in config['layers']]);snapshot['id']=digest({k:v for k,v in snapshot.items() if k!='id'})
+        if text is not None:config['layers'].append(dict(scope=scope,text=text.strip(),revision='draft',**({'mode':'replace'} if mode=='replace' else {})))
+        effective=[config['default']]
+        for layer in config['layers']:
+            if layer.get('mode')=='replace':effective=[]
+            effective.append(layer['text'])
+        config['effective']='\n\n'.join(effective);snapshot['id']=digest({k:v for k,v in snapshot.items() if k!='id'})
     return snapshot,kind
 
 
 def save(service,body):
     with service.lock:
         context(service,body.get('stage'),body.get('scope','global'))
-        service.prompts.save(body.get('stage'),body.get('scope','global'),body.get('text'),body.get('revision'))
+        service.prompts.save(body.get('stage'),body.get('scope','global'),body.get('text'),body.get('revision'),body.get('mode','append'))
         return service.prompts.catalog()
 
 
-def messages_for(stage,snippet,kind):
+def messages_for(stage,snippet,kind,settings=None,speakers=()):
     """Use production task contracts with a synthetic single source for previews."""
     from meeting_assistant import llm_prompt,minutes_schema
     from . import correction,task_draft,gmail_ai,repo_reports,search
     if stage=='meeting_minutes':return [dict(role='user',content=llm_prompt('[00:00:00] '+snippet,meeting_type=kind))],minutes_schema(meeting_types.sections(kind))
-    if stage=='transcript_correction':return [dict(role='system',content=correction.SYSTEM),dict(role='user',content=canonical([dict(id=0,text=snippet)]))],correction.schema(1)
+    if stage=='transcript_correction':return [dict(role='system',content=correction.system_prompt(settings or {},speakers)),dict(role='user',content=canonical([dict(id=0,text=snippet)]))],correction.schema(1)
     if stage=='meeting_title':
         from .meeting_automation import TITLE_SYSTEM
         return [dict(role='system',content=TITLE_SYSTEM),dict(role='user',content=snippet)],dict(type='object',additionalProperties=False,required=['title'],properties=dict(title=dict(type='string')))
@@ -78,7 +84,7 @@ def preview(service,body):
     # The lab deliberately uses the saved Notes & AI destination for every stage.
     # It is shown before approval; production stages retain their own providers.
     target=service.repo_reports.target();target['_prompt_snapshot']=snapshot
-    messages,schema=messages_for(stage,snippet,kind)
+    messages,schema=messages_for(stage,snippet,kind,service.settings,service.library.speakers())
     target['prompt_test']=dict(stage=stage,messages=messages,schema=schema,snippet=snippet)
     token=digest(dict(target=target,nonce=service.prompts.nonce))
     full=apply(target,messages,stage)+[dict(role='user',content='Return only one JSON object matching this schema: '+json.dumps(schema,ensure_ascii=False))]
@@ -160,6 +166,11 @@ class PromptLab:
 def catalog(service):
     result=service.prompts.catalog()
     result['types']=meeting_types.public(service.templates.list())
+    result['meeting_type_prompts']={}
+    for kind in result['types']:
+        instruction=meeting_types.prompt(meeting_types.definition(kind['id'],service.templates.get(kind['id'])))
+        global_text=result['entries'].get('meeting_minutes|global',{}).get('text')
+        result['meeting_type_prompts'][kind['id']]='\n\n'.join(text for text in [STAGES['meeting_minutes'][1],global_text,instruction] if text)
     result['meetings']=[dict(id=m['id'],title=m['title']) for m in service.library.list()]
     result['meeting_stages']=sorted(MEETING_STAGES)
     result['builtin_templates']={key:dict(label=value['label']+' copy',description=value['description'],prepare=key,

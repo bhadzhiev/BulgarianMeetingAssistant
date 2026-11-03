@@ -518,7 +518,9 @@ function renderTranscript(d,busy) {
  for(const turn of transcriptTurns(d.transcript)) {
   const row=el('article','dialogue-turn'+(!turn.speaker||/^SPEAKER[ _-]?\d+$/i.test(turn.speaker)?' uncertain':'')),header=el('div','dialogue-heading'),first=turn.segments[0].segment;
   const seek=listenButton(d.id,first.start,{className:'quiet dialogue-time'});
-  header.append(speakerBadge(el('span'),turn.speaker),el('strong','',turn.speaker||'Unidentified speaker'),seek);
+  const speakerChoice=el('button','quiet dialogue-speaker',turn.speaker||'Unidentified speaker');speakerChoice.type='button';speakerChoice.disabled=busy;speakerChoice.title='Change speaker for this turn only';speakerChoice.setAttribute('aria-label','Change speaker at '+time(first.start));
+  speakerChoice.onclick=()=>openTurnSpeakerEditor(d,turn,row,speakerChoice,busy);
+  header.append(speakerBadge(el('span'),turn.speaker),speakerChoice,seek);
   const text=el('p','dialogue-text');
   for(const {segment,index} of turn.segments){if(text.childNodes.length)text.append(document.createTextNode(' '));const fragment=el('span','transcript-fragment',segment.text.trim());fragment.dataset.segmentIndex=String(index);text.append(fragment);}
   row.append(header,text);target.append(row);
@@ -920,13 +922,13 @@ async function loadBackups() { renderBackups(await api('/api/backups')); }
 $('backup-now').onclick=()=>perform(async()=>{const button=$('backup-now');button.disabled=true;$('backup-status').textContent='Archiving and running the restore test… Large libraries take a few minutes.';
  try{const result=await api('/api/backups/create',{});renderBackups(result);$('backup-status').textContent='Archive created and verified · '+AtlantaUX.count(result.created.meetings,'meeting')+(result.created.skipped_meetings?.length?' · '+result.created.skipped_meetings.length+' active or processing meetings left out':'');}
  catch(e){$('backup-status').textContent='';throw e;}finally{button.disabled=false;}});
-const SETTINGS_GROUPS={recording:['recording'],ai:['notes','prompts','trackers'],people:['speakers','calendar'],workspace:['projects','types'],advanced:['backup','help']};
+const SETTINGS_GROUPS={recording:['recording','vocabulary'],ai:['notes','prompts','trackers'],people:['speakers','calendar'],workspace:['projects','types'],advanced:['backup','help']};
 function showSettingsTab(name) {
  const group=Object.keys(SETTINGS_GROUPS).find(key=>SETTINGS_GROUPS[key].includes(name))||'recording';
  for(const button of document.querySelectorAll('[data-settings-group]')){button.setAttribute('aria-selected',String(button.dataset.settingsGroup===group));button.classList.toggle('selected',button.dataset.settingsGroup===group);}
  document.querySelector('.settings-tabs').hidden=SETTINGS_GROUPS[group].length===1;
  for(const button of document.querySelectorAll('.settings-tabs button'))button.hidden=!SETTINGS_GROUPS[group].includes(button.dataset.tab);
- settingsTab=name; $('settings-save').hidden=!['recording','notes','calendar'].includes(name); document.querySelector('.advanced-toggle').hidden=!['recording','notes'].includes(name);document.querySelector('.settings-footer').hidden=!['recording','notes','calendar'].includes(name); if(name==='prompts')perform(loadPromptEditor); if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings(); if(name==='types') renderTypeSettings();
+ settingsTab=name; $('settings-save').hidden=!['recording','vocabulary','notes','calendar'].includes(name); document.querySelector('.advanced-toggle').hidden=!['recording','notes'].includes(name);document.querySelector('.settings-footer').hidden=!['recording','vocabulary','notes','calendar'].includes(name); if(name==='prompts')perform(loadPromptEditor); if(name==='backup') perform(loadBackups); if(name==='projects') renderProjectSettings(); if(name==='types') renderTypeSettings();
  for(const tab of document.querySelectorAll('.settings-tabs button')) { const yes=tab.dataset.tab===name; tab.classList.toggle('selected',yes); tab.setAttribute('aria-selected',String(yes)); }
  for(const panel of document.querySelectorAll('.settings-panel')) panel.hidden=panel.dataset.tab!==name;
  document.querySelector('.settings-body').scrollTop=0;
@@ -970,7 +972,7 @@ $('viewer-close').onclick=()=>$('viewer-dialog').close();
 $('viewer-dialog').onclick=event=>{if(event.target===$('viewer-dialog'))$('viewer-dialog').close();};
 // The fields that Save settings sends. Speakers, topics and projects save with their own buttons.
 function settingsValues(){
- const fields=$('settings-form').querySelectorAll('.settings-panel:is([data-tab=recording],[data-tab=notes],[data-tab=calendar]) :is(input:not([type=file]):not([type=button]),select,textarea)');
+ const fields=$('settings-form').querySelectorAll('.settings-panel:is([data-tab=recording],[data-tab=vocabulary],[data-tab=notes],[data-tab=calendar]) :is(input:not([type=file]):not([type=button]),select,textarea)');
  return JSON.stringify([...fields].map(f=>f.type==='checkbox'?f.checked:f.value));
 }
 let settingsOpened='';
@@ -2620,7 +2622,7 @@ async function loadTypePrompt(){
  $('type-prompt-text').disabled=true;
  const catalog=await api('/api/prompts');if(seq!==typePromptSequence)return;
  typePromptCatalog=catalog;typePromptSelected=id;const type=typeOf(id),entry=catalog.entries['meeting_minutes|type:'+id];
- $('type-prompt-text').value=entry?.text||'';typePromptOriginal=$('type-prompt-text').value;editorDirty.clear('type-prompt');
+ const standard=catalog.meeting_type_prompts[id];$('type-prompt-text').value=entry?.text?(entry.mode==='replace'?entry.text:standard+'\n\n'+entry.text):standard;typePromptOriginal=$('type-prompt-text').value;editorDirty.clear('type-prompt');
  $('type-prompt-description').textContent=type.description;$('type-prompt-sections').textContent=type.sections.map(s=>s.title).join(' · ')||'Summary, decisions, tasks and questions';
  $('type-prompt-structure').textContent=type.custom?'Edit template structure':'Customize a copy';
  $('type-prompt-status').textContent=catalog.error||'Changes affect future AI notes for '+type.label+'.';
@@ -2629,13 +2631,30 @@ async function loadTypePrompt(){
 $('type-prompt-select').onchange=()=>perform(async()=>{const wanted=$('type-prompt-select').value;if(!(await leaveTypePrompt())){$('type-prompt-select').value=typePromptSelected;return;}$('type-prompt-select').value=wanted;await loadTypePrompt();});
 $('type-prompt-text').oninput=()=>{editorDirty.set('type-prompt',typePromptDirty());editorHeartbeat();$('type-prompt-status').textContent=typePromptDirty()?'Unsaved changes':'Saved instructions';};
 async function saveTypePrompt(reset=false){
- const selected=typePromptSelected,body={stage:'meeting_minutes',scope:'type:'+selected,text:reset?null:$('type-prompt-text').value.trim()||null,revision:typePromptCatalog.revision};
+ const selected=typePromptSelected,body={stage:'meeting_minutes',scope:'type:'+selected,text:reset?null:$('type-prompt-text').value.trim(),revision:typePromptCatalog.revision,mode:'replace'};
  $('type-prompt-save').disabled=$('type-prompt-reset').disabled=true;$('type-prompt-select').disabled=$('type-prompt-text').disabled=true;
  try{await api('/api/prompts/save',body);typePromptOriginal=reset?'':$('type-prompt-text').value;editorDirty.clear('type-prompt');await loadTypePrompt();$('type-prompt-status').textContent='Saved · applies to future notes.';}
  catch(error){$('type-prompt-status').textContent=error.message+' Your text is kept. Copy it before reloading settings.';throw error;}
  finally{$('type-prompt-save').disabled=$('type-prompt-reset').disabled=!!typePromptCatalog.error;$('type-prompt-select').disabled=false;$('type-prompt-text').disabled=!!typePromptCatalog.error;}
 }
 $('type-prompt-save').onclick=()=>perform(()=>saveTypePrompt());
-$('type-prompt-reset').onclick=()=>perform(async()=>{if(await ask('Reset instructions for this meeting type? Previous text remains in saved version history.',{ok:'Reset instructions'}))await saveTypePrompt(true);});
+$('type-prompt-reset').onclick=()=>perform(async()=>{if(await ask('Restore the default prompt for this meeting type? Your previous version stays in history.',{ok:'Reset to default'}))await saveTypePrompt(true);});
 $('type-prompt-structure').onclick=()=>perform(async()=>{const type=typeOf($('type-prompt-select').value);if(type.custom)openTemplate(type.template);else{const catalog=await api('/api/prompts');openTemplate(catalog.builtin_templates[type.id]);templateEditing=null;$('template-delete').hidden=true;}});
 $('type-prompt-advanced').onclick=()=>perform(async()=>{if(!(await leaveTypePrompt()))return;promptRequestedScope='type:'+$('type-prompt-select').value;showSettingsTab('prompts');});
+
+function openTurnSpeakerEditor(d,turn,row,button,busy){
+ if(hasEdits()){toast('Save or cancel other edits before changing this speaker');return;}
+ button.disabled=true;editorDirty.set('turn-speaker',true);editorHeartbeat();
+ const box=el('div','turn-speaker-editor'),label=el('label','','Speaker for this turn only'),choice=el('select'),name=el('input'),save=el('button','primary','Save speaker'),cancel=el('button','secondary','Cancel'),status=el('p','hint');
+ choice.setAttribute('aria-label','Speaker for this turn');choice.append(option('Unidentified speaker',''),...[...new Set([...(state.speakers||[]),...d.transcript.map(s=>s.speaker).filter(Boolean)])].map(value=>option(value,value)),option('New participant…','__new__'));choice.value=turn.speaker||'';
+ name.placeholder='Participant name';name.maxLength=120;name.setAttribute('aria-label','New participant name');name.hidden=true;
+ choice.onchange=()=>{name.hidden=choice.value!=='__new__';if(!name.hidden)name.focus();};
+ save.type=cancel.type='button';label.append(choice);box.append(label,name,el('p','hint','Only this turn changes. Other turns keep their current speaker.'),save,cancel,status);row.append(box);
+ const close=()=>{editorDirty.clear('turn-speaker');editorHeartbeat();box.remove();button.disabled=busy;};cancel.onclick=close;
+ save.onclick=async()=>{const speaker=choice.value==='__new__'?name.value.trim():choice.value;if(choice.value==='__new__'&&!speaker){status.textContent='Enter a participant name';name.focus();return;}save.disabled=cancel.disabled=choice.disabled=name.disabled=true;
+  try{const updated=await api('/api/meetings/'+d.id+'/edit',{speaker_assignment:{revision:d.transcript_revision,indices:turn.segments.map(s=>s.index),name:speaker||null}});close();if(detail?.id===d.id){detail=updated;lastFingerprint=JSON.stringify(updated);renderDetail();}toast('Speaker saved for this turn'+(updated.notes_need_refresh?' · notes need update':''));}
+  catch(error){status.textContent=error.message;save.disabled=cancel.disabled=choice.disabled=name.disabled=false;}
+ };
+}
+
+$('open-vocabulary-settings').onclick=()=>{showSettingsTab('vocabulary');$('whisper-vocabulary').focus();};

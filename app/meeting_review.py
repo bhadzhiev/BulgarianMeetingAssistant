@@ -43,7 +43,11 @@ def snapshot(service, meeting_id):
             stamp=link['evidence_timestamp']
             segment=segment_at(meeting.get('transcript',[]),stamp)
             if segment:evidence.append(dict(quote=segment['text'],timestamp=stamp,start=segment['start'],end=segment['end']))
-        rows.append(dict(evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,
+        # Routing is not review content: a project or destination change keeps the review.
+        projects=service.effective_project_ids(item)
+        routing=dict(project_ids=copy.deepcopy(item.get('project_ids')),effective_project_ids=projects,
+                     destination_repository=item.get('destination_repository'),repositories=service.project_repositories(projects) if item['kind']=='task' else [])
+        rows.append(dict(routing,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,
                          revision=item.get('revision'),content=digest,receipt=copy.deepcopy(receipt),
                          links=copy.deepcopy(item.get('links',[]))))
     rows.sort(key=lambda row:ORDER[row['state']])

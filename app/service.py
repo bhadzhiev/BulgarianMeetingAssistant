@@ -1175,7 +1175,8 @@ class MeetingService:
         return dict(target=target, kind=item['kind'], text=item['text'], quote=quote, speaker=speaker, moment=moment,
                     project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_person_id=item.get('owner_person_id'),
                     owner_confirmed='owner' in item.get('manual', []) or bool(item.get('owner_person_id')),
-                    due_date=item.get('due_date'), status=item['status'], source_label=source)
+                    due_date=item.get('due_date'), status=item['status'], source_label=source,
+                    destination_repository=item.get('destination_repository'))
 
     def github_draft(self, body):
         """Markdown for a GitHub issue or comment. The person copies it, or publishes it after a preview."""
@@ -1187,7 +1188,8 @@ class MeetingService:
         projects = [self.projects.get('projects', key) for key in data['project_ids']]
         projects = [p for p in projects if p]
         choices = [r for p in projects for r in p.get('repositories', [])]
-        repository = body.get('repository') or (choices[0] if choices else '')
+        chosen = data.get('destination_repository')
+        repository = body.get('repository') or (chosen if chosen in choices else choices[0] if choices else '')
         if repository:
             repository = repo_name(repository)
         with_meeting, with_speaker = body.get('include_meeting', True) is not False, body.get('include_speaker') is True
@@ -1756,6 +1758,18 @@ class MeetingService:
         """A finished recording can play from any moment; a meeting that is still recording has none yet."""
         return meeting_id != self.active and (self.library.directory(meeting_id) / 'recording.wav').is_file()
 
+    def effective_project_ids(self, item, meetings=None):
+        """A person's project choice, or else the projects of the meetings that discussed the item."""
+        meetings = self._meeting_refs() if meetings is None else meetings
+        known = {p['id'] for p in self.projects.data['projects']}
+        assigned = item.get('project_ids')
+        effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
+        return sorted({key for key in effective if key in known})
+
+    def project_repositories(self, project_ids):
+        """The GitHub repositories that the projects name: the only places a task can go."""
+        return sorted({r for key in project_ids for r in (self.projects.get('projects', key) or {}).get('repositories', [])})
+
     def _meeting_refs(self):
         return {m['id']: dict(title=m['title'], date=m.get('started_at') or m['created'], project_id=m.get('project_id'), has_audio=self._has_audio(m['id']))
                 for m in self.library.list()}
@@ -1777,12 +1791,8 @@ class MeetingService:
         with self.lock, self.items.lock:
             self._refresh_items()
             meetings = self._meeting_refs()
-            known = {p['id'] for p in self.projects.data['projects']}
-            rows = []
-            for item in self.items.items.values():
-                assigned = item.get('project_ids')
-                effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
-                rows.append(dict(item, effective_project_ids=sorted({key for key in effective if key in known}), review_state=review_state(item)))
+            rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item))
+                    for item in self.items.items.values()]
             graph = WorkGraph(self.items).snapshot()
             conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
             # Pinned conversation bodies are fetched on demand, not with every My Work refresh.
@@ -1977,7 +1987,7 @@ class MeetingService:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
-            allowed = {'text', 'owner', 'owner_person_id', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+            allowed = {'text', 'owner', 'owner_person_id', 'destination_repository', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
             allowed |= {'dismissed', 'snoozed_until'}
             if set(changes) - allowed:
                 raise ValueError('These fields cannot change here')
@@ -2011,6 +2021,14 @@ class MeetingService:
                     clean[name] = value
                     if person and 'owner' not in changes:
                         clean['owner'] = item.get('owner') if item.get('owner') and item['owner'].casefold() in self._person_names(person) else person['name']
+                elif name == 'destination_repository':
+                    # Where the task goes when a person publishes it: a repository of its projects, or this Mac only.
+                    if value is not None:
+                        from .github_source import repo_name
+                        value = repo_name(value)
+                        if value.casefold() not in {r.casefold() for r in self.project_repositories(self.effective_project_ids(item))}:
+                            raise ValueError('Choose a repository of the task project')
+                    clean[name] = value
                 elif name == 'due_date':
                     if value is not None:
                         try:

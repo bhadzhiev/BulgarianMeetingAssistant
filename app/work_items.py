@@ -43,6 +43,8 @@ def normalize(item):
     item.setdefault('dismissed', False)
     if item.get('owner_person_id') is not None and not (isinstance(item['owner_person_id'], str) and re.fullmatch(r'[a-f0-9]{12}', item['owner_person_id'])):
         raise ValueError('Invalid WorkItem owner link')
+    if item.get('destination_repository') is not None and not (isinstance(item['destination_repository'], str) and re.fullmatch(r'[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}', item['destination_repository'])):
+        raise ValueError('Invalid WorkItem destination')
     item.setdefault('snoozed_until', None)
     if type(item['dismissed']) is not bool:
         raise ValueError('Invalid WorkItem disposition')

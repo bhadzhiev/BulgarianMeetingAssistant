@@ -726,3 +726,15 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 .sidebar:has(#project-filter[hidden]) .recent-filter-label{display:none}
 
 .capture-shortcuts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.drop-active{outline:3px dashed var(--green);outline-offset:4px}.setup-heading{flex-wrap:wrap}.capture-shortcuts button{font-size:12px}
+
+/* Message text has its own full-width row; transcript sample columns are separate. */
+.profile-message{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0;padding:14px;border:1px solid var(--line);border-radius:10px;min-width:0}
+.profile-message p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
+.profile-message .hint{margin:0;overflow-wrap:anywhere}
+.profile-message button{justify-self:start;width:auto}
+.profile-said{grid-template-columns:28px minmax(0,1fr) minmax(0,180px)}
+.profile-said>*{min-width:0;overflow-wrap:anywhere}
+.identity-row{min-width:0;flex-wrap:wrap}.identity-row .hint{overflow-wrap:anywhere;min-width:0}
+.type-structure{margin-top:20px}.type-structure .work-actions{flex-wrap:wrap}
+#type-prompt-select,#type-prompt-text{width:100%;box-sizing:border-box}#type-prompt-text{resize:vertical;min-height:180px;line-height:1.6}
+@media(max-width:650px){.profile-said{grid-template-columns:28px minmax(0,1fr)}.profile-said small{grid-column:2}.profile-message{padding:12px}}

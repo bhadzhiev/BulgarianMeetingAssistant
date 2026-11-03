@@ -377,7 +377,15 @@
 <details id="google-advanced"><summary>Advanced · use your own Google OAuth client</summary><label for="google-client-file">Google Desktop OAuth client JSON</label><input id="google-client-file" type="file" accept="application/json,.json"><p class="hint">Only needed when this app has no built-in Google client. Credentials are stored in macOS Keychain.</p></details>
 </div>
 <div class="settings-panel" data-tab="projects" role="tabpanel" hidden><p class="hint">Deleting a project or series never deletes meetings; they only leave the group.</p><div id="project-list" class="project-list"></div></div>
-<div class="settings-panel" data-tab="types" role="tabpanel" hidden><p class="hint">A meeting type adds a few sections to the notes and changes Prepare me. Make your own template with up to three sections. A meeting keeps a copy of its template, so later edits never change saved notes.</p><div id="type-list" class="type-list"></div><button id="add-template" class="secondary" type="button">＋ New template</button></div>
+<div class="settings-panel" data-tab="types" role="tabpanel" hidden>
+<label for="type-prompt-select">Meeting type</label><select id="type-prompt-select"></select>
+<p id="type-prompt-description" class="hint"></p><p id="type-prompt-sections" class="type-sections"></p>
+<label for="type-prompt-text">Additional AI instructions for this meeting type</label><textarea id="type-prompt-text" rows="9" maxlength="8000" placeholder="For example: keep English technical terms, highlight dependencies and use concise Bulgarian…"></textarea>
+<p class="hint">These instructions apply to future notes of this type. Existing notes stay unchanged. Leave blank to use inherited instructions.</p>
+<p id="type-prompt-status" role="status" class="hint"></p>
+<div class="work-actions"><button id="type-prompt-save" type="button" class="primary">Save instructions</button><button id="type-prompt-reset" type="button" class="secondary">Reset to inherited</button></div>
+<details class="type-structure"><summary>Template structure and advanced prompts</summary><p class="hint">Sections control the notes format. Additional instructions control language, style and focus.</p><div class="work-actions"><button id="type-prompt-structure" type="button" class="secondary">Customize a copy</button><button id="type-prompt-advanced" type="button" class="quiet">All AI prompts…</button><button id="add-template" class="secondary" type="button">＋ New template</button></div></details>
+<div id="type-list" hidden></div></div>
 <div class="settings-panel" data-tab="prompts" role="tabpanel" hidden>
 <p class="hint">Edit the task instructions for each AI operation. Built-in source handling, JSON schemas and evidence checks remain enforced. Changes affect future runs; saved notes and tasks stay unchanged. Retry keeps the instructions of its original run.</p>
 <div class="prompt-grid"><label>AI operation<select id="prompt-stage"></select></label><label>Apply to<select id="prompt-scope"></select></label></div>

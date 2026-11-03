@@ -320,14 +320,24 @@ scores, and does not perform sentiment analysis.
   merged first. Simultaneous speech by different speakers counts toward each speaker.
 - **Speaker review after the meeting.** Open the Transcript tab, find **Speakers · after recording**,
   listen from an example and use **Apply name**. The name applies to that voice throughout this
-  meeting, with a transcript revision check to reject stale reviews. This does not identify the
-  same person in another meeting. Names already confirmed are not overwritten by a speaker retry.
+  meeting, with a transcript revision check to reject stale reviews. A voice suggestion can
+  propose a name from earlier meetings (see **Voice suggestions**). Names already confirmed are
+  not overwritten by a speaker retry.
   **Identify speakers after recording** retries this stage without rerunning Whisper or correction.
   Runtime/model errors appear next to the transcript; model dependencies are checked without
   importing torch during recording. An installed runtime does not prove model access.
 - **Speaker renaming.** Changing a generic label such as `SPEAKER_00` to a person's name
   updates every matching segment and timeline interval in that meeting, then rebuilds its
   analytics. Generic IDs are not assumed to represent the same person in other meetings.
+- **Voice suggestions.** Speaker separation also saves a voice print for each speaker in
+  `voiceprints.json`: the mean speaker embedding of up to 60 s of the speaker's longest turns.
+  When a speaker has a name, the print learns that name. A new meeting then shows
+  "Sounds like …" for an unnamed speaker, with **Use** to apply the name. A suggestion needs a
+  similarity of at least 0.75, at least 10 s of audio, and a gap of 0.10 to another voice.
+  When two names share one voice, the name from People wins. Nothing changes until you apply
+  it. In real meetings the same person scored 0.82–0.90 and different people at most 0.68.
+  **Settings → Voices → Learn voices from saved meetings** makes prints for meetings that were
+  separated before this feature. The prints stay on this Mac and are deleted with the meeting.
 - **Topic trackers.** Manage shared trackers in **Settings → Topic trackers**. Literal
   phrases match locally and case-insensitively, with timestamped transcript evidence.
   Optional semantic matching uses only the configured Local AI endpoint and validates every

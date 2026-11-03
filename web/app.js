@@ -56,7 +56,8 @@ function renderAttention(busy){
  const toOutcomes=()=>{switchTab('outcomes');$('outcomes-panel').scrollIntoView({block:'start'});};
  if(d.error)add('bad','Processing stopped: '+d.error,'Show details',async()=>$('detail-error').scrollIntoView({block:'center'}));
  const generic=[...new Set(d.transcript.map(s=>s.speaker).filter(name=>name&&/^SPEAKER[ _-]?\d+$/i.test(name)))];
- if(generic.length)add('warn','Name '+generic.length+(generic.length===1?' speaker':' speakers')+' so tasks and talk time use real names','Name speakers',async()=>{switchTab('transcript');$('speaker-review-container').open=true;$('speaker-review').scrollIntoView({block:'center'});});
+ const voiced=generic.filter(name=>d.voice_suggestions?.[name]).length;
+ if(generic.length)add('warn','Name '+generic.length+(generic.length===1?' speaker':' speakers')+' so tasks and talk time use real names'+(voiced?' · '+voiced+' voice '+(voiced===1?'suggestion':'suggestions'):''),'Name speakers',async()=>{switchTab('transcript');$('speaker-review-container').open=true;$('speaker-review').scrollIntoView({block:'center'});});
  if(d.minutes_proposal?.changes?.length)add('warn','New AI notes are ready · '+d.minutes_proposal.changes.length+' changes to review','Review changes',async()=>openReview());
  else if(d.notes_need_refresh||d.notes_refresh_error)add('warn',d.notes_refresh_error||'The transcript changed after the notes were made','Review update',async()=>{switchTab('transcript');$('primary-action').scrollIntoView({block:'center'});});
  const links=['tasks','decisions'].reduce((n,field)=>n+(minutes[field]||[]).filter(m=>m.link&&!m.item_id).length,0);
@@ -98,6 +99,10 @@ function renderSpeakerReview(busy) {
    detail=await api('/api/meetings/'+detail.id+'/edit',{speaker_name:{speaker:name,name:value,revision:detail.transcript_revision}});speakerNaming=false;lastFingerprint=JSON.stringify(detail);state=await api('/api/state');renderState();renderDetail();return true;};
   const save=el('button','secondary','Apply name');save.type='button';save.disabled=busy;save.onclick=()=>perform(async()=>{if(!input.value.trim()){error('Enter a participant name.');return;}if(await apply(input.value.trim()))toast('Speaker name applied to this meeting');});
   row.append(label,listen,input,save,thisIs(name,busy,apply));target.append(row);
+  // A voice suggestion is only a hint: listen first, and nothing changes until a person applies it.
+  const voice=detail.voice_suggestions?.[name];
+  if(voice){const hint=el('p','hint voice-hint','Sounds like '+voice.name+' from '+AtlantaUX.count(voice.meetings,'earlier meeting')+' · similarity '+voice.similarity.toFixed(2)+' '),use=el('button','secondary small-action','Use '+voice.name);
+   use.type='button';use.disabled=busy;use.onclick=()=>perform(async()=>{if(await apply(voice.name))toast('Speaker name applied to this meeting');});hint.append(use);target.append(hint);}
  }
 }
 // The person that a speaker name belongs to: the same name or one of the person's other names.
@@ -121,6 +126,9 @@ function thisIs(name,busy,apply) {
 }
 function renderSpeakerSettings() {
  const list=$('speaker-list'), names=state.speakers||[]; list.replaceChildren();
+ const voice=state.voices||{},available=state.diarization?.available;
+ $('voice-status').textContent=!available?'Voice learning needs the speaker model, which this build does not include.':voice.running?'Learning voices · '+voice.done+' of '+AtlantaUX.count(voice.total,'meeting'):voice.total?'Learned voices from '+AtlantaUX.count(voice.done-voice.failed,'meeting')+(voice.failed?' · '+voice.failed+' failed, see backend.log':''):'';
+ $('learn-voices').disabled=!available||voice.running;
  if(!names.length) list.append(el('p','hint','No known speakers yet.'));
  for(const name of names) { const chip=el('span','speaker-chip'); const remove=el('button','quiet','✕'); remove.type='button'; remove.setAttribute('aria-label','Remove '+name); remove.onclick=()=>perform(()=>saveSpeakers(names.filter(n=>n!==name))); chip.append(speakerBadge(el('span'),name),el('span','',name),remove); list.append(chip); }
 }
@@ -157,6 +165,7 @@ function renderProfile(profile){
  list('Recent statements',profile.said.slice(0,10),row=>{const line=el('div','profile-said');line.append(listenButton(row.meeting_id,row.start,{label:'',className:'chip-listen'}),el('span','',row.text),el('small','hint',row.meeting_title));return line;},'No transcript uses these names yet.');
  if(profile.person.github)list('Assigned on GitHub (cached)',profile.github,item=>el('p','profile-row',item.repository+' #'+item.number+' · '+item.title+' · '+item.state),'Nothing in the GitHub cache. Sync the GitHub tab to see assigned issues.');
 }
+$('learn-voices').onclick=()=>perform(async()=>{const job=await api('/api/voices/learn',{});state.voices=job;renderSpeakerSettings();toast(job.total?'Learning voices from '+AtlantaUX.count(job.total,'meeting'):'Every saved meeting already has voice prints');});
 $('add-person').onclick=()=>perform(()=>openPerson(null));
 $('person-close').onclick=()=>$('person-dialog').close();
 $('person-dialog').addEventListener('close',()=>{pendingSpeaker=null;});

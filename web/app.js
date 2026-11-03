@@ -304,7 +304,7 @@ async function applyRoute(){
  const q=new URLSearchParams(location.search),target=q.get('view'),meeting=q.get('meeting');
  routing=true;
  try{
-  if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){await openMeeting(meeting);const tab=q.get('tab');if(view==='detail'&&['outcomes','notes','analytics'].includes(tab))switchTab(tab);}
+  if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){await openMeeting(meeting);const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','analytics'].includes(tab))switchTab(tab);}
   else if(target==='work'){if(WORK_PANELS[q.get('tab')])workTab=q.get('tab');await $('open-tasks').onclick();const source=q.get('source');if(workTab==='gmail'&&source)await openMail(source);else if(workTab==='chat'&&source){chatSpace=source;await loadChat();}else if(workTab==='github'){if(q.get('section')==='reports'){showGitHubSection('reports');if(q.get('report'))await openRepoReport(q.get('report'));}else if(source&&/^\d+$/.test(source))await openGitHubItem(Number(source));}}
   else if(target==='projects'){
    const project=q.get('project')||'',select=$('workspace-project');
@@ -483,8 +483,9 @@ function renderSavedDraft(meeting) {
 
 function privacy(s) { let text=s.transcription==='openai'?'Audio is sent to OpenAI for transcription.'+(s.summarizer==='openai'?' Transcript text is also sent for notes.':''):s.summarizer==='openai'?'Transcription stays local. Transcript text is sent to OpenAI for notes.':'Transcription stays on this Mac. Local text AI uses the configured API endpoint.';if(s.transcript_correction==='openai')text+=' Transcript text is sent to OpenAI for AI correction.';if(s.auto_title&&s.title_provider==='openai')text+=' Transcript excerpts are sent to OpenAI for titles.';if(s.calendar_enabled)text+=' Meeting titles, times and local links are saved in Google Calendar.';return text; }
 function switchTab(name) {
- for(const [tab,panel] of [['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
+ for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
  meetingTab=name;syncRoute(true);
+ if(name==='review')perform(openMeetingReview);
 }
 function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=false; $('save-transcript').textContent=refreshNotesAfterEdit?'Save & update notes':'Save corrections'; }
 async function withEditorSave(container,save){if(!validDates(container))return;editorDirty.set('saving',true);container.inert=true;try{return await save();}finally{container.inert=false;editorDirty.clear('saving');editorHeartbeat();}}
@@ -531,6 +532,7 @@ function transcriptSegmentTools(d,index,textarea,busy){
  tools.append(split,merge);return tools;
 }
 function renderDetail() {
+ syncReviewPanel();
  $('detail-refresh-notice').hidden=!detailChangedWhileEditing;
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
  $('detail-title').textContent=d.title;$('detail-title').title=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?'Ready for review':'Transcript ready'):statusNames[d.status]||d.status;
@@ -2006,7 +2008,7 @@ for(const name of ['notes','outcomes']) {
  $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!(await ask('Discard your changes to the notes?',{ok:'Discard',danger:true})))return;notesEditing=false;await openMeeting(selected,true);});
 }
 $('reanalyze').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});
-for(const tab of ['transcript','outcomes','notes','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
+for(const tab of ['review','transcript','outcomes','notes','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
 $('settings-open').onclick=()=>openSettings();$('settings-inline').onclick=()=>openSettings('recording');
 for(const tab of document.querySelectorAll('.settings-tabs button')) tab.onclick=()=>showSettingsTab(tab.dataset.tab);
 // A required field on a hidden tab would block saving without a visible message.
@@ -2403,7 +2405,7 @@ let editorStateSent=null,editorHeartbeatAt=0;
 function editorHeartbeat(){if(!state?.desktop_mode)return;const dirty=hasEdits(),now=Date.now();if(dirty===editorStateSent&&now-editorHeartbeatAt<5000)return;editorStateSent=dirty;editorHeartbeatAt=now;api('/api/editor-state',{dirty}).catch(()=>{editorStateSent=null;});}
 document.addEventListener('input',()=>queueMicrotask(editorHeartbeat));document.addEventListener('change',()=>queueMicrotask(editorHeartbeat));setInterval(editorHeartbeat,500);
 
-$('review-primary').onclick=()=>perform(async()=>{if(detail.minutes_proposal)openReview();else await openMeetingReview();});
+$('review-primary').onclick=()=>perform(async()=>{if(detail.minutes_proposal)openReview();else{switchTab('review');$('review-panel').scrollIntoView({block:'start'});}});
 
 function markDialogDirty(event){const dialog=event.target.closest?.('dialog');if(dialog&&dialog.id!=='ask-dialog')editorDirty.set('dialog:'+dialog.id,true);}
 document.addEventListener('input',markDialogDirty);document.addEventListener('change',markDialogDirty);
@@ -2479,12 +2481,21 @@ for(const event of ['dragenter','dragover'])dropZone.addEventListener(event,e=>{
 dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drop-active'));
 dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('drop-active');perform(async()=>{if(event.dataTransfer.files.length!==1)throw new Error('Drop one file at a time');const file=event.dataTransfer.files[0];validateImportFile(file);const files=new DataTransfer();files.items.add(file);$('import-file').files=files.files;$('import-button').disabled=false;$('import-drop-status').textContent='Checked '+file.name+' · saving locally…';await $('import-button').onclick();});});
 
+// Review lives in the meeting as a tab: the transcript, notes and player stay one click away.
+let reviewShownFor=null;
+function syncReviewPanel(){
+ if(reviewShownFor===detail.id)return;
+ // Another meeting: an unsaved inline edit belonged to the previous one, which openMeeting already left.
+ editorDirty.clear('meeting-review');reviewShownFor=null;$('meeting-review-body').replaceChildren();
+ if(meetingTab==='review')perform(openMeetingReview);
+}
 async function openMeetingReview(){
- if(hasEdits()){toast('Save your edits before reviewing');return;}
- const meetingId=detail.id;
+ const meetingId=detail.id,box=$('meeting-review-body');
+ // An open inline edit stays; the panel refreshes after it is saved or cancelled.
+ if(editorDirty.keys().includes('meeting-review'))return;
  const data=await api('/api/meeting-review',{meeting_id:meetingId});
  if(detail.id!==meetingId)return;
- const box=$('meeting-review-body');box.replaceChildren();
+ reviewShownFor=meetingId;box.replaceChildren();
  // What Atlanta understood: the saved summary statements, each with its moment.
  const summary=typeof data.summary==='string'?[{text:data.summary}]:(data.summary||[]).filter(entry=>entry?.text);
  if(summary.length){const list=el('ul','review-summary');for(const entry of summary){const line=el('li','',entry.text);if(entry.evidence_timestamp)line.append(' ',stampButton(entry.evidence_timestamp));list.append(line);}box.append(el('h3','','What Atlanta understood'),list);}
@@ -2514,11 +2525,8 @@ async function openMeetingReview(){
   box.append(row);
  }
  if(!data.items.length)box.append(el('p','hint','No linked tasks or decisions. Review the saved notes and unresolved mentions in Tasks & decisions.'));
- if(!$('meeting-review-dialog').open)$('meeting-review-dialog').showModal();
  box.querySelector('.review-pending')?.scrollIntoView({block:'nearest'});
 }
-$('meeting-review-close').onclick=async()=>{if(await leaveEdits()){editorDirty.clear('meeting-review');$('meeting-review-dialog').close();}};
-$('meeting-review-dialog').addEventListener('cancel',event=>{event.preventDefault();$('meeting-review-close').click();});
 
 // The publication state and the next safe step. Atlanta never sends again by itself.
 function renderPublication(op,repository){

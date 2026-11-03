@@ -446,10 +446,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/meeting-review':
                 from app.meeting_review import snapshot, act
                 result = act(service,body) if body.get('action') else snapshot(service,body.get('meeting_id'))
-            elif path in {'/api/github/preview','/api/github/publish','/api/github/verify','/api/github/reconcile'}:
+            elif path in {'/api/github/preview','/api/github/publish','/api/github/verify','/api/github/reconcile','/api/github/abandon'}:
                 from app.github_publish import Publisher
                 publisher=Publisher(service)
-                result=publisher.preview(body) if path.endswith('/preview') else publisher.publish(body.get('id'),body.get('repository')) if path.endswith('/publish') else publisher.reconcile(body.get('id'),body.get('repository')) if path.endswith('/reconcile') else publisher.verify(body.get('id'))
+                result=publisher.preview(body) if path.endswith('/preview') else publisher.publish(body.get('id'),body.get('repository')) if path.endswith('/publish') else publisher.reconcile(body.get('id'),body.get('repository')) if path.endswith('/reconcile') else publisher.abandon(body.get('id')) if path.endswith('/abandon') else publisher.verify(body.get('id'))
             elif path == '/api/followup/check':
                 from app.followup import check
                 result=check(service,body)

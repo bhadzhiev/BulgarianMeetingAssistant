@@ -1175,7 +1175,7 @@ class MeetingService:
                     due_date=item.get('due_date'), status=item['status'], source_label=source)
 
     def github_draft(self, body):
-        """Markdown for a GitHub issue or comment that the person copies and publishes. Atlanta writes nothing."""
+        """Markdown for a GitHub issue or comment. The person copies it, or publishes it after a preview."""
         from .github_source import repo_name
         fmt = body.get('format')
         if fmt not in {'issue', 'comment'}:

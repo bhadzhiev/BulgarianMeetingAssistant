@@ -3,6 +3,8 @@ import datetime as dt
 import hashlib
 import json
 import re
+import socket
+import urllib.error
 import urllib.request
 from .commit_journal import CommitJournal
 from .github_source import repo_name, _NoRedirect, GitHubError
@@ -17,6 +19,15 @@ def post(resource,payload,token):
         raw=response.read(8_000_001)
         if len(raw)>8_000_000:raise GitHubError('Response too large; check publication outcome.')
         return json.loads(raw)
+
+
+def _not_sent(exc):
+    """Errors after which GitHub surely has no result. Anything else may have left this Mac."""
+    if isinstance(exc,urllib.error.HTTPError):
+        return dict(error=f'GitHub refused the request ({exc.code}).',status=exc.code) if 400<=exc.code<500 and exc.code!=408 else None
+    if isinstance(exc,urllib.error.URLError) and isinstance(exc.reason,(socket.gaierror,ConnectionRefusedError)):
+        return dict(error='GitHub could not be reached.',offline=True)
+    return None
 
 
 class Publisher:
@@ -70,9 +81,9 @@ class Publisher:
                 locator=f'/repos/{repo}/issues/'+(f'comments/{result["id"]}' if payload['action']=='comment' else str(number))
                 url=f'https://github.com/{repo}/issues/{number}'+(f'#issuecomment-{result["id"]}' if payload['action']=='comment' else '')
                 operation=self.journal.transition(key,'sending','created',dict(id=result['id'],number=number,url=url,locator=locator,repository=repo))
-            except Exception:
-                self.journal.transition(key,'sending','unknown')
-                return self.journal.get(key)
+            except Exception as exc:
+                failure=_not_sent(exc)
+                return self.journal.transition(key,'sending','failed',failure) if failure else self.journal.transition(key,'sending','unknown')
         return self.verify(key)
 
     def reconcile(self,key,repository):
@@ -89,13 +100,20 @@ class Publisher:
             matches.extend(row for row in response['data'] if marker in (row.get('body') or '') and str(row.get('user',{}).get('id'))==account)
             if not response.get('has_next'):break
         else:return operation
-        if len(matches)!=1:return operation
+        if len(matches)!=1:return self.journal.record_check(key,len(matches))
         row=matches[0];number=payload['target'] if payload['action']=='comment' else row.get('number')
         if type(row.get('id')) is not int or type(number) is not int:return operation
         locator=f'/repos/{repo}/issues/'+(f'comments/{row["id"]}' if payload['action']=='comment' else str(number))
         url=f'https://github.com/{repo}/issues/{number}'+(f'#issuecomment-{row["id"]}' if payload['action']=='comment' else '')
         self.journal.transition(key,'unknown','created',dict(id=row['id'],number=number,url=url,locator=locator,repository=repo))
         return self.verify(key)
+
+    def abandon(self,key):
+        """A person confirms there is no result after a complete check. A new preview may follow."""
+        operation=self.journal.get(key);check=(operation.get('result') or {}).get('last_check')
+        if operation['state']!='unknown' or not check or check['matches']:
+            raise ValueError('Check GitHub first. A new attempt is possible only when a complete check finds nothing.')
+        return self.journal.transition(key,'unknown','abandoned',dict(operation['result'],abandoned_at=dt.datetime.now(dt.timezone.utc).isoformat()))
 
     def verify(self,key):
         operation=self.journal.get(key)

@@ -23,6 +23,7 @@ import sounddevice as sd
 from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
 from .storage import Library, atomic_json, atomic_text
 from .transcripts import segment_at
+from .meeting_review import review_state
 from .jobs import Job, JobCancelled
 from . import processing
 from . import correction
@@ -1779,7 +1780,7 @@ class MeetingService:
             for item in self.items.items.values():
                 assigned = item.get('project_ids')
                 effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
-                rows.append(dict(item, effective_project_ids=sorted({key for key in effective if key in known})))
+                rows.append(dict(item, effective_project_ids=sorted({key for key in effective if key in known}), review_state=review_state(item)))
             graph = WorkGraph(self.items).snapshot()
             conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
             # Pinned conversation bodies are fetched on demand, not with every My Work refresh.

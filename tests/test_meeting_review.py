@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from threading import RLock
 from app.items import Registry
-from app.meeting_review import snapshot, act
+from app.meeting_review import snapshot, act, review_state
 from app.work_items import WorkItemConflict
 
 class MeetingReviewTests(unittest.TestCase):
@@ -55,3 +55,43 @@ class MeetingReviewTests(unittest.TestCase):
         self.service.items.items[self.key]['links'][0]['meeting_id']='b'*32
         self.service.items.save()
         self.assertEqual(snapshot(self.service,self.mid)['items'],[])
+
+    def test_dismiss_hides_the_item_everywhere_and_restore_brings_it_back(self):
+        act(self.service,self.body('dismiss'))
+        item=self.service.items.items[self.key]
+        self.assertTrue(item['dismissed']);self.assertEqual(snapshot(self.service,self.mid)['items'][0]['state'],'dismissed')
+        self.assertEqual(act(self.service,self.body('restore'))['items'][0]['state'],'needs_review')
+        self.assertFalse(self.service.items.items[self.key]['dismissed'])
+
+    def test_restore_in_my_work_reopens_the_review(self):
+        act(self.service,self.body('dismiss'))
+        self.service.items.items[self.key]['dismissed']=False;self.service.items.save()
+        self.assertEqual(snapshot(self.service,self.mid)['items'][0]['state'],'needs_review')
+
+    def test_confirm_brings_back_an_item_dismissed_in_my_work(self):
+        self.service.items.items[self.key]['dismissed']=True;self.service.items.save()
+        act(self.service,self.body())
+        self.assertFalse(self.service.items.items[self.key]['dismissed'])
+        self.assertEqual(review_state(self.service.items.items[self.key]),'confirmed')
+
+    def test_status_change_keeps_the_confirmation(self):
+        act(self.service,self.body())
+        self.service.items.items[self.key]['status']='done';self.service.items.save()
+        self.assertEqual(snapshot(self.service,self.mid)['items'][0]['state'],'confirmed')
+
+    def test_item_confirmed_in_another_meeting_cannot_be_dismissed_here(self):
+        act(self.service,self.body());item=self.service.items.items[self.key]
+        item['meeting_reviews']['b'*32]=item['meeting_reviews'].pop(self.mid);self.service.items.save()
+        with self.assertRaises(ValueError):act(self.service,self.body('dismiss'))
+        self.assertFalse(self.service.items.items[self.key]['dismissed'])
+
+    def test_review_state_shows_what_a_person_confirmed(self):
+        self.assertEqual(review_state(self.service.items.items[self.key]),'needs_review')
+        act(self.service,self.body())
+        self.assertEqual(review_state(self.service.items.items[self.key]),'confirmed')
+        self.service.items.items[self.key]['text']='Changed';self.assertEqual(review_state(self.service.items.items[self.key]),'needs_review')
+
+    def test_items_that_need_review_come_first(self):
+        other=self.service.items.create('task',dict(task='Second task',status='open'),self.mid);self.service.items.save()
+        act(self.service,self.body())
+        self.assertEqual([r['id'] for r in snapshot(self.service,self.mid)['items']],[other,self.key])

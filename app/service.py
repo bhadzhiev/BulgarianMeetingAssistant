@@ -22,6 +22,7 @@ import sounddevice as sd
 
 from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
 from .storage import Library, atomic_json, atomic_text
+from .transcripts import segment_at
 from .jobs import Job, JobCancelled
 from . import processing
 from . import correction
@@ -1156,9 +1157,9 @@ class MeetingService:
             meeting = meetings[link['meeting_id']]
             moment = dict(meeting_id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'], seconds=seconds)
             rows = read_json(self.library.directory(meeting['id']) / 'transcript.json', [])
-            segment = next((r for r in rows if r['start'] <= seconds + .5 < max(r['end'], r['start'] + 1)), None)
+            segment = segment_at(rows, stamp)
             if segment:
-                quote, speaker = segment['text'].strip(), segment.get('speaker')
+                quote, speaker = segment['text'], segment['speaker']
             break
         if not quote:
             graph = WorkGraph(self.items).snapshot()

@@ -1,5 +1,6 @@
 """Evidence-backed follow-up projections. Never changes local commitments from remote state."""
 from . import meeting_types
+from .transcripts import segment_at
 
 
 def build(service, briefing, registry, meetings, minutes):
@@ -23,10 +24,8 @@ def build(service, briefing, registry, meetings, minutes):
                 source=dict(meeting_id=meeting['id'],meeting_title=meeting['title'],meeting_date=meeting.get('started_at') or meeting['created'],timestamp=link.get('evidence_timestamp'))
         quote=None
         if source and source.get('timestamp'):
-            seconds=sum(int(part)*60**n for n,part in enumerate(reversed(source['timestamp'].split(':'))))
-            transcript=service.detail(source['meeting_id'])['transcript']
-            segment=next((s for s in transcript if s['start']<=seconds<s['end']),None)
-            if segment:quote=segment['text']
+            segment=segment_at(service.detail(source['meeting_id'])['transcript'],source['timestamp'])
+            if segment:quote=segment['text'];source=dict(source,start=segment['start'],end=segment['end'])
         person=service.people.match(item.get('owner') or '')
         return dict(item_id=item['id'],revision=item.get('revision'),kind=item['kind'],text=item['text'],owner=item.get('owner'),person_id=person['id'] if person else None,source=source,quote=quote,external=external,status=item['status'])
     rows={key:row(item) for key,item in scoped.items()}

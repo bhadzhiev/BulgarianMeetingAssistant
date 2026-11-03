@@ -457,6 +457,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.github_user(body.get('login'))
             elif path == '/api/projects/repositories':
                 result = service.set_project_repositories(body.get('id'), body.get('repositories'))
+            elif path == '/api/voices/learn':
+                result = service.learn_voices()
             elif path == '/api/meeting-review':
                 from app.meeting_review import snapshot, act
                 result = act(service,body) if body.get('action') else snapshot(service,body.get('meeting_id'))

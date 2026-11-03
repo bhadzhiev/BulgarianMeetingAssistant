@@ -40,6 +40,8 @@ def execute(action, directory, settings, progress, key='', speakers=(), trackers
         return correction.correct(directory, settings, progress, key, speakers)
     if action == 'diarize':
         return diarization.diarize(directory, progress)
+    if action == 'voices':
+        return diarization.learn(directory, progress)
     if action == 'recover':
         return capture.render_recording(directory)
     if action == 'analytics':
@@ -148,7 +150,7 @@ def main():
     from .desktop import control_output
     output = control_output()
     request = json.loads(sys.stdin.readline())
-    if request.get('action') == 'diarize':
+    if request.get('action') in {'diarize', 'voices'}:
         configure_speaker_runtime(request['directory'])
     def parent():
         # The parent keeps stdin open. EOF means it died; do not orphan inference.

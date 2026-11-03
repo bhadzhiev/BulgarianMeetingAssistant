@@ -758,3 +758,4 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 .card-heading>button:not(.quiet){font-size:12px;padding:9px 15px}
 .conversation-card>input[type=checkbox]{width:17px;height:17px;margin:11px 0 0;flex:none}
 .review-queue-title{padding:0;color:var(--ink);font-size:14px;text-align:left}
+.voice-hint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 12px}

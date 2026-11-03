@@ -25,12 +25,8 @@ def availability():
         'Speaker separation is not installed in this build. Recording and Whisper still work.'))
 
 
-def diarize(directory: Path, progress=lambda message: None) -> list[dict]:
-    """Create a speaker timeline without sending audio to a network service."""
+def _load(progress):
     global _pipeline
-    audio = directory / 'recording.wav'
-    if not audio.is_file():
-        raise ValueError('A saved recording is required for speaker diarization')
     progress('Loading local speaker runtime; first use may take longer')
     try:
         import torch
@@ -40,15 +36,35 @@ def diarize(directory: Path, progress=lambda message: None) -> list[dict]:
             'Speaker diarization is optional. Install requirements-diarization.txt '
             'in the app environment, then retry Analytics.'
         ) from exc
+    if _pipeline is None:
+        progress('Loading offline speaker-diarization model')
+        # The token is read from the environment and is never persisted.
+        _pipeline = Pipeline.from_pretrained(MODEL_ID, token=os.environ.get('HF_TOKEN') or None)
+        if torch.backends.mps.is_available():
+            _pipeline.to(torch.device('mps'))
+    return _pipeline
+
+
+def _embed(pipeline):
+    import torch
+    return lambda samples: pipeline._embedding(torch.from_numpy(samples)[None, None])[0]
+
+
+def learn(directory: Path, progress=lambda message: None) -> dict:
+    """Make voice prints for a meeting whose speakers already have turns."""
+    from . import voices
+    return voices.compute(directory, _embed(_load(progress)), MODEL_ID, progress)
+
+
+def diarize(directory: Path, progress=lambda message: None) -> list[dict]:
+    """Create a speaker timeline without sending audio to a network service."""
+    audio = directory / 'recording.wav'
+    if not audio.is_file():
+        raise ValueError('A saved recording is required for speaker diarization')
     try:
-        if _pipeline is None:
-            progress('Loading offline speaker-diarization model')
-            # The token is read from the environment and is never persisted.
-            _pipeline = Pipeline.from_pretrained(MODEL_ID, token=os.environ.get('HF_TOKEN') or None)
-            if torch.backends.mps.is_available():
-                _pipeline.to(torch.device('mps'))
+        pipeline = _load(progress)
         progress('Identifying speakers locally')
-        output = _pipeline(str(audio))
+        output = pipeline(str(audio))
         annotation = getattr(output, 'speaker_diarization', output)
         timeline = []
         for turn, _, speaker in annotation.itertracks(yield_label=True):
@@ -71,6 +87,12 @@ def diarize(directory: Path, progress=lambda message: None) -> list[dict]:
         else:
             (directory / 'speaker-turns.json').unlink(missing_ok=True)
         atomic_json(directory / 'speaker-diarization.json', dict(model=MODEL_ID, exclusive=bool(turns)))
+        from . import voices
+        try:
+            voices.compute(directory, _embed(pipeline), MODEL_ID, progress)
+        except Exception:
+            # Voice prints only make suggestions; the speaker timeline stands without them.
+            (directory / voices.FILE).unlink(missing_ok=True)
         return timeline
     except Exception as exc:
         if isinstance(exc, (ValueError, RuntimeError)) and str(exc).startswith('Speaker diarization'):

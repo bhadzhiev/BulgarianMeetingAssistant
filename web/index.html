@@ -372,9 +372,14 @@
 <div id="speaker-list" class="speaker-list"></div>
 <div class="input-row"><input id="new-speaker" maxlength="80" placeholder="Add a name, for example Мария Петрова" autocomplete="off" aria-label="New known speaker"><button id="add-speaker" class="secondary" type="button">Add speaker</button></div>
 <fieldset class="settings-section"><legend>People</legend>
-<p class="hint">A person joins the names, emails and GitHub account of one real person. Atlanta uses it for task owners and GitHub assignee suggestions. Nothing here is guessed from a voice, and emails stay on this Mac.</p>
+<p class="hint">A person joins the names, emails and GitHub account of one real person. Atlanta uses it for task owners and GitHub assignee suggestions. A voice can suggest a name, but only you apply it, and emails stay on this Mac.</p>
 <div id="people-list" class="people-list"></div>
 <button id="add-person" class="secondary" type="button">＋ Add person</button>
+</fieldset>
+<fieldset class="settings-section"><legend>Voices</legend>
+<p class="hint">Atlanta learns the voice of each named speaker on this Mac. A new meeting then suggests a name for an unnamed speaker. A suggestion changes nothing until you apply it. Voice prints stay in each meeting folder and are deleted with the meeting.</p>
+<p id="voice-status" class="hint" role="status"></p>
+<button id="learn-voices" class="secondary" type="button">Learn voices from saved meetings</button>
 </fieldset>
 </div>
 <div class="settings-panel" data-tab="trackers" role="tabpanel" hidden>

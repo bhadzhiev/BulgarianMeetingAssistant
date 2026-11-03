@@ -220,6 +220,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             # Previous notes and analytics no longer refer to the current transcription.
             # The kept Whisper text belongs to the old transcription.
             for name in ['minutes.json', 'minutes.md', 'minutes.proposed.json', 'transcript.raw.json', 'analytics.json', 'speaker-timeline.json', 'transcript.alignment.json', 'speaker-turns.json', 'speaker-diarization.json', 'transcript.before-speakers.json']:
+                if settings.get('_reprocess_preserve_notes') and name in {'minutes.json','minutes.md'}:continue
                 (directory / name).unlink(missing_ok=True)
         save_transcript(directory, segments)
         if units:

@@ -51,7 +51,7 @@ $('prompt-text').oninput=()=>{editorDirty.set('ai-prompts',promptDirty());editor
 $('prompt-snippet').oninput=invalidatePromptTest;
 async function savePrompt(reset=false){
  promptError(null);const body=promptBody();if(reset)body.text=null;
- try{const result=await api('/api/prompts/save',body);promptCatalog={...promptCatalog,...result};renderPromptSelection();toast('AI instructions saved · future runs only');}
+ try{const result=await api('/api/prompts/save',body);promptCatalog={...promptCatalog,...result};renderPromptSelection();toast('AI instructions saved');if(['meeting_minutes','transcript_correction','topic_matches'].includes(body.stage))await offerReprocess({scope:body.scope,action:({meeting_minutes:'notes',transcript_correction:'correction_notes',topic_matches:'analytics'})[body.stage],reason:'AI instructions saved. Select existing meetings to update.'});}
  catch(error){promptError(error);if(error.message.includes('changed')){$('prompt-context').textContent='Another editor saved changes. Copy your unsaved instructions, then close and reopen Settings to reload.';}}
 }
 $('prompt-save').onclick=()=>perform(()=>savePrompt());$('prompt-reset').onclick=()=>perform(async()=>{if(await ask('Reset this layer to inherited instructions? The previous text stays in version history.',{ok:'Reset layer'}))await savePrompt(true);});
@@ -80,6 +80,5 @@ $('prompt-cancel').onclick=()=>perform(async()=>{if(promptJob){await api('/api/p
 $('prompt-reprocess').onclick=()=>perform(async()=>{
  if(promptDirty()){promptError(new Error('Save your instructions before generating new notes.'));return;}
  const body=promptBody();if(body.stage!=='meeting_minutes'||!body.scope.startsWith('meeting:'))return;
- if(!(await ask('Generate new notes for this meeting with the saved instructions? Existing notes stay available for review before applying changes.',{ok:'Generate new notes'})))return;
- await api('/api/meetings/'+body.scope.slice(8)+'/process',{action:'summarize'});toast('New notes queued · review them in the meeting');
+ await offerReprocess({scope:body.scope,action:'notes'});
 });

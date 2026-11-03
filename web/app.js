@@ -291,7 +291,7 @@ function renderRecordMore(){
  parts.push($('processing-name').textContent);$('record-more-summary').textContent=parts.join(' · ');
 }
 // Library: one place for finding past conversations. Its views keep their own sections and loaders.
-const LIBRARY_VIEWS=['conversations','find','analytics'];
+const LIBRARY_VIEWS=['conversations','calendar','find','analytics'];
 // Each view and tab has its own address: Back and Forward work, and a reload keeps the place.
 let routing=false,meetingTab='transcript';
 function currentRoute(){
@@ -301,6 +301,7 @@ function currentRoute(){
  else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);if(workspaceSection==='work'&&workspaceWorkKind)q.set('kind',workspaceWorkKind);}
  else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);if(prepareScope.type)q.set('type',prepareScope.type);}
  else if(view==='importing')q.set('view','importing');
+ else if(view==='calendar'){q.set('view','calendar');q.set('day',calendarDay);if($('calendar-project').value)q.set('project',$('calendar-project').value);}
  else if(LIBRARY_VIEWS.includes(view))q.set('view',view);
  const text=q.toString();return text?'/?'+text:'/';
 }
@@ -322,6 +323,7 @@ async function applyRoute(){
   }
   else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
   else if(target==='importing')await openImport();
+  else if(target==='calendar')await openCalendar(q.get('day'),q.get('project')||'');
   else if(target==='find')await openFind();
   else if(target==='analytics')await $('open-analytics').onclick();
   else if(target==='conversations')await perform(openConversations);
@@ -336,7 +338,7 @@ function historyKeys(event){
 }
 document.addEventListener('keydown',historyKeys);
 $('history-back').onclick=()=>history.back();$('history-forward').onclick=()=>history.forward();
-function show(which) {const changed=view!==which;if(changed)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects','conversations','importing']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
+function show(which) {const changed=view!==which;if(changed)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects','conversations','calendar','importing']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
  $('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar();if(changed)window.scrollTo(0,0); syncRoute(); }
 function renderLibrary() {
  const query='';
@@ -1953,6 +1955,7 @@ async function refresh(changed) {
  try {
   state=await api('/api/state'); renderState();
   if(!initialRouteHandled){initialRouteHandled=true;await perform(applyRoute);}
+  if(view==='calendar')renderCalendar();
   if(view==='tasks') await loadTasks();
   if(view==='detail'&&selected&&!hasEdits()&&(!changed||changed.includes(selected))) {
    const key=selected,request=readers.start('meeting-refresh'),generation=meetingLoadSequence;
@@ -2357,8 +2360,8 @@ async function openAttachment(id){
 $('conversation-reader-close').onclick=()=>$('conversation-reader').close();
 // A moment that plays from the reader stops with it.
 $('conversation-reader').addEventListener('close',()=>{if(moment.player===moment.audio)stopMoment();});
-$('open-conversations').onclick=()=>{const last=stored('library-view');if(last==='find')$('open-find').click();else if(last==='analytics')$('open-analytics').click();else perform(openConversations);};
-for(const b of $('library-tabs').querySelectorAll('button'))b.onclick=()=>b.dataset.library==='conversations'?perform(openConversations):$('open-'+b.dataset.library).click();
+$('open-conversations').onclick=()=>{const last=stored('library-view');if(last==='calendar')perform(openCalendar);else if(last==='find')$('open-find').click();else if(last==='analytics')$('open-analytics').click();else perform(openConversations);};
+for(const b of $('library-tabs').querySelectorAll('button'))b.onclick=()=>b.dataset.library==='calendar'?perform(openCalendar):b.dataset.library==='conversations'?perform(openConversations):$('open-'+b.dataset.library).click();
 // Prepare me belongs to a project: it opens for the project on screen.
 $('workspace-prepare').onclick=()=>perform(()=>openPrepare(['','__none__'].includes($('workspace-project').value)?'':$('workspace-project').value,''));
 $('conversation-filters').onsubmit=event=>{event.preventDefault();conversationOffset=0;selectedConversations.clear();perform(async()=>{await loadConversations();$('conversation-advanced').open=false;});};
@@ -2712,3 +2715,42 @@ $('reprocess-run').onclick=()=>perform(async()=>{if(!reprocessToken)return;const
  catch(e){$('reprocess-status').textContent=e.message+' No automatic retry.';$('reprocess-status').hidden=false;}
  finally{for(const id of ['reprocess-preview','reprocess-meetings','reprocess-action','reprocess-close'])$(id).disabled=false;}
 });
+
+// Read-only calendar over the state metadata: no transcript reads, model calls or connector writes.
+let calendarDay=AtlantaUX.meetingDay({created:new Date().toISOString()});
+async function openCalendar(day,project){
+ if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;
+ if(AtlantaUX.parseISO(day))calendarDay=day;
+ syncConversationFilters();fillProjects($('calendar-project'),project===undefined?$('conversation-project').value:project,'All projects',[option('Unassigned','__none__')]);
+ $('conversation-project').value=$('calendar-project').value;syncConversationFilters();rememberConversationFilters();
+ show('calendar');renderCalendar();renderLibrary();
+}
+function renderCalendar(){
+ const project=$('calendar-project').value;fillProjects($('calendar-project'),project,'All projects',[option('Unassigned','__none__')]);
+ const rows=AtlantaUX.calendarMeetings(state.meetings||[],$('calendar-project').value),today=AtlantaUX.meetingDay({created:new Date().toISOString()}),month=calendarDay.slice(0,7),counts=new Map();
+ for(const row of rows)counts.set(row.day,(counts.get(row.day)||0)+1);
+ $('calendar-month').textContent=new Intl.DateTimeFormat('en-GB',{month:'long',year:'numeric'}).format(AtlantaUX.parseISO(calendarDay));
+ const grid=$('calendar-days');grid.replaceChildren();
+ for(const day of AtlantaUX.calendarDays(calendarDay)){
+  if(!AtlantaUX.parseISO(day)){grid.append(el('span'));continue;}
+  const n=counts.get(day)||0,b=el('button','calendar-day'+(day.slice(0,7)!==month?' outside':'')+(day===today?' today':''));b.type='button';b.dataset.day=day;
+  b.tabIndex=day===calendarDay?0:-1;b.setAttribute('aria-label',date(day)+' · '+AtlantaUX.count(n,'meeting'));b.setAttribute('aria-pressed',String(day===calendarDay));if(day===today)b.setAttribute('aria-current','date');
+  b.append(el('span','',String(Number(day.slice(-2)))));if(n)b.append(el('small','calendar-density',String(n)));
+  b.onclick=()=>chooseCalendarDay(day,true);b.onkeydown=event=>{let next=null;const steps={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7};
+   if(event.key in steps)next=AtlantaUX.shiftDay(day,steps[event.key]);else if(event.key==='PageUp'||event.key==='PageDown')next=AtlantaUX.shiftMonth(day,event.key==='PageUp'?-1:1);
+   if(next){event.preventDefault();chooseCalendarDay(next,true);}};grid.append(b);
+ }
+ $('calendar-day-title').textContent=date(calendarDay);const daily=rows.filter(row=>row.day===calendarDay),box=$('calendar-meetings');box.replaceChildren();
+ $('calendar-day-count').textContent=AtlantaUX.count(daily.length,'meeting');
+ for(const row of daily){const card=el('article','calendar-meeting'),open=el('button','quiet',row.title);open.type='button';open.onclick=()=>perform(()=>openMeeting(row.id));
+  const status=row.error?'Processing stopped':row.notes_need_refresh?AtlantaStatus.label('review','needs_review'):statusNames[row.status]||row.status;
+  card.append(open,el('p','hint',dateTime(row.started_at||row.created)+' · '+status));box.append(card);}
+ if(!daily.length){box.append(el('p','empty-content','No saved meetings on this day.' ));const actions=el('div','work-actions');for(const [label,id] of [['New meeting','new-meeting'],['Import audio or transcript','open-import']]){if(!$(id))continue;const b=el('button','secondary',label);b.type='button';b.onclick=()=>$(id).click();actions.append(b);}box.append(actions);}
+ const missing=(state.meetings||[]).filter(m=>!AtlantaUX.meetingDay(m)).length;
+ $('calendar-notice').textContent='Saved locally · Europe/Sofia'+(missing?' · '+AtlantaUX.count(missing,'meeting')+' without a valid date; available in Conversations.':'');
+}
+function chooseCalendarDay(day,focus=false){calendarDay=day;renderCalendar();syncRoute(true);if(focus)$('calendar-days').querySelector('[data-day="'+day+'"]')?.focus();}
+$('calendar-project').onchange=()=>{ $('conversation-project').value=$('calendar-project').value;syncConversationFilters();conversationOffset=0;rememberConversationFilters();renderCalendar();syncRoute(true);};
+for(const [id,amount] of [['calendar-prev',-1],['calendar-next',1]])$(id).onclick=()=>{calendarDay=AtlantaUX.shiftMonth(calendarDay,amount);renderCalendar();syncRoute(true);};
+for(const [id,amount] of [['calendar-day-prev',-1],['calendar-day-next',1]])$(id).onclick=()=>{calendarDay=AtlantaUX.shiftDay(calendarDay,amount);renderCalendar();syncRoute(true);};
+$('calendar-today').onclick=()=>{calendarDay=AtlantaUX.meetingDay({created:new Date().toISOString()});renderCalendar();syncRoute(true);};

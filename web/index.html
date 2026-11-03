@@ -18,7 +18,7 @@
 </aside>
 <main>
   <div class="topbar"><span class="topbar-left"><span class="history-buttons"><button id="history-back" class="quiet" type="button" title="Back (⌘[)" aria-label="Back">‹</button><button id="history-forward" class="quiet" type="button" title="Forward (⌘])" aria-label="Forward">›</button></span></span><span id="connection">Connecting…</span></div>
-  <div id="library-tabs" class="tabs library-tabs" role="tablist" aria-label="Library" hidden><button type="button" role="tab" data-library="conversations">Conversations</button><button type="button" role="tab" data-library="find">Search &amp; ask</button><button type="button" role="tab" data-library="analytics">Analytics</button></div>
+  <div id="library-tabs" class="tabs library-tabs" role="tablist" aria-label="Library" hidden><button type="button" role="tab" data-library="conversations">Conversations</button><button type="button" role="tab" data-library="calendar">Calendar</button><button type="button" role="tab" data-library="find">Search &amp; ask</button><button type="button" role="tab" data-library="analytics">Analytics</button></div>
   <div id="recording-bar" class="recording-bar" role="region" aria-label="Active recording" hidden>
     <span class="bar-dot" aria-hidden="true"></span>
     <button id="bar-open" class="bar-title" type="button" title="Open the recording and its live transcript"><strong id="bar-title"></strong><span id="bar-status"></span></button>
@@ -96,6 +96,13 @@
     <details id="workspace-browser"><summary>Browse projects</summary><div id="workspace-cards" class="project-cards"></div></details>
     <div class="project-navigation"><div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="work">Work</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="timeline">Timeline</button></div><details class="menu" id="workspace-more"><summary id="workspace-more-label">More ▾</summary><div class="menu-items"><button type="button" data-project-section="conversations">Conversations</button><button type="button" data-project-section="sources">Sources</button></div></details></div>
     <div id="workspace-content" class="card"></div>
+  </section>
+  <section id="calendar" hidden aria-labelledby="calendar-title">
+    <div class="heading"><h1 id="calendar-title">Calendar</h1><p class="subheading">Your saved meetings, by the day they took place.</p></div>
+    <div class="card calendar-controls"><label>Project<select id="calendar-project"></select></label><div class="work-actions"><button id="calendar-prev" type="button" class="secondary" aria-label="Previous month">←</button><h2 id="calendar-month"></h2><button id="calendar-next" type="button" class="secondary" aria-label="Next month">→</button><button id="calendar-today" type="button" class="secondary">Today</button></div></div>
+    <div class="calendar-layout"><div class="card calendar-month-panel"><div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div id="calendar-days" class="calendar-days" role="group" aria-label="Choose a day"></div></div>
+    <section class="card calendar-agenda" aria-labelledby="calendar-day-title"><div class="calendar-agenda-heading"><button id="calendar-day-prev" type="button" class="secondary" aria-label="Previous day">←</button><h2 id="calendar-day-title"></h2><button id="calendar-day-next" type="button" class="secondary" aria-label="Next day">→</button></div><p id="calendar-day-count" class="hint" role="status"></p><div id="calendar-meetings"></div></section></div>
+    <p id="calendar-notice" class="hint"></p>
   </section>
   <section id="tasks" hidden>
     <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>

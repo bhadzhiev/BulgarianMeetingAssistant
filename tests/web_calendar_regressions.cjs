@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),UX=require('../web/ux.js');
+assert.equal(UX.meetingDay({started_at:'2026-10-25T22:30:00Z',created:'2026-11-03T12:00:00Z'}),'2026-10-26');
+assert.equal(UX.meetingDay({created:'2026-10-26'}),'2026-10-26');assert.equal(UX.meetingDay({created:'broken'}),null);
+assert.equal(UX.meetingDay({started_at:'2026-03-29T00:30:00Z'}),'2026-03-29');
+assert.equal(UX.shiftMonth('2028-01-31',1),'2028-02-29');assert.equal(UX.shiftMonth('2026-03-31',-1),'2026-02-28');
+assert.equal(UX.shiftMonth('2026-12-15',1),'2027-01-15');assert.equal(UX.shiftDay('2026-03-29',1),'2026-03-30');assert.equal(UX.shiftDay('2026-10-25',1),'2026-10-26');
+assert.equal(UX.shiftMonth('0001-01-01',-1),'0001-01-01');assert.equal(UX.shiftMonth('9999-12-01',1),'9999-12-01');
+const days=UX.calendarDays('2026-11-03');assert.equal(days.length,42);assert.equal(days[0],'2026-10-26');assert.equal(days[41],'2026-12-06');assert.equal(new Set(days).size,42);
+const rows=[{id:'a',project_id:'p',created:'2026-11-01T10:00:00Z'},{id:'b',created:'2026-11-01T11:00:00+02:00'},{id:'c',created:'invalid'}],before=JSON.stringify(rows);
+assert.deepEqual(UX.calendarMeetings(rows,'').map(r=>r.id),['b','a']);assert.deepEqual(UX.calendarMeetings(rows,'p').map(r=>r.id),['a']);assert.deepEqual(UX.calendarMeetings(rows,'__none__').map(r=>r.id),['b']);assert.equal(JSON.stringify(rows),before);
+const source=fs.readFileSync('web/app.js','utf8'),start=source.indexOf('async function openCalendar('),end=source.indexOf('function renderCalendar()',start);
+let shown=false,loaded=false;const context=vm.createContext({leaveEdits:async()=>false,show:()=>{shown=true},renderCalendar:()=>{loaded=true}});vm.runInContext(source.slice(start,end),context);
+(async()=>{await vm.runInContext('openCalendar()',context);assert(!shown&&!loaded);let refreshed=0;const refreshContext=vm.createContext({api:async()=>({meetings:[]}),renderState:()=>{},renderCalendar:()=>{refreshed++},$:()=>({}),disconnectedMessage:()=>''});const refreshStart=source.indexOf('async function refresh(changed)'),refreshEnd=source.indexOf('let lastLive=null;',refreshStart);vm.runInContext('let refreshing=false,refreshPending=false,pendingChanged=[],state={},initialRouteHandled=true,view="calendar";'+source.slice(refreshStart,refreshEnd),refreshContext);await vm.runInContext('refresh(null)',refreshContext);assert.equal(refreshed,1);console.log('Calendar regressions PASS: Sofia dates, DST, leap/year navigation, complete month, shared project semantics, immutable metadata and dirty navigation guard.');})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -55,7 +55,7 @@ def bundled_client(project: Path):
     return None
 
 
-class KeychainStore:
+class LegacyKeychainStore:
     """Generic-password APIs keep tokens out of files, command arguments, and responses."""
     def __init__(self, account: str):
         self.account = account.encode()
@@ -124,6 +124,13 @@ class KeychainStore:
             if status:raise CalendarError(f'Cannot remove Google credentials from Keychain (code {status}).')
         finally:
             if item:cf.CFRelease(item)
+
+
+from .credentials import CredentialStore
+
+class KeychainStore(CredentialStore):
+    def __init__(self,account):
+        super().__init__(account,'google')
 
 
 def http_json(url: str, method='GET', payload=None, token=None, form=False):

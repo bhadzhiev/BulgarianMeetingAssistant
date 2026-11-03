@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from .google_calendar import KeychainStore
+from .credentials import CredentialStore
 from .storage import atomic_json
 from .work_items import canonical
 
@@ -29,10 +29,9 @@ OVERVIEW_FILTERS={'all':'all','assigned':'assigned','created':'created','mention
 class GitHubError(RuntimeError):pass
 
 
-class TokenStore(KeychainStore):
+class TokenStore(CredentialStore):
     def __init__(self,root):
-        super().__init__(hashlib.sha256(str(Path(root).resolve()).encode()).hexdigest())
-        self.service=b'local.bulgarian-meeting-assistant.github'
+        super().__init__(hashlib.sha256(str(Path(root).resolve()).encode()).hexdigest(),'github')
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

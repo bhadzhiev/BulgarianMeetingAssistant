@@ -973,6 +973,7 @@ function settingsValues(){
 }
 let settingsOpened='';
 async function closeSettings(){
+ if(!(await leaveTypePrompt()))return;
  if(!(await leavePromptEditor()))return;
  if(settingsValues()!==settingsOpened&&!(await ask('Discard the changes in Settings? They are not saved.',{ok:'Discard changes',cancel:'Keep editing',danger:true})))return;
  editorDirty.clear('ai-prompts');$('settings-dialog').close();
@@ -1703,14 +1704,10 @@ $('scope-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
  detail=await api('/api/meetings/'+selected+'/scope',{project,series}); lastFingerprint=JSON.stringify(detail);
  state=await api('/api/state'); $('scope-dialog').close(); renderState(); renderDetail(); lastLibrary=''; renderLibrary(); toast('Saved');});};
 // Settings → Meeting types: the built-in types, read-only, and your own templates.
-function renderTypeSettings() {
- const list=$('type-list'); list.replaceChildren();
- for(const type of typeList()){
-  const row=el(type.custom?'button':'div','type-row'+(type.custom?' own':''));if(type.custom){row.type='button';row.onclick=()=>openTemplate(type.template);}
-  row.append(el('strong','',type.label+(type.custom?'':' · built-in')),el('span','hint',type.description),el('span','type-sections',type.sections.length?type.sections.map(s=>s.title).join(' · '):'Common notes only'));
-  if(!type.custom){const duplicate=el('button','quiet','Customize a copy');duplicate.type='button';duplicate.onclick=()=>perform(async()=>{const catalog=await api('/api/prompts');const copy=catalog.builtin_templates[type.id];openTemplate(copy);templateEditing=null;$('template-delete').hidden=true;});row.append(duplicate);}
-  list.append(row);
- }
+function renderTypeSettings(){
+ const select=$('type-prompt-select'),wanted=select.value||'general';
+ select.replaceChildren(...typeList().map(type=>option(type.label+(type.custom?' · custom':''),type.id)));select.value=typeList().some(t=>t.id===wanted)?wanted:'general';
+ if(!typePromptDirty())perform(loadTypePrompt);
 }
 let templateEditing=null;
 function openTemplate(template) {
@@ -2388,7 +2385,7 @@ function renderPersonIdentities(person){
 }
 function renderChannelProfile(profile){
  const channels=profile.channels;if(!channels)return;const box=$('person-profile');box.append(el('p','hint',channels.coverage));
- for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-said'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+dateTime(message.date*1000)));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
+ for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-message'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+dateTime(message.date*1000)));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
 }
 
 async function openTaskPanel(id){
@@ -2569,3 +2566,35 @@ function renderFollowup(data){
  for(const error of follow.check_errors||[])box.append(el('p','notice warning',error));
 }
 $('followup-check').onclick=()=>perform(async()=>{const button=$('followup-check');button.disabled=true;try{const data=await api('/api/followup/check',{project_id:prepareScope.project,series_id:prepareScope.series||null,meeting_type:prepareData.meeting_type});if(view==='prepare'&&prepareScope.project===data.project_id){prepareData=data;renderPrepare(data);}}finally{button.disabled=false;}});
+
+let typePromptCatalog=null,typePromptSelected=null,typePromptOriginal='',typePromptSequence=0;
+function typePromptDirty(){return typePromptSelected!==null&&$('type-prompt-text').value!==typePromptOriginal;}
+async function leaveTypePrompt(){
+ if(typePromptDirty()&&!(await ask('Discard unsaved meeting-type instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
+ $('type-prompt-text').value=typePromptOriginal;editorDirty.clear('type-prompt');return true;
+}
+async function loadTypePrompt(){
+ const seq=++typePromptSequence,id=$('type-prompt-select').value;
+ $('type-prompt-save').disabled=$('type-prompt-reset').disabled=true;
+ $('type-prompt-text').disabled=true;
+ const catalog=await api('/api/prompts');if(seq!==typePromptSequence)return;
+ typePromptCatalog=catalog;typePromptSelected=id;const type=typeOf(id),entry=catalog.entries['meeting_minutes|type:'+id];
+ $('type-prompt-text').value=entry?.text||'';typePromptOriginal=$('type-prompt-text').value;editorDirty.clear('type-prompt');
+ $('type-prompt-description').textContent=type.description;$('type-prompt-sections').textContent=type.sections.map(s=>s.title).join(' · ')||'Summary, decisions, tasks and questions';
+ $('type-prompt-structure').textContent=type.custom?'Edit template structure':'Customize a copy';
+ $('type-prompt-status').textContent=catalog.error||'Changes affect future AI notes for '+type.label+'.';
+ $('type-prompt-text').disabled=!!catalog.error;$('type-prompt-save').disabled=$('type-prompt-reset').disabled=!!catalog.error;
+}
+$('type-prompt-select').onchange=()=>perform(async()=>{const wanted=$('type-prompt-select').value;if(!(await leaveTypePrompt())){$('type-prompt-select').value=typePromptSelected;return;}$('type-prompt-select').value=wanted;await loadTypePrompt();});
+$('type-prompt-text').oninput=()=>{editorDirty.set('type-prompt',typePromptDirty());editorHeartbeat();$('type-prompt-status').textContent=typePromptDirty()?'Unsaved changes':'Saved instructions';};
+async function saveTypePrompt(reset=false){
+ const selected=typePromptSelected,body={stage:'meeting_minutes',scope:'type:'+selected,text:reset?null:$('type-prompt-text').value.trim()||null,revision:typePromptCatalog.revision};
+ $('type-prompt-save').disabled=$('type-prompt-reset').disabled=true;$('type-prompt-select').disabled=$('type-prompt-text').disabled=true;
+ try{await api('/api/prompts/save',body);typePromptOriginal=reset?'':$('type-prompt-text').value;editorDirty.clear('type-prompt');await loadTypePrompt();$('type-prompt-status').textContent='Saved · applies to future notes.';}
+ catch(error){$('type-prompt-status').textContent=error.message+' Your text is kept. Copy it before reloading settings.';throw error;}
+ finally{$('type-prompt-save').disabled=$('type-prompt-reset').disabled=!!typePromptCatalog.error;$('type-prompt-select').disabled=false;$('type-prompt-text').disabled=!!typePromptCatalog.error;}
+}
+$('type-prompt-save').onclick=()=>perform(()=>saveTypePrompt());
+$('type-prompt-reset').onclick=()=>perform(async()=>{if(await ask('Reset instructions for this meeting type? Previous text remains in saved version history.',{ok:'Reset instructions'}))await saveTypePrompt(true);});
+$('type-prompt-structure').onclick=()=>perform(async()=>{const type=typeOf($('type-prompt-select').value);if(type.custom)openTemplate(type.template);else{const catalog=await api('/api/prompts');openTemplate(catalog.builtin_templates[type.id]);templateEditing=null;$('template-delete').hidden=true;}});
+$('type-prompt-advanced').onclick=()=>perform(async()=>{if(!(await leaveTypePrompt()))return;promptRequestedScope='type:'+$('type-prompt-select').value;showSettingsTab('prompts');});

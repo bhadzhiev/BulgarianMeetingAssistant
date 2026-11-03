@@ -748,3 +748,12 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 .dialogue-speaker::after{content:' ▾';font-weight:400;color:var(--muted)}
 .turn-speaker-editor{margin:12px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 .turn-speaker-editor label,.turn-speaker-editor select,.turn-speaker-editor input{width:100%;box-sizing:border-box}.turn-speaker-editor button{margin-right:8px}
+
+/* Mixed rows: a button beside an input or select takes the same 40px control height. */
+:root{--control-h:40px}
+.library-search-row label,.analytics-filters label{margin:0}
+.library-search-row>button,.analytics-filters>button{height:var(--control-h);min-height:0;padding-block:0}
+.conversation-filters .advanced-filters>summary{box-sizing:border-box;height:var(--control-h);min-height:0;display:flex;align-items:center;padding-block:0}
+#conversation-count{margin:0}
+.card-heading>button:not(.quiet){font-size:12px;padding:9px 15px}
+.conversation-card>input[type=checkbox]{width:17px;height:17px;margin:11px 0 0;flex:none}

@@ -1904,6 +1904,8 @@ function renderProcessingTime(){
  $('processing-time').textContent=d.processing_stage+' · '+time(elapsed)+(active&&d.processing_stage_started_at?' · this stage '+time(Math.max(0,now-d.processing_stage_started_at)):'')+(timings.length?'\n'+timings.join('\n'):'');
 }
 setInterval(()=>{if(!document.hidden&&view==='detail')renderProcessingTime();},1000);
+// A calendar link reaches the desktop window through atlanta://; open the meeting in place.
+window.addEventListener('desktop-open',event=>{const id=String(event.detail?.meeting||'');if(/^[a-f0-9]{32}$/.test(id))perform(()=>openMeeting(id));});
 window.addEventListener('desktop-status',event=>{desktopStatus=String(event.detail||'');$('connection').textContent=desktopStatus;error(desktopStatus);});
 $('cancel-processing').onclick=()=>perform(async()=>{await api('/api/meetings/'+selected+'/cancel',{});toast('Cancellation requested');await openMeeting(selected,true);});
 // Profiles fill the form; nothing changes until Save settings.

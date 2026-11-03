@@ -2,4 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>NSMicrophoneUsageDescription</key><string>Record your microphone during meetings you choose to record.</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>io.github.bhadzhiev.meeting-assistant</string>
+<key>CFBundleURLSchemes</key><array><string>atlanta</string></array>
+</dict></array>
 </dict></plist>

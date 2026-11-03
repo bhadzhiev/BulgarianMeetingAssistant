@@ -9,7 +9,8 @@ use tauri::menu::{Menu, MenuItem};
 
 #[derive(Default)]
 struct Backend { child: Mutex<Option<Child>>, quitting: AtomicBool, stopped: AtomicBool,
-    dirty: AtomicBool, ui_seen: Mutex<Option<Instant>>, recovery_url: Mutex<Option<tauri::Url>>, recording: AtomicBool, confirming: AtomicBool, exit_confirmed: AtomicBool }
+    dirty: AtomicBool, ui_seen: Mutex<Option<Instant>>, recovery_url: Mutex<Option<tauri::Url>>, recording: AtomicBool, confirming: AtomicBool, exit_confirmed: AtomicBool,
+    ui_ready: AtomicBool, pending_meeting: Mutex<Option<String>> }
 
 fn status(app: &tauri::AppHandle, message: &str) {
     if let Some(window) = app.get_webview_window("main") {
@@ -17,6 +18,24 @@ fn status(app: &tauri::AppHandle, message: &str) {
         let _ = window.eval(format!("document.getElementById('status')?.replaceChildren(document.createTextNode({encoded}))"));
         let _ = window.eval(format!("window.dispatchEvent(new CustomEvent('desktop-status', {{detail: {encoded}}}))"));
         let _ = window.set_title(message);
+    }
+}
+
+// atlanta://meeting/<id>: a calendar link that the browser hands to this app.
+fn meeting_link(url: &tauri::Url) -> Option<String> {
+    let id = url.path().trim_start_matches('/');
+    (url.scheme() == "atlanta" && url.host_str() == Some("meeting") && id.len() == 32
+        && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| id.to_owned())
+}
+
+// The page opens the meeting itself, so unsaved edits get the usual leave prompt.
+// A link that arrives before the page reports in waits for the first heartbeat.
+fn open_pending(app: &tauri::AppHandle, state: &Backend) {
+    if !state.ui_ready.load(Ordering::SeqCst) { return; }
+    let Some(id) = state.pending_meeting.lock().unwrap().take() else { return };
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize(); let _ = window.show(); let _ = window.set_focus();
+        let _ = window.eval(format!("window.dispatchEvent(new CustomEvent('desktop-open', {{detail: {{meeting: '{id}'}}}}))"));
     }
 }
 
@@ -70,6 +89,8 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
                 } else if value["event"] == "ui" {
                     control_state.dirty.store(value["dirty"].as_bool().unwrap_or(true), Ordering::SeqCst);
                     *control_state.ui_seen.lock().unwrap()=Some(Instant::now());
+                    control_state.ui_ready.store(true, Ordering::SeqCst);
+                    open_pending(&control_app, &control_state);
                 } else if value["event"] == "microphone" {
                     if let Some(window) = control_app.get_webview_window("main") {
                         let missing = value["missing"].as_bool().unwrap_or(false);
@@ -160,7 +181,7 @@ fn main() {
             if event.id().as_ref()=="safe-quit" {app.exit(0);}
             if event.id().as_ref()=="recover-ui" {
                 let state=menu_state.clone();let app_handle=app.clone();
-                let restore=move || {if let Some(url)=state.recovery_url.lock().unwrap().clone(){if let Some(window)=app_handle.get_webview_window("main"){let _=window.navigate(url);state.dirty.store(false,Ordering::SeqCst);*state.ui_seen.lock().unwrap()=Some(Instant::now());}}};
+                let restore=move || {if let Some(url)=state.recovery_url.lock().unwrap().clone(){if let Some(window)=app_handle.get_webview_window("main"){state.ui_ready.store(false,Ordering::SeqCst);let _=window.navigate(url);state.dirty.store(false,Ordering::SeqCst);*state.ui_seen.lock().unwrap()=Some(Instant::now());}}};
                 if menu_state.dirty.load(Ordering::SeqCst) {
                     app.dialog().message("Recovering the interface discards unsaved edits. Recording and the local server continue.").title("Recover interface?").buttons(MessageDialogButtons::OkCancelCustom("Recover".into(),"Keep editing".into())).show(move |yes|{if yes{restore();}});
                 } else {restore();}
@@ -182,6 +203,13 @@ fn main() {
         })
         .build(tauri::generate_context!()).expect("Cannot create the desktop window")
         .run(move |app, event| {
+            if let RunEvent::Opened { urls } = &event {
+                if let Some(id) = urls.iter().find_map(meeting_link) {
+                    *state.pending_meeting.lock().unwrap() = Some(id);
+                    open_pending(app, &state);
+                }
+                return;
+            }
             if let RunEvent::ExitRequested { api, .. } = event {
                 if state.stopped.load(Ordering::SeqCst) { return; }
                 api.prevent_exit();
@@ -208,4 +236,20 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::meeting_link;
+    fn parse(text: &str) -> Option<String> { meeting_link(&text.parse().unwrap()) }
+
+    #[test]
+    fn accepts_only_a_meeting_id() {
+        let id = "0123456789abcdef0123456789abcdef";
+        assert_eq!(parse(&format!("atlanta://meeting/{id}")), Some(id.to_owned()));
+        for bad in [format!("atlanta://meeting/{}", id.to_uppercase()), format!("atlanta://meeting/{id}0"),
+                    format!("atlanta://settings/{id}"), format!("https://meeting/{id}"), "atlanta://meeting/../x".into()] {
+            assert_eq!(parse(&bad), None, "{bad}");
+        }
+    }
 }

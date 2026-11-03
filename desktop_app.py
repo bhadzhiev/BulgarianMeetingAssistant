@@ -125,6 +125,17 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 message, code = str(exc), 400
             return self.respond(code, '<!doctype html><html><head><title>Atlanta · Google Calendar</title></head><body><h1>Atlanta</h1><p>'+html.escape(message)+'</p><p><a href="/">Return to Atlanta</a> or close this tab.</p></body></html>', 'text/html; charset=utf-8')
+        meeting = callback_params.get('meeting', [''])[0]
+        if (url.path == '/' and re.fullmatch(r'[0-9a-f]{32}', meeting) and not self.authorized()
+                and self.headers.get('Host') == f'127.0.0.1:{self.server.server_port}'):
+            # A calendar link opens in a browser without the app session; the atlanta:// scheme
+            # hands the meeting to the desktop window. The page carries no credential.
+            target = 'atlanta://meeting/' + meeting
+            return self.respond(200, f'<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={target}">'
+                                     f'<title>Atlanta</title><p>Opening the meeting in Atlanta…</p>'
+                                     f'<p><a href="{target}">Open in Atlanta</a></p>'
+                                     f'<p>If Atlanta is closed, start it, then open the calendar link again.</p>',
+                                'text/html; charset=utf-8')
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return

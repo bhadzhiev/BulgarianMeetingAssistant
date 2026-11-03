@@ -1,5 +1,6 @@
 """Evidence-backed follow-up projections. Never changes local commitments from remote state."""
 from . import meeting_types
+from .meeting_review import review_state
 from .transcripts import segment_at
 
 
@@ -27,7 +28,7 @@ def build(service, briefing, registry, meetings, minutes):
             segment=segment_at(service.detail(source['meeting_id'])['transcript'],source['timestamp'])
             if segment:quote=segment['text'];source=dict(source,start=segment['start'],end=segment['end'])
         person=service.people.match(item.get('owner') or '')
-        return dict(item_id=item['id'],revision=item.get('revision'),kind=item['kind'],text=item['text'],owner=item.get('owner'),person_id=person['id'] if person else None,source=source,quote=quote,external=external,status=item['status'])
+        return dict(item_id=item['id'],revision=item.get('revision'),kind=item['kind'],text=item['text'],owner=item.get('owner'),person_id=person['id'] if person else None,source=source,quote=quote,external=external,status=item['status'],review=review_state(item))
     rows={key:row(item) for key,item in scoped.items()}
     unchanged=[]
     if boundary:

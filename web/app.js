@@ -1162,19 +1162,21 @@ $('github-link-close').onclick=()=>$('github-link-dialog').close();
 $('github-link-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
  try{await api('/api/github/link',{resource:linkResource,reference:$('github-link-ref').value,repository:$('github-link-repo').value});$('github-link-dialog').close();toast('Linked in Atlanta · GitHub is not changed');await afterGitHubLink(linkResource);}
  catch(e){$('github-link-error').textContent=e.message;$('github-link-error').hidden=false;}});};
+// Only a meeting proposal that no person has confirmed carries a badge.
+function reviewBadge(state){return state==='needs_review'?el('span','badge badge-review','AI proposed · needs review'):state==='edited'?el('span','badge badge-review','Edited · needs confirmation'):'';}
 function globalTaskRow(item,today) {
  const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), done=el('input'), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  done.type='checkbox';done.checked=item.status==='done';done.setAttribute('aria-label','Mark task as done');done.onchange=()=>perform(()=>changeItem(item,{status:done.checked?'done':'open'}));
  who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
  if(item.owner&&!item.manual?.includes('owner')){const confirm=el('button','quiet small-action owner-confirm','AI suggestion · Confirm');confirm.type='button';confirm.title='A person confirms this owner. Only confirmed owners count as commitments and reach GitHub drafts.';confirm.onclick=()=>perform(()=>changeItem(item,{owner:item.owner}));who.append(confirm);}
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
- meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline));
+ meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline)); meta.append(reviewBadge(item.review_state));
  main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(done,main); row.append(itemActions(item,row)); return row;
 }
 function decisionRow(item,byId) {
  const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
- meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status]));
+ meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status])); meta.append(reviewBadge(item.review_state));
  if(item.superseded_by&&byId[item.superseded_by]) meta.append(el('span','hint','Replaced by: '+byId[item.superseded_by].text));
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
@@ -2487,10 +2489,14 @@ async function openMeetingReview(){
  const data=await api('/api/meeting-review',{meeting_id:meetingId});
  if(detail.id!==meetingId)return;
  const box=$('meeting-review-body');box.replaceChildren();
- if(data.summary)box.append(el('p','',typeof data.summary==='string'?data.summary:JSON.stringify(data.summary)));
+ // What Atlanta understood: the saved summary statements, each with its moment.
+ const summary=typeof data.summary==='string'?[{text:data.summary}]:(data.summary||[]).filter(entry=>entry?.text);
+ if(summary.length){const list=el('ul','review-summary');for(const entry of summary){const line=el('li','',entry.text);if(entry.evidence_timestamp)line.append(' ',stampButton(entry.evidence_timestamp));list.append(line);}box.append(el('h3','','What Atlanta understood'),list);}
+ const open=data.items.filter(item=>['needs_review','edited'].includes(item.state)).length;
+ if(data.items.length)box.append(el('h3','',open?open+' of '+data.items.length+' need your review':'All '+data.items.length+' reviewed'));
  if(data.source_changed)box.append(el('p','notice warning','Source changed — update the notes before confirming.'));
  for(const item of data.items){
-  const row=el('section','note-section'),state=el('span','badge',item.state==='confirmed'?'Confirmed':item.state==='dismissed'?'Dismissed':item.state==='edited'?'Edited · needs confirmation':'Needs review');
+  const row=el('section','note-section'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=el('span','badge',item.state==='confirmed'?'Confirmed':item.state==='dismissed'?'Dismissed':item.state==='edited'?'Edited · needs confirmation':'Needs review');
   row.append(state,el('p','',item.text));
   if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
   for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen to evidence · '+evidence.timestamp,until:evidence.end,className:'secondary'}));
@@ -2504,8 +2510,8 @@ async function openMeetingReview(){
    save.onclick=()=>perform(async()=>{save.disabled=true;try{const changes={text:text.value};if(item.kind==='task')changes.owner=owner.value;await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action:'edit',changes});editorDirty.clear('meeting-review');await openMeetingReview();}finally{save.disabled=false;}});
   };row.append(edit);
 
-  for(const [action,label] of [['confirm','Confirm locally'],['dismiss','Dismiss proposal']]){
-   if(item.state==='confirmed'||item.state==='dismissed')continue;
+  for(const [action,label] of item.state==='dismissed'?[['restore','Restore to My Work']]:[['confirm','Confirm locally'],['dismiss','Dismiss · hide everywhere']]){
+   if(item.state==='confirmed')continue;
    const button=el('button','secondary',label);button.type='button';button.disabled=data.source_changed;
    button.onclick=()=>perform(async()=>{button.disabled=true;try{await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action});await openMeetingReview();}finally{button.disabled=false;}});row.append(button);
   }
@@ -2513,6 +2519,7 @@ async function openMeetingReview(){
  }
  if(!data.items.length)box.append(el('p','hint','No linked tasks or decisions. Review the saved notes and unresolved mentions in Tasks & decisions.'));
  if(!$('meeting-review-dialog').open)$('meeting-review-dialog').showModal();
+ box.querySelector('.review-pending')?.scrollIntoView({block:'nearest'});
 }
 $('meeting-review-close').onclick=async()=>{if(await leaveEdits()){editorDirty.clear('meeting-review');$('meeting-review-dialog').close();}};
 $('meeting-review-dialog').addEventListener('cancel',event=>{event.preventDefault();$('meeting-review-close').click();});
@@ -2550,7 +2557,7 @@ function renderFollowup(data){
  for(const [key,label] of [['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
   const rows=follow[key]||[];if(!rows.length)continue;
   const section=el('section','note-section');section.append(el('h3','',label+' · '+rows.length));
-  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));
+  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));card.append(reviewBadge(row.review));
    if(row.quote)card.append(el('blockquote','',row.quote));
    if(row.source)card.append(sourceChip(row.source),sourceListen(row.source));
    if(row.item_id){const open=el('button','quiet','Open work item');open.onclick=()=>perform(async()=>{if(row.kind==='task')await openTaskPanel(row.item_id);else{show('tasks');lastTasks='';await loadTasks();showWorkTab(row.kind==='question'?'questions':'decision');}});card.append(open);}

@@ -128,6 +128,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.respond(403, 'Open the app using its launcher.', 'text/plain; charset=utf-8')
             return
+        if url.path == '/api/review-queue':
+            from app.review_queue import build
+            return self.respond(200, build(self.server.service))
         if url.path == '/api/people/profile':
             return self.respond(200, self.server.service.person_profile(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/github/links':

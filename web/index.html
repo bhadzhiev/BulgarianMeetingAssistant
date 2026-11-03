@@ -99,7 +99,7 @@
   </section>
   <section id="tasks" hidden>
     <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading"></p></div>
-    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested">Suggested</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
+    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested">Suggested</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">To review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
     <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
     <div class="card work-panel" id="items-panel" role="tabpanel">
       <div class="work-messages"><p class="hint">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p></div>
@@ -113,6 +113,10 @@
     <div class="card work-panel" id="work-suggested" role="tabpanel" hidden>
       <div class="work-messages"><p class="hint">Source-backed proposals from all sources. The meeting project filter does not apply here. Nothing changes until you accept or link.</p></div>
       <div class="work-content"><div id="proposal-filters" class="segmented"></div><div id="proposal-list"></div></div>
+    </div>
+    <div class="card work-panel" id="review-queue-panel" role="tabpanel" hidden>
+      <div class="work-messages"><p class="hint">Meetings that still wait for you: speakers to name, items to confirm or dismiss, and notes to update. Open a meeting to resolve each step.</p></div>
+      <div class="work-content"><div id="review-queue"></div></div>
     </div>
     <div class="card work-panel" id="questions-panel" role="tabpanel" hidden>
       <div class="work-messages"><p class="hint">Add a question, or accept a question proposal in Suggested.</p></div>

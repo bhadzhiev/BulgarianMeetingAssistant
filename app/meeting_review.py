@@ -26,17 +26,31 @@ def review_state(item):
     return 'needs_review' if any(not link.get('detached') for link in item.get('links',[])) else None
 
 
+def source_digest(transcript_revision, minutes_revision):
+    return hashlib.sha256(canonical([transcript_revision,minutes_revision]).encode()).hexdigest()
+
+
+def linked(item, meeting_id):
+    return any(link.get('meeting_id')==meeting_id and not link.get('detached') for link in item.get('links',[]))
+
+
+def meeting_state(item, meeting_id, source):
+    """The item's review in one meeting; the receipt holds only while source and content stay the same."""
+    receipt = item.get('meeting_reviews',{}).get(meeting_id)
+    state = receipt['state'] if receipt and receipt['source']==source and receipt['content']==fingerprint(item) else 'needs_review'
+    # Restored in My Work: the dismissal no longer holds.
+    return 'needs_review' if state=='dismissed' and not item.get('dismissed') else state
+
+
 def snapshot(service, meeting_id):
     meeting = service.detail(meeting_id)
-    source = hashlib.sha256(canonical([meeting['transcript_revision'],meeting['minutes_revision']]).encode()).hexdigest()
+    source = source_digest(meeting['transcript_revision'],meeting['minutes_revision'])
     rows = []
     for item in meeting['items'].values():
-        if not any(link.get('meeting_id')==meeting_id and not link.get('detached') for link in item.get('links',[])):continue
+        if not linked(item,meeting_id):continue
         digest = fingerprint(item)
         receipt = item.get('meeting_reviews',{}).get(meeting_id)
-        state = receipt['state'] if receipt and receipt['source']==source and receipt['content']==digest else 'needs_review'
-        # Restored in My Work: the dismissal no longer holds.
-        if state=='dismissed' and not item.get('dismissed'):state='needs_review'
+        state = meeting_state(item,meeting_id,source)
         evidence=[]
         for link in item.get('links',[]):
             if link.get('meeting_id')!=meeting_id or not link.get('evidence_timestamp'):continue

@@ -741,3 +741,4 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 
 /* One status vocabulary (status.js): the tone says how much attention a status needs. */
 .status-badge{display:inline-block;font-size:10px;letter-spacing:.6px;border-radius:5px;padding:4px 8px;white-space:nowrap;font-weight:600}.status-ok{background:var(--ok-soft);color:var(--ok)}.status-warn{background:var(--warn-soft);color:var(--warn-ink)}.status-danger{background:var(--danger-soft);color:var(--danger-ink)}.status-muted{background:var(--line-soft);color:var(--muted)}
+.followup-owner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}.followup-owner .hint{margin:0}.followup-owner select{width:auto}

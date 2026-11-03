@@ -26,8 +26,9 @@ def build(service, briefing, registry, meetings, minutes):
         if source and source.get('timestamp'):
             segment=segment_at(service.detail(source['meeting_id'])['transcript'],source['timestamp'])
             if segment:quote=segment['text'];source=dict(source,start=segment['start'],end=segment['end'])
-        person=service.people.match(item.get('owner') or '')
-        return dict(item_id=item['id'],revision=item.get('revision'),kind=item['kind'],text=item['text'],owner=item.get('owner'),person_id=person['id'] if person else None,source=source,quote=quote,external=external,status=item['status'],review=review_state(item))
+        person,how=service.people.owner_of(item) if item['kind']=='task' else (None,None)
+        return dict(item_id=item['id'],revision=item.get('revision'),kind=item['kind'],text=item['text'],owner=item.get('owner'),
+                    person_id=person['id'] if person else None,person_name=person['name'] if person else None,person_link=how,source=source,quote=quote,external=external,status=item['status'],review=review_state(item))
     rows={key:row(item) for key,item in scoped.items()}
     unchanged=[]
     if boundary:

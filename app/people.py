@@ -158,6 +158,24 @@ class People(SafeJSON):
         if re.fullmatch(r'SPEAKER[ _-]?\d+',key,re.I):return None
         return next((copy.deepcopy(p) for p in self.people if key in {n.casefold() for n in _names(p)}), None)
 
+    def owner_of(self, item):
+        """The person behind a task owner, and how Atlanta knows: 'linked' (a person chose them),
+        'name' (one person has the owner's name), 'ambiguous' (several have it) or None.
+
+        A shared name links nobody. A person then chooses, so a guess never becomes a commitment.
+        """
+        linked = self.get(item.get('owner_person_id')) if item.get('owner_person_id') else None
+        if linked:
+            return copy.deepcopy(linked), 'linked'
+        name = item.get('owner')
+        if not isinstance(name, str) or not name.strip() or re.fullmatch(r'SPEAKER[ _-]?\d+', name.strip(), re.I):
+            return None, None
+        key = ' '.join(name.split()).casefold()
+        found = [p for p in self.people if key in {n.casefold() for n in _names(p)}]
+        if len(found) > 1:
+            return None, 'ambiguous'
+        return (copy.deepcopy(found[0]), 'name') if found else (None, None)
+
     def match_channel(self,provider,account,sender):
         with self.lock:
             if provider=='gmail':

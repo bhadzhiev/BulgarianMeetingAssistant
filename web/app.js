@@ -2489,6 +2489,27 @@ function syncReviewPanel(){
  editorDirty.clear('meeting-review');reviewShownFor=null;$('meeting-review-body').replaceChildren();
  if(meetingTab==='review')perform(openMeetingReview);
 }
+// Where an item belongs and goes. Each item has its own project; nothing joins a guessed common one.
+function reviewRouting(item){
+ const box=el('div','review-routing'),names=ids=>ids.map(id=>projectList().find(p=>p.id===id)?.name).filter(Boolean).join(' · ');
+ const project=el('select');project.setAttribute('aria-label','Project');
+ project.append(option(item.project_ids===null?'Meeting project'+(item.effective_project_ids.length?' · '+names(item.effective_project_ids):' · none'):'Use the meeting project','inherit'),...projectList().map(p=>option(p.name,p.id)));
+ if(item.project_ids&&item.project_ids.length>1){const several=option('Several · '+names(item.project_ids),'several');several.disabled=true;project.append(several);}
+ project.value=item.project_ids===null?'inherit':item.project_ids.length===1?item.project_ids[0]:'several';
+ project.onchange=()=>perform(async()=>{project.disabled=true;try{await api('/api/work/project',{id:item.id,revision:item.revision,project_ids:project.value==='inherit'?null:[project.value]});}finally{await openMeetingReview();}});
+ const projectLabel=el('label','review-route','Project');projectLabel.append(project);box.append(projectLabel);
+ if(item.kind!=='task')return box;
+ const destination=el('select');destination.setAttribute('aria-label','Destination');
+ destination.append(option('This Mac only',''),...item.repositories.map(r=>option('GitHub · '+r,r)));
+ const current=item.destination_repository;
+ if(current&&!item.repositories.includes(current))destination.append(option(current+' · not in the project',current));
+ destination.value=current||'';
+ destination.onchange=()=>perform(async()=>{destination.disabled=true;try{await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{destination_repository:destination.value||null}});}finally{await openMeetingReview();}});
+ const destinationLabel=el('label','review-route','Destination');destinationLabel.append(destination);box.append(destinationLabel);
+ if(!item.repositories.length)box.append(el('span','hint','Add a repository to the project to send this task to GitHub.'));
+ if(current&&item.repositories.includes(current)){const draft=el('button','quiet','Draft in GitHub…');draft.type='button';draft.onclick=()=>perform(()=>openDraft({kind:'item',id:item.id},'issue'));box.append(draft);}
+ return box;
+}
 async function openMeetingReview(){
  const meetingId=detail.id,box=$('meeting-review-body');
  // An open inline edit stays; the panel refreshes after it is saved or cancelled.
@@ -2506,6 +2527,7 @@ async function openMeetingReview(){
   const row=el('section','note-section'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
   row.append(state,el('p','',item.text));
   if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
+  row.append(reviewRouting(item));
   for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen to evidence · '+evidence.timestamp,until:evidence.end,className:'secondary'}));
   const edit=el('button','secondary','Edit');edit.type='button';
   edit.onclick=()=>{

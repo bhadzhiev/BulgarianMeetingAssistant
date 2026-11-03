@@ -14,7 +14,7 @@ class MeetingReviewTests(unittest.TestCase):
         self.mid='a'*32
         self.key=registry.create('task',dict(task='Check rollout',status='open'),self.mid);registry.save()
         self.source='first'
-        self.service=SimpleNamespace(items=registry,lock=RLock())
+        self.service=SimpleNamespace(items=registry,lock=RLock(),effective_project_ids=lambda item:[],project_repositories=lambda ids:[])
         self.service.detail=lambda key:dict(transcript_revision=self.source,minutes_revision='notes',items=registry.items,minutes={'summary':'Summary'})
     def body(self,action='confirm'):
         view=snapshot(self.service,self.mid);row=view['items'][0]

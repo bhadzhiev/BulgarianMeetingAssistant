@@ -20,10 +20,10 @@ the private readiness URL is not logged. Use Archive/Restore to bring saved meet
 Models download on first use. Local AI notes still use the independently running model server
 configured in Settings. The desktop app does not stop that server.
 
-Calendar meeting links currently open in the default browser, which does not share the desktop
-window's session cookie. Opening such a link can show "Open the app using its launcher" even when
-the desktop app is running. Open the meeting from the desktop library instead. Opening calendar
-links directly in the desktop window needs a future deep-link integration.
+Calendar meeting links open in the default browser, which does not share the desktop window's
+session cookie. The browser page hands the meeting to the desktop app through the `atlanta://`
+URL scheme, and the desktop window opens the meeting. The browser can ask once for permission to
+open Atlanta. Unsaved edits in the window get the usual leave prompt first.
 
 For development, install Rust and run `scripts/run_desktop.sh`. It uses `.venv/bin/python` by
 default; `BMA_PYTHON` selects another interpreter. `BMA_DATA_DIR` selects an isolated data directory.
@@ -1061,8 +1061,8 @@ as not blocking availability. Visibility follows the destination calendar's sett
 
 Links look like `http://127.0.0.1:8765/?meeting=<id>`. They open the saved meeting **on this
 Mac only**, while the app runs at that address. They contain no app session credential.
-Open the launcher first if the app is closed or this browser is not yet connected; then
-open the calendar link again. Links are not public sharing links and will not open the
+A browser without the app session gets a page that opens `atlanta://meeting/<id>` in the
+desktop window. If the app is closed, start it first, then open the calendar link again. Links are not public sharing links and will not open the
 recording from your phone or another computer. Keep the normal app port (8765) for stable links.
 
 Calendar events use a stable ID and app ownership marker. Retries, AI title updates, and

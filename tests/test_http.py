@@ -91,7 +91,14 @@ class HTTPTests(unittest.TestCase):
         status,body,_=self.request('/?meeting='+m['id'])
         self.assertEqual(status,200);self.assertIn(b'/app.js',body)
         self.assertNotIn(self.server.token.encode(),body)
-        self.assertEqual(self.request('/?meeting='+m['id'],headers={})[0],403)
+        status,body,headers=self.request('/?meeting='+m['id'],headers={})
+        # Without a session the browser hands the meeting to the desktop window.
+        self.assertEqual(status,200);self.assertNotIn('Set-Cookie',headers)
+        self.assertIn(('content="0;url=atlanta://meeting/'+m['id']+'"').encode(),body)
+        self.assertNotIn(self.server.token.encode(),body);self.assertNotIn(b'/app.js',body)
+        for path in ['/?meeting=../etc','/?meeting='+m['id'].upper(),'/?meeting='+m['id']+'x']:
+            self.assertEqual(self.request(path,headers={})[0],403)
+        self.assertEqual(self.request('/?meeting='+m['id'],headers={'Host':'evil.example'})[0],403)
 
     def test_calendar_list_requires_connection(self):
         self.assertEqual(self.request('/api/calendar/calendars')[0],400)

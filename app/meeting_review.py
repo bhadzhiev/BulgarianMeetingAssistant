@@ -2,6 +2,7 @@
 import copy
 import datetime as dt
 import hashlib
+from .transcripts import segment_at
 from .work_items import canonical, WorkItemConflict
 
 
@@ -22,9 +23,8 @@ def snapshot(service, meeting_id):
         for link in item.get('links',[]):
             if link.get('meeting_id')!=meeting_id or not link.get('evidence_timestamp'):continue
             stamp=link['evidence_timestamp']
-            seconds=sum(int(part)*60**n for n,part in enumerate(reversed(stamp.split(':'))))
-            segment=next((r for r in meeting.get('transcript',[]) if r['start']<=seconds<r['end']),None)
-            if segment:evidence.append(dict(quote=segment['text'],timestamp=stamp))
+            segment=segment_at(meeting.get('transcript',[]),stamp)
+            if segment:evidence.append(dict(quote=segment['text'],timestamp=stamp,start=segment['start'],end=segment['end']))
         rows.append(dict(evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,
                          revision=item.get('revision'),content=digest,receipt=copy.deepcopy(receipt),
                          links=copy.deepcopy(item.get('links',[]))))

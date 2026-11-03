@@ -21,6 +21,28 @@ def _seconds(hours, minutes, seconds, millis='0'):
     return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds) + int(millis.ljust(3, '0')) / 1000
 
 
+def stamp_seconds(stamp):
+    return sum(int(part) * 60 ** n for n, part in enumerate(reversed(stamp.split(':'))))
+
+
+def segment_at(segments, stamp):
+    """The words that a note's HH:MM:SS source time cites, as one span.
+
+    Notes cite the start of a segment, cut to whole seconds. The previous segment often
+    still runs at that second, so a segment that starts in it comes first. When more
+    segments start in that second, the span holds all of them.
+    """
+    seconds = stamp_seconds(stamp)
+    rows = [s for s in segments if int(s['start']) == seconds]
+    if not rows:
+        rows = [s for s in segments if s['start'] <= seconds < s['end']][:1]
+    if not rows:
+        return None
+    speakers = {s.get('speaker') for s in rows}
+    return dict(start=rows[0]['start'], end=rows[-1]['end'], text=' '.join(s['text'].strip() for s in rows),
+                speaker=speakers.pop() if len(speakers) == 1 else None)
+
+
 def _speakers(items, known, header):
     """Split "Name: text" only when the prefix looks like a name.
 

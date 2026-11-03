@@ -649,13 +649,21 @@ function showSeconds(seconds) {
 // A note's time: listen in place, or show the moment in the transcript.
 function stampButton(stamp) {
  const box=el('span','stamp-group'),show=el('button','quiet stamp-show','↗');show.type='button';show.title='Show '+stamp+' in the transcript';show.setAttribute('aria-label',show.title);show.onclick=()=>showMoment(stamp);
- box.append(listenButton(detail.id,stampSeconds(stamp),{label:stamp,className:'stamp'}),show);return box;
+ const segment=segmentAt(stamp);box.append(listenButton(detail.id,segment?segment.start:stampSeconds(stamp),{label:stamp,until:segment?.end,className:'stamp'}),show);return box;
 }
 // AI notes cite moments as (00:29:46); make them links to the transcript.
 function linkedText(target,text) { text.split(/\(?\b(\d{2}:\d{2}:\d{2})\b\)?/).forEach((part,i)=>target.append(i%2?stampButton(part):document.createTextNode(part))); return target; }
 const FIELD_TITLES={summary:'Summary',decisions:'Decisions',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations'};
 const ITEM_FIELDS=Object.keys(FIELD_TITLES).filter(field=>field!=='tasks');
-function segmentAt(stamp) { return detail.transcript.find(s=>time(s.start)===stamp); }
+// Notes cite a segment's start in whole seconds, and the previous segment often still runs then.
+// So a segment that starts in that second wins; more of them form one span.
+function segmentAt(stamp) {
+ const seconds=stampSeconds(stamp); let rows=detail.transcript.filter(s=>Math.floor(s.start)===seconds);
+ if(!rows.length) rows=detail.transcript.filter(s=>s.start<=seconds&&seconds<s.end).slice(0,1);
+ if(!rows.length) return null;
+ const speakers=new Set(rows.map(s=>s.speaker||''));
+ return {start:rows[0].start,end:rows.at(-1).end,text:rows.map(s=>s.text.trim()).join(' '),speaker:speakers.size===1?rows[0].speaker:''};
+}
 function sourceBlock(stamp) {
  const box=el('div','note-source');
  if(!stamp) { box.append(el('span','no-source','No source moment')); return box; }
@@ -1738,7 +1746,7 @@ function renderProjectSettings() {
  for(const project of projectList()) { const box=el('div','project-entry'); box.append(row('projects',project),...seriesOf(project.id).map(series=>row('series',series))); list.append(box); }
 }
 async function changePreparedTask(task,checkbox){checkbox.disabled=true;try{await changeItem({id:task.item_id,text:task.text,revision:task.revision},{status:'done'});}catch(e){checkbox.checked=false;throw e;}finally{checkbox.disabled=false;}}
-function sourceListen(source){return source?.meeting_id&&source.timestamp?listenButton(source.meeting_id,stampSeconds(source.timestamp),{label:'',className:'chip-listen'}):'';}
+function sourceListen(source){return source?.meeting_id&&source.timestamp?listenButton(source.meeting_id,source.start??stampSeconds(source.timestamp),{label:'',until:source.end,className:'chip-listen'}):'';}
 function sourceChip(source) {
  const chip=el('button','meeting-chip','↗ '+withDate(source.meeting_title,source.meeting_date)+(source.timestamp?' · '+source.timestamp:'')); chip.type='button'; chip.title='Open the meeting at this moment';
  chip.onclick=()=>perform(async()=>{await openMeeting(source.meeting_id);if(source.timestamp&&detail.transcript.length)showMoment(source.timestamp);else switchTab('outcomes');});
@@ -2485,7 +2493,7 @@ async function openMeetingReview(){
   const row=el('section','note-section'),state=el('span','badge',item.state==='confirmed'?'Confirmed':item.state==='dismissed'?'Dismissed':item.state==='edited'?'Edited · needs confirmation':'Needs review');
   row.append(state,el('p','',item.text));
   if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
-  for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),el('span','hint',evidence.timestamp));
+  for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen to evidence · '+evidence.timestamp,until:evidence.end,className:'secondary'}));
   const edit=el('button','secondary','Edit');edit.type='button';
   edit.onclick=()=>{
    edit.disabled=true;const form=el('div','review-inline-editor'),text=el('textarea'),owner=el('input'),save=el('button','primary','Save edit'),cancel=el('button','secondary','Cancel');
@@ -2496,10 +2504,6 @@ async function openMeetingReview(){
    save.onclick=()=>perform(async()=>{save.disabled=true;try{const changes={text:text.value};if(item.kind==='task')changes.owner=owner.value;await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action:'edit',changes});editorDirty.clear('meeting-review');await openMeetingReview();}finally{save.disabled=false;}});
   };row.append(edit);
 
-  for(const link of item.links.filter(l=>l.meeting_id===meetingId)){
-   const stamp=link.evidence_timestamp;
-   if(stamp)row.append(listenButton(meetingId,stampSeconds(stamp),{label:'Listen to evidence',className:'secondary'}));
-  }
   for(const [action,label] of [['confirm','Confirm locally'],['dismiss','Dismiss proposal']]){
    if(item.state==='confirmed'||item.state==='dismissed')continue;
    const button=el('button','secondary',label);button.type='button';button.disabled=data.source_changed;

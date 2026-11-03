@@ -1616,7 +1616,7 @@ function renderTasks() {
  for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
-const WORK_PANELS={task:'items-panel',decision:'items-panel',suggested:'work-suggested',questions:'questions-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
+const WORK_PANELS={task:'items-panel',decision:'items-panel',suggested:'work-suggested',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
 let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?localStorage.getItem('work-tab'):'task';}catch{}
 function showWorkTab(tab){
  if(tab==='sources')tab=stored('last-source-tab')||'gmail';if(['gmail','chat','github'].includes(tab))store('last-source-tab',tab);
@@ -1626,9 +1626,30 @@ function showWorkTab(tab){
  for(const id of new Set(Object.values(WORK_PANELS)))$(id).hidden=id!==WORK_PANELS[tab];
  for(const timer of [mailTimer,chatTimer,ghTimer,repoTimer])if(timer)clearTimeout(timer);mailTimer=chatTimer=ghTimer=repoTimer=null;
  if(tab==='task'||tab==='decision'){itemKind=tab;renderTasks();}
+ else if(tab==='review')perform(loadReviewQueue);
  else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(async()=>{await loadGitHub();showGitHubSection(ghSection);});
 }
 for(const button of document.querySelectorAll('#work-tabs button,#source-tabs button')) button.onclick=()=>showWorkTab(button.dataset.workTab);
+// One queue for the whole library: each row opens the meeting at the step that resolves it.
+async function loadReviewQueue(){
+ const request=readers.start('review-queue'),data=await api('/api/review-queue');if(!readers.current(request))return;
+ const count=$('review-queue-count');count.textContent=data.totals.meetings;count.hidden=!data.totals.meetings;
+ if(view!=='tasks'||workTab!=='review')return;
+ const box=$('review-queue');box.replaceChildren();
+ if(!data.meetings.length){box.append(el('p','empty-content','Nothing waits for review. A processed meeting appears here while it has open steps.'));return;}
+ for(const row of data.meetings){
+  const card=el('div','attention review-queue-row'),head=el('div','attention-head'),title=el('button','quiet review-queue-title',withDate(row.title,row.created));
+  title.type='button';title.onclick=()=>perform(()=>openMeeting(row.id));head.append(title);card.append(head);
+  const add=(tone,text,label,run)=>{const line=el('div','attention-item '+tone),go=el('button','secondary small-action',label);go.type='button';
+   go.onclick=()=>perform(async()=>{await openMeeting(row.id);if(view==='detail'&&detail?.id===row.id)await run();});line.append(el('i'),el('span','',text),go);card.append(line);};
+  // Names change the transcript and new notes change the items, so a confirm comes last.
+  if(row.speakers)add('warn','Name '+AtlantaUX.count(row.speakers,'speaker'),'Name speakers',async()=>{switchTab('transcript');$('speaker-review-container').open=true;$('speaker-review').scrollIntoView({block:'center'});});
+  if(row.notes==='proposal')add('info','New AI notes are ready','Review changes',async()=>openReview());
+  else if(row.notes)add('info','The transcript changed after the notes were made','Review update',async()=>{switchTab('transcript');$('primary-action').scrollIntoView({block:'center'});});
+  if(row.items)add('warn',AtlantaUX.count(row.items,'item')+' to confirm or dismiss','Review items',async()=>switchTab('review'));
+  box.append(card);
+ }
+}
 // Projects group meetings; a series groups the meetings that repeat inside a project.
 let lastProjects='', prepareScope={project:'',series:'',type:''}, prepareData=null;
 const projectList=()=>state?.projects?.projects||[];
@@ -1953,7 +1974,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden){events?.c
 // The microphone list is scanned only while the new-meeting form is visible.
 setInterval(()=>{ if(view!=='setup'||document.hidden||!state) return;
  api('/api/devices').then(result=>{if(JSON.stringify(result.devices)!==JSON.stringify(state.devices)||result.device_error!==state.device_error){state.devices=result.devices;state.device_error=result.device_error;renderState();}}).catch(()=>{}); },3000);
-$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('tasks');lastTasks='';await loadTasks();showWorkTab(workTab);renderLibrary();});
+$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('tasks');lastTasks='';await loadTasks();showWorkTab(workTab);renderLibrary();if(workTab!=='review')perform(loadReviewQueue);});
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});

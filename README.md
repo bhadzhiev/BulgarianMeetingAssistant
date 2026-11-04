@@ -75,7 +75,8 @@ brew install ffmpeg
 
 The browser talks only to `127.0.0.1`. The server uses a random session credential,
 checks request origins, and does not expose a network listener to other computers.
-An API key can be supplied in Settings or through `OPENAI_API_KEY`. Keys entered in the
+OpenAI and ElevenLabs keys can be supplied separately in Settings or through
+`OPENAI_API_KEY` and `ELEVENLABS_API_KEY`. Keys entered in the
 interface stay in process memory, are never returned by the API or stored in meeting files,
 and can be forgotten in Settings. A key supplied in the environment is loaded again on restart.
 Do not share the launch URL: it grants access to this local app session.
@@ -1429,3 +1430,27 @@ User-added meeting tasks survive regenerated notes and remain available before n
 In **Projects → select a project → Overview → Repositories**, click **Link repository**, search the accessible repository list and use **Link selected repository**, or enter `owner/name` manually. **Save links** applies the staged changes; the editor shows unsaved changes and warns when unlinking a repository used as a task destination. A repository can belong to several projects. Unlinking keeps existing issues and historical GitHub links. Manual entries do not prove access.
 
 A task can publish only to a repository linked to one of its effective projects. Removing its chosen destination requires explicit reselection; Atlanta does not silently substitute another repository. Multiple linked repositories require a choice unless the task already has a valid destination. Changing the project repository links invalidates earlier publication previews, including removing and subsequently restoring the same link. Failed project saves restore the previous in-memory configuration.
+
+
+### ElevenLabs Scribe v2
+
+In **Settings → Recording → Transcription**, choose **Cloud · ElevenLabs Scribe v2**.
+Create a key at https://elevenlabs.io/app/api/api-keys with Speech to Text access,
+paste it into **ElevenLabs API key**, then save settings. The key stays in memory until
+the app closes. Alternatively, set `ELEVENLABS_API_KEY` before launching.
+The app shows whether a key is present; this does not validate credits or API access.
+
+Audio is uploaded to ElevenLabs in bounded WAV chunks for final transcription.
+The model is `scribe_v2`; language detection is automatic for Bulgarian and English.
+The original recording is kept. Completed chunks are checkpointed for retries.
+Words retain the API timestamps for playback and optional local speaker alignment.
+Scribe speaker IDs are not used because IDs from separate chunks cannot safely identify
+the same person. Speaker identification uses the existing local pipeline; live captions
+continue using local Whisper. Scribe Realtime and importing a transcript from an
+ElevenLabs editor URL are not part of this integration.
+
+**Vocabulary & names** supplies comma- or newline-separated keyterms. Each term must
+have at most 50 characters and 5 words; brackets, braces, angle brackets and backslash
+are unsupported. ElevenLabs charges extra for keyterms. Review current prices and
+account limits at https://elevenlabs.io/pricing/api before processing long recordings.
+Notes, transcript correction and title generation keep their separately chosen providers.

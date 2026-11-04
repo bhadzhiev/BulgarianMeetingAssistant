@@ -87,6 +87,11 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
     model = None
     model_path = None
     vad = prompt = None
+    if provider == 'elevenlabs':
+        from . import scribe
+        if not api_key:
+            raise ValueError('Add an ElevenLabs API key in Settings before transcription.')
+        prompt = scribe.keyterms(settings.get('whisper_vocabulary', ''))
     if provider == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before processing with cloud transcription.')
     if provider == 'local':
@@ -121,8 +126,8 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             from . import vad as voice
             detector, reason = voice.load(Path(settings['models_dir']), progress)
             vad = voice.LABEL if detector else reason
-    word_alignment = provider in {'local', 'parakeet', 'parakeet_sherpa'} and settings.get('diarization_enabled', True)
-    model_name = parakeet.MODEL_NAME if provider in {'parakeet', 'parakeet_sherpa'} else settings['local_model'] if provider == 'local' else settings['cloud_model']
+    word_alignment = provider == 'elevenlabs' or provider in {'local', 'parakeet', 'parakeet_sherpa'} and settings.get('diarization_enabled', True)
+    model_name = parakeet.MODEL_NAME if provider in {'parakeet', 'parakeet_sherpa'} else settings['local_model'] if provider == 'local' else scribe.MODEL if provider == 'elevenlabs' else settings['cloud_model']
     segments = []
     audio_path = directory / 'recording.wav'
     try:
@@ -197,8 +202,12 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                         chunk.setsampwidth(2)
                         chunk.setframerate(rate)
                         chunk.writeframes(samples.tobytes())
-                    response = upload_audio(buffer.getvalue(), api_key, settings['cloud_model'])
-                    text = response.get('text')
+                    if provider == 'elevenlabs':
+                        segments.extend(TranscriptSegment(**unit) for unit in scribe.transcribe(buffer.getvalue(), api_key, prompt, start, end))
+                        response = None
+                    else:
+                        response = upload_audio(buffer.getvalue(), api_key, settings['cloud_model'])
+                    text = response.get('text') if response is not None else ''
                     if not isinstance(text, str):
                         raise ValueError('Cloud transcription returned no text')
                     if text.strip():
@@ -231,15 +240,17 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         save_transcript(directory, segments)
         if units:
             atomic_json(directory / 'transcript.alignment.json', dict(version=1, source_revision=revision([asdict(s) for s in segments]),
-                method=parakeet.ALIGNMENT_METHOD if provider in {'parakeet', 'parakeet_sherpa'} else 'whisper.cpp experimental word boundaries', units=units))
+                method=parakeet.ALIGNMENT_METHOD if provider in {'parakeet', 'parakeet_sherpa'} else scribe.ALIGNMENT_METHOD if provider == 'elevenlabs' else 'whisper.cpp experimental word boundaries', units=units))
         if preparation['profile'] == 'light':
             os.replace(audio_path, directory / 'transcription.wav')
         else:
             (directory / 'transcription.wav').unlink(missing_ok=True)
         metadata = dict(provider=provider,
             model=model_name,
-            timestamps='segment' if provider in {'local', 'parakeet', 'parakeet_sherpa'} else 'approximate chunk boundaries',
+            timestamps='word' if provider == 'elevenlabs' else 'segment' if provider in {'local', 'parakeet', 'parakeet_sherpa'} else 'approximate chunk boundaries',
             audio_preparation=preparation, resumed_from_seconds=resumed_from)
+        if provider == 'elevenlabs':
+            metadata.update(language='auto', vocabulary_applied=bool(prompt), word_boundaries=True, speaker_recognition='local')
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):

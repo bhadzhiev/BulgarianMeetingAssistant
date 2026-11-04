@@ -199,6 +199,29 @@ class GraphBackupTests(unittest.TestCase):
             restored.close()
 
 
+    def test_person_can_edit_and_delete_source_linked_ai_items_and_questions(self):
+        graph = WorkGraph(self.service.items)
+        result = graph.ingest(dict(provider='fixture', account='synthetic', external_id='mail', revision='1', text='Review backups'),
+                              [dict(kind='task', text='Review backups', quote='Review backups')])
+        accepted = graph.review(result['proposals'][0], 1, 'accept')
+        task = self.service.items.items[accepted['result_id']]
+        q = graph.question('Synthetic question?')
+        graph.relate(q['id'], task['id'], 'supports', q['revision'], task['revision'])
+        q = self.service.items.items[q['id']]
+        edited = self.service.update_item(q['id'], q['text'], {'text': 'Edited question?'}, q['revision'])
+        self.assertEqual(edited['text'], 'Edited question?')
+        with self.assertRaises(ValueError):
+            self.service.update_item(q['id'], edited['text'], {'status': 'answered'}, edited['revision'])
+        task = self.service.items.items[task['id']]
+        self.service.delete_item(task['id'], task['text'], task['revision'])
+        self.service.delete_item(q['id'], edited['text'], edited['revision'])
+        self.assertNotIn(task['id'], self.service.items.items)
+        self.assertNotIn(q['id'], self.service.items.items)
+        self.assertEqual(self.service.items.data['relationships'], {})
+        # Saved source quotes stay; only the item and its links go.
+        self.assertTrue(self.service.items.data['source_evidence'])
+
+
 class GraphHTTPTests(unittest.TestCase):
     setUp = foundation.test_http.HTTPTests.setUp
     tearDown = foundation.test_http.HTTPTests.tearDown

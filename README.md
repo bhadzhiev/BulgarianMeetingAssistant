@@ -506,8 +506,9 @@ not enabled yet.
 **Questions** holds personal open questions and questions accepted from proposals. Add a question,
 save an answer, or reopen it; the earlier answer stays in its history. Existing meeting-note open
 questions are not automatically imported into this list. Suggested and Questions cover all sources,
-independent of the meeting project filter. For source-linked items use Dismiss instead of Delete;
-proposal Link adds sources without merging away IDs or history.
+independent of the meeting project filter. **Edit** and **Delete** work on every question, task and
+decision, also on items with saved sources. Delete removes the links to other items; the saved source
+quotes stay. Proposal Link adds sources without merging away IDs or history.
 
 Example: "Test the SAP permissions" is created on 19 Oct; on 23 Oct a meeting says "до петък", the due
 date changes, and the task stays open. The history shows both meetings.
@@ -537,6 +538,9 @@ Decisions are **Proposed** until you accept them (checking a decision against it
 - Filter tasks by **Open**, **Overdue**, **Done**, or **All**, and by owner; filter decisions by state.
 - Mark a task as done or change its due date. The status also changes in the notes of every linked meeting.
 - **Delete** removes the item from the notes of every meeting that mentions it.
+- In the meeting notes, each statement has **Edit** and **Delete**. Examples: the summary, decisions,
+  unresolved questions and next steps. You do not need the full notes editor. An edited statement
+  counts as checked.
 
 The app shows reminders only to you, in the app. It sends nothing to task owners.
 
@@ -632,7 +636,9 @@ GitHub. You copy a draft, or open GitHub with it filled in, and publish it yours
   owner (as `@login` when the person has a GitHub username) and due date, and an Atlanta reference
   (`<!-- atlanta:resource=item:… -->`). Meeting titles are included by default and speaker names are
   hidden by default; both are switches. You can edit the text before you copy it. **Open on GitHub**
-  opens the new-issue page of the chosen repository with the title and text filled in.
+  opens the new-issue page of the chosen repository with the title and text filled in. If the item has
+  no project, the draft asks you to choose one. If the project has no repository, the draft shows the
+  repository editor, so you can link one without leaving the dialog.
 - **Link existing issue or PR**: enter `#123`, `owner/name#123`, a GitHub URL, or words of a title from
   the GitHub cache. The link lives only on this Mac; GitHub does not know about it unless the published
   text includes the Atlanta reference. A link is checked against the GitHub cache, then with a
@@ -1405,6 +1411,6 @@ User-added meeting tasks survive regenerated notes and remain available before n
 
 ### Project repository links
 
-In **Projects → Overview → Project settings & repositories**, search the accessible repository list and use **Link selected repository**, or enter `owner/name` manually. **Save links** applies the staged changes; the editor shows unsaved changes and warns when unlinking a repository used as a task destination. A repository can belong to several projects. Unlinking keeps existing issues and historical GitHub links. Manual entries do not prove access.
+In **Projects → select a project → Overview → Repositories**, click **Link repository**, search the accessible repository list and use **Link selected repository**, or enter `owner/name` manually. **Save links** applies the staged changes; the editor shows unsaved changes and warns when unlinking a repository used as a task destination. A repository can belong to several projects. Unlinking keeps existing issues and historical GitHub links. Manual entries do not prove access.
 
 A task can publish only to a repository linked to one of its effective projects. Removing its chosen destination requires explicit reselection; Atlanta does not silently substitute another repository. Multiple linked repositories require a choice unless the task already has a valid destination. Changing the project repository links invalidates earlier publication previews, including removing and subsequently restoring the same link. Failed project saves restore the previous in-memory configuration.

@@ -736,6 +736,15 @@ function reviewBadge(item,busy) {
  badge.onclick=()=>perform(async()=>{const base=structuredClone(detail.minutes),previous=item.review;item.review=checked?'ai':'verified';try{await saveMinutes(base);}catch(e){item.review=previous;throw e;}});
  return badge;
 }
+// Edit or delete one statement of the saved notes without the full notes editor.
+function noteButtons(items,index,textNode,busy,title){
+ const item=items[index],edit=el('button','quiet small-action','Edit'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy||notesEditing;
+ const commit=async change=>{const base=structuredClone(detail.minutes);change();try{await saveMinutes(base);}catch(e){detail.minutes=base;renderDetail();throw e;}};
+ // A person wrote the new wording, so it counts as checked.
+ edit.onclick=()=>inlineEdit(textNode,item.text,value=>commit(()=>{item.text=value;item.review='verified';}),'Edit '+title);
+ remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this statement from '+title+'?\n\n'+item.text,{ok:'Delete',danger:true})))return;await commit(()=>items.splice(index,1));toast('Deleted');});
+ return [edit,remove];
+}
 function noteSection(minutes,field,title,busy,hint) {
  const section=el('section','note-section'+(field==='observations'?' private-notes':''));
  section.append(el('h3','',title)); if(hint) section.append(el('p','hint',hint));
@@ -744,7 +753,7 @@ function noteSection(minutes,field,title,busy,hint) {
   if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
   else { const list=el('ul','note-list'); items.forEach((item,index)=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&detail.items?.[item.item_id];
    if(decision) meta.append(el('span','decision-status '+decision.status,DECISION_LABELS[decision.status]));
-   meta.append(reviewBadge(item,busy),sourceBlock(item.evidence_timestamp)); li.append(linkedText(el('p','note-text'),item.text),meta);
+   const noteText=linkedText(el('p','note-text'),item.text);meta.append(reviewBadge(item,busy),sourceBlock(item.evidence_timestamp),...noteButtons(items,index,noteText,busy,title)); li.append(noteText,meta);
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
    if(field==='decisions'&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
    list.append(li); }); section.append(list); }
@@ -826,7 +835,7 @@ function taskRow(task,index,busy) {
  main.append(meta);
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
- if(item){const edit=el('button','secondary small-action','Edit task');edit.type='button';edit.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));main.append(edit);}
+ if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));main.append(edit,remove);}
  if(item) main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  row.append(done,main); return row;
 }
@@ -1112,6 +1121,24 @@ function setItemEditing(active,row=null){
  for(const node of [...$('work-tabs').querySelectorAll('button'),...$('status-filter').querySelectorAll('button'),$('work-project'),$('task-owner')])node.disabled=active;
  if(active&&row)for(const node of row.querySelectorAll('input,button'))node.disabled=true;
 }
+// A person can change or remove anything that the AI suggested, with or without saved sources.
+const deleteWarning=item=>'Delete this '+item.kind+' everywhere?\n\n'+item.text+(item.links?.length?'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.'):'')+(item.source_evidence?.length?'\n\nSaved source quotes stay; links to other items are removed.':'');
+async function deleteItem(item){if(!(await ask(deleteWarning(item),{ok:'Delete',danger:true})))return;await api('/api/items/'+item.id+'/delete',{text:item.text,revision:item.revision});await refreshAfterItemChange();toast('Deleted');}
+// Replace a text node with an editor in place. save(value) returns a promise; Escape or Cancel keeps the text.
+function inlineEdit(node,text,save,label='Text'){
+ if(!node.isConnected||editorDirty.keys().includes('inline-edit'))return;
+ const form=el('div','inline-editor'),area=el('textarea','tracked-edit'),bar=el('div','tracked-edit-bar'),ok=el('button','primary small-action','Save'),cancel=el('button','secondary small-action','Cancel');
+ area.value=text;area.rows=Math.max(2,Math.ceil(text.length/90));area.setAttribute('aria-label',label);ok.type=cancel.type='button';bar.append(ok,cancel);form.append(area,bar);
+ const close=()=>{editorDirty.clear('inline-edit');form.replaceWith(node);};
+ cancel.onclick=close;area.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))ok.click();};
+ ok.onclick=()=>perform(async()=>{const value=area.value.trim();if(!value){area.focus();return;}if(value===text){close();return;}ok.disabled=true;try{await save(value);editorDirty.clear('inline-edit');}finally{ok.disabled=false;}});
+ editorDirty.set('inline-edit',true);node.replaceWith(form);area.focus();
+}
+function editDeleteButtons(item,textNode){
+ const edit=el('button','quiet','Edit'),remove=el('button','quiet danger-text','Delete');edit.type=remove.type='button';
+ edit.onclick=()=>inlineEdit(textNode,item.text,async value=>{await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{text:value}});await refreshAfterItemChange();toast('Saved');},'Edit '+item.kind);
+ remove.onclick=()=>perform(()=>deleteItem(item));return [edit,remove];
+}
 function itemActions(item,row) {
  const actions=el('div','tracked-actions'); actions.append(projectAssignment(item)); const edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
  const main=row.querySelector('.tracked-main'), text=main.querySelector('.tracked-text');
@@ -1128,7 +1155,7 @@ function itemActions(item,row) {
   select.setAttribute('aria-label','Merge into');select.append(option('Same as…',''),...others.map(other=>option(other.text.slice(0,100),other.id)));
   go.onclick=()=>{if(!select.value)return;perform(async()=>{await api('/api/items/'+item.id+'/merge',{into:select.value,revision:item.revision,into_revision:itemsData.items.find(other=>other.id===select.value)?.revision});setItemEditing(false);await refreshAfterItemChange();toast('Merged · both histories are kept');});};
   cancel.onclick=()=>{setItemEditing(false);bar.remove();actions.hidden=false;lastTasks='';perform(loadTasks);};bar.append(select,go,cancel);main.append(bar);actions.hidden=true;};
- remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this '+item.kind+' everywhere?\n\n'+item.text+'\n\nIt is removed from the notes of '+item.links.length+(item.links.length===1?' meeting.':' meetings.'),{ok:'Delete',danger:true})))return;await api('/api/items/'+item.id+'/delete',{text:item.text,revision:item.revision});await refreshAfterItemChange();toast('Deleted');});
+ remove.onclick=()=>perform(()=>deleteItem(item));
  const snooze=el('button','quiet',item.snoozed_until?'Unsnooze':'Snooze'),dismiss=el('button','quiet',item.dismissed?'Restore to My Work':'Dismiss');
  snooze.onclick=()=>perform(async()=>{if(item.snoozed_until){await changeItem(item,{snoozed_until:null});return;}const day=new Date();day.setDate(day.getDate()+1);const value=await askDate('Snooze in My Work until dd.mm.yyyy. The item status and sources stay unchanged.',AtlantaUX.iso(day));if(value!==null)await changeItem(item,{snoozed_until:value});});
  dismiss.onclick=()=>perform(()=>changeItem(item,{dismissed:!item.dismissed}));
@@ -1177,8 +1204,28 @@ async function renderDraft(){
  segmentedChoice($('github-draft-format'),[['issue','Issue draft'],['comment','Comment']],format,value=>{captureDraft();draftFormat=value;perform(renderDraft);});
  const repos=[...new Set([...draft.repositories,...(draft.repository?[draft.repository]:[])])],select=$('github-draft-repo');select.replaceChildren(option(repos.length?'Repository…':'No repository in the project',''),...repos.map(r=>option(r,r)));select.value=draft.repository||'';
  $('github-draft-issue-title').value=values.title;$('github-draft-body').value=values.body;$('github-draft-issue-title').hidden=$('github-draft-title-label').hidden=format!=='issue';
+ renderDraftRouting(draft);
  $('github-draft-notes').textContent=[...draft.notes,draft.assignee?'Assignee suggestion: '+draft.assignee+' (a confirmed owner).':''].filter(Boolean).join(' ');draftEditNotice();updateDraftLink();
  }finally{if(sequence===draftSequence)$('github-draft-copy').disabled=$('github-draft-copy-title').disabled=$('github-draft-review').disabled=false;}
+}
+// No repository to choose: show why, and fix it here. A task gets a project; a project gets a repository.
+function renderDraftRouting(draft){
+ const box=$('github-draft-routing'),resource=draftResource,key=JSON.stringify([resource,draft.projects,draft.repositories]);
+ // Option changes refresh the draft; staged repository links stay while the routing is the same.
+ if(box.dataset.key===key)return;box.dataset.key=key;box.replaceChildren();box.hidden=!!draft.repositories.length;
+ if(box.hidden)return;
+ if(!draft.projects.length){
+  if(resource.kind!=='item'||!projectList().length){box.append(el('p','notice warning',projectList().length?'This conversation has no project. Assign it to a project to choose a repository.':'Create a project in Projects, then link a repository to it.'));return;}
+  const choose=el('select'),apply=el('button','primary small-action','Use this project'),row=el('div','work-actions');
+  choose.setAttribute('aria-label','Project for this item');choose.append(option('Choose a project…',''),...projectList().map(p=>option(p.name,p.id)));apply.type='button';apply.disabled=true;
+  choose.onchange=()=>{apply.disabled=!choose.value;};
+  apply.onclick=()=>perform(async()=>{apply.disabled=true;try{await api('/api/work/project',{id:resource.id,revision:draft.revision,project_ids:[choose.value]});await renderDraft();perform(refreshAfterItemChange);}finally{apply.disabled=!choose.value;}});
+  row.append(choose,apply);box.append(el('p','notice warning','This item has no project, so there is no repository to choose. Choose its project.'),row);return;
+ }
+ for(const project of draft.projects){
+  box.append(el('p','notice warning','No repository is linked to '+project.name+'. Link one here.'));
+  box.append(repositoryEditor(project,{open:true,onSaved:async()=>{await renderDraft();perform(refreshAfterItemChange);}}));
+ }
 }
 function updateDraftLink(){
  const repo=$('github-draft-repo').value,open=$('github-draft-open');open.hidden=draftFormat!=='issue'||!repo;
@@ -1237,7 +1284,7 @@ function decisionRow(item,byId) {
  main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }
-async function loadTasks() { if(itemEditing)return;const fresh=await api('/api/items'); if(itemEditing)return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
+async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
 const SOURCES={meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github']};
 function originChip(provider,label,open){
@@ -1616,9 +1663,9 @@ function renderWorkGraph(){
  if(!proposals.length)list.append(el('p','hint','No proposals match this filter.'));
  const questions=$('work-questions');questions.replaceChildren();
  for(const q of itemsData.items.filter(i=>i.kind==='question')){
-  const row=el('div','work-proposal');row.append(el('strong','',q.text),el('p','hint',q.status==='answered'?'Answered':'Open'));
+  const row=el('div','work-proposal'),qText=el('strong','',q.text);row.append(qText,el('p','hint',q.status==='answered'?'Answered':'Open'));
   if(q.answer)row.append(el('p','',q.answer));row.append(historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));
-  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,projectAssignment(q),githubActions({kind:'item',id:q.id}));questions.append(row);
+  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,...editDeleteButtons(q,qText),projectAssignment(q),githubActions({kind:'item',id:q.id}));questions.append(row);
  }
  if(!questions.children.length)questions.append(el('p','hint','No questions yet. Add one or accept a question proposal.'));
 }
@@ -2248,10 +2295,10 @@ function eventNode(event,kind){
  return {kind,label:event.text,status:event.status,ref};
 }
 // The GitHub repositories of a project: drafts and links offer them first. One repository can serve several projects.
-function repositoryEditor(project){
+function repositoryEditor(project,{open=false,onSaved=null}={}){
  const box=el('section','project-repos'),chips=el('div','item-meetings'),repos=[...(project.repositories||[])];
  let baseline=[...repos],saving=false,catalogSequence=0,catalogTimer=null,available=[];
- box.append(el('h3','','Repositories linked to '+project.name),chips);
+ const heading=el('div','repository-heading'),linkButton=el('button','secondary small-action','Link repository');linkButton.type='button';heading.append(el('h3','','Repositories'),linkButton);box.append(heading,chips);
  const row=el('div','work-actions'),input=el('input'),add=el('button','secondary','Add repository'),save=el('button','primary','Save links');
  const search=el('input'),list=el('select'),choose=el('button','secondary','Link selected repository'),selection=el('div','repository-picker'),manual=el('details');
  search.placeholder='Search accessible repositories';search.setAttribute('aria-label','Search repositories');list.setAttribute('aria-label','Accessible repositories');list.size=6;choose.type='button';choose.disabled=true;
@@ -2262,7 +2309,7 @@ function repositoryEditor(project){
  const fail=message=>{validation.textContent=message;validation.hidden=false;return false;};
  const valid=name=>/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/.test(name)&&!['.','..'].includes(name.split('/')[1]);
  const draw=()=>{chips.replaceChildren(...repos.map(name=>{const chip=el('span','source-chip src-github'),remove=el('button','quiet','Unlink');remove.type='button';remove.setAttribute('aria-label','Unlink '+name);
-  remove.onclick=()=>perform(async()=>{if(saving)return;const count=project.repository_usage?.[name]||0;if(!(await ask('Unlink '+name+' from '+project.name+'?'+(count?' '+AtlantaUX.count(count,'task')+(count===1?' uses':' use')+' this destination and may need a new repository.':'')+' Existing GitHub issues and links will be kept. Apply with Save links.',{ok:'Unlink'})))return;if(saving||!box.isConnected)return;repos.splice(repos.indexOf(name),1);draw();changed();});
+  remove.onclick=()=>perform(async()=>{if(saving)return;const count=project.repository_usage?.[name]||0;if(!(await ask('Unlink '+name+' from '+project.name+'?'+(count?' '+AtlantaUX.count(count,'task')+(count===1?' uses':' use')+' this destination and may need a new repository.':'')+' Existing GitHub issues and links will be kept. Apply with Save links.',{ok:'Unlink'})))return;if(saving||!box.isConnected)return;linkButton.click();repos.splice(repos.indexOf(name),1);draw();changed();});
   const shared=project.repository_projects?.[name]||[];chip.append(el('b','',name),remove);if(shared.length>1)chip.append(el('small','hint','Also linked to '+shared.filter(n=>n!==project.name).join(', ')));return chip;}));if(!repos.length)chips.append(el('span','hint','No repository linked to this project.'));};
  const addName=name=>{if(!valid(name))return fail('Enter a repository as owner/name, without a URL.');if(repos.some(r=>r.toLowerCase()===name.toLowerCase()))return fail('This repository is already linked to the project.');if(repos.length>=30)return fail('A project can have at most 30 repositories.');repos.push(name);validation.hidden=true;draw();changed();return true;};
  const addPending=()=>{const name=input.value.trim();if(!name)return true;if(!addName(name))return false;input.value='';changed();return true;};
@@ -2274,7 +2321,7 @@ function repositoryEditor(project){
   if(saving||!addPending())return;saving=true;input.disabled=add.disabled=save.disabled=true;
   try{await withEditorSave(box,async()=>{
    const result=await api('/api/projects/repositories',{id:project.id,repositories:[...repos],expected_repositories:[...baseline]});
-   baseline=[...result.repositories];repos.splice(0,repos.length,...baseline);editorDirty.clear('project-repositories');toast('Project repository links saved');await loadWorkspace();
+   baseline=[...result.repositories];repos.splice(0,repos.length,...baseline);editorDirty.clear('project-repositories');toast('Project repository links saved');if(onSaved)await onSaved(result);else await loadWorkspace();
   });}finally{saving=false;input.disabled=add.disabled=false;changed();}
  });
  const alive=sequence=>box.isConnected&&sequence===catalogSequence;
@@ -2299,7 +2346,9 @@ function repositoryEditor(project){
  }
  refresh.onclick=()=>catalog('refresh');
  row.append(input,add);selection.append(search,list,choose);box.append(selection,manual,validation,save,edits,refresh,status,el('p','hint','These repositories belong to this project. One repository can be linked to several projects. Manual entries are local references; GitHub access and Issues: Read and write are checked before publishing.'));
- draw();changed();catalog();return box;
+ const controls=[selection,manual,validation,save,edits,refresh,status,box.children[9]];for(const node of controls)node.hidden=true;let opened=false;
+ linkButton.onclick=()=>{selection.hidden=manual.hidden=save.hidden=edits.hidden=refresh.hidden=status.hidden=box.children[9].hidden=false;if(!opened){opened=true;catalog();}search.focus();};
+ draw();changed();if(open)linkButton.click();return box;
 }
 async function loadWorkspace(){
  const sequence=++workspaceSequence,key=$('workspace-project').value;
@@ -2319,14 +2368,14 @@ function renderWorkspace(){
  const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today));
  const kinds={task:'Tasks',decision:'Decisions',question:'Questions'};
  function itemCard(item){
-  const card=el('article','workspace-item');card.append(el('strong','',item.text),el('p','hint',item.kind+' · '+item.status+(item.owner?' · '+item.owner:'')),projectAssignment(item));
+  const card=el('article','workspace-item'),cardText=el('strong','',item.text);card.append(cardText,el('p','hint',item.kind+' · '+item.status+(item.owner?' · '+item.owner:'')),projectAssignment(item));
   if(item.answer)card.append(el('p','',item.answer));card.append(sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),relationLinks(item),evidenceBlock(item,itemsData.meetings));
-  const open=el('button','quiet',item.kind==='task'?'Open task':'Open in My Work');open.onclick=()=>item.kind==='task'?perform(()=>openTaskPanel(item.id)):perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});card.append(open);return card;
+  card.append(...editDeleteButtons(item,cardText));const open=el('button','quiet',item.kind==='task'?'Open task':'Open in My Work');open.onclick=()=>item.kind==='task'?perform(()=>openTaskPanel(item.id)):perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});card.append(open);return card;
  }
  if(workspaceSection==='overview'){
   box.append(el('h2','',data.projects.find(p=>p.id===data.project_id)?.name||'All projects'));
   box.append(el('p','hint','One work item can belong to several projects. Manual assignments take priority over linked meeting projects. Source states and saved quotes remain unchanged.'));
-  const current=data.projects.find(p=>p.id===data.project_id);if(current&&current.id!=='__none__'){const settings=el('details','project-settings');settings.append(el('summary','','Project settings & repositories'));settings.ontoggle=()=>{if(settings.open&&!settings.dataset.loaded){settings.dataset.loaded='true';settings.append(repositoryEditor(current));}};box.append(settings);}
+  const current=data.projects.find(p=>p.id===data.project_id);if(current&&current.id!=='__none__')box.append(repositoryEditor(current));else{const repositories=el('section','project-repos');repositories.append(el('h3','','Repositories'),el('p','hint','Choose a project above to view and link its repositories.'));box.append(repositories);}
   for(const [kind,title] of Object.entries(kinds)){
    const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
    if(rows.length){box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));}
@@ -2708,8 +2757,8 @@ function reviewRouting(item){
  destination.value=current||'';
  destination.onchange=()=>perform(async()=>{destination.disabled=true;try{await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{destination_repository:destination.value||null}});}finally{await openMeetingReview();}});
  const destinationLabel=el('label','review-route','Destination');destinationLabel.append(destination);box.append(destinationLabel);
- if(!item.repositories.length)box.append(el('span','hint','Add a repository to the project to send this task to GitHub.'));
- if(current&&item.repositories.includes(current)){const draft=el('button','quiet','Draft in GitHub…');draft.type='button';draft.onclick=()=>perform(()=>openDraft({kind:'item',id:item.id},'issue'));box.append(draft);}
+ if(!item.repositories.length)box.append(el('span','hint','No repository in the project. Draft in GitHub lets you link one.'));
+ {const draft=el('button','quiet','Draft in GitHub…');draft.type='button';draft.onclick=()=>perform(()=>openDraft({kind:'item',id:item.id},'issue'));box.append(draft);}
  return box;
 }
 async function openMeetingReview(){

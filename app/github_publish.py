@@ -96,8 +96,19 @@ class Publisher:
         if action=='issue' and remote.get('has_issues') is False:raise ValueError('Issues are disabled for this repository. Choose another repository.')
         if action=='comment':self.connection.get(f'/repos/{repo}/issues/{target}',expected_account=account_id)
         payload=dict(resource=resource,resource_revision=revision,source_revision=revision,account_id=account_id,repository_id=remote['id'],action=action,target=target if action=='comment' else None,title=title.strip(),body=text)
+        assignee=self.assignee(body.get('assignee')) if action=='issue' else None
+        if assignee:payload['assignees']=[assignee]
         operation=self.journal.approve(payload)
-        return dict(operation=operation,repository=repo,account=account['login'])
+        return dict(operation=operation,repository=repo,account=account['login'],assignees=payload.get('assignees',[]))
+
+    def assignee(self,value):
+        """Only a GitHub username of a person in Atlanta can be an assignee."""
+        if value in (None,''):return None
+        if not isinstance(value,str):raise ValueError('Invalid assignee')
+        login=value.strip().lstrip('@').casefold()
+        found=next((p['login'] for p in self.service.github_assignees() if p['login'].casefold()==login),None)
+        if not found:raise ValueError('Choose an assignee from the people in Atlanta with a GitHub username.')
+        return found
 
     def publish(self,key,repository):
         repo=repo_name(repository);operation=self.journal.get(key);payload=operation['payload']
@@ -113,6 +124,7 @@ class Publisher:
             marker=f'<!-- atlanta:operation={key} -->'
             request=dict(body=payload['body']+'\n\n'+marker)
             if payload['action']=='issue':request['title']=payload['title']
+            if payload.get('assignees'):request['assignees']=payload['assignees']
             self.journal.transition(key,'approved','sending')
             try:
                 result=self.write(endpoint,request,connection._load()['token'])

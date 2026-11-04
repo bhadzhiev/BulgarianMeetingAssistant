@@ -91,6 +91,23 @@ class PublishTests(unittest.TestCase):
         result=self.publisher.publish(self.preview()['id'],'test/repo')['result']
         self.assertIn('rate limit',result['error'])
 
+    def test_issue_goes_to_a_chosen_person_from_atlanta(self):
+        sent=[]
+        def write(path,payload,token):sent.append(payload);return self.write(path,payload,token)
+        self.publisher.write=write
+        self.service.github_assignees=lambda:[dict(id='p1',name='Synthetic Person',login='Synthetic-Login',checked=True)]
+        preview=self.publisher.preview(dict(resource=dict(kind='item',id='a'),repository='test/repo',format='issue',title='Title',body='Text',assignee='@synthetic-login'))
+        self.assertEqual(preview['assignees'],['Synthetic-Login'])
+        self.assertEqual(self.publisher.publish(preview['operation']['id'],'test/repo')['state'],'verified')
+        self.assertEqual(sent[0]['assignees'],['Synthetic-Login'])
+        with self.assertRaises(ValueError):
+            self.publisher.preview(dict(resource=dict(kind='item',id='b'),repository='test/repo',format='issue',title='Title',body='Text',assignee='someone-else'))
+
+    def test_issue_without_assignee_keeps_the_previous_payload(self):
+        op=self.preview()
+        self.assertNotIn('assignees',op['payload'])
+        self.assertEqual(self.publisher.publish(op['id'],'test/repo')['state'],'verified')
+
     def test_offline_fails_without_retry(self):
         def offline(*args):raise urllib.error.URLError(socket.gaierror(8,'nodename nor servname provided'))
         self.publisher.write=offline

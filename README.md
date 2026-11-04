@@ -639,6 +639,10 @@ GitHub. You copy a draft, or open GitHub with it filled in, and publish it yours
   opens the new-issue page of the chosen repository with the title and text filled in. If the item has
   no project, the draft asks you to choose one. If the project has no repository, the draft shows the
   repository editor, so you can link one without leaving the dialog.
+- **Assignee** (issue drafts): choose a person from Atlanta who has a GitHub username. The confirmed
+  owner of the task is the default. The issue is created with this assignee, and **Open on GitHub**
+  fills it in too. Add GitHub usernames in **Settings → People**. GitHub accepts only people who can
+  be assigned in the repository; otherwise publication fails and shows the reason from GitHub.
 - **Link existing issue or PR**: enter `#123`, `owner/name#123`, a GitHub URL, or words of a title from
   the GitHub cache. The link lives only on this Mac; GitHub does not know about it unless the published
   text includes the Atlanta reference. A link is checked against the GitHub cache, then with a

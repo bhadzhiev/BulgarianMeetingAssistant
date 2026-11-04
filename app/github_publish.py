@@ -10,6 +10,9 @@ from .commit_journal import CommitJournal
 from .github_source import repo_name, _NoRedirect, GitHubError
 from .work_items import canonical, WorkItemConflict
 
+# Every issue that Atlanta creates carries this label, so people can find them in GitHub.
+ATLANTA_LABEL='created by ATLANTA'
+
 
 def post(resource,payload,token):
     request=urllib.request.Request('https://api.github.com'+resource,data=json.dumps(payload).encode(),method='POST',headers={
@@ -117,8 +120,9 @@ class Publisher:
         payload=dict(resource=resource,resource_revision=revision,source_revision=revision,account_id=account_id,repository_id=remote['id'],action=action,target=target if action=='comment' else None,title=title.strip(),body=text)
         assignee=self.assignee(body.get('assignee')) if action=='issue' else None
         if assignee:payload['assignees']=[assignee]
+        if action=='issue':payload['labels']=[ATLANTA_LABEL]
         operation=self.journal.approve(payload)
-        return dict(operation=operation,repository=repo,account=account['login'],assignees=payload.get('assignees',[]))
+        return dict(operation=operation,repository=repo,account=account['login'],assignees=payload.get('assignees',[]),labels=payload.get('labels',[]))
 
     def assignee(self,value):
         """Only a GitHub username of a person in Atlanta can be an assignee."""
@@ -144,6 +148,7 @@ class Publisher:
             request=dict(body=payload['body']+'\n\n'+marker)
             if payload['action']=='issue':request['title']=payload['title']
             if payload.get('assignees'):request['assignees']=payload['assignees']
+            if payload.get('labels'):request['labels']=payload['labels']
             self.journal.transition(key,'approved','sending')
             try:
                 result=self.write(endpoint,request,connection._load()['token'])

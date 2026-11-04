@@ -1316,6 +1316,7 @@ class MeetingService:
     def github_draft(self, body):
         """Markdown for a GitHub issue or comment. The person copies it, or publishes it after a preview."""
         from .github_source import repo_name
+        from .github_publish import ATLANTA_LABEL
         fmt = body.get('format')
         if fmt not in {'issue', 'comment'}:
             raise ValueError('Choose an issue or a comment')
@@ -1380,7 +1381,8 @@ class MeetingService:
         routing = [dict(id=p['id'], name=p['name'], repositories=list(p.get('repositories', []))) for p in projects]
         return dict(format=fmt, title=title, body=markdown, repository=repository, repositories=choices,
                     assignee=owner if owner.startswith('@') else None, notes=notes, resource=data['target'],
-                    projects=routing, revision=data.get('revision'), people=self.github_assignees())
+                    projects=routing, revision=data.get('revision'), people=self.github_assignees(),
+                    labels=[ATLANTA_LABEL] if fmt == 'issue' else [])
 
     def github_assignees(self):
         """People in Atlanta with a GitHub username: the choices for an issue assignee."""

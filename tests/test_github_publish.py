@@ -117,6 +117,16 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn('assignees',op['payload'])
         self.assertEqual(self.publisher.publish(op['id'],'test/repo')['state'],'verified')
 
+    def test_issue_carries_the_atlanta_label_and_a_comment_does_not(self):
+        sent=[]
+        def write(path,payload,token):sent.append(payload);return self.write(path,payload,token)
+        self.publisher.write=write
+        op=self.preview();self.assertEqual(op['payload']['labels'],['created by ATLANTA'])
+        self.publisher.publish(op['id'],'test/repo');self.assertEqual(sent[0]['labels'],['created by ATLANTA'])
+        self.remote['/repos/test/repo/issues/3']=dict(id=3,number=3)
+        comment=self.publisher.preview(dict(resource=dict(kind='item',id='c'),repository='test/repo',format='comment',body='Text',target=3))['operation']
+        self.assertNotIn('labels',comment['payload'])
+
     def test_offline_fails_without_retry(self):
         def offline(*args):raise urllib.error.URLError(socket.gaierror(8,'nodename nor servname provided'))
         self.publisher.write=offline

@@ -1243,7 +1243,7 @@ function renderDraftAssignee(draft,format){
 }
 function updateDraftLink(){
  const repo=$('github-draft-repo').value,open=$('github-draft-open'),assignee=$('github-draft-assignee').value;open.hidden=draftFormat!=='issue'||!repo;
- if(!open.hidden)open.href='https://github.com/'+repo+'/issues/new?'+new URLSearchParams({title:$('github-draft-issue-title').value,body:$('github-draft-body').value,...(assignee?{assignees:assignee}:{})});
+ if(!open.hidden)open.href='https://github.com/'+repo+'/issues/new?'+new URLSearchParams({title:$('github-draft-issue-title').value,body:$('github-draft-body').value,...(assignee?{assignees:assignee}:{}),...(draftLatest?.labels?.length?{labels:draftLatest.labels.join(',')}:{})});
 }
 $('github-draft-assignee').onchange=()=>{const select=$('github-draft-assignee');select.dataset.chosen=select.value||'-';updateDraftLink();};
 async function copyText(text){
@@ -2838,7 +2838,7 @@ $('github-publish-preview').onclick=()=>perform(async()=>{
   const preview=await api('/api/github/preview',{resource:draftResource,format:draftFormat,repository,title:$('github-draft-issue-title').value,body:$('github-draft-body').value,target:Number($('github-publish-target').value)||null,assignee:draftFormat==='issue'?$('github-draft-assignee').value||null:null});
   const op=preview.operation,payload=op.payload;
   if(op.state!=='approved'){renderPublication(op,repository);return;}
-  const description=(payload.action==='issue'?'Create issue':'Add comment to #'+payload.target)+' in '+preview.repository+' as '+preview.account+'?'+(payload.assignees?.length?'\nAssignee: @'+payload.assignees.join(', @'):'')+'\n\n'+payload.title+'\n\n'+payload.body;
+  const description=(payload.action==='issue'?'Create issue':'Add comment to #'+payload.target)+' in '+preview.repository+' as '+preview.account+'?'+(payload.assignees?.length?'\nAssignee: @'+payload.assignees.join(', @'):'')+(payload.labels?.length?'\nLabels: '+payload.labels.join(', '):'')+'\n\n'+payload.title+'\n\n'+payload.body;
   if(!(await ask(description,{ok:payload.action==='issue'?'Create in GitHub':'Add comment'})))return;
   renderPublication(await api('/api/github/publish',{id:op.id,repository}),repository);
  }finally{button.disabled=false;}

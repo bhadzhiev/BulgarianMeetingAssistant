@@ -643,6 +643,8 @@ GitHub. You copy a draft, or open GitHub with it filled in, and publish it yours
   owner of the task is the default. The issue is created with this assignee, and **Open on GitHub**
   fills it in too. Add GitHub usernames in **Settings → People**. GitHub accepts only people who can
   be assigned in the repository; otherwise publication fails and shows the reason from GitHub.
+- **Label**: every issue that Atlanta creates gets the label `created by ATLANTA`, also through **Open
+  on GitHub**. If the label does not exist yet, GitHub normally creates it with a default colour. Comments get no label.
 - **Link existing issue or PR**: enter `#123`, `owner/name#123`, a GitHub URL, or words of a title from
   the GitHub cache. The link lives only on this Mac; GitHub does not know about it unless the published
   text includes the Atlanta reference. A link is checked against the GitHub cache, then with a

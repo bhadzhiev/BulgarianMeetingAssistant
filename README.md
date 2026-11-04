@@ -1402,3 +1402,9 @@ valid. See `docs/ux-flow-validation.md` for measured layout and test boundaries.
 Use **New task** in My Work for a standalone action, or **Add task** in a meeting for a meeting-linked action. Set the text, owner, due date and project before saving. Meeting task rows have **Edit task**; My Work uses the existing task editor. These are normal local WorkItems with history, status, project routing and GitHub preview/approval. Creating one does not call AI or publish externally.
 
 User-added meeting tasks survive regenerated notes and remain available before notes exist. No transcript timestamp is invented. Deleting the meeting keeps the user task in My Work without a dangling meeting link. A repeated creation request uses the same request ID to avoid duplicates after a lost response.
+
+### Project repository links
+
+In **Projects → Overview → Project settings & repositories**, search the accessible repository list and use **Link selected repository**, or enter `owner/name` manually. **Save links** applies the staged changes; the editor shows unsaved changes and warns when unlinking a repository used as a task destination. A repository can belong to several projects. Unlinking keeps existing issues and historical GitHub links. Manual entries do not prove access.
+
+A task can publish only to a repository linked to one of its effective projects. Removing its chosen destination requires explicit reselection; Atlanta does not silently substitute another repository. Multiple linked repositories require a choice unless the task already has a valid destination. Changing the project repository links invalidates earlier publication previews, including removing and subsequently restoring the same link. Failed project saves restore the previous in-memory configuration.

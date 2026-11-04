@@ -35,6 +35,11 @@ class Publisher:
         self.service=service;self.connection=service.github.connection;self.write=write
         self.journal=CommitJournal(service.items.store.path)
 
+    @staticmethod
+    def _check_binding(data,repo):
+        if repo.casefold() not in {name.casefold() for b in data.get('repository_bindings',[]) for name in b['repositories']}:
+            raise WorkItemConflict('Repository is no longer linked to this project. Choose a linked repository and preview again.')
+
     def resource_revision(self,resource):
         data=self.service._resource(resource)
         if data.get('moment'):
@@ -49,7 +54,9 @@ class Publisher:
         if not isinstance(title,str) or action=='issue' and not 1<=len(title.strip())<=256:raise ValueError('Enter an issue title')
         target=body.get('target')
         if action=='comment' and (type(target) is not int or target<1):raise ValueError('Enter the target issue number')
-        resource=self.service._resource(body.get('resource'))['target'];revision=self.resource_revision(resource)
+        data=self.service._resource(body.get('resource'));resource=data['target']
+        self._check_binding(data,repo)
+        revision=self.resource_revision(resource)
         if action=='issue' and hasattr(self.service.github_links,'for_resource') and self.service.github_links.for_resource(resource['kind'],resource['id']):raise ValueError('This resource is already linked to GitHub. Open the linked issue or add a comment.')
         account=self.connection.get('/user')['data'];account_id=str(account['id'])
         remote=self.connection.get('/repos/'+repo,expected_account=account_id)['data']
@@ -69,6 +76,7 @@ class Publisher:
             account=connection.get('/user',expected_account=payload['account_id'])['data']
             remote=connection.get('/repos/'+repo,expected_account=payload['account_id'])['data']
             if str(account['id'])!=payload['account_id'] or remote.get('id')!=payload['repository_id']:raise WorkItemConflict('Account or repository changed. Review again.')
+            self._check_binding(self.service._resource(payload['resource']),repo)
             if self.resource_revision(payload['resource'])!=payload['resource_revision']:raise WorkItemConflict('Resource changed. Review again.')
             endpoint=f'/repos/{repo}/issues'+(f'/{payload["target"]}/comments' if payload['action']=='comment' else '')
             marker=f'<!-- atlanta:operation={key} -->'

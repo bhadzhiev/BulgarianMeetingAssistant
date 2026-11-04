@@ -146,3 +146,53 @@ class PeopleAndGitHubTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkItemConflict,'repositories changed'):
             self.s.set_project_repositories(self.project,['org/third'],['org/first'])
         self.assertEqual(self.s.projects.get('projects',self.project)['repositories'],['org/first','org/second'])
+
+    def test_repository_save_failure_restores_memory_and_baseline(self):
+        self.s.set_project_repositories(self.project,['org/first'])
+        previous=self.s.projects.path.read_bytes()
+        revision=self.s.projects.get('projects',self.project)['repository_revision']
+        with patch.object(self.s.projects,'save',side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):self.s.set_project_repositories(self.project,['org/second'],['org/first'])
+        self.assertEqual(self.s.projects.path.read_bytes(),previous)
+        self.assertEqual(self.s.projects.get('projects',self.project)['repositories'],['org/first'])
+        self.assertEqual(self.s.projects.get('projects',self.project)['repository_revision'],revision)
+        self.s.set_project_repositories(self.project,['org/second'],['org/first'])
+
+    def test_removed_destination_needs_selection_without_fallback_and_rejects_stale_draft(self):
+        self.s.set_project_repositories(self.project,['org/first','org/second'])
+        self.s.update_item(self.task['id'],self.task['text'],{'destination_repository':'org/first'})
+        resource=dict(kind='item',id=self.task['id'])
+        from app.github_publish import Publisher
+        publisher=Publisher(self.s);before=publisher.resource_revision(resource)
+        self.s.set_project_repositories(self.project,['org/second'])
+        draft=self.s.github_draft(dict(resource=resource,format='issue'))
+        self.assertEqual(draft['repository'],'');self.assertTrue(any('no longer linked' in note for note in draft['notes']))
+        with self.assertRaises(WorkItemConflict):self.s.github_draft(dict(resource=resource,format='issue',repository='org/first'))
+        self.assertNotEqual(before,publisher.resource_revision(resource))
+        self.s.set_project_repositories(self.project,['org/first','org/second'])
+        self.assertNotEqual(before,publisher.resource_revision(resource),'Removing and restoring a binding must invalidate an old approval')
+        self.assertEqual(self.s.github_draft(dict(resource=resource,format='issue',repository='ORG/SECOND'))['repository'],'org/second')
+
+    def test_repository_bindings_are_explicit_and_noop_save_keeps_approval_revision(self):
+        self.s.set_project_repositories(self.project,['org/first','org/second'])
+        resource=dict(kind='item',id=self.task['id'])
+        from app.github_publish import Publisher
+        publisher=Publisher(self.s);before=publisher.resource_revision(resource)
+        self.s.set_project_repositories(self.project,['org/first','org/second'])
+        self.assertEqual(before,publisher.resource_revision(resource))
+        self.assertEqual(self.s.github_draft(dict(resource=resource,format='issue'))['repository'],'')
+        card=next(p for p in self.s.project_workspace(self.project)['projects'] if p['id']==self.project)
+        self.assertEqual(card['repository_projects']['org/first'],['Platform'])
+        self.assertEqual(card['repository_usage']['org/first'],0)
+
+    def test_shared_repository_keeps_route_until_unlinked_from_all_task_projects(self):
+        other=self.s.create_project('Infra')['id']
+        self.s.set_project_repositories(self.project,['org/shared'])
+        self.s.set_project_repositories(other,['ORG/SHARED'])
+        self.s.items.items[self.task['id']]['project_ids']=[self.project,other];self.s.items.save()
+        resource=dict(kind='item',id=self.task['id'])
+        draft=self.s.github_draft(dict(resource=resource,format='issue'))
+        self.assertEqual(len(draft['repositories']),1);self.assertTrue(draft['repository'])
+        self.s.set_project_repositories(self.project,[])
+        draft=self.s.github_draft(dict(resource=resource,format='issue',repository='org/shared'))
+        self.assertEqual(draft['repository'].casefold(),'org/shared')

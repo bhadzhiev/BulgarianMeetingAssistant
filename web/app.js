@@ -2250,22 +2250,31 @@ function eventNode(event,kind){
 // The GitHub repositories of a project: drafts and links offer them first. One repository can serve several projects.
 function repositoryEditor(project){
  const box=el('section','project-repos'),chips=el('div','item-meetings'),repos=[...(project.repositories||[])];
- let baseline=[...repos],saving=false,catalogSequence=0,catalogTimer=null;
- box.append(el('h3','','GitHub repositories'),chips);
- const row=el('div','work-actions'),input=el('input'),add=el('button','secondary','Add'),save=el('button','primary','Save repositories'),list=el('datalist');
- const refresh=el('button','secondary','Refresh repositories'),status=el('p','hint');refresh.type='button';status.setAttribute('role','status');
- list.id='repo-choices-'+project.id;input.setAttribute('list',list.id);input.placeholder='owner/name';input.setAttribute('aria-label','Repository');add.type=save.type='button';save.disabled=true;
- const changed=()=>{const dirty=JSON.stringify(repos)!==JSON.stringify(baseline)||!!input.value.trim();editorDirty.set('project-repositories',dirty);save.disabled=saving||!dirty;};
- const draw=()=>{chips.replaceChildren(...repos.map(name=>{const chip=el('span','source-chip src-github'),remove=el('button','quiet','✕');remove.type='button';remove.setAttribute('aria-label','Remove '+name);
-  remove.onclick=()=>{if(saving)return;repos.splice(repos.indexOf(name),1);draw();changed();};chip.append(el('i'),el('b','',name),remove);return chip;}));if(!repos.length)chips.append(el('span','hint','No repository yet.'));};
- const addPending=()=>{const name=input.value.trim();if(name&&!repos.some(r=>r.toLowerCase()===name.toLowerCase()))repos.push(name);input.value='';draw();changed();};
- add.onclick=()=>{if(!saving)addPending();};input.oninput=()=>{if(!saving)changed();};
+ let baseline=[...repos],saving=false,catalogSequence=0,catalogTimer=null,available=[];
+ box.append(el('h3','','Repositories linked to '+project.name),chips);
+ const row=el('div','work-actions'),input=el('input'),add=el('button','secondary','Add repository'),save=el('button','primary','Save links');
+ const search=el('input'),list=el('select'),choose=el('button','secondary','Link selected repository'),selection=el('div','repository-picker'),manual=el('details');
+ search.placeholder='Search accessible repositories';search.setAttribute('aria-label','Search repositories');list.setAttribute('aria-label','Accessible repositories');list.size=6;choose.type='button';choose.disabled=true;
+ manual.append(el('summary','','Enter owner/name manually'));manual.append(row);
+ const refresh=el('button','secondary','Refresh repositories'),status=el('p','hint'),edits=el('p','hint'),validation=el('p','notice');validation.hidden=true;validation.setAttribute('role','alert');refresh.type='button';status.setAttribute('role','status');edits.setAttribute('role','status');
+ input.placeholder='owner/name';input.setAttribute('aria-label','Repository');add.type=save.type='button';save.disabled=true;
+ const changed=()=>{const dirty=JSON.stringify(repos)!==JSON.stringify(baseline)||!!input.value.trim();editorDirty.set('project-repositories',dirty);save.disabled=saving||!dirty;edits.textContent=dirty?'Unsaved project links — use Save links to apply.':'All project links saved.';};
+ const fail=message=>{validation.textContent=message;validation.hidden=false;return false;};
+ const valid=name=>/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/.test(name)&&!['.','..'].includes(name.split('/')[1]);
+ const draw=()=>{chips.replaceChildren(...repos.map(name=>{const chip=el('span','source-chip src-github'),remove=el('button','quiet','Unlink');remove.type='button';remove.setAttribute('aria-label','Unlink '+name);
+  remove.onclick=()=>perform(async()=>{if(saving)return;const count=project.repository_usage?.[name]||0;if(!(await ask('Unlink '+name+' from '+project.name+'?'+(count?' '+AtlantaUX.count(count,'task')+(count===1?' uses':' use')+' this destination and may need a new repository.':'')+' Existing GitHub issues and links will be kept. Apply with Save links.',{ok:'Unlink'})))return;if(saving||!box.isConnected)return;repos.splice(repos.indexOf(name),1);draw();changed();});
+  const shared=project.repository_projects?.[name]||[];chip.append(el('b','',name),remove);if(shared.length>1)chip.append(el('small','hint','Also linked to '+shared.filter(n=>n!==project.name).join(', ')));return chip;}));if(!repos.length)chips.append(el('span','hint','No repository linked to this project.'));};
+ const addName=name=>{if(!valid(name))return fail('Enter a repository as owner/name, without a URL.');if(repos.some(r=>r.toLowerCase()===name.toLowerCase()))return fail('This repository is already linked to the project.');if(repos.length>=30)return fail('A project can have at most 30 repositories.');repos.push(name);validation.hidden=true;draw();changed();return true;};
+ const addPending=()=>{const name=input.value.trim();if(!name)return true;if(!addName(name))return false;input.value='';changed();return true;};
+ add.onclick=()=>{if(!saving)addPending();};input.oninput=()=>{if(!saving){validation.hidden=true;changed();}};
  input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();add.click();}};
+ const drawChoices=()=>{const old=list.value,query=search.value.trim().toLowerCase();list.replaceChildren(...available.filter(r=>r.full_name.toLowerCase().includes(query)).map(repo=>option(repo.full_name+(repo.archived?' · archived':repo.disabled?' · disabled':''),repo.full_name)));if(available.some(r=>r.full_name===old))list.value=old;choose.disabled=saving||!list.value;};
+ search.oninput=drawChoices;list.onchange=()=>{choose.disabled=saving||!list.value;};choose.onclick=()=>{if(!saving&&list.value)addName(list.value);};
  save.onclick=()=>perform(async()=>{
-  if(saving)return;addPending();saving=true;input.disabled=add.disabled=save.disabled=true;
+  if(saving||!addPending())return;saving=true;input.disabled=add.disabled=save.disabled=true;
   try{await withEditorSave(box,async()=>{
    const result=await api('/api/projects/repositories',{id:project.id,repositories:[...repos],expected_repositories:[...baseline]});
-   baseline=[...result.repositories];editorDirty.clear('project-repositories');toast('Repositories saved');await loadWorkspace();
+   baseline=[...result.repositories];repos.splice(0,repos.length,...baseline);editorDirty.clear('project-repositories');toast('Project repository links saved');await loadWorkspace();
   });}finally{saving=false;input.disabled=add.disabled=false;changed();}
  });
  const alive=sequence=>box.isConnected&&sequence===catalogSequence;
@@ -2273,12 +2282,12 @@ function repositoryEditor(project){
   const sequence=++catalogSequence;clearTimeout(catalogTimer);refresh.disabled=true;
   try{
    let data=await api('/api/github/repos/status');if(!alive(sequence))return;
-   list.replaceChildren(...data.repositories.map(repo=>option(repo.full_name,repo.full_name)));
+   available=data.repositories;drawChoices();
    const fresh=data.current&&data.checked_at&&Date.now()-Date.parse(data.checked_at)<300000;
    if(mode==='refresh'||mode==='initial'&&!fresh&&!data.job.running){
     status.textContent='Refreshing repository list from GitHub…';
     data=await api('/api/github/repos/sync',{});if(!alive(sequence))return;
-    list.replaceChildren(...data.repositories.map(repo=>option(repo.full_name,repo.full_name)));
+    available=data.repositories;drawChoices();
    }
    const running=data.job.running&&data.job.kind==='repositories',count=AtlantaUX.count(data.repositories.length,'repository','repositories');
    status.textContent=running?data.job.status+' · cached choices remain available':
@@ -2286,11 +2295,11 @@ function repositoryEditor(project){
     data.checked_at?count+' · '+(data.current?'last checked ':'cached; last checked ')+dateTime(data.checked_at):count+' cached · full access list has not been loaded yet.';
    refresh.disabled=running;
    if(running)catalogTimer=setTimeout(()=>catalog('poll'),1000);
-  }catch(error){if(alive(sequence)){status.textContent='Repository list unavailable: '+error.message+' You can keep existing links or enter owner/name manually.';refresh.disabled=false;}}
+  }catch(error){if(alive(sequence)){status.textContent='Repository list unavailable: '+error.message+' Existing links are kept. You can enter owner/name manually; access will be checked before publication.';refresh.disabled=false;}}
  }
  refresh.onclick=()=>catalog('refresh');
- row.append(input,list,add,save);box.append(row,refresh,status,el('p','hint','Adding a repository links it to this project locally. Creating issues also requires Issues: Read and write for that repository.'));
- draw();catalog();return box;
+ row.append(input,add);selection.append(search,list,choose);box.append(selection,manual,validation,save,edits,refresh,status,el('p','hint','These repositories belong to this project. One repository can be linked to several projects. Manual entries are local references; GitHub access and Issues: Read and write are checked before publishing.'));
+ draw();changed();catalog();return box;
 }
 async function loadWorkspace(){
  const sequence=++workspaceSequence,key=$('workspace-project').value;

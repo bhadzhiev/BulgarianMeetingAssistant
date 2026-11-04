@@ -21,15 +21,34 @@ def post(resource,payload,token):
         return json.loads(raw)
 
 
+def _error_detail(error):
+    """One GitHub validation error as short text, for example 'assignees invalid: someone'."""
+    if isinstance(error,str):return error
+    if not isinstance(error,dict):return ''
+    if error.get('message'):return str(error['message'])
+    parts=[str(error.get('field') or error.get('resource') or ''),str(error.get('code') or '')]
+    text=' '.join(p for p in parts if p)
+    value=error.get('value')
+    if value not in (None,''):text+=': '+(', '.join(map(str,value)) if isinstance(value,list) else str(value))
+    return text
+
+
 def _refusal(exc):
     """What GitHub said about a refused request: its message, the permission it wants, a rate limit."""
     headers=exc.headers or {}
     try:raw=exc.read(16_000)
     except Exception:raw=b''
-    try:message=json.loads(raw).get('message','')
-    except Exception:message=''
-    # One short line of GitHub's own text. It never contains the token.
+    try:data=json.loads(raw)
+    except Exception:data={}
+    if not isinstance(data,dict):data={}
+    message=data.get('message','')
     message=' '.join(str(message).split())[:300] if isinstance(message,str) else ''
+    # A 422 lists each failed field in 'errors'. Without it, "Validation Failed" says nothing.
+    details=[_error_detail(e) for e in (data.get('errors') or [])[:5] if isinstance(data.get('errors'),list)]
+    details=[d for d in details if d]
+    if details:message=(message+' ' if message else '')+'('+'; '.join(details)+')'
+    # One short line of GitHub's own text. It never contains the token.
+    message=' '.join(message.split())[:500]
     wanted=' '.join(str(headers.get('X-Accepted-GitHub-Permissions') or '').split())[:120]
     limited=headers.get('X-RateLimit-Remaining')=='0' or bool(headers.get('Retry-After'))
     return message,wanted,limited

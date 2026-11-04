@@ -85,6 +85,15 @@ class PublishTests(unittest.TestCase):
         self.assertIn('issues=write',result['error'])
         self.assertIn('Issues to Read and write',result['error'])
 
+    def test_validation_refusal_names_the_failed_field(self):
+        import io
+        body=json.dumps(dict(message='Validation Failed',errors=[dict(resource='Issue',field='assignees',code='invalid',value=['ghost'])])).encode()
+        def refused(*args):raise urllib.error.HTTPError('https://api.github.com',422,'Unprocessable',{},io.BytesIO(body))
+        self.publisher.write=refused
+        result=self.publisher.publish(self.preview()['id'],'test/repo')['result']
+        self.assertEqual(result['status'],422)
+        self.assertIn('Validation Failed (assignees invalid: ghost)',result['error'])
+
     def test_rate_limit_refusal_says_to_wait(self):
         def limited(*args):raise urllib.error.HTTPError('https://api.github.com',403,'Forbidden',{'X-RateLimit-Remaining':'0'},None)
         self.publisher.write=limited

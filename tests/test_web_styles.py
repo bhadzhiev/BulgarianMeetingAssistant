@@ -33,3 +33,13 @@ class SelectStyleTests(unittest.TestCase):
                     or 'font:inherit' in body or 'touch-action' in body or rule in variants):
                 continue
             self.assertNotRegex(body, r'(?:^|;)(?:padding|font-size|height|background|border)\b', rule)
+
+
+class GitHubDraftDialogTests(unittest.TestCase):
+    def test_tall_draft_scrolls_and_keeps_a_full_text_area(self):
+        # A flex column without scrolling shrinks the text area to one line.
+        dialog = re.search(r'#github-draft-dialog\{(display:flex[^}]*)\}', CSS)[1]
+        self.assertIn('overflow-y:auto', dialog)
+        self.assertIn('max-height:', dialog)
+        self.assertRegex(CSS, r'#github-draft-dialog>\*\{flex-shrink:0\}')
+        self.assertRegex(CSS, r'#github-draft-body\{min-height:\d+px')

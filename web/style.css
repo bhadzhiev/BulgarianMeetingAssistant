@@ -571,7 +571,10 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .person-row .hint{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #person-dialog,#github-draft-dialog,#github-link-dialog{width:min(720px,95vw)}
 #github-draft-dialog:not([open]){display:none}
-#github-draft-dialog{display:flex;flex-direction:column}
+#github-draft-dialog{display:flex;flex-direction:column;max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain}
+/* A tall dialog scrolls; its fields keep their size instead of shrinking to one line. */
+#github-draft-dialog>*{flex-shrink:0}
+#github-draft-body{min-height:280px;resize:vertical}
 .person-profile:not(:empty){border-top:1px solid var(--line);margin-top:18px;padding-top:6px}
 .person-profile h3{font-size:15px;margin:10px 0 4px}
 .profile-section h4{margin:14px 0 6px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}

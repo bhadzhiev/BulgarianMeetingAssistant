@@ -63,7 +63,7 @@ def repo_name(value):
 
 class GitHubConnection:
     def __init__(self,root,store=None,request=http_get):
-        self.store=store or TokenStore(root);self.request=request;self.lock=threading.RLock();self.bundle=None;self.loaded=False
+        self.store=store or TokenStore(root);self.request=request;self.lock=threading.RLock();self.bundle=None;self.loaded=False;self.generation=0
         self.path=Path(root)/'.github-account.json'
         self.configured=self.path.exists()
     def _load(self):
@@ -79,21 +79,21 @@ class GitHubConnection:
             if acquired:self.lock.release()
     def connect(self,token):
         if not isinstance(token,str) or not re.fullmatch(r'github_pat_[A-Za-z0-9_]{20,500}',token):
-            raise ValueError('Use a fine-grained GitHub personal access token with read-only repository permissions')
+            raise ValueError('Use a fine-grained GitHub personal access token beginning with github_pat_')
         user=self.request('/user',None,token)['data']
         if type(user.get('id')) is not int or user['id']<=0 or not isinstance(user.get('login'),str) or not LOGIN.fullmatch(user['login']):
             raise GitHubError('GitHub returned an invalid account identity.')
         with self.lock:
             bundle=dict(id=user['id'],login=user['login'],token=token)
-            self.store.set(bundle);self.bundle=bundle;self.loaded=True;self.configured=True
+            self.store.set(bundle);self.bundle=bundle;self.loaded=True;self.configured=True;self.generation+=1
             atomic_json(self.path,dict(configured=True,account_id=str(user['id']),login=user['login']))
         return self.status()
     def disconnect(self):
         with self.lock:
-            self.store.delete();self.bundle={};self.loaded=True;self.configured=False;self.path.unlink(missing_ok=True)
+            self.store.delete();self.bundle={};self.loaded=True;self.configured=False;self.generation+=1;self.path.unlink(missing_ok=True)
         return self.status()
     def get(self,resource,query=None,expected_account=None):
-        allowed=resource in {'/user','/issues','/search/issues'} or re.fullmatch(r'/users/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})',resource)
+        allowed=resource in {'/user','/user/repos','/issues','/search/issues'} or re.fullmatch(r'/users/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})',resource)
         if not allowed:
             listing=re.fullmatch(r'/repos/([^/]+/[^/]+)/(?:issues|issues/[1-9][0-9]*/comments)',resource)
             if listing:repo_name(listing[1]);allowed=True
@@ -144,10 +144,12 @@ class GitHubSync:
     def __init__(self,root,connection,priority=lambda:False,on_item=lambda *args:None,on_unavailable=lambda *args:None):
         self.path=Path(root)/'github-cache.sqlite3';self.connection=connection;self.priority=priority
         self.on_item,self.on_unavailable=on_item,on_unavailable
+        self.repository_session=uuid.uuid4().hex
         self.lock=threading.RLock();self.cancel=threading.Event();self.thread=None;self.job=dict(running=False,status='idle',error=None)
         with closing(self.db()) as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,login TEXT);
                 CREATE TABLE IF NOT EXISTS repos(account TEXT,id INTEGER,document TEXT,PRIMARY KEY(account,id));
+                CREATE TABLE IF NOT EXISTS repository_catalog(account TEXT PRIMARY KEY,document TEXT);
                 CREATE TABLE IF NOT EXISTS state(account TEXT,repo INTEGER,filter TEXT,document TEXT,PRIMARY KEY(account,repo,filter));
                 CREATE TABLE IF NOT EXISTS objects(account TEXT,id INTEGER,repo INTEGER,kind TEXT,number INTEGER,summary TEXT,document TEXT,PRIMARY KEY(account,id));
                 CREATE TABLE IF NOT EXISTS matches(account TEXT,repo INTEGER,filter TEXT,id INTEGER,generation TEXT,PRIMARY KEY(account,repo,filter,id));
@@ -183,10 +185,74 @@ class GitHubSync:
             rows=db.execute('SELECT repo,filter,document FROM state WHERE account=?',(account,)).fetchall()
         states={str(repo)+':'+role:{k:v for k,v in json.loads(doc).items() if k!='pending'} for repo,role,doc in rows}
         return dict(connection=connection,job=job,states=states,cached_accounts=accounts)
+    def _catalog(self, account):
+        with closing(self.db()) as db:
+            row=db.execute('SELECT document FROM repository_catalog WHERE account=?',(account,)).fetchone()
+        return json.loads(row[0]) if row else None
+
     def repos(self):
-        account=self._account()
+        account=self._account();catalog=self._catalog(account)
+        # Never merge old issue-cache repositories back into a completed access listing.
+        if catalog is not None:return catalog['repositories']
         with closing(self.db()) as db:repos=[json.loads(row[0]) for row in db.execute('SELECT document FROM repos WHERE account=?',(account,))]
         return sorted(repos,key=lambda r:r['full_name'].casefold())
+
+    def repository_status(self):
+        # GET holds the credential lock during network I/O. Status must stay
+        # responsive while the discovery worker is fetching its next page.
+        account=self._account();catalog=self._catalog(account)
+        with self.lock:job=dict(self.job)
+        current=bool(catalog and catalog.get('session')==self.repository_session and
+                     catalog.get('generation')==getattr(self.connection,'generation',0))
+        if catalog is not None:repositories=catalog['repositories']
+        else:
+            with closing(self.db()) as db:repositories=sorted((json.loads(row[0]) for row in db.execute('SELECT document FROM repos WHERE account=?',(account,))),key=lambda row:row['full_name'].casefold())
+        if self._account()!=account:raise GitHubError('GitHub account changed. Refresh repositories again.')
+        return dict(account_id=account,repositories=repositories,checked_at=catalog.get('checked_at') if catalog else None,
+                    complete=bool(catalog),current=current,job=job)
+
+    def start_repositories(self):
+        account=self._account();generation=getattr(self.connection,'generation',0)
+        with self.lock:
+            if self.thread and self.thread.is_alive():raise ValueError('A GitHub sync is already running. Refresh repositories after it finishes.')
+            if self.priority():raise ValueError('Stop recording/processing before refreshing repositories')
+            self.cancel.clear();self.job=dict(running=True,status='loading repositories',kind='repositories',error=None)
+            self.thread=threading.Thread(target=self._run_repositories,args=(account,generation),daemon=True);self.thread.start()
+        return self.repository_status()
+
+    def _run_repositories(self,account,generation):
+        try:
+            repositories={};names={}
+            for page in range(1,1001):
+                self._check(account)
+                if generation!=getattr(self.connection,'generation',0):raise InterruptedError('GitHub credentials changed; refresh repositories again')
+                response=self._get(account,'/user/repos',dict(per_page=100,page=page,visibility='all',
+                    affiliation='owner,collaborator,organization_member',sort='full_name',direction='asc'))
+                rows=response['data']
+                if not isinstance(rows,list) or len(rows)>100:raise ValueError('Invalid GitHub repository page')
+                for row in rows:
+                    if not isinstance(row,dict) or type(row.get('id')) is not int or row['id']<=0:raise ValueError('Invalid GitHub repository identity')
+                    name=repo_name(row.get('full_name'))
+                    if name.casefold() in names and names[name.casefold()]!=row['id']:raise ValueError('Repository identity changed during discovery. Refresh again.')
+                    names[name.casefold()]=row['id']
+                    repositories[row['id']]=dict(id=row['id'],full_name=name,private=bool(row.get('private')),
+                        archived=bool(row.get('archived')),disabled=bool(row.get('disabled')),has_issues=row.get('has_issues',True) is not False)
+                with self.lock:self.job.update(status=f'Loading repositories · {len(repositories)} found')
+                if not response.get('has_next'):break
+            else:raise ValueError('Repository listing exceeded 100000 entries; previous choices kept. Narrow token access and refresh.')
+            # Publish a complete snapshot only. Partial pages or a rotated token never erase choices.
+            with self.connection.lock:
+                self._check(account)
+                if generation!=getattr(self.connection,'generation',0):raise InterruptedError('GitHub credentials changed; refresh repositories again')
+                document=dict(repositories=sorted(repositories.values(),key=lambda row:row['full_name'].casefold()),
+                    checked_at=dt.datetime.now(dt.timezone.utc).isoformat(),session=self.repository_session,generation=generation)
+                with closing(self.db()) as db,db:
+                    db.execute('INSERT OR REPLACE INTO repository_catalog VALUES (?,?)',(account,canonical(document)))
+                    db.execute('INSERT OR IGNORE INTO accounts VALUES (?,?)',(account,self.connection.status().get('login','')))
+            with self.lock:self.job=dict(running=False,status='repositories refreshed',kind='repositories',error=None,count=len(repositories))
+        except Exception as exc:
+            with self.lock:self.job=dict(running=False,status='repository refresh failed',kind='repositories',error=str(exc))
+
     def listing(self,repo,role='all',kind='all'):
         if type(repo) is not int or repo<=0 or role not in FILTERS or kind not in {'all','issue','pull_request'}:raise ValueError('Invalid GitHub view')
         account=self._account();state=self._state(account,repo,role)
@@ -368,7 +434,7 @@ class GitHubSync:
         with self.lock:
             if self.thread and self.thread.is_alive():raise ValueError('Cancel GitHub sync and wait before clearing its cache')
             with closing(self.db()) as db,db:
-                for table in ('repos','state','objects','matches'):db.execute(f'DELETE FROM {table} WHERE account=?',(account,))
+                for table in ('repos','repository_catalog','state','objects','matches'):db.execute(f'DELETE FROM {table} WHERE account=?',(account,))
                 db.execute('DELETE FROM accounts WHERE id=?',(account,))
         return self.status()
     def close(self):

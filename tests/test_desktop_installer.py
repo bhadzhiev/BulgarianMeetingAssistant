@@ -75,11 +75,22 @@ exec /bin/mv "$@"
         result,_,commands=self.run_install(options=('--with-parakeet',))
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('requirements-parakeet.txt',commands)
-        self.assertEqual(commands.count('--with-parakeet'),1)
+        self.assertEqual(commands.split().count('--with-parakeet'),1)
 
     def test_without_parakeet_does_not_install_or_forward_the_option(self):
         result,_,commands=self.run_install(options=('--without-parakeet',))
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertNotIn('requirements-parakeet.txt',commands)
-        self.assertNotIn('--with-parakeet',commands)
-        self.assertNotIn('--without-parakeet',commands)
+        self.assertNotIn('--with-parakeet',commands.split())
+        self.assertNotIn('--without-parakeet',commands.split())
+
+    def test_vocabulary_backend_is_included_once_and_can_be_omitted_independently(self):
+        result,_,commands=self.run_install(options=('--with-parakeet-sherpa',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(commands.split().count('--with-parakeet-sherpa'),1)
+        self.assertEqual(commands.count('requirements-parakeet-sherpa.txt'),1)
+        result,_,commands=self.run_install(options=('--without-parakeet-sherpa',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertNotIn('requirements-parakeet-sherpa.txt',commands)
+        self.assertNotIn('--with-parakeet-sherpa',commands.split())
+        self.assertIn('--with-parakeet',commands.split())

@@ -24,7 +24,7 @@ def post(resource,payload,token):
 def _not_sent(exc):
     """Errors after which GitHub surely has no result. Anything else may have left this Mac."""
     if isinstance(exc,urllib.error.HTTPError):
-        return dict(error=f'GitHub refused the request ({exc.code}).',status=exc.code) if 400<=exc.code<500 and exc.code!=408 else None
+        return dict(error=(f'GitHub refused publication (HTTP {exc.code}). Check Issues: Read and write for this repository, organization approval and rate limits.' if exc.code==403 else f'GitHub refused the request ({exc.code}).'),status=exc.code) if 400<=exc.code<500 and exc.code!=408 else None
     if isinstance(exc,urllib.error.URLError) and isinstance(exc.reason,(socket.gaierror,ConnectionRefusedError)):
         return dict(error='GitHub could not be reached.',offline=True)
     return None
@@ -54,6 +54,8 @@ class Publisher:
         account=self.connection.get('/user')['data'];account_id=str(account['id'])
         remote=self.connection.get('/repos/'+repo,expected_account=account_id)['data']
         if remote.get('full_name','').lower()!=repo.lower() or type(remote.get('id')) is not int:raise ValueError('Repository identity mismatch')
+        if remote.get('archived') or remote.get('disabled'):raise ValueError('This repository is archived or disabled. Choose an active repository.')
+        if action=='issue' and remote.get('has_issues') is False:raise ValueError('Issues are disabled for this repository. Choose another repository.')
         if action=='comment':self.connection.get(f'/repos/{repo}/issues/{target}',expected_account=account_id)
         payload=dict(resource=resource,resource_revision=revision,source_revision=revision,account_id=account_id,repository_id=remote['id'],action=action,target=target if action=='comment' else None,title=title.strip(),body=text)
         operation=self.journal.approve(payload)
@@ -122,7 +124,12 @@ class Publisher:
         try:
             remote=self.connection.get(result['locator'],expected_account=payload['account_id'])['data']
             if remote.get('id')!=result['id'] or f'<!-- atlanta:operation={key} -->' not in (remote.get('body') or ''):return operation
-            self.service.github_links.link(payload['resource'],result['repository'],result['number'])
-            if operation['state']=='created':operation=self.journal.transition(key,'created','verified',dict(result,checked_at=dt.datetime.now(dt.timezone.utc).isoformat()))
+            issue=remote if payload['action']=='issue' else self.connection.get(f'/repos/{result["repository"]}/issues/{result["number"]}',expected_account=payload['account_id'])['data']
+            if type(issue.get('id')) is not int or issue.get('number')!=result['number']:return operation
+            checked_at=dt.datetime.now(dt.timezone.utc).isoformat()
+            details=dict(kind='pull_request' if 'pull_request' in issue else 'issue',title=issue.get('title') or payload['title'],
+                state=issue.get('state'),issue_id=issue['id'],verified=True,verification='github',checked_at=checked_at)
+            self.service.github_links.link(payload['resource'],result['repository'],result['number'],details)
+            if operation['state']=='created':operation=self.journal.transition(key,'created','verified',dict(result,checked_at=checked_at))
         except (ValueError,GitHubError):pass
         return operation

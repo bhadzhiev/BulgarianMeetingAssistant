@@ -504,6 +504,10 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
         if any(task[k] is not None and not isinstance(task[k], str) for k in ["owner", "deadline"]):
             raise ValueError("Owner and deadline must be text or null")
         stamp = task["evidence_timestamp"]
+        # User-authored registry tasks have no invented moment in the recording.
+        # AI-generated tasks still require an actual transcript timestamp.
+        if stamp is None and task.get('item_id') and task.get('review') == 'verified':
+            continue
         if not isinstance(stamp, str) or not re.fullmatch(r"\d{2,}:\d{2}:\d{2}", stamp):
             raise ValueError("Invalid evidence timestamp")
         if evidence is not None and stamp not in evidence:
@@ -576,7 +580,7 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
     lines.extend(["", "## Задачи", "", "| Задача | Отговорник | Краен срок | Дата | Статус | Източник |", "|---|---|---|---|---|---|"])
     for task in minutes.get("tasks", []):
         values = [task.get("task", ""), task.get("owner") or "Не е посочен", task.get("deadline") or "Не е посочен",
-                  task.get("due_date") or "—", "Изпълнена" if task.get("status") == "done" else "Отворена", task.get("evidence_timestamp", "")]
+                  task.get("due_date") or "—", "Изпълнена" if task.get("status") == "done" else "Отворена", task.get("evidence_timestamp") or "Ръчно добавена"]
         lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in values) + " |")
     if not minutes.get("tasks"):
         lines.append("| Няма извлечени задачи | — | — | — | — | — |")

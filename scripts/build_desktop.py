@@ -51,6 +51,7 @@ def main():
     parser.add_argument('--ffmpeg-dir', type=Path)
     parser.add_argument('--with-diarization', action='store_true', help='Bundle installed pyannote/torch speaker dependencies')
     parser.add_argument('--with-parakeet', action='store_true', help='Bundle installed Apple Silicon Parakeet MLX dependencies')
+    parser.add_argument('--with-parakeet-sherpa', action='store_true', help='Bundle experimental Parakeet ONNX vocabulary backend')
     parser.add_argument('--debug', action='store_true', help='Build a development app bundle')
     args = parser.parse_args()
     if args.with_diarization:
@@ -63,6 +64,11 @@ def main():
         from app.parakeet import availability
         if not availability()['available']:
             parser.error('Parakeet requires Apple Silicon and requirements-parakeet.txt in the packaging environment')
+    if args.with_parakeet_sherpa:
+        sys.path.insert(0, str(ROOT))
+        from app.parakeet_sherpa import availability
+        if not availability()['available']:
+            parser.error('Install requirements-parakeet-sherpa.txt in the packaging environment first')
     subprocess.run([str(ROOT / 'build_native.sh')], cwd=ROOT, check=True)
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
                '--name', 'meeting-backend', '--distpath', str(ROOT / 'build/desktop-backend'),
@@ -77,6 +83,12 @@ def main():
             command.extend(['--collect-all', package])
     else:
         command.extend(['--exclude-module', 'parakeet_mlx', '--exclude-module', 'mlx'])
+    if args.with_parakeet_sherpa:
+        for package in ('sherpa_onnx', 'huggingface_hub'):
+            command.extend(['--collect-all', package])
+        command.extend(['--copy-metadata', 'sherpa-onnx'])
+    else:
+        command.extend(['--exclude-module', 'sherpa_onnx', '--exclude-module', 'sherpa_onnx_core'])
     if args.ffmpeg_dir:
         for name in ('ffmpeg', 'ffprobe'):
             path = args.ffmpeg_dir / name

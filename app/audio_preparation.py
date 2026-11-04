@@ -6,6 +6,7 @@ The caller publishes the prepared WAV only after transcription succeeds.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -40,7 +41,7 @@ FILTERS = {'light': (LIGHT_FILTER, DENOISE_DELAY), 'strong': (STRONG_FILTER, RNN
 def rnnoise_model(models_dir: Path, progress) -> Path:
     from .model_cache import download
     destination = Path(models_dir) / RNNOISE_MODEL
-    if not destination.is_file():
+    if not destination.is_file() or hashlib.sha256(destination.read_bytes()).hexdigest() != RNNOISE_SHA256:
         destination.parent.mkdir(parents=True, exist_ok=True)
         download(RNNOISE_URL, destination, 'RNNoise model', progress, RNNOISE_SHA256)
     return destination

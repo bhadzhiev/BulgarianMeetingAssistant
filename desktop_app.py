@@ -179,6 +179,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200,self.server.service.repo_reports.listing())
         if url.path == '/api/github/reports/detail':
             return self.respond(200,self.server.service.repo_reports.detail(parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/github/repos/status':
+            return self.respond(200, self.server.service.github.repository_status())
         if url.path == '/api/github/repos':
             return self.respond(200, self.server.service.github.repos())
         if url.path == '/api/github/overview':
@@ -382,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.repo_reports.associate(body['id'],body.get('meeting_id'))
             elif path == '/api/github/reports/delete':
                 result=service.repo_reports.delete(body['id'])
+            elif path == '/api/github/repos/sync':
+                result = service.github.start_repositories()
             elif path == '/api/github/overview/sync':
                 result = service.github.start_overview(body.get('filter', 'all'))
             elif path == '/api/github/sync':
@@ -456,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/github/user':
                 result = service.github_user(body.get('login'))
             elif path == '/api/projects/repositories':
-                result = service.set_project_repositories(body.get('id'), body.get('repositories'))
+                result = service.set_project_repositories(body.get('id'), body.get('repositories'), body.get('expected_repositories'))
             elif path == '/api/voices/learn':
                 result = service.learn_voices()
             elif path == '/api/meeting-review':
@@ -496,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.add_marker(body['kind'], body.get('note', ''))
             elif path == '/api/stop':
                 result = service.stop()
+            elif path == '/api/items/create':
+                result = service.create_task(body)
             elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}(/delete|/merge)?', path):
                 item_id, _, action = path[len('/api/items/'):].partition('/')
                 if type(body.get('revision')) is not int:

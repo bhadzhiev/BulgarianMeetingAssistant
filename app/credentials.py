@@ -20,7 +20,7 @@ def vault_lock():
     # One writer across libraries/processes. This file contains no credentials.
     directory=Path.home()/'Library/Caches/io.github.bhadzhiev.meeting-assistant'
     directory.mkdir(parents=True,exist_ok=True,mode=0o700)
-    with _LOCK, (directory/'credentials.lock').open('a',opener=lambda path,flags:os.open(path,flags,0o600)) as handle:
+    with _LOCK, open(directory/'credentials.lock','a',opener=lambda path,flags:os.open(path,flags,0o600)) as handle:
         fcntl.flock(handle,fcntl.LOCK_EX)
         try:yield
         finally:fcntl.flock(handle,fcntl.LOCK_UN)

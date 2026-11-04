@@ -99,3 +99,41 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.publisher.abandon(op['id'])['state'],'abandoned')
         self.publisher.write=self.write
         self.assertEqual(self.publisher.publish(self.preview()['id'],'test/repo')['state'],'verified');self.assertEqual(self.posts,1)
+
+    def test_created_issue_link_gets_live_metadata_not_unknown_defaults(self):
+        from app.github_links import GitHubLinks
+        self.service.github_links=GitHubLinks(Path(self.tmp.name)/'links.json')
+        resource=dict(kind='item',id='a'*8)
+        operation=self.publisher.preview(dict(resource=resource,repository='test/repo',format='issue',title='Verified title',body='Body'))['operation']
+        self.assertEqual(self.publisher.publish(operation['id'],'test/repo')['state'],'verified')
+        link=self.service.github_links.for_resource('item','a'*8)[0]
+        self.assertEqual((link['verified'],link['verification'],link['kind'],link['issue_id']),(True,'github','issue',42))
+        self.assertEqual(link['title'],'Verified title');self.assertTrue(link['checked_at'])
+        self.publisher.verify(operation['id'])
+        self.assertTrue(self.service.github_links.for_resource('item','a'*8)[0]['verified'])
+        self.assertEqual(self.posts,1)
+
+    def test_comment_verification_uses_target_issue_identity_not_comment_id(self):
+        from app.github_links import GitHubLinks
+        self.service.github_links=GitHubLinks(Path(self.tmp.name)/'links.json')
+        self.remote['/repos/test/repo/issues/7']=dict(id=55,number=7,title='Target PR',state='open',pull_request={})
+        def comment(path,payload,token):
+            self.posts+=1
+            result=dict(id=88,body=payload['body']);self.remote['/repos/test/repo/issues/comments/88']=result;return result
+        self.publisher.write=comment;resource=dict(kind='item',id='b'*8)
+        operation=self.publisher.preview(dict(resource=resource,repository='test/repo',format='comment',title='',body='Comment',target=7))['operation']
+        result=self.publisher.publish(operation['id'],'test/repo');self.assertEqual(result['state'],'verified')
+        link=self.service.github_links.for_resource('item','b'*8)[0]
+        self.assertEqual((link['kind'],link['issue_id'],link['verification']),('pull_request',55,'github'))
+        self.assertIn('#issuecomment-88',result['result']['url']);self.assertEqual(self.posts,1)
+
+    def test_archived_or_issues_disabled_repository_is_rejected_before_post(self):
+        original=self.publisher.connection.get
+        for flags in [dict(archived=True),dict(disabled=True),dict(has_issues=False)]:
+            def get(path,query=None,expected_account=None):
+                response=original(path,query,expected_account)
+                if path=='/repos/test/repo':response['data']=dict(response['data'],**flags)
+                return response
+            self.publisher.connection.get=get
+            with self.subTest(flags=flags),self.assertRaises(ValueError):self.preview()
+        self.assertEqual(self.posts,0)

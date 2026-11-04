@@ -1187,7 +1187,7 @@ let draftResource=null,draftFormat='issue',draftSequence=0,draftActiveKey='',dra
 const draftBuffers=new Map();
 function captureDraft(){if(draftActiveKey&&draftBuffers.has(draftActiveKey))draftBuffers.get(draftActiveKey).capture($('github-draft-issue-title').value,$('github-draft-body').value);}
 function draftEditNotice(){const buffer=draftBuffers.get(draftActiveKey);$('github-draft-edits').hidden=!buffer?.edited;}
-async function openDraft(resource,format){captureDraft();draftResource=resource;draftFormat=format;draftActiveKey='';$('github-draft-repo').replaceChildren();await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
+async function openDraft(resource,format){captureDraft();draftResource=resource;draftFormat=format;draftActiveKey='';$('github-draft-repo').replaceChildren();$('github-draft-assignee').replaceChildren();$('github-draft-assignee').dataset.chosen='';await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
 async function renderDraft(){
  captureDraft();const sequence=++draftSequence,key=JSON.stringify([draftResource,draftFormat]),format=draftFormat;
  if(!draftBuffers.has(key)){if(draftBuffers.size>=20){const clean=[...draftBuffers].find(([,buffer])=>!buffer.edited);if(clean)draftBuffers.delete(clean[0]);}draftBuffers.set(key,new DraftBuffer());}
@@ -1204,7 +1204,7 @@ async function renderDraft(){
  segmentedChoice($('github-draft-format'),[['issue','Issue draft'],['comment','Comment']],format,value=>{captureDraft();draftFormat=value;perform(renderDraft);});
  const repos=[...new Set([...draft.repositories,...(draft.repository?[draft.repository]:[])])],select=$('github-draft-repo');select.replaceChildren(option(repos.length?'Repository…':'No repository in the project',''),...repos.map(r=>option(r,r)));select.value=draft.repository||'';
  $('github-draft-issue-title').value=values.title;$('github-draft-body').value=values.body;$('github-draft-issue-title').hidden=$('github-draft-title-label').hidden=format!=='issue';
- renderDraftRouting(draft);
+ renderDraftRouting(draft);renderDraftAssignee(draft,format);
  $('github-draft-notes').textContent=[...draft.notes,draft.assignee?'Assignee suggestion: '+draft.assignee+' (a confirmed owner).':''].filter(Boolean).join(' ');draftEditNotice();updateDraftLink();
  }finally{if(sequence===draftSequence)$('github-draft-copy').disabled=$('github-draft-copy-title').disabled=$('github-draft-review').disabled=false;}
 }
@@ -1227,10 +1227,19 @@ function renderDraftRouting(draft){
   box.append(repositoryEditor(project,{open:true,onSaved:async()=>{await renderDraft();perform(refreshAfterItemChange);}}));
  }
 }
-function updateDraftLink(){
- const repo=$('github-draft-repo').value,open=$('github-draft-open');open.hidden=draftFormat!=='issue'||!repo;
- if(!open.hidden)open.href='https://github.com/'+repo+'/issues/new?'+new URLSearchParams({title:$('github-draft-issue-title').value,body:$('github-draft-body').value});
+// Who the issue goes to: a person in Atlanta with a GitHub username. A confirmed owner is the default.
+function renderDraftAssignee(draft,format){
+ const select=$('github-draft-assignee'),people=draft.people||[],suggested=(draft.assignee||'').replace(/^@/,'');
+ const chosen=select.dataset.chosen,keep=chosen!==undefined&&chosen!==''?chosen:null;
+ select.replaceChildren(option(people.length?'No assignee':'No person with a GitHub username',''),...people.map(p=>option(p.name+' · @'+p.login+(p.checked?'':' · not checked'),p.login)));
+ const value=keep!==null?keep:suggested;select.value=people.some(p=>p.login===value)?value:'';
+ select.hidden=format!=='issue';select.disabled=!people.length;
 }
+function updateDraftLink(){
+ const repo=$('github-draft-repo').value,open=$('github-draft-open'),assignee=$('github-draft-assignee').value;open.hidden=draftFormat!=='issue'||!repo;
+ if(!open.hidden)open.href='https://github.com/'+repo+'/issues/new?'+new URLSearchParams({title:$('github-draft-issue-title').value,body:$('github-draft-body').value,...(assignee?{assignees:assignee}:{})});
+}
+$('github-draft-assignee').onchange=()=>{const select=$('github-draft-assignee');select.dataset.chosen=select.value||'-';updateDraftLink();};
 async function copyText(text){
  try{await navigator.clipboard.writeText(text);}catch{const area=el('textarea');area.value=text;document.body.append(area);area.select();document.execCommand('copy');area.remove();}
  toast('Copied · paste it in GitHub');
@@ -2820,10 +2829,10 @@ $('github-publish-preview').onclick=()=>perform(async()=>{
  const button=$('github-publish-preview');button.disabled=true;
  try{
   const repository=$('github-draft-repo').value;
-  const preview=await api('/api/github/preview',{resource:draftResource,format:draftFormat,repository,title:$('github-draft-issue-title').value,body:$('github-draft-body').value,target:Number($('github-publish-target').value)||null});
+  const preview=await api('/api/github/preview',{resource:draftResource,format:draftFormat,repository,title:$('github-draft-issue-title').value,body:$('github-draft-body').value,target:Number($('github-publish-target').value)||null,assignee:draftFormat==='issue'?$('github-draft-assignee').value||null:null});
   const op=preview.operation,payload=op.payload;
   if(op.state!=='approved'){renderPublication(op,repository);return;}
-  const description=(payload.action==='issue'?'Create issue':'Add comment to #'+payload.target)+' in '+preview.repository+' as '+preview.account+'?\n\n'+payload.title+'\n\n'+payload.body;
+  const description=(payload.action==='issue'?'Create issue':'Add comment to #'+payload.target)+' in '+preview.repository+' as '+preview.account+'?'+(payload.assignees?.length?'\nAssignee: @'+payload.assignees.join(', @'):'')+'\n\n'+payload.title+'\n\n'+payload.body;
   if(!(await ask(description,{ok:payload.action==='issue'?'Create in GitHub':'Add comment'})))return;
   renderPublication(await api('/api/github/publish',{id:op.id,repository}),repository);
  }finally{button.disabled=false;}

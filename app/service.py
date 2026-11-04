@@ -1380,7 +1380,12 @@ class MeetingService:
         routing = [dict(id=p['id'], name=p['name'], repositories=list(p.get('repositories', []))) for p in projects]
         return dict(format=fmt, title=title, body=markdown, repository=repository, repositories=choices,
                     assignee=owner if owner.startswith('@') else None, notes=notes, resource=data['target'],
-                    projects=routing, revision=data.get('revision'))
+                    projects=routing, revision=data.get('revision'), people=self.github_assignees())
+
+    def github_assignees(self):
+        """People in Atlanta with a GitHub username: the choices for an issue assignee."""
+        return [dict(id=p['id'], name=p['name'], login=p['github']['login'], checked=bool(p['github'].get('id')))
+                for p in self.people.list() if p.get('github') and p['github'].get('login')]
 
     def github_link(self, body):
         """Link a resource to an existing issue or pull request. Checks the local cache, then GitHub (read only)."""

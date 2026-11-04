@@ -31,7 +31,8 @@ class CommitJournal:
 
     def approve(self,payload):
         required={'resource','resource_revision','source_revision','account_id','repository_id','action','target','title','body'}
-        if not isinstance(payload,dict) or set(payload)!=required or payload['action'] not in {'issue','comment'}:
+        # An assignee is optional; without one, the payload and its digest stay as before.
+        if not isinstance(payload,dict) or set(payload) not in (required,required|{'assignees'}) or payload['action'] not in {'issue','comment'}:
             raise ValueError('Invalid publication preview')
         for field in ('resource','resource_revision','source_revision','account_id','repository_id'):
             if not payload[field]:raise ValueError('Preview needs source, resource and destination identity')

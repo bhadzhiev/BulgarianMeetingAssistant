@@ -21,10 +21,41 @@ def post(resource,payload,token):
         return json.loads(raw)
 
 
+def _refusal(exc):
+    """What GitHub said about a refused request: its message, the permission it wants, a rate limit."""
+    headers=exc.headers or {}
+    try:raw=exc.read(16_000)
+    except Exception:raw=b''
+    try:message=json.loads(raw).get('message','')
+    except Exception:message=''
+    # One short line of GitHub's own text. It never contains the token.
+    message=' '.join(str(message).split())[:300] if isinstance(message,str) else ''
+    wanted=' '.join(str(headers.get('X-Accepted-GitHub-Permissions') or '').split())[:120]
+    limited=headers.get('X-RateLimit-Remaining')=='0' or bool(headers.get('Retry-After'))
+    return message,wanted,limited
+
+
+def _refused_text(exc):
+    message,wanted,limited=_refusal(exc)
+    said=f' GitHub says: “{message}”.' if message else ''
+    if limited:
+        return f'GitHub refused publication (HTTP {exc.code}): rate limit reached. Wait, then preview again.'+said
+    if exc.code==403 and 'personal access token' in message.casefold():
+        need=f' GitHub needs: {wanted}.' if wanted else ''
+        return (f'GitHub refused publication (HTTP 403): the token in Atlanta lacks a permission.{said}{need} '
+                'Edit the fine-grained token on GitHub: set Issues to Read and write for this repository. '
+                'If the organization approves tokens, approve the change there.')
+    if exc.code==403:
+        return f'GitHub refused publication (HTTP 403).{said} Check Issues: Read and write for this repository, organization approval and rate limits.'
+    if exc.code==404:
+        return f'GitHub refused publication (HTTP 404).{said} The token cannot see this repository. Add the repository to the token on GitHub.'
+    return f'GitHub refused the request ({exc.code}).{said}'
+
+
 def _not_sent(exc):
     """Errors after which GitHub surely has no result. Anything else may have left this Mac."""
     if isinstance(exc,urllib.error.HTTPError):
-        return dict(error=(f'GitHub refused publication (HTTP {exc.code}). Check Issues: Read and write for this repository, organization approval and rate limits.' if exc.code==403 else f'GitHub refused the request ({exc.code}).'),status=exc.code) if 400<=exc.code<500 and exc.code!=408 else None
+        return dict(error=_refused_text(exc),status=exc.code) if 400<=exc.code<500 and exc.code!=408 else None
     if isinstance(exc,urllib.error.URLError) and isinstance(exc.reason,(socket.gaierror,ConnectionRefusedError)):
         return dict(error='GitHub could not be reached.',offline=True)
     return None

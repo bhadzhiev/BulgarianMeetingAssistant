@@ -866,14 +866,23 @@ live Workspace consent, API access and real conversation sync still need account
 
 ## GitHub: repositories, open issues and pull requests
 
-Open **My Work → GitHub**. Create a **fine-grained personal access token** for the selected repositories
-with **Issues: Read-only**, **Pull requests: Read-only** and the required metadata access, then Connect.
+Open **My Work → GitHub**. Create a **fine-grained personal access token** for the selected repositories,
+then Connect. Give it these repository permissions:
+
+- **Issues: Read and write**, if you want to create issues or comments from Atlanta. **Read-only** is
+  enough to only read issues; publication then fails with HTTP 403.
+- **Pull requests: Read-only**.
+- **Metadata: Read-only** (GitHub adds it automatically).
+
+For an organization repository, set **Resource owner** to the organization. If the organization
+approves tokens, an owner must approve the token, and also each later change of its permissions.
+To fix a 403 after publication, edit the same token on GitHub. You do not need to connect it again.
 The app verifies the account with GitHub and stores the token in the shared Atlanta macOS Keychain vault.
 It does not reuse `gh` credentials or environment tokens. The token input clears after submission;
 status, settings, archives and command arguments never include it. Token creation, organization
 approval and SSO remain GitHub/account-owner setup. See
 [GitHub token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
-The sync adapter only makes GET requests. Creating an issue or comment additionally requires **Issues: Read and write** for the target repository and any organization approval. Publication is a separate, explicitly approved POST; metadata access and repository user-role permissions do not prove that the token can publish.
+The sync adapter only makes GET requests. Creating an issue or comment additionally requires **Issues: Read and write** for the target repository and any organization approval. A refused publication shows the message from GitHub and, when GitHub sends it, the permission that it needs. Publication is a separate, explicitly approved POST; metadata access and repository user-role permissions do not prove that the token can publish.
 
 Project repository choices use a separate paginated `GET /user/repos` listing (100 per page),
 including owner, collaborator and organization-member affiliations visible to the token. Open

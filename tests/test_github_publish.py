@@ -1,3 +1,4 @@
+import json
 import socket
 import tempfile
 import unittest
@@ -72,6 +73,23 @@ class PublishTests(unittest.TestCase):
         self.publisher.write=self.write
         again=self.preview();self.assertNotEqual(again['id'],op['id'])
         self.assertEqual(self.publisher.publish(again['id'],'test/repo')['state'],'verified');self.assertEqual(self.posts,1)
+
+    def test_refusal_shows_what_github_said_and_the_missing_permission(self):
+        import io
+        body=json.dumps(dict(message='Resource not accessible by personal access token',documentation_url='https://docs.github.com')).encode()
+        def refused(*args):raise urllib.error.HTTPError('https://api.github.com',403,'Forbidden',{'X-Accepted-GitHub-Permissions':'issues=write'},io.BytesIO(body))
+        self.publisher.write=refused
+        result=self.publisher.publish(self.preview()['id'],'test/repo')['result']
+        self.assertEqual(result['status'],403)
+        self.assertIn('Resource not accessible by personal access token',result['error'])
+        self.assertIn('issues=write',result['error'])
+        self.assertIn('Issues to Read and write',result['error'])
+
+    def test_rate_limit_refusal_says_to_wait(self):
+        def limited(*args):raise urllib.error.HTTPError('https://api.github.com',403,'Forbidden',{'X-RateLimit-Remaining':'0'},None)
+        self.publisher.write=limited
+        result=self.publisher.publish(self.preview()['id'],'test/repo')['result']
+        self.assertIn('rate limit',result['error'])
 
     def test_offline_fails_without_retry(self):
         def offline(*args):raise urllib.error.URLError(socket.gaierror(8,'nodename nor servname provided'))

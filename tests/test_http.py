@@ -100,5 +100,15 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(self.request(path,headers={})[0],403)
         self.assertEqual(self.request('/?meeting='+m['id'],headers={'Host':'evil.example'})[0],403)
 
+    def test_external_link_opens_only_https_in_the_browser(self):
+        from unittest import mock
+        with mock.patch('desktop_app.webbrowser.open',return_value=True) as opened:
+            status,body,_=self.request('/api/open-external',{'url':'https://github.com/o/r/issues/new?title=A'})
+            self.assertEqual(status,200);self.assertEqual(json.loads(body),{'opened':True})
+            opened.assert_called_once_with('https://github.com/o/r/issues/new?title=A')
+            for url in ['file:///etc/passwd','http://example.com','https://user@example.com','https://a b',None,'']:
+                self.assertEqual(self.request('/api/open-external',{'url':url})[0],400)
+            self.assertEqual(opened.call_count,1)
+            self.assertEqual(self.request('/api/open-external',{'url':'https://github.com'},dict(self.headers,Origin='https://example.com'))[0],403)
     def test_calendar_list_requires_connection(self):
         self.assertEqual(self.request('/api/calendar/calendars')[0],400)

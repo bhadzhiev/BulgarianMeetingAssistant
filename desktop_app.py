@@ -29,6 +29,16 @@ if getattr(sys, 'frozen', False):
 EXPORTS = {'transcript.before-speakers.json', 'transcript.alignment.json', 'speaker-turns.json', 'recording.wav', 'transcription.wav', 'transcript.md', 'transcript.json', 'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json', 'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json'}
 
 
+
+def external_url(value):
+    """Only a plain https link opens in the browser. Other schemes could start local programs."""
+    if not isinstance(value, str) or not 0 < len(value) <= 32_000 or any(c.isspace() or ord(c) < 32 for c in value):
+        raise ValueError('Invalid link')
+    parts = urlsplit(value)
+    if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password:
+        raise ValueError('Only https links open in the browser')
+    return value
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -344,6 +354,9 @@ class Handler(BaseHTTPRequestHandler):
                 service.editor_changed(body['dirty']);result=dict(ok=True)
             elif path == '/api/github/connect':
                 result = service.github.connection.connect(body['token'])
+            elif path == '/api/open-external':
+                # The desktop window (WKWebView) ignores target=_blank links. The default browser opens them.
+                result = {'opened': webbrowser.open(external_url(body.get('url')))}
             elif path == '/api/github/disconnect':
                 service.repo_reports.stop()
                 service.github.stop()

@@ -196,6 +196,12 @@ async function api(path,body) {
  const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const data=await response.json(); if(!response.ok){const failure=new Error(data.error || 'Request failed');failure.status=response.status;throw failure;} return data;
 }
+// The desktop window (WKWebView) ignores target=_blank links. The backend opens them in the default browser.
+document.addEventListener('click',event=>{
+ const link=event.target.closest?.('a[target="_blank"]');
+ if(!link||event.defaultPrevented||event.button!==0||!link.href.startsWith('https://'))return;
+ event.preventDefault();perform(()=>api('/api/open-external',{url:link.href}));
+});
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.

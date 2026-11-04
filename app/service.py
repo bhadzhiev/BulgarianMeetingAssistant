@@ -1194,8 +1194,15 @@ class MeetingService:
             if expected_repositories is not None:
                 if not isinstance(expected_repositories,list) or len(expected_repositories)>30 or any(not isinstance(value,str) for value in expected_repositories):raise ValueError('Invalid repository revision')
                 if not project or project.get('repositories',[])!=expected_repositories:raise items.WorkItemConflict('Project repositories changed. Reload before saving your changes.')
-            result = self.projects.set_repositories(project_id, repositories)
-            self.projects.save()
+            previous=copy.deepcopy(self.projects.data)
+            try:
+                result = self.projects.set_repositories(project_id, repositories)
+                if result != (next(p for p in previous['projects'] if p['id']==project_id).get('repositories', [])):
+                    project['repository_revision']=uuid.uuid4().hex
+                self.projects.save()
+            except Exception:
+                self.projects.data=previous
+                raise
             return dict(repositories=result, projects=self.projects.data)
 
     # People ------------------------------------------------------------------------------------------
@@ -1269,7 +1276,7 @@ class MeetingService:
             quote = '\n'.join(re.sub(r'^\[[0-9.]+–[0-9.]+\] ', '', line) for line in row['text'].splitlines() if line.strip())[:4000]
             return dict(target=target, kind='excerpt' if row['kind'] == 'excerpt' else 'conversation', text=row['title'], quote=quote,
                         speaker=None, moment=moment, project_ids=row['project_ids'], owner=None, owner_confirmed=False, due_date=None,
-                        source_label=None if moment else ('Gmail' if row['kind'] == 'gmail' else 'Google Chat'))
+                        source_label=None if moment else ('Gmail' if row['kind'] == 'gmail' else 'Google Chat'),repository_bindings=self.repository_bindings(row['project_ids']))
         item = next((i for i in self.item_list()['items'] if i['id'] == target['id']), None)
         if not item:
             raise ValueError('This item no longer exists. Reload and try again.')
@@ -1303,7 +1310,7 @@ class MeetingService:
                     project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_person_id=item.get('owner_person_id'),
                     owner_confirmed='owner' in item.get('manual', []) or bool(item.get('owner_person_id')),
                     due_date=item.get('due_date'), status=item['status'], source_label=source,
-                    destination_repository=item.get('destination_repository'))
+                    destination_repository=item.get('destination_repository'),repository_bindings=self.repository_bindings(item['effective_project_ids']))
 
     def github_draft(self, body):
         """Markdown for a GitHub issue or comment. The person copies it, or publishes it after a preview."""
@@ -1314,13 +1321,19 @@ class MeetingService:
         data = self._resource(body.get('resource'))
         projects = [self.projects.get('projects', key) for key in data['project_ids']]
         projects = [p for p in projects if p]
-        choices = [r for p in projects for r in p.get('repositories', [])]
+        choices = list({r.casefold():r for p in projects for r in p.get('repositories', [])}.values())
         chosen = data.get('destination_repository')
-        repository = body.get('repository') or (chosen if chosen in choices else choices[0] if choices else '')
+        allowed={r.casefold():r for r in choices}
+        explicit=body.get('repository')
+        if explicit and (not isinstance(explicit,str) or explicit.casefold() not in allowed):
+            raise items.WorkItemConflict('Repository is no longer linked to this project. Choose a linked repository and preview again.')
+        stale_destination=bool(chosen and chosen.casefold() not in allowed)
+        repository = allowed.get(explicit.casefold()) if explicit else (allowed.get(chosen.casefold(),'') if chosen else choices[0] if len(choices)==1 else '')
         if repository:
             repository = repo_name(repository)
         with_meeting, with_speaker = body.get('include_meeting', True) is not False, body.get('include_speaker') is True
         notes, kind = [], {'task': 'Task', 'decision': 'Decision', 'question': 'Question', 'excerpt': 'Meeting excerpt', 'conversation': 'Conversation'}[data['kind']]
+        if stale_destination:notes.append('The previous task destination is no longer linked to its projects. Choose a repository explicitly; no replacement was selected.')
         moment = data['moment']
         when = ''
         if moment:
@@ -1426,6 +1439,8 @@ class MeetingService:
             for p in [dict(id='__none__', name='Unassigned'), *projects]:
                 items_here = [i for i in data['items'] if includes(i['effective_project_ids'], p['id'])]
                 cards.append(dict(p, linked_conversations=len(self.conversations.attachments(p['id'])), meetings=sum(includes([m['project_id']] if m.get('project_id') else [], p['id']) for m in all_meetings),
+                    repository_usage={r:sum(i['kind']=='task' and (i.get('destination_repository') or '').casefold()==r.casefold() for i in items_here) for r in p.get('repositories',[])},
+                    repository_projects={r:[q['name'] for q in projects if any(v.casefold()==r.casefold() for v in q.get('repositories',[]))] for r in p.get('repositories',[])},
                     open_tasks=sum(i['kind']=='task' and i['status']=='open' and not i.get('dismissed') for i in items_here),
                     open_questions=sum(i['kind']=='question' and i['status']=='open' for i in items_here)))
             return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'], conversations=self.conversations.attachments(project_id), timeline=self.conversations.timeline(project_id, rows, meetings))
@@ -1892,6 +1907,11 @@ class MeetingService:
         assigned = item.get('project_ids')
         effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
         return sorted({key for key in effective if key in known})
+
+    def repository_bindings(self, project_ids):
+        """Explicit project/repository routing, included in publication approvals."""
+        return [dict(project_id=p['id'],revision=p.get('repository_revision'),repositories=sorted(r.casefold() for r in p.get('repositories',[])))
+                for key in sorted(project_ids) if (p:=self.projects.get('projects',key))]
 
     def project_repositories(self, project_ids):
         """The GitHub repositories that the projects name: the only places a task can go."""

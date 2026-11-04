@@ -19,7 +19,8 @@ class PublishTests(unittest.TestCase):
             return dict(data=data)
         conn=SimpleNamespace(lock=RLock(),get=get,_load=lambda:dict(token='test-only'))
         self.service=SimpleNamespace(github=SimpleNamespace(connection=conn),items=SimpleNamespace(store=SimpleNamespace(path=Path(self.tmp.name)/'work.sqlite3')),github_links=SimpleNamespace(link=lambda *a:self.links.append(a)))
-        self.service._resource=lambda resource:dict(target=resource,text=self.text)
+        self.bindings=[dict(project_id='project',revision='first',repositories=['test/repo'])]
+        self.service._resource=lambda resource:dict(target=resource,text=self.text,repository_bindings=self.bindings)
         self.publisher=Publisher(self.service,self.write)
     def write(self,path,payload,token):
         self.posts+=1
@@ -137,3 +138,17 @@ class PublishTests(unittest.TestCase):
             self.publisher.connection.get=get
             with self.subTest(flags=flags),self.assertRaises(ValueError):self.preview()
         self.assertEqual(self.posts,0)
+
+    def test_removed_project_repository_blocks_preview_and_previously_approved_write(self):
+        operation=self.preview()
+        self.bindings[0]['repositories']=[]
+        with self.assertRaisesRegex(WorkItemConflict,'no longer linked'):self.preview()
+        with self.assertRaisesRegex(WorkItemConflict,'no longer linked'):self.publisher.publish(operation['id'],'test/repo')
+        self.assertEqual(self.posts,0)
+
+    def test_project_binding_revision_change_requires_new_preview(self):
+        operation=self.preview();self.bindings[0]['revision']='changed'
+        with self.assertRaises(WorkItemConflict):self.publisher.publish(operation['id'],'test/repo')
+        self.assertEqual(self.posts,0)
+        fresh=self.preview();self.assertNotEqual(operation['id'],fresh['id'])
+        self.assertEqual(self.publisher.publish(fresh['id'],'test/repo')['state'],'verified')

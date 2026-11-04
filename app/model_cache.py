@@ -41,6 +41,7 @@ def download(url: str, destination: Path, name: str, progress, sha256: str | Non
         with requests.get(url, stream=True, timeout=(20, 60)) as response:
             response.raise_for_status()
             expected = int(response.headers.get('content-length', 0))
+            encoded = response.headers.get('content-encoding', '').strip().lower() not in {'', 'identity'}
             received, last_percent = 0, -1
             digest = hashlib.sha256()
             with partial.open('wb') as output:
@@ -50,13 +51,17 @@ def download(url: str, destination: Path, name: str, progress, sha256: str | Non
                     output.write(chunk)
                     digest.update(chunk)
                     received += len(chunk)
-                    percent = int(received * 100 / expected) if expected else 0
+                    transferred = response.raw.tell() if encoded and expected else received
+                    percent = min(100, int(transferred * 100 / expected)) if expected else 0
                     if percent != last_percent:
                         progress(f'Downloading {name} · {percent}%' if expected else f'Downloading {name} · {received // 1048576} MB')
                         last_percent = percent
                 output.flush()
                 os.fsync(output.fileno())
-            if not received or expected and received != expected:
+            # iter_content() transparently decompresses gzip/br responses. HTTP
+            # Content-Length describes the encoded wire body, not the model bytes.
+            transferred = response.raw.tell() if encoded and expected else received
+            if not received or expected and transferred != expected:
                 raise RuntimeError(f'Incomplete {name} download. Retry to download it again.')
             if sha256 and digest.hexdigest() != sha256:
                 raise RuntimeError(f'The downloaded {name} is not the expected file.')

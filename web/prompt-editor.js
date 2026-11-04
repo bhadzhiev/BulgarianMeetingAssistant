@@ -1,13 +1,13 @@
 /* Versioned AI task layers. Test results never write meeting data. */
-let promptCatalog=null,promptRequestedScope=null,promptSelection=null,promptOriginal='',promptPreview=null,promptJob=null,promptTimer=null,promptSequence=0,promptDraftMode='append';
+let promptCatalog=null,promptRequestedScope=null,promptSelection=null,promptOriginal='',promptPreview=null,promptJob=null,promptTimer=null,promptSequence=0,promptDraftMode='append',promptPending=false,promptLaunch=0;
 function promptBody(){return {stage:$('prompt-stage').value,scope:$('prompt-scope').value,text:$('prompt-text').value.trim()||null,revision:promptCatalog.revision,mode:promptDraftMode};}
 function promptError(error){$('prompt-error').textContent=error?.message||'';$('prompt-error').hidden=!error;}
 function promptDirty(){return $('prompt-text').value!==promptOriginal;}
 async function leavePromptEditor(){
- if(promptJob&&!(await ask('Cancel the running prompt test and close settings?',{ok:'Cancel test'})))return false;
+ if((promptJob||promptPending)&&!(await ask('Cancel the running prompt test and close settings?',{ok:'Cancel test'})))return false;
  if(promptDirty()&&!(await ask('Discard the unsaved AI instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
  if(promptJob)await api('/api/prompts/test/cancel',{id:promptJob});
- promptJob=null;clearTimeout(promptTimer);$('prompt-text').value=promptOriginal;editorDirty.clear('ai-prompts');return true;
+ ++promptLaunch;promptPending=false;promptJob=null;promptBusy(false);invalidatePromptTest();clearTimeout(promptTimer);$('prompt-text').value=promptOriginal;editorDirty.clear('ai-prompts');return true;
 }
 function invalidatePromptTest(){promptSequence++;promptPreview=null;$('prompt-test').disabled=true;$('prompt-request').hidden=true;$('prompt-target').textContent='';}
 function fillPromptScopes(wanted){
@@ -72,13 +72,23 @@ async function pollPromptTest(id){
  }catch(error){promptError(error);promptJob=null;promptBusy(false);}
 }
 $('prompt-test').onclick=()=>perform(async()=>{
- if(!promptPreview)return;promptError(null);promptBusy(true);$('prompt-result').textContent='Starting isolated test…';
- try{const job=await api('/api/prompts/test/start',{...promptPreview,approved:true});promptJob=job.id;pollPromptTest(job.id);}catch(error){promptError(error);promptBusy(false);invalidatePromptTest();}
+ if(!promptPreview||promptPending||promptJob)return;const preview=promptPreview,launch=++promptLaunch;
+ promptPending=true;promptError(null);promptBusy(true);$('prompt-result').textContent='Starting isolated test…';
+ try{const job=await api('/api/prompts/test/start',{...preview,approved:true});
+  if(launch!==promptLaunch||!$('settings-dialog').open){await api('/api/prompts/test/cancel',{id:job.id});return;}
+  promptJob=job.id;pollPromptTest(job.id);
+ }catch(error){if(launch===promptLaunch){promptError(error);promptBusy(false);invalidatePromptTest();}}
+ finally{if(launch===promptLaunch)promptPending=false;}
 });
-$('prompt-cancel').onclick=()=>perform(async()=>{if(promptJob){await api('/api/prompts/test/cancel',{id:promptJob});$('prompt-result').textContent='Cancelling test…';}});
+$('prompt-cancel').onclick=()=>perform(async()=>{
+ if(promptPending){++promptLaunch;promptPending=false;promptBusy(false);invalidatePromptTest();$('prompt-result').textContent='Cancelling test…';}
+ if(promptJob){await api('/api/prompts/test/cancel',{id:promptJob});$('prompt-result').textContent='Cancelling test…';}
+});
 
 $('prompt-reprocess').onclick=()=>perform(async()=>{
  if(promptDirty()){promptError(new Error('Save your instructions before generating new notes.'));return;}
  const body=promptBody();if(body.stage!=='meeting_minutes'||!body.scope.startsWith('meeting:'))return;
  await offerReprocess({scope:body.scope,action:'notes'});
 });
+
+for(const id of ['prompt-save','prompt-reset'])protectDialogAction($('settings-dialog'),$(id));

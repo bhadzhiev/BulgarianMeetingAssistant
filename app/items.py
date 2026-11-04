@@ -165,7 +165,7 @@ class Registry:
         and history, and wait for the new notes of the meeting."""
         for item in self.items.values():
             for link in item['links']:
-                if link['meeting_id'] == meeting_id and not link.get('detached'):
+                if link['meeting_id'] == meeting_id and not link.get('detached') and not link.get('manual_task'):
                     link['detached'] = True
                     self._event(item, 'detached', meeting_id)
 
@@ -206,6 +206,16 @@ class Registry:
     def sync(self, meeting_id: str, minutes: dict | None) -> bool:
         """Bring the registry in line with one meeting's notes. Returns True when the notes changed."""
         changed, present, primary = False, set(), set()
+        # A user's tasks survive regenerated notes, including a run that omitted them.
+        if minutes is not None:
+            present_ids = {m.get('item_id') for m in minutes.get('tasks', [])}
+            for item in self.items.values():
+                if item['kind'] != 'task' or item['id'] in present_ids:continue
+                if any(l['meeting_id'] == meeting_id and l.get('manual_task') for l in item['links']):
+                    minutes.setdefault('tasks', []).append(dict(task=item['text'], owner=item.get('owner'),
+                        deadline=item.get('deadline'), due_date=item.get('due_date'), status=item['status'],
+                        evidence_timestamp=None, review='verified', item_id=item['id']))
+                    changed = True
         for kind, field in FIELD.items():
             for mention in (minutes or {}).get(field, []):
                 item_id = mention.get('item_id')
@@ -255,11 +265,11 @@ class Registry:
                 changed = True
         for item in list(self.items.values()):
             # Detached links wait for a person to link the new notes; only a removed mention ends a link.
-            if item['id'] in present or not any(link['meeting_id'] == meeting_id and (minutes is None or not link.get('detached'))
+            if item['id'] in present or minutes is not None and any(l['meeting_id'] == meeting_id and l.get('manual_task') for l in item['links']) or not any(link['meeting_id'] == meeting_id and (minutes is None or not link.get('detached'))
                                                 for link in item['links']):
                 continue
             item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id or minutes is not None and link.get('detached')]
-            if item['links'] or self.has_graph_links(item['id']):
+            if item['links'] or item.get('created_by') == 'user' or self.has_graph_links(item['id']):
                 self._event(item, 'removed', meeting_id, by='user')
             else:
                 self.remove(item['id'])
@@ -312,7 +322,7 @@ class Registry:
         """Drop links to meetings that the library does not have, and items that are left with none."""
         for item in list(self.items.values()):
             item['links'] = [link for link in item['links'] if link['meeting_id'] in meeting_ids]
-            if not item['links'] and item.get('managed_by') != 'work_graph' and not self.has_graph_links(item['id']):
+            if not item['links'] and item.get('created_by') != 'user' and item.get('managed_by') != 'work_graph' and not self.has_graph_links(item['id']):
                 self.remove(item['id'])
 
     def newer(self, item_id: str) -> set[str]:

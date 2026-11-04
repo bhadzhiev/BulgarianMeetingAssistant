@@ -145,9 +145,10 @@ function renderPeople(){
  }
  if(!(state.people||[]).length)list.append(el('p','hint','No people yet. Add the people you meet often; their known names can stay as speakers above.'));
 }
-let personEditing=null,personGitHub=null;
+let personEditing=null,personGitHub=null,personSequence=0;
 const splitList=value=>value.split(',').map(x=>x.trim()).filter(Boolean);
 async function openPerson(id){
+ const sequence=++personSequence;
  if(id)pendingSpeaker=null;
  const person=id?(state.people||[]).find(p=>p.id===id):null;personEditing=person;personGitHub=person?.github||null;
  $('person-title').textContent=person?person.name:'New person';$('person-error').hidden=true;
@@ -156,7 +157,7 @@ async function openPerson(id){
  $('person-github-status').textContent=person?.github?(person.github.id?'GitHub ID '+person.github.id+' · a renamed account stays this person':'Not checked on GitHub yet'):'';
  renderPersonIdentities(person);$('person-profile').replaceChildren();
  if(!$('person-dialog').open)$('person-dialog').showModal();
- if(person)renderProfile(await api('/api/people/profile?id='+person.id));
+ if(person){const profile=await api('/api/people/profile?id='+person.id);if(sequence===personSequence&&$('person-dialog').open&&personEditing?.id===person.id)renderProfile(profile);}
 }
 function renderProfile(profile){
  const box=$('person-profile');box.replaceChildren(el('h3','','What '+profile.person.name+' said and took on'));
@@ -171,12 +172,15 @@ function renderProfile(profile){
 $('learn-voices').onclick=()=>perform(async()=>{const job=await api('/api/voices/learn',{});state.voices=job;renderSpeakerSettings();toast(job.total?'Learning voices from '+AtlantaUX.count(job.total,'meeting'):'Every saved meeting already has voice prints');});
 $('add-person').onclick=()=>perform(()=>openPerson(null));
 $('person-close').onclick=()=>$('person-dialog').close();
-$('person-dialog').addEventListener('close',()=>{pendingSpeaker=null;});
+$('person-dialog').addEventListener('close',()=>{++personSequence;pendingSpeaker=null;});
 $('person-github').oninput=()=>{personGitHub=null;$('person-github-status').textContent=$('person-github').value.trim()?'Check the username on GitHub to keep its stable ID.':'';};
-$('person-github-check').onclick=()=>perform(async()=>{const login=$('person-github').value.trim().replace(/^@/,'');if(!login)return;
- try{personGitHub=await api('/api/github/user',{login});$('person-github').value=personGitHub.login;$('person-github-status').textContent='✓ @'+personGitHub.login+' · GitHub ID '+personGitHub.id;}
- catch(e){$('person-github-status').textContent='Could not check: '+e.message+' The username is saved without an ID.';}});
-$('person-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+$('person-github-check').onclick=()=>perform(async()=>{
+ const login=$('person-github').value.trim().replace(/^@/,''),sequence=personSequence;if(!login)return;
+ const current=()=>sequence===personSequence&&$('person-dialog').open&&$('person-github').value.trim().replace(/^@/,'')===login;
+ try{const found=await api('/api/github/user',{login});if(!current())return;personGitHub=found;$('person-github').value=found.login;$('person-github-status').textContent='✓ @'+found.login+' · GitHub ID '+found.id;}
+ catch(e){if(current())$('person-github-status').textContent='Could not check: '+e.message+' The username is saved without an ID.';}
+});
+$('person-form').onsubmit=event=>{event.preventDefault();return perform(async()=>{
  const login=$('person-github').value.trim().replace(/^@/,'');
  const github=login?(personGitHub&&personGitHub.login.toLowerCase()===login.toLowerCase()?personGitHub:{login,id:null}):null;
  try{const result=await api('/api/people/save',{id:personEditing?.id,revision:personEditing?.revision,name:$('person-name').value,aliases:splitList($('person-aliases').value),emails:splitList($('person-emails').value),github,notes:$('person-notes').value});
@@ -190,19 +194,21 @@ $('person-delete').onclick=()=>perform(async()=>{if(!personEditing||!(await ask(
 async function saveSpeakers(names) { const result=await api('/api/speakers',{speakers:names}); state.speakers=result.speakers; renderSpeakerSettings(); syncSpeakers(); }
 async function api(path,body) {
  const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
- const data=await response.json(); if(!response.ok) throw new Error(data.error || 'Request failed'); return data;
+ const data=await response.json(); if(!response.ok){const failure=new Error(data.error || 'Request failed');failure.status=response.status;throw failure;} return data;
 }
 async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
+let askQueue=Promise.resolve();
 function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
- return new Promise(resolve=>{
+ const open=()=>new Promise(resolve=>{
   const dialog=$('ask-dialog'), input=$('ask-input');
   $('ask-message').textContent=message; $('ask-ok').textContent=ok; $('ask-cancel').textContent=cancel; $('ask-ok').className=danger?'danger':'primary';
   input.hidden=value===null; input.value=value??''; dialog.returnValue='';
   dialog.onclose=()=>{ const yes=dialog.returnValue==='ok'; resolve(value===null?yes:yes?input.value:null); };
   dialog.showModal(); if(value===null) $('ask-ok').focus(); else { input.focus(); input.select(); }
  });
+ const answer=askQueue.then(open,open);askQueue=answer.then(()=>{},()=>{});return answer;
 }
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
 let taskDraftPending=false;
@@ -215,7 +221,7 @@ async function suggestTask(button,source){
 function editTaskDraft(source,preview){
  return new Promise(resolve=>{
   const dialog=$('task-draft-dialog'),area=$('task-draft-text'),submit=$('task-draft-save'),cancel=$('task-draft-cancel'),generate=$('task-draft-generate'),note=$('task-draft-error'),status=$('task-draft-status'),project=$('task-draft-project'),keep=$('task-draft-keep');
-  let jobId='',poll=null,generating=false,saving=false,closed=false,operation=crypto.randomUUID().replaceAll('-','');
+  let jobId='',poll=null,generating=false,preparing=false,saving=false,closed=false,operation=crypto.randomUUID().replaceAll('-','');
   const sourceKey=JSON.stringify(source),cacheKey='atlanta-task-draft';
   area.value='';area.disabled=false;keep.checked=false;note.hidden=true;status.textContent='Review the source, generate a draft or write it yourself.';
   $('task-draft-source').textContent=preview.source_excerpt||'';const target=preview.target;
@@ -223,22 +229,25 @@ function editTaskDraft(source,preview){
   fillProjects(project,contextProject(),'No project');
   try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
   function persist(){if(keep.checked){store(cacheKey,JSON.stringify({at:Date.now(),source:sourceKey,text:area.value,project:project.value}));}else{try{localStorage.removeItem(cacheKey);}catch{}}}
-  function controls(){submit.disabled=saving||generating||!area.value.trim();generate.disabled=saving||generating;cancel.disabled=saving;area.disabled=saving||generating;project.disabled=saving;}
+  function controls(){submit.disabled=saving||generating||!area.value.trim();generate.disabled=saving||generating||preparing;cancel.disabled=saving;area.disabled=saving||generating;project.disabled=saving;}
   area.oninput=()=>{area.setCustomValidity('');editorDirty.set('task-draft',true);persist();controls();};project.onchange=()=>{editorDirty.set('task-draft',true);persist();};keep.onchange=persist;
   async function stop(){closed=true;if(poll)clearTimeout(poll);if(jobId&&generating){try{await api('/api/task-draft/cancel',{id:jobId});}catch{}}}
   async function discard(){if(saving)return;if(editorDirty.keys().includes('task-draft')&&!keep.checked&&!(await ask('Discard this task draft?',{ok:'Discard',cancel:'Keep editing'})))return;await stop();if(!keep.checked){try{localStorage.removeItem(cacheKey);}catch{}}dialog.close();}
   dialog.oncancel=event=>{event.preventDefault();discard();};dialog.onclose=()=>{stop();editorDirty.clear('task-draft');resolve();};cancel.onclick=discard;
   generate.onclick=()=>perform(async()=>{
+   if(preparing||generating||saving||closed)return;preparing=true;controls();
+   try{
    if(area.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
-   const current=await api('/api/task-draft/preview',source);
+   const current=await api('/api/task-draft/preview',source);if(closed)return;
    if(!(await ask('Send the selected source to '+current.target.local_ai_model+' at '+current.target.local_ai_base_url+'? '+current.characters+' characters. The result stays an editable draft.',{ok:'Generate draft'})))return;
-   preview=current;generating=true;note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();
+   if(closed)return;preview=current;generating=true;note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();
    try{
     const job=await api('/api/task-draft/start',{...source,preview_token:preview.preview_token,approved:true});jobId=job.id;
     if(closed){await api('/api/task-draft/cancel',{id:jobId});return;}
     const check=async()=>{if(closed)return;try{const job=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=job.status+' · '+Math.max(0,Math.floor(Date.now()/1000-job.started_at))+' s';if(job.running){poll=setTimeout(check,700);return;}generating=false;if(job.error){note.textContent=job.error+' You can still write the task manually.';note.hidden=false;}else if(job.text){area.value=job.text;editorDirty.set('task-draft',true);persist();}controls();area.focus();}catch(e){generating=false;note.textContent=e.message;note.hidden=false;controls();}};
     await check();
    }catch(e){generating=false;note.textContent=e.message;note.hidden=false;status.textContent='Generation failed. Write the task manually or try again.';controls();}
+   }finally{preparing=false;controls();}
   });
   submit.onclick=async()=>{
    if(!area.value.trim()){area.setCustomValidity('Enter task text');area.reportValidity();return;}
@@ -251,13 +260,28 @@ function editTaskDraft(source,preview){
    }catch(e){note.textContent=e.message;note.hidden=false;}
    finally{saving=false;controls();}
   };
+  dialog.querySelector('form').onsubmit=event=>event.preventDefault();
   controls();dialog.showModal();area.focus();
  });
 }
 function showCreatedTask(id){const box=$('toast');box.replaceChildren(document.createTextNode('Task created. '));const open=el('button','quiet','Open task');open.onclick=()=>perform(()=>openTaskPanel(id));box.append(open);box.hidden=false;setTimeout(()=>{if(box.contains(open))box.hidden=true;},15000);}
 function contextProject(){if(view==='projects'){const key=$('workspace-project').value;return key&&key!=='__none__'?key:'';}return view==='detail'?detail?.project_id||'':$('record-project').value||'';}
 async function askDate(message,initial){let current=AtlantaUX.display(initial);for(;;){const value=await ask(message,{ok:'Apply date',value:current});if(value===null)return null;const iso=AtlantaUX.inputISO(value);if(iso)return iso;current=value;message='Enter a valid date as dd.mm.yyyy.';}}
-async function leaveEdits() {if(editorDirty.keys().includes('saving')){toast('Wait for the current save to finish');return false;} const leave=!hasEdits()||await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'});if(leave){speakerNaming=false;for(const key of editorDirty.keys())editorDirty.clear(key);}if(leave&&itemEditing){setItemEditing(false);lastTasks='';}return leave; }
+async function leaveEdits() {
+ if(editorDirty.keys().some(key=>key==='saving'||key.startsWith('dialog-save:'))){toast('Wait for the current save to finish');return false;}
+ const edited=hasEdits();
+ if(edited&&!(await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'})))return false;
+ // Navigation checks hasEdits() again after loading. Discard both the edits and
+ // their flags now; typing after this point must still block a late response.
+ if(dirtyTranscript&&detail&&transcriptBaseline)detail.transcript=structuredClone(transcriptBaseline);
+ if(dirtyNotes&&detail&&notesBase)detail.minutes=structuredClone(notesBase);
+ dirtyTranscript=dirtyNotes=false;transcriptEditing=notesEditing=false;
+ transcriptBaseline=notesBase=null;speakerNaming=false;
+ for(const key of editorDirty.keys())editorDirty.clear(key);
+ if(itemEditing){setItemEditing(false);lastTasks='';}
+ if(edited&&view==='detail'&&detail)renderDetail();
+ editorHeartbeat();return true;
+}
 // The active recording stays in reach from every view: status, time, level, a microphone warning,
 // Pause/Resume, Stop, and a way back to the live transcript.
 function renderRecordingBar(){
@@ -391,7 +415,7 @@ function renderState() {
  renderReadiness();renderRecordMore();
  const s=state.settings;
  $('meeting-title').placeholder=s.auto_title!==false?'Leave blank for an AI-generated title':'Meeting name (optional)';
- $('processing-name').textContent=(s.transcription==='parakeet'?'Local Parakeet v3':s.transcription==='local'?'Local Whisper':'OpenAI cloud')+' · '+(s.summarizer==='none'?'transcript only':s.summarizer==='local'?'local notes':'cloud notes');
+ $('processing-name').textContent=(s.transcription==='parakeet_sherpa'?'Local Parakeet + vocabulary':s.transcription==='parakeet'?'Local Parakeet v3':s.transcription==='local'?'Local Whisper':'OpenAI cloud')+' · '+(s.summarizer==='none'?'transcript only':s.summarizer==='local'?'local notes':'cloud notes');
  $('privacy-copy').textContent=privacy(s);
  renderTranscriptionTiming();
  if($('settings-dialog').open){renderGoogleStatus();if(calendarConnected()&&!lastGoogleConnected)perform(loadCalendars);}
@@ -451,7 +475,7 @@ function renderTranscriptionTiming(reset=false) {
  const live=$('transcription-timing').value==='live';
  $('transcription-timing-help').textContent=(live?'Whisper shows draft captions during the meeting. ':'Only audio is saved during the meeting; no live speech model runs. ')+
   (s.auto_process?'After you stop, ':'When you choose Transcribe after saving, ')+
-  (s.transcription==='parakeet'?'Parakeet v3 transcribes the full saved recording.':s.transcription==='local'?'Whisper transcribes the full saved recording.':'the selected cloud provider transcribes the full saved recording.')+
+  (s.transcription.startsWith('parakeet')?'Parakeet v3 transcribes the full saved recording.':s.transcription==='local'?'Whisper transcribes the full saved recording.':'the selected cloud provider transcribes the full saved recording.')+
   ' Any enabled spelling correction runs after final transcription. This choice applies only to this meeting.';
 }
 $('transcription-timing').onchange=()=>renderTranscriptionTiming();
@@ -459,7 +483,7 @@ function renderLive(active) {
  const live=active.live;
  const disabled=active.settings?.live_transcription===false;
  $('live-card').hidden=disabled;
- const final=active.settings?.transcription==='parakeet'?'Parakeet v3':active.settings?.transcription==='openai'?'the selected cloud provider':'Whisper';
+ const final=active.settings?.transcription?.startsWith('parakeet')?'Parakeet v3':active.settings?.transcription==='openai'?'the selected cloud provider':'Whisper';
  const next=active.settings?.auto_process===false?'After saving, choose Transcribe to process the full recording with '+final+'.':'After you stop, '+final+' will transcribe the full saved recording.';
  $('recording-transcription-plan').hidden=!disabled;
  $('recording-transcription-plan').textContent='Audio only during this meeting · no live captions. '+next;
@@ -552,6 +576,7 @@ function renderDetail() {
  syncReviewPanel();
  $('detail-refresh-notice').hidden=!detailChangedWhileEditing;
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
+ $('meeting-add-task').disabled=busy;
  $('detail-title').textContent=d.title;$('detail-title').title=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?'Ready for review':'Transcript ready'):statusNames[d.status]||d.status;
  const titleMessages={pending:'AI title pending',generating:'Generating AI title…',generated:'AI-generated title',waiting:'AI title waiting for a transcript',manual:'',error:'AI title could not be generated'};
  $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
@@ -764,6 +789,7 @@ function openReview() {
  }
  $('review-apply').onclick=()=>perform(async()=>{await reviewNotes('apply',[...choices].filter(([,box])=>box.checked).map(([id])=>id));toast('Notes updated · the previous version is kept in versions/');});
  $('review-discard').onclick=()=>perform(async()=>{if(!(await ask('Discard the new AI notes? Your saved notes stay as they are.',{ok:'Discard',danger:true})))return;await reviewNotes('discard',[]);toast('New AI notes discarded');});
+ for(const id of ['review-apply','review-discard'])protectDialogAction($('review-dialog'),$(id));
  $('review-dialog').showModal();
 }
 $('review-close').onclick=()=>$('review-dialog').close();
@@ -792,7 +818,7 @@ function taskRow(task,index,busy) {
  done.onchange=()=>perform(async()=>{const status=done.checked?'done':'open';if(item)await changeItem(item,{status});else{await api('/api/meetings/'+detail.id+'/task',{index,task:task.task,changes:{status}});await openMeeting(detail.id,true);}});
  const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(speakerBadge(el('span'),current.owner||''),el('span','',current.owner||'No owner'));
- meta.append(reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
+ meta.append(item?.created_by==='user'?el('span','badge','Manually added'):reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
  if(current.deadline) meta.append(el('span','hint','Said: '+current.deadline));
  if(task.evidence_timestamp) meta.append(sourceBlock(task.evidence_timestamp));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
@@ -800,6 +826,7 @@ function taskRow(task,index,busy) {
  main.append(meta);
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
+ if(item){const edit=el('button','secondary small-action','Edit task');edit.type='button';edit.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));main.append(edit);}
  if(item) main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  row.append(done,main); return row;
 }
@@ -807,6 +834,10 @@ function renderNotes(busy=false) {
  $('notes').replaceChildren();$('outcomes').replaceChildren();
  if(!detail.minutes||busy) notesEditing=false;
  for(const name of ['notes','outcomes']) { $('edit-'+name).hidden=notesEditing||!detail.minutes; $('edit-'+name).disabled=busy; $('save-'+name).hidden=$('cancel-'+name).hidden=!notesEditing; $('save-'+name).disabled=!dirtyNotes; }
+ if(!detail.minutes) {
+  const manual=Object.values(detail.items||{}).filter(i=>i.kind==='task'&&i.links.some(l=>l.meeting_id===detail.id&&l.manual_task));
+  for(const item of manual)$('outcomes').append(taskRow({item_id:item.id,task:item.text,review:'verified'},0,busy));
+ }
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(el('p','empty-content','Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
@@ -823,6 +854,7 @@ function renderNotes(busy=false) {
   bottom.append(doneLabel,el('label','','Source'));const select=el('select');select.setAttribute('aria-label','Evidence for task '+(index+1));select.disabled=busy;for(const stamp of [...new Set(detail.transcript.map(s=>time(s.start)))]){const option=el('option','',stamp);option.value=stamp;select.append(option);}select.value=task.evidence_timestamp;select.onchange=()=>{task.evidence_timestamp=select.value;markNotes();};
   const remove=el('button','quiet','Remove');remove.disabled=busy;remove.onclick=()=>{minutes.tasks.splice(index,1);markNotes();drawTasks();};bottom.append(select,remove);box.append(bottom);taskList.append(box);}); }
  if(!notesEditing) {
+  const add=el('button','secondary small-action','＋ Add task');add.type='button';add.disabled=busy;add.onclick=()=>perform(()=>openManualTask(detail.id));section.append(add);
   if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
   minutes.tasks.forEach((task,index)=>taskList.append(taskRow(task,index,busy)));
  } else {
@@ -915,7 +947,7 @@ async function saveTrackers() {
  for(const tracker of trackersData)if(!tracker.name.trim()||!tracker.phrases.length)throw new Error('Every topic needs a name and at least one phrase.');
  const result=await api('/api/trackers',{trackers:trackersData});trackersData=result.trackers;state.trackers=result.trackers;renderTrackers();toast('Topic trackers saved · reanalyze meetings to refresh them');
 }
-function settingsFields() { const parakeet=$('provider').value==='parakeet';$('parakeet-runtime').hidden=!parakeet;$('parakeet-runtime').textContent=state.parakeet?.message||'Parakeet v3 requires an Apple Silicon build with Parakeet support.'; $('local-model-field').hidden=false;$('cloud-model-field').hidden=$('provider').value!=='openai';$('notes-model-field').hidden=$('summarizer').value!=='openai'&&$('transcript-correction').value!=='openai';$('title-model-field').hidden=$('title-provider').value!=='openai';$('settings-privacy').textContent=privacy({transcription:$('provider').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,calendar_enabled:$('calendar-enabled').checked});$('title-privacy').textContent=$('title-provider').value==='openai'?'Transcript excerpts are sent to OpenAI for title generation.':'Uses the shared Local AI endpoint and model above.'; }
+function settingsFields() { const parakeet=$('provider').value.startsWith('parakeet');$('parakeet-runtime').hidden=!parakeet;$('parakeet-runtime').textContent=(state[$('provider').value]?.message)||'Parakeet v3 requires an Apple Silicon build with Parakeet support.'; $('local-model-field').hidden=false;$('cloud-model-field').hidden=$('provider').value!=='openai';$('notes-model-field').hidden=$('summarizer').value!=='openai'&&$('transcript-correction').value!=='openai';$('title-model-field').hidden=$('title-provider').value!=='openai';$('settings-privacy').textContent=privacy({transcription:$('provider').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,calendar_enabled:$('calendar-enabled').checked});$('title-privacy').textContent=$('title-provider').value==='openai'?'Transcript excerpts are sent to OpenAI for title generation.':'Uses the shared Local AI endpoint and model above.'; }
 function fileSize(bytes) { return bytes>=1e9?(bytes/1e9).toFixed(1)+' GB':bytes>=1e6?Math.round(bytes/1e6)+' MB':Math.max(1,Math.round(bytes/1e3))+' KB'; }
 function renderBackups(data) {
  $('backup-folder').textContent=data.folder; const list=$('backup-list'); list.replaceChildren();
@@ -984,7 +1016,7 @@ async function openTypeExport(id) {
 }
 async function openViewer(id,name) { $('viewer-copy').hidden=true; const url='/files/'+id+'/'+name; const response=await fetch(url); if(!response.ok) throw new Error('Could not open '+name); $('viewer-title').textContent=name; $('viewer-download').href=url; $('viewer-download').download=name; $('viewer-body').innerHTML=renderMarkdown(await response.text()); $('viewer-body').scrollTop=0; $('viewer-dialog').showModal(); }
 $('viewer-close').onclick=()=>$('viewer-dialog').close();
-$('viewer-dialog').onclick=event=>{if(event.target===$('viewer-dialog'))$('viewer-dialog').close();};
+$('viewer-dialog').onclick=event=>{const dialog=$('viewer-dialog'),rect=dialog.getBoundingClientRect();if(event.target===dialog&&(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom))dialog.close();};
 // The fields that Save settings sends. Speakers, topics and projects save with their own buttons.
 function settingsValues(){
  const fields=$('settings-form').querySelectorAll('.settings-panel:is([data-tab=recording],[data-tab=vocabulary],[data-tab=notes],[data-tab=calendar]) :is(input:not([type=file]):not([type=button]),select,textarea)');
@@ -1027,8 +1059,8 @@ function meetingChips(item,meetings,except) {
 // The external sources (Gmail, Chat, GitHub) behind an item, from its saved source quotes.
 function itemSources(item){const graph=itemsData.graph||{},ids=new Set(item.source_evidence||[]),evidence=(graph.source_evidence||[]).filter(e=>ids.has(e.id));return [...new Map(evidence.map(e=>[e.source_id,(graph.sources||[]).find(s=>s.id===e.source_id)])).values()].filter(Boolean);}
 function sourceLabel(source){return source.remote?.authority==='github_code'?source.remote.repository+' · code':source.remote?.authority==='github'?source.remote.repository+' #'+source.remote.number:'';}
-function itemProviders(item){return new Set([...(item.links.length?['meeting']:[]),...itemSources(item).map(s=>s.provider)]);}
-function sourceChips(item,meetings){const box=meetingChips(item,meetings);for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
+function itemProviders(item){return new Set([...(item.created_by==='user'?['manual']:[]),...(item.links.length?['meeting']:[]),...itemSources(item).map(s=>s.provider)]);}
+function sourceChips(item,meetings){const box=meetingChips(item,meetings);if(item.created_by==='user')box.append(el('span','badge','Manually added'));for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
  for(const event of [...item.history].reverse()) {
@@ -1179,7 +1211,7 @@ function renderLinkResults(){
 }
 $('github-link-ref').oninput=$('github-link-repo').onchange=renderLinkResults;
 $('github-link-close').onclick=()=>$('github-link-dialog').close();
-$('github-link-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+$('github-link-form').onsubmit=event=>{event.preventDefault();return perform(async()=>{
  try{await api('/api/github/link',{resource:linkResource,reference:$('github-link-ref').value,repository:$('github-link-repo').value});$('github-link-dialog').close();toast('Linked in Atlanta · GitHub is not changed');await afterGitHubLink(linkResource);}
  catch(e){$('github-link-error').textContent=e.message;$('github-link-error').hidden=false;}});};
 // Statuses come from one vocabulary (status.js).
@@ -1612,7 +1644,7 @@ function renderTasks() {
  $('source-filter').hidden=noKindItems;$('status-filter').closest('.task-filters').hidden=noKindItems;document.querySelector('#items-panel .work-messages').hidden=noKindItems;
  const filter=statusFilter[itemKind];
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=el('button',key===filter?'selected':'',label);button.type='button';button.onclick=()=>{statusFilter[itemKind]=key;renderTasks();};return button;}));
- segmentedChoice($('source-filter'),[['','All sources'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;renderTasks();});
+ segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;renderTasks();});
  $('task-owner').hidden=itemKind!=='task';
  const owner=$('task-owner').value, owners=[...new Set(tasks.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
@@ -1627,7 +1659,7 @@ function renderTasks() {
  if(sourceFilter)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
  $('task-list').replaceChildren();
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
- if(!rows.length){if(noKindItems){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Start with a meeting to collect your next actions.':'Open a meeting and generate notes to review its decisions.'));const next=el('button','primary',itemKind==='task'?'New meeting':'Open library');next.onclick=()=>itemKind==='task'?$('new-meeting').click():perform(openConversations);box.append(next);$('task-list').append(box);}else $('task-list').append(el('p','empty-content','Nothing matches this filter.'));}
+ if(!rows.length){if(noKindItems){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));const next=el('button','primary',itemKind==='task'?'New task':'Open library');next.onclick=()=>itemKind==='task'?perform(()=>openManualTask()):perform(openConversations);box.append(next);$('task-list').append(box);}else $('task-list').append(el('p','empty-content','Nothing matches this filter.'));}
  for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
@@ -1739,7 +1771,7 @@ function openScopeDialog(d) {
 $('scope-project').onchange=()=>{syncScopeSeries('');if($('scope-project').value==='__new__')$('scope-project-name').focus();};
 $('scope-series').onchange=()=>{$('scope-series-name').hidden=$('scope-series').value!=='__new__';if(!$('scope-series-name').hidden)$('scope-series-name').focus();};
 $('scope-close').onclick=()=>$('scope-dialog').close();
-$('scope-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+$('scope-form').onsubmit=event=>{event.preventDefault();return perform(async()=>{
  const projectValue=$('scope-project').value, seriesValue=$('scope-series').value;
  const project=!projectValue?null:projectValue==='__new__'?{name:$('scope-project-name').value}:{id:projectValue};
  const series=!projectValue||!seriesValue?null:seriesValue==='__new__'?{name:$('scope-series-name').value}:{id:seriesValue};
@@ -1766,7 +1798,7 @@ function openTemplate(template) {
 }
 $('add-template').onclick=()=>openTemplate(null);
 $('template-close').onclick=()=>$('template-dialog').close();
-$('template-form').onsubmit=event=>{event.preventDefault();perform(async()=>{
+$('template-form').onsubmit=event=>{event.preventDefault();return perform(async()=>{
  const sections=[...$('template-sections').querySelectorAll('.template-section')].map(box=>({title:box.querySelector('.template-section-title').value.trim(),instruction:box.querySelector('.template-section-instruction').value.trim(),review:box.querySelector('.template-section-review').checked})).filter(s=>s.title||s.instruction);
  try{const result=await api('/api/templates/save',{id:templateEditing?.id,revision:templateEditing?.revision,label:$('template-label').value,description:$('template-description').value,prepare:$('template-prepare').value,sections});
   state.meeting_types=result.meeting_types;registerTypes();renderTypeSettings();$('template-dialog').close();toast('Saved '+result.template.label);}
@@ -2055,8 +2087,8 @@ $('settings-open').onclick=()=>openSettings();$('settings-inline').onclick=()=>o
 for(const tab of document.querySelectorAll('.settings-tabs button')) tab.onclick=()=>showSettingsTab(tab.dataset.tab);
 // A required field on a hidden tab would block saving without a visible message.
 $('settings-save').onclick=event=>{const invalid=$('settings-form').querySelector('input:invalid,select:invalid,textarea:invalid');if(invalid){event.preventDefault();if(invalid.closest('.advanced-setting'))showAdvanced(true);showSettingsTab(invalid.closest('.settings-panel').dataset.tab);invalid.reportValidity();}};$('settings-close').onclick=()=>perform(closeSettings);
-$('settings-dialog').addEventListener('cancel',event=>{event.preventDefault();perform(closeSettings);});$('provider').onchange=settingsFields;$('summarizer').onchange=()=>{$('llm-model').value=$('summarizer').value==='openai'?'gpt-4.1-mini':'gpt-4.1-mini';settingsFields();};$('transcript-correction').onchange=settingsFields;
-$('settings-form').onsubmit=event=>{event.preventDefault();if(settingsTab==='prompts')return;perform(async()=>{if(!(await leavePromptEditor()))return;const vocabularyChanged=$('whisper-vocabulary').value.trim()!==state.settings.whisper_vocabulary;const body={local_ai_base_url:$('local-ai-base-url').value.trim(),local_ai_model:$('local-ai-model').value.trim(),local_ai_format:$('local-ai-format').value,local_ai_reasoning:$('local-ai-reasoning').value,local_ai_max_tokens:Number($('local-ai-max-tokens').value),transcription:$('provider').value,local_model:$('local-model').value,audio_preparation:$('audio-preparation').value,whisper_vad:$('whisper-vad').checked,whisper_vocabulary:$('whisper-vocabulary').value.trim(),cloud_model:$('cloud-model').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,llm_model:$('llm-model').value,auto_process:$('auto-process').checked,live_transcription:$('live-enabled').checked,diarization_enabled:$('diarization-enabled').checked,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,title_model:$('title-model').value,calendar_enabled:$('calendar-enabled').checked,calendar_id:$('calendar-id').value};if($('api-key').value.trim())body.api_key=$('api-key').value.trim();await api('/api/settings',body);$('api-key').value='';$('settings-dialog').close();toast('Settings saved');state=await api('/api/state');renderState();if(vocabularyChanged)await offerReprocess({scope:'global',action:'correction_notes',reason:'Vocabulary saved. Choose whether to correct existing transcripts or explicitly recognize audio again.'});});};
+$('provider').onchange=settingsFields;$('summarizer').onchange=()=>{$('llm-model').value=$('summarizer').value==='openai'?'gpt-4.1-mini':'gpt-4.1-mini';settingsFields();};$('transcript-correction').onchange=settingsFields;
+$('settings-form').onsubmit=event=>{event.preventDefault();if(settingsTab==='prompts')return;return perform(async()=>{if(!(await leaveTypePrompt()))return;if(!(await leavePromptEditor()))return;const vocabularyChanged=$('whisper-vocabulary').value.trim()!==state.settings.whisper_vocabulary;const body={local_ai_base_url:$('local-ai-base-url').value.trim(),local_ai_model:$('local-ai-model').value.trim(),local_ai_format:$('local-ai-format').value,local_ai_reasoning:$('local-ai-reasoning').value,local_ai_max_tokens:Number($('local-ai-max-tokens').value),transcription:$('provider').value,local_model:$('local-model').value,audio_preparation:$('audio-preparation').value,whisper_vad:$('whisper-vad').checked,whisper_vocabulary:$('whisper-vocabulary').value.trim(),cloud_model:$('cloud-model').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,llm_model:$('llm-model').value,auto_process:$('auto-process').checked,live_transcription:$('live-enabled').checked,diarization_enabled:$('diarization-enabled').checked,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,title_model:$('title-model').value,calendar_enabled:$('calendar-enabled').checked,calendar_id:$('calendar-id').value};if($('api-key').value.trim())body.api_key=$('api-key').value.trim();await api('/api/settings',body);$('api-key').value='';$('settings-dialog').close();toast('Settings saved');state=await api('/api/state');renderState();if(vocabularyChanged)await offerReprocess({scope:'global',action:'correction_notes',reason:'Vocabulary saved. Choose whether to correct existing transcripts or explicitly recognize audio again.'});});};
 
 function renderGoogleStatus() {
  const google=state.google||{};
@@ -2218,27 +2250,58 @@ function eventNode(event,kind){
 // The GitHub repositories of a project: drafts and links offer them first. One repository can serve several projects.
 function repositoryEditor(project){
  const box=el('section','project-repos'),chips=el('div','item-meetings'),repos=[...(project.repositories||[])];
+ let baseline=[...repos],saving=false,catalogSequence=0,catalogTimer=null;
  box.append(el('h3','','GitHub repositories'),chips);
- const draw=()=>{chips.replaceChildren(...repos.map(name=>{const chip=el('span','source-chip src-github'),remove=el('button','quiet','✕');remove.type='button';remove.setAttribute('aria-label','Remove '+name);
-  remove.onclick=()=>{repos.splice(repos.indexOf(name),1);draw();save.disabled=false;editorDirty.set('project-repositories',true);};chip.append(el('i'),el('b','',name),remove);return chip;}));if(!repos.length)chips.append(el('span','hint','No repository yet.'));};
  const row=el('div','work-actions'),input=el('input'),add=el('button','secondary','Add'),save=el('button','primary','Save repositories'),list=el('datalist');
+ const refresh=el('button','secondary','Refresh repositories'),status=el('p','hint');refresh.type='button';status.setAttribute('role','status');
  list.id='repo-choices-'+project.id;input.setAttribute('list',list.id);input.placeholder='owner/name';input.setAttribute('aria-label','Repository');add.type=save.type='button';save.disabled=true;
- add.onclick=()=>{const name=input.value.trim();if(name&&!repos.some(r=>r.toLowerCase()===name.toLowerCase())){repos.push(name);draw();save.disabled=false;editorDirty.set('project-repositories',true);}input.value='';};
+ const changed=()=>{const dirty=JSON.stringify(repos)!==JSON.stringify(baseline)||!!input.value.trim();editorDirty.set('project-repositories',dirty);save.disabled=saving||!dirty;};
+ const draw=()=>{chips.replaceChildren(...repos.map(name=>{const chip=el('span','source-chip src-github'),remove=el('button','quiet','✕');remove.type='button';remove.setAttribute('aria-label','Remove '+name);
+  remove.onclick=()=>{if(saving)return;repos.splice(repos.indexOf(name),1);draw();changed();};chip.append(el('i'),el('b','',name),remove);return chip;}));if(!repos.length)chips.append(el('span','hint','No repository yet.'));};
+ const addPending=()=>{const name=input.value.trim();if(name&&!repos.some(r=>r.toLowerCase()===name.toLowerCase()))repos.push(name);input.value='';draw();changed();};
+ add.onclick=()=>{if(!saving)addPending();};input.oninput=()=>{if(!saving)changed();};
  input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();add.click();}};
- save.onclick=()=>perform(async()=>{await api('/api/projects/repositories',{id:project.id,repositories:repos});editorDirty.clear('project-repositories');toast('Repositories saved');await loadWorkspace();});
- api('/api/github/repos').then(rows=>list.replaceChildren(...rows.map(r=>option(r.full_name,r.full_name)))).catch(()=>{});
- row.append(input,list,add,save);box.append(row);draw();return box;
+ save.onclick=()=>perform(async()=>{
+  if(saving)return;addPending();saving=true;input.disabled=add.disabled=save.disabled=true;
+  try{await withEditorSave(box,async()=>{
+   const result=await api('/api/projects/repositories',{id:project.id,repositories:[...repos],expected_repositories:[...baseline]});
+   baseline=[...result.repositories];editorDirty.clear('project-repositories');toast('Repositories saved');await loadWorkspace();
+  });}finally{saving=false;input.disabled=add.disabled=false;changed();}
+ });
+ const alive=sequence=>box.isConnected&&sequence===catalogSequence;
+ async function catalog(mode='initial'){
+  const sequence=++catalogSequence;clearTimeout(catalogTimer);refresh.disabled=true;
+  try{
+   let data=await api('/api/github/repos/status');if(!alive(sequence))return;
+   list.replaceChildren(...data.repositories.map(repo=>option(repo.full_name,repo.full_name)));
+   const fresh=data.current&&data.checked_at&&Date.now()-Date.parse(data.checked_at)<300000;
+   if(mode==='refresh'||mode==='initial'&&!fresh&&!data.job.running){
+    status.textContent='Refreshing repository list from GitHub…';
+    data=await api('/api/github/repos/sync',{});if(!alive(sequence))return;
+    list.replaceChildren(...data.repositories.map(repo=>option(repo.full_name,repo.full_name)));
+   }
+   const running=data.job.running&&data.job.kind==='repositories',count=AtlantaUX.count(data.repositories.length,'repository','repositories');
+   status.textContent=running?data.job.status+' · cached choices remain available':
+    data.job.kind==='repositories'&&data.job.error?'Refresh failed: '+data.job.error+' Cached choices kept.':
+    data.checked_at?count+' · '+(data.current?'last checked ':'cached; last checked ')+dateTime(data.checked_at):count+' cached · full access list has not been loaded yet.';
+   refresh.disabled=running;
+   if(running)catalogTimer=setTimeout(()=>catalog('poll'),1000);
+  }catch(error){if(alive(sequence)){status.textContent='Repository list unavailable: '+error.message+' You can keep existing links or enter owner/name manually.';refresh.disabled=false;}}
+ }
+ refresh.onclick=()=>catalog('refresh');
+ row.append(input,list,add,save);box.append(row,refresh,status,el('p','hint','Adding a repository links it to this project locally. Creating issues also requires Issues: Read and write for that repository.'));
+ draw();catalog();return box;
 }
 async function loadWorkspace(){
  const sequence=++workspaceSequence,key=$('workspace-project').value;
- const fresh=await api('/api/projects/workspace?id='+encodeURIComponent(key));if(sequence!==workspaceSequence||view!=='projects')return;
+ const fresh=await api('/api/projects/workspace?id='+encodeURIComponent(key));if(sequence!==workspaceSequence||view!=='projects'||editorDirty.keys().includes('project-repositories'))return;
  workspaceData=fresh;state.projects={...state.projects,projects:fresh.projects.filter(p=>p.id!=='__none__').map(({id,name})=>({id,name}))};
  fillProjects($('workspace-project'),fresh.project_id,'All projects',[option('Unassigned','__none__')]);renderWorkspace();syncRoute(true);
 }
 function renderWorkspace(){
  const data=workspaceData;if(!data)return;
  const cards=$('workspace-cards');cards.replaceChildren();$('workspace-browser').hidden=!!data.project_id;
- for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));b.append(el('strong','',project.name),el('span','hint',AtlantaUX.count(project.meetings,'meeting')+' · '+AtlantaUX.count(project.open_tasks,'open task')+' · '+AtlantaUX.count(project.open_questions,'question')));b.onclick=()=>perform(async()=>{$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
+ for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));b.append(el('strong','',project.name),el('span','hint',AtlantaUX.count(project.meetings,'meeting')+' · '+AtlantaUX.count(project.open_tasks,'open task')+' · '+AtlantaUX.count(project.open_questions,'question')));b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
  const activeSection=['task','decision','question'].includes(workspaceSection)?'work':workspaceSection;
  for(const b of $('workspace-tabs').querySelectorAll('button')){const on=b.dataset.section===activeSection;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));const count=b.dataset.section==='meetings'?data.meetings.length:b.dataset.section==='work'?data.items.length:0;const title={overview:'Overview',work:'Work',meetings:'Meetings',timeline:'Timeline'}[b.dataset.section];b.textContent=title+(count?' · '+count:'');}
  $('workspace-more-label').textContent=({sources:'Sources',conversations:'Conversations'}[activeSection]||'More')+' ▾';
@@ -2280,8 +2343,8 @@ function renderWorkspace(){
 let workspaceWorkKind='';
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
-$('workspace-refresh').onclick=()=>perform(async()=>{itemsData=await api('/api/items');await loadWorkspace();});
-$('workspace-new').onclick=()=>perform(async()=>{const name=await ask('New project name',{ok:'Create project',value:''});if(name===null)return;const created=await api('/api/projects/create',{name});state.projects=created.projects;lastProjects='';syncProjects();fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
+$('workspace-refresh').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;itemsData=await api('/api/items');await loadWorkspace();});
+$('workspace-new').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;const name=await ask('New project name',{ok:'Create project',value:''});if(name===null)return;const created=await api('/api/projects/create',{name});state.projects=created.projects;lastProjects='';syncProjects();fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
 for(const b of $('workspace-tabs').querySelectorAll('button'))b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;workspaceSection=b.dataset.section;renderWorkspace();syncRoute(true);});
 
 const CONVERSATION_LABELS={meeting:'Meeting',excerpt:'Transcript excerpt',gmail:'Gmail',google_chat:'Google Chat',attached:'Saved snapshot'};
@@ -2389,7 +2452,7 @@ $('save-excerpt').onclick=openExcerpt;
 $('excerpt-first').onchange=()=>{if(Number($('excerpt-last').value)<Number($('excerpt-first').value)){const first=Number($('excerpt-first').value),turn=transcriptTurns(detail.transcript).find(t=>t.segments[0].index===first);$('excerpt-last').value=String(turn.segments.at(-1).index);}};
 $('excerpt-mode').onchange=()=>{$('excerpt-times').hidden=$('excerpt-mode').value!=='range';$('excerpt-turns').hidden=$('excerpt-mode').value==='range';};
 $('excerpt-cancel').onclick=()=>$('excerpt-dialog').close();
-$('excerpt-form').onsubmit=async event=>{event.preventDefault();$('excerpt-error').hidden=true;const button=event.submitter;button.disabled=true;try{const body={provider:'excerpt',meeting_id:detail.id,transcript_revision:detail.transcript_revision,first:Number($('excerpt-first').value),last:Number($('excerpt-last').value),project_ids:[$('excerpt-project').value]};if($('excerpt-mode').value==='range'){const seconds=value=>{if(!/^\d{2,}:\d{2}:\d{2}$/.test(value)||value.split(':').slice(1).some(n=>Number(n)>59))throw new Error('Use HH:MM:SS for the time range');return value.split(':').reduce((n,v)=>n*60+Number(v),0);};body.range=[seconds($('excerpt-from').value),seconds($('excerpt-to').value)];}const saved=await api('/api/conversations/attach',body);$('excerpt-dialog').close();await openAttachment(saved.id);}catch(exc){$('excerpt-error').textContent=exc.message;$('excerpt-error').hidden=false;}finally{button.disabled=false;}};
+$('excerpt-form').onsubmit=async event=>{event.preventDefault();$('excerpt-error').hidden=true;const button=event.submitter||$('excerpt-form').querySelector('[type=submit]');button.disabled=true;try{const body={provider:'excerpt',meeting_id:detail.id,transcript_revision:detail.transcript_revision,first:Number($('excerpt-first').value),last:Number($('excerpt-last').value),project_ids:[$('excerpt-project').value]};if($('excerpt-mode').value==='range'){const seconds=value=>{if(!/^\d{2,}:\d{2}:\d{2}$/.test(value)||value.split(':').slice(1).some(n=>Number(n)>59))throw new Error('Use HH:MM:SS for the time range');return value.split(':').reduce((n,v)=>n*60+Number(v),0);};body.range=[seconds($('excerpt-from').value),seconds($('excerpt-to').value)];}const saved=await api('/api/conversations/attach',body);$('excerpt-dialog').close();await openAttachment(saved.id);}catch(exc){$('excerpt-error').textContent=exc.message;$('excerpt-error').hidden=false;}finally{button.disabled=false;}};
 
 $('prepare-type').onchange=()=>{prepareScope.type=$('prepare-type').value;perform(loadPrepare);};
 function githubVerificationLabel(link){
@@ -2431,15 +2494,44 @@ function renderChannelProfile(profile){
  for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-message'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+dateTime(message.date*1000)));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
 }
 
+async function openManualTask(meetingId=null){
+ if(!(await leaveEdits()))return;
+ const dialog=$('manual-task-dialog'),box=$('manual-task-body');box.replaceChildren(el('h3','','New task'),el('p','hint','Saved on this Mac. Publishing to GitHub uses a separate preview and approval.'));
+ const text=el('textarea');text.maxLength=1000;text.rows=5;text.setAttribute('aria-label','Task text');text.placeholder='What needs to be done?';
+ const owner=el('input');owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.placeholder='Owner (optional)';owner.setAttribute('list','known-speakers');
+ const due=el('input');due.type='date';due.setAttribute('aria-label','Due date');
+ const meeting=el('select');meeting.setAttribute('aria-label','Meeting');meeting.append(option('No meeting · standalone task',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=meetingId||'';
+ const project=el('select');project.setAttribute('aria-label','Project');const initial=(state.meetings||[]).find(m=>m.id===meetingId)?.project_id||($('work-project').value!=='__none__'?$('work-project').value:'');fillProjects(project,initial||'','No project');
+ let projectEdited=false;project.onchange=()=>{projectEdited=true;};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
+ const actions=el('div','editor-actions'),save=el('button','primary','Create task'),cancel=el('button','quiet','Cancel');save.type=cancel.type='button';actions.append(save,cancel);
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};box.append(label('Task',text),label('Owner',owner),label('Due date',due),label('Meeting',meeting),label('Project',project),actions);
+ const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;
+ cancel.onclick=()=>perform(()=>requestDialogClose(dialog,()=>dialog.close()));
+ save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
+  if(!text.value.trim()){text.focus();throw new Error('Enter task text');}if(!validDates(box))return;
+  const body={text:text.value.trim(),owner:owner.value.trim()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
+  // A response lost after a successful save can be retried with the exact same request.
+  if(submitted&&JSON.stringify(body)!==JSON.stringify(submitted))throw new Error('The previous result is uncertain. Retry with the same fields or check My Work before creating another task.');
+  submitted=body;
+  let item;await withEditorSave(box,async()=>{try{item=await api('/api/items/create',body);}catch(e){if(e.status>=400&&e.status<500&&e.status!==409)submitted=null;throw e;}});
+  editorDirty.clear('dialog:manual-task-dialog');dialog.close();toast('Task saved on this Mac');
+  try{await refreshAfterItemChange();}catch{error('Task saved. Refresh My Work to see it.');}
+ }));
+ dialog.showModal();text.focus();
+}
+$('new-task').onclick=()=>perform(()=>openManualTask());
+$('meeting-add-task').onclick=()=>perform(()=>openManualTask(selected));
+
 async function openTaskPanel(id){
  const data=await api('/api/items');itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
  const dialog=$('task-panel'),box=$('task-panel-body');box.replaceChildren(el('h3','','Task'),el('p','hint','Status: '+item.status));
  const area=el('textarea');area.value=item.text;area.maxLength=1000;area.setAttribute('aria-label','Task text');const project=el('select');project.setAttribute('aria-label','Project');fillProjects(project,item.effective_project_ids?.[0]||'','No project');
+ const owner=el('input');owner.value=item.owner||'';owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.setAttribute('list','known-speakers');const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');
  const save=el('button','primary','Save changes'),close=el('button','quiet','Close');save.type=close.type='button';let editing=false;
- area.oninput=project.onchange=()=>{editing=true;editorDirty.set('task-panel',true);};
- close.onclick=async()=>{if(editing&&!(await ask('Discard task edits?',{ok:'Discard',cancel:'Keep editing'})))return;editorDirty.clear('task-panel');dialog.close();};dialog.oncancel=event=>{event.preventDefault();close.click();};dialog.onclose=()=>editorDirty.clear('task-panel');
- save.onclick=()=>perform(async()=>{save.disabled=true;try{let current=await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{text:area.value}});const fresh=await api('/api/items'),updated=fresh.items.find(i=>i.id===id);if(project.value!==(item.effective_project_ids?.[0]||''))await api('/api/work/project',{id,revision:updated.revision,project_ids:project.value?[project.value]:[]});editing=false;editorDirty.clear('task-panel');dialog.close();toast('Task saved');try{await refreshAfterItemChange();}catch{error('Task saved; refresh the list to see it.');}}finally{save.disabled=false;}});
- box.append(area,project,sourceChips(item,data.meetings),save,close);dialog.showModal();
+ area.oninput=owner.oninput=due.oninput=project.onchange=()=>{editing=true;editorDirty.set('task-panel',true);};
+ close.onclick=()=>perform(()=>requestDialogClose(dialog,async()=>{if(editing&&!(await ask('Discard task edits?',{ok:'Discard',cancel:'Keep editing'})))return;editorDirty.clear('task-panel');dialog.close();}));dialog.oncancel=event=>{event.preventDefault();close.click();};dialog.onclose=()=>editorDirty.clear('task-panel');
+ save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{if(!validDates(box))return;save.disabled=true;try{const changes={text:area.value};if((owner.value.trim()||null)!==(item.owner||null))changes.owner=owner.value.trim()||null;if((due.value||null)!==(item.due_date||null))changes.due_date=due.value||null;let current=await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});const fresh=await api('/api/items'),updated=fresh.items.find(i=>i.id===id);if(project.value!==(item.effective_project_ids?.[0]||''))await api('/api/work/project',{id,revision:updated.revision,project_ids:project.value?[project.value]:[]});editing=false;editorDirty.clear('task-panel');dialog.close();toast('Task saved');try{await refreshAfterItemChange();}catch{error('Task saved; refresh the list to see it.');}}finally{save.disabled=false;}}));
+ box.append(area,el('label','','Owner'),owner,el('label','','Due date'),due,el('label','','Project'),project,sourceChips(item,data.meetings),save,close);dialog.showModal();
 }
 
 // Native close and recovery get only a dirty bit and heartbeat, never editor contents.
@@ -2449,10 +2541,69 @@ document.addEventListener('input',()=>queueMicrotask(editorHeartbeat));document.
 
 $('review-primary').onclick=()=>perform(async()=>{if(detail.minutes_proposal)openReview();else{switchTab('review');$('review-panel').scrollIntoView({block:'start'});}});
 
-function markDialogDirty(event){const dialog=event.target.closest?.('dialog');if(dialog&&dialog.id!=='ask-dialog')editorDirty.set('dialog:'+dialog.id,true);}
+// Dialog lifecycle: close buttons and Escape use the same policy. Saved requests
+// own their dialog until they settle; failures keep the editor and its text open.
+const dialogJobs=new WeakSet(),dialogClosings=new WeakMap();
+const dialogPolicies={
+ 'manual-task-dialog':{dismiss:()=>$('manual-task-dialog').close()},
+ 'excerpt-dialog':{close:'excerpt-cancel',form:'excerpt-form'},
+ 'person-dialog':{close:'person-close',form:'person-form',actions:['person-delete']},
+ 'template-dialog':{close:'template-close',form:'template-form',actions:['template-delete']},
+ 'github-link-dialog':{close:'github-link-close',form:'github-link-form'},
+ 'scope-dialog':{close:'scope-close',form:'scope-form'},
+ 'channel-person-dialog':{close:'channel-person-cancel',actions:['channel-person-confirm'],otherClose:['channel-person-new']},
+ 'review-dialog':{close:'review-close',actions:['review-apply','review-discard']},
+ 'settings-dialog':{close:'settings-close',form:'settings-form',actions:['type-prompt-save','type-prompt-reset'],custom:true},
+ 'github-draft-dialog':{close:'github-draft-close',actions:['github-publish-preview'],custom:true},
+ 'task-panel':{custom:true},'task-draft-dialog':{custom:true},
+ 'reprocess-dialog':{close:'reprocess-close',actions:['reprocess-run'],transient:true},
+ 'viewer-dialog':{close:'viewer-close',transient:true},
+ 'conversation-reader':{close:'conversation-reader-close',transient:true},
+ 'draft-review-dialog':{close:'draft-review-cancel',transient:true},
+ 'ask-dialog':{transient:true}
+};
+function markDialogDirty(event){
+ const dialog=event.target.closest?.('dialog');if(!dialog)return;
+ const policy=dialogPolicies[dialog.id];
+ if(policy?.transient||dialog.id==='task-draft-dialog'||dialog.id==='task-panel')return;
+ // Parent editors do not own changes made in a nested dialog.
+ editorDirty.set('dialog:'+dialog.id,true);
+}
+async function requestDialogClose(dialog,close){
+ if(!dialog.open)return true;
+ if(dialogJobs.has(dialog)){toast('Wait for the current operation to finish');return false;}
+ if(dialogClosings.has(dialog))return dialogClosings.get(dialog);
+ const pending=(async()=>{
+  const policy=dialogPolicies[dialog.id]||{};
+  if(!policy.custom&&!policy.transient&&editorDirty.keys().includes('dialog:'+dialog.id)&&
+     !(await ask('Discard unsaved changes in this editor?',{ok:'Discard',cancel:'Keep editing'})))return false;
+  await close();return !dialog.open;
+ })();
+ dialogClosings.set(dialog,pending);
+ try{return await pending;}finally{dialogClosings.delete(dialog);}
+}
+function protectDialogAction(dialog,button){
+ const action=button.onclick;if(!action||action.dialogGuard)return;
+ const guarded=event=>perform(()=>withDialogAction(dialog,()=>action(event)));guarded.dialogGuard=true;button.onclick=guarded;
+}
+async function withDialogAction(dialog,action){
+ if(dialogJobs.has(dialog))return;
+ dialogJobs.add(dialog);editorDirty.set('dialog-save:'+dialog.id,true);
+ const inert=dialog.inert,focus=document.activeElement;
+ dialog.inert=true;dialog.setAttribute('aria-busy','true');
+ const waiting=el('p','hint dialog-wait','Please wait…');waiting.setAttribute('role','status');dialog.prepend(waiting);editorHeartbeat();
+ try{return await action();}
+ finally{waiting.remove();dialog.inert=inert;dialog.removeAttribute('aria-busy');dialogJobs.delete(dialog);editorDirty.clear('dialog-save:'+dialog.id);editorHeartbeat();if(dialog.open&&focus?.isConnected)focus.focus();}
+}
 document.addEventListener('input',markDialogDirty);document.addEventListener('change',markDialogDirty);
 document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG')editorDirty.clear('dialog:'+event.target.id);},true);
-document.addEventListener('cancel',event=>{const dialog=event.target;if(['task-draft-dialog','task-panel','ask-dialog'].includes(dialog.id)||!editorDirty.keys().includes('dialog:'+dialog.id))return;event.preventDefault();perform(async()=>{if(await ask('Discard unsaved changes in this editor?',{ok:'Discard',cancel:'Keep editing'})){editorDirty.clear('dialog:'+dialog.id);dialog.close();}});},true);
+document.addEventListener('cancel',event=>{
+ const dialog=event.target,policy=dialogPolicies[dialog.id];if(!policy)return;
+ if(dialogJobs.has(dialog)){event.preventDefault();event.stopImmediatePropagation();toast('Wait for the current operation to finish');return;}
+ if(['task-draft-dialog','task-panel','ask-dialog'].includes(dialog.id))return;
+ event.preventDefault();event.stopImmediatePropagation();
+ perform(()=>requestDialogClose(dialog,policy.dismiss));
+},true);
 // Expose only safe runtime metadata for support, never tokens or conversation text.
 $('copy-diagnostics').onclick=()=>perform(async()=>{const info={desktop:!!state?.desktop_mode,view,active_recording:!!state?.active,connection:$('connection').textContent,transcription:state?.settings?.transcription,notes_provider:state?.settings?.summarizer,ui_version:'ux-flow-2'};await navigator.clipboard.writeText(JSON.stringify(info,null,2));toast('Safe diagnostics copied');});
 
@@ -2710,7 +2861,7 @@ async function offerReprocess({scope='global',action='notes',reason='Saved chang
 }
 $('reprocess-meetings').onchange=$('reprocess-action').onchange=invalidateReprocess;
 $('reprocess-close').onclick=()=>{++reprocessSequence;invalidateReprocess();$('reprocess-dialog').close();};
-$('reprocess-dialog').addEventListener('cancel',()=>{++reprocessSequence;invalidateReprocess();});
+
 $('reprocess-preview').onclick=()=>perform(async()=>{const status=$('reprocess-status');invalidateReprocess();const seq=++reprocessSequence;
  try{const result=await api('/api/reprocess/preview',{meetings:[...$('reprocess-meetings').selectedOptions].map(o=>o.value),action:$('reprocess-action').value});if(seq!==reprocessSequence||!$('reprocess-dialog').open)return;reprocessToken=result.token;status.textContent=result.count+' meeting(s). '+(result.uses_audio?'Audio will be recognized again. ':'Uses saved text; no speech recognition. ')+result.providers.map(p=>p.operation+': '+p.provider+' · '+p.destination).join('; ');status.hidden=false;$('reprocess-run').disabled=false;}
  catch(e){if(seq===reprocessSequence){status.textContent=e.message;status.hidden=false;}}
@@ -2759,3 +2910,16 @@ $('calendar-project').onchange=()=>{ $('conversation-project').value=$('calendar
 for(const [id,amount] of [['calendar-prev',-1],['calendar-next',1]])$(id).onclick=()=>{calendarDay=AtlantaUX.shiftMonth(calendarDay,amount);renderCalendar();syncRoute(true);};
 for(const [id,amount] of [['calendar-day-prev',-1],['calendar-day-next',1]])$(id).onclick=()=>{calendarDay=AtlantaUX.shiftDay(calendarDay,amount);renderCalendar();syncRoute(true);};
 $('calendar-today').onclick=()=>{calendarDay=AtlantaUX.meetingDay({created:new Date().toISOString()});renderCalendar();syncRoute(true);};
+
+// All static modal controls are registered once; dynamic task editors use the same helpers.
+for(const [id,policy] of Object.entries(dialogPolicies)){
+ const dialog=$(id);
+ if(policy.close){
+  const button=$(policy.close),close=button.onclick;
+  policy.dismiss=close;
+  button.onclick=()=>perform(()=>requestDialogClose(dialog,close));
+ }
+ for(const name of policy.otherClose||[]){const button=$(name),close=button.onclick;button.onclick=()=>perform(()=>requestDialogClose(dialog,close));}
+ if(policy.form){const form=$(policy.form),submit=form.onsubmit;form.onsubmit=event=>{event.preventDefault();return perform(()=>withDialogAction(dialog,()=>submit(event)));};}
+ for(const name of policy.actions||[])protectDialogAction(dialog,$(name));
+}

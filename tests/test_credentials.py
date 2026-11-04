@@ -73,3 +73,24 @@ class CredentialsTests(unittest.TestCase):
         self.legacy_github.value=dict(token='stale-backup')
         restarted=self.store('library','github',self.legacy_github)
         self.assertIsNone(restarted.get())
+
+
+class RealVaultLockTests(unittest.TestCase):
+    def test_real_lock_is_private_exclusive_and_released_without_keychain_access(self):
+        import fcntl
+        from pathlib import Path
+        import stat
+        import tempfile
+        from unittest.mock import patch
+        from app.credentials import vault_lock
+        with tempfile.TemporaryDirectory() as tmp, patch('app.credentials.Path.home',return_value=Path(tmp)):
+            path=Path(tmp)/'Library/Caches/io.github.bhadzhiev.meeting-assistant/credentials.lock'
+            with vault_lock():
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
+                with path.open('a') as other:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(other,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            with path.open('a') as other:
+                fcntl.flock(other,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                fcntl.flock(other,fcntl.LOCK_UN)
+            self.assertEqual(path.read_bytes(),b'')

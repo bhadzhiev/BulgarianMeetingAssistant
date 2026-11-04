@@ -30,7 +30,7 @@ from . import processing
 from . import correction
 from . import analytics as conversation
 from . import diarization
-from . import parakeet
+from . import parakeet, parakeet_sherpa
 from .repo_reports import RepoReports, read_store as read_report_store
 from . import backup
 from . import items
@@ -155,7 +155,7 @@ class MeetingService:
             raise ValueError('Invalid local AI reasoning effort')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid local AI response format')
-        if (values['transcription'] not in {'local', 'parakeet', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
+        if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
                 or values['transcript_correction'] not in {'none', 'local', 'openai'}):
             raise ValueError('Invalid processing provider')
         vocabulary = values['whisper_vocabulary']
@@ -187,6 +187,11 @@ class MeetingService:
             settings = self.validate_settings(values)
             previous = dict(self.settings)
             # Choose Parakeet only where it can run, so a meeting does not fail after the recording.
+            if settings['transcription'] == 'parakeet_sherpa':
+                parakeet_sherpa.vocabulary_terms(settings['whisper_vocabulary'], self.library.speakers())
+                runtime = parakeet_sherpa.availability()
+                if not runtime['available']:
+                    raise ValueError(runtime['message'])
             if settings['transcription'] == 'parakeet' and previous.get('transcription') != 'parakeet':
                 runtime = parakeet.availability()
                 if not runtime['available']:
@@ -214,6 +219,10 @@ class MeetingService:
         provider = self.settings['transcription']
         if provider == 'openai':
             model = dict(ready=bool(self.api_key), label='OpenAI key set' if self.api_key else 'Add an OpenAI key in Settings')
+        elif provider == 'parakeet_sherpa':
+            cached = parakeet_sherpa.cached(self.models_dir)
+            runtime = parakeet_sherpa.availability()
+            model = dict(ready=runtime['available'] and cached, label=('Parakeet + vocabulary ready' if cached else 'Parakeet + vocabulary downloads about 670 MB') if runtime['available'] else runtime['message'])
         elif provider == 'parakeet':
             cached = (self.models_dir / 'parakeet' / ('models--' + parakeet.MODEL_ID.replace('/', '--')) / 'snapshots'
                       / parakeet.MODEL_REVISION / 'model.safetensors').is_file()
@@ -244,7 +253,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
-                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(),
+                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
                 speakers=self.library.speakers(), voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
@@ -288,6 +297,7 @@ class MeetingService:
                     ids.add(mention.get('item_id'))
                     ids.update(c.get('item_id') for c in (mention.get('link') or {}).get('candidates', []))
             with self.items.lock:
+                ids.update(i['id'] for i in self.items.items.values() if any(l['meeting_id']==meeting_id and l.get('manual_task') for l in i['links']))
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
             meeting['github_links'] = [link for i in meeting['items'] for link in self.github_links.for_resource('item', i)]
@@ -771,7 +781,7 @@ class MeetingService:
             method = 'segment overlap'
             try:
                 assigned = align(source, alignment, turns)
-                method = 'Parakeet word boundaries and speaker turns' if alignment.get('method') == parakeet.ALIGNMENT_METHOD else 'Whisper word boundaries and speaker turns'
+                method = 'Parakeet word boundaries and speaker turns' if alignment.get('method') in {parakeet.ALIGNMENT_METHOD, parakeet_sherpa.ALIGNMENT_METHOD} else 'Whisper word boundaries and speaker turns'
             except (ValueError, KeyError, TypeError):
                 # Old, cloud or edited transcripts have no trustworthy word alignment.
                 assigned = conversation.assign_speakers(source, turns)
@@ -1178,8 +1188,12 @@ class MeetingService:
             self.projects.save()
             return dict(projects=self.projects.data)
 
-    def set_project_repositories(self, project_id, repositories):
+    def set_project_repositories(self, project_id, repositories, expected_repositories=None):
         with self.lock, self.projects.lock:
+            project=self.projects.get('projects',project_id)
+            if expected_repositories is not None:
+                if not isinstance(expected_repositories,list) or len(expected_repositories)>30 or any(not isinstance(value,str) for value in expected_repositories):raise ValueError('Invalid repository revision')
+                if not project or project.get('repositories',[])!=expected_repositories:raise items.WorkItemConflict('Project repositories changed. Reload before saving your changes.')
             result = self.projects.set_repositories(project_id, repositories)
             self.projects.save()
             return dict(repositories=result, projects=self.projects.data)
@@ -1284,6 +1298,7 @@ class MeetingService:
                 remote = found.get('remote', {})
                 source = {'gmail': 'Gmail', 'google_chat': 'Google Chat'}.get(found.get('provider')) or (
                     f"GitHub {remote.get('repository', '')}#{remote.get('number', '')}" if found.get('provider') == 'github' else None)
+        if source is None and item.get('created_by')=='user':source='Manually added task'
         return dict(target=target, kind=item['kind'], text=item['text'], quote=quote, speaker=speaker, moment=moment,
                     project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_person_id=item.get('owner_person_id'),
                     owner_confirmed='owner' in item.get('manual', []) or bool(item.get('owner_person_id')),
@@ -2084,9 +2099,47 @@ class MeetingService:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('A meeting with this item is busy. Try again when processing finishes.')
             directory = self.library.directory(meeting_id)
+            if link.get('manual_task') and not (directory / 'minutes.json').exists():continue
             minutes = json.loads((directory / 'minutes.json').read_text())
             validate_minutes(minutes)
             yield link, directory, minutes
+
+    def create_task(self, body):
+        """A user-authored WorkItem; no invented transcript evidence or AI execution."""
+        if not isinstance(body, dict):raise ValueError('Task fields are required')
+        text=body.get('text');owner=body.get('owner');due=body.get('due_date')
+        request_id=body.get('request_id');meeting_id=body.get('meeting_id');project_id=body.get('project_id')
+        if not isinstance(text,str) or not text.strip() or len(text.strip())>1000:raise ValueError('Enter task text up to 1000 characters')
+        if owner is not None and (not isinstance(owner,str) or len(owner)>160):raise ValueError('Owner must be text up to 160 characters')
+        if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{32}',request_id):raise ValueError('A task request ID is required')
+        if due is not None:
+            try:
+                if not isinstance(due,str) or dt.date.fromisoformat(due).isoformat()!=due:raise ValueError()
+            except (TypeError,ValueError):raise ValueError('Due date must use YYYY-MM-DD') from None
+        payload=dict(text=text.strip(),owner=(owner or '').strip() or None,due_date=due,meeting_id=meeting_id,project_id=project_id)
+        with self.lock,self.items.lock,self.items.store.serialized():
+            self.items.data,self.items.revision=self.items.store.load()
+            existing=next((i for i in self.items.items.values() if i.get('creation_request')==request_id),None)
+            if existing:
+                if existing.get('creation_payload')!=payload:raise items.WorkItemConflict('This request already created a different task. Reload the task list.')
+                return copy.deepcopy(existing)
+            if meeting_id is not None:
+                self.library.get(meeting_id)
+                if meeting_id==self.active or meeting_id in self.busy:raise ValueError('Wait for recording or processing to finish before adding a task')
+            if project_id is not None and not self.projects.get('projects',project_id):raise ValueError('This project no longer exists')
+            key=uuid.uuid4().hex[:16]
+            item=dict(id=key,kind='task',text=payload['text'],owner=payload['owner'],due_date=due,deadline=None,status='open',
+                created=items.now(),created_by='user',manual=['text','owner','deadline','due_date','status'],links=[],history=[],
+                supersedes=[],superseded_by=None,creation_request=request_id,creation_payload=payload)
+            if project_id is not None:item['project_ids']=[project_id]
+            if meeting_id is not None:
+                item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=None,
+                    seen=dict(task=item['text'],owner=item['owner'],deadline=None,due_date=due,status='open')))
+            self.items.items[key]=item
+            self.items._event(item,'created',meeting_id,by='user')
+            self.items.save()
+            if meeting_id is not None:self._sync_items(meeting_id)
+            return copy.deepcopy(self.items.items[key])
 
     def update_item(self, item_id, text, changes, revision=None):
         if not isinstance(changes, dict) or not changes:

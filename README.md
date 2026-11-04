@@ -144,6 +144,35 @@ the file (iPhone Voice Memos write it), else from the file's modification time.
 The file name is the meeting name until an AI title replaces it. The meeting appears only after
 the conversion succeeds; an interrupted upload leaves nothing behind.
 
+## Настройки на Olympus WS-852 за най-добра транскрипция
+
+Когато записваш с Olympus WS-852 и после импортираш файла, използвай тези настройки
+(Rec Menu) — те дават на Whisper най-чистия изходен материал:
+
+- **Rec Mode: MP3 128 kbps (стерео).** Най-високото качество на устройството. Режимите
+  64/8 kbps mono орязват честоти, които Whisper използва. Приложението само конвертира до
+  16 kHz mono при импорт, затова записвай в най-добрия наличен формат — около 69 часа на 4 GB.
+- **Rec Level: High** за среща около маса (далечни или тихи гласове). **Low** само при
+  диктовка на 5–10 см от микрофона. Избягвай Auto — изглаждането на нивата „помпира" шума
+  от стаята и влошава разпознаването в тихите участъци.
+- **Rec Scene: Off.** Докато е избрана сцена (Meeting, Conference…), настройките Rec Level,
+  Rec Mode и Low Cut Filter са заключени. С Off запазваш ръчния контрол.
+- **VCVA: Off.** Критично. Гласово-активираният запис паузира в тишината, реже началата на
+  фразите и чупи хронологията — таймстемповете в транскрипта спират да съвпадат с реалното
+  време, което засяга и маркерите, и разпознаването на говорители.
+- **V-Sync. Rec: Off.** Същият проблем като VCVA.
+- **Low Cut Filter: On** в стая с климатик, проектор или друго нискочестотно бръмчене.
+  Гласът не се засяга. В тиха стая може и Off.
+- **Noise Cancel, Voice Filter, Voice Balance** са само за възпроизвеждане и не променят
+  файла — не влияят на транскрипцията.
+
+При записа: разтвори вградената стойка (тя изолира вибрациите от масата), сложи
+рекордера в центъра на масата далеч от лаптопи и вентилатори, не го мести по време на
+запис и не го изключвай между репликите — един непрекъснат файл дава една чиста
+хронология. За разпознаване на говорители (diarization) помага хората да са на различни
+разстояния и посоки от микрофона. Файлът се прехвърля през вградения USB конектор и се
+импортира през **Import audio**; датата на срещата се взема от времето на запис във файла.
+
 ## Record an online meeting
 
 Choose **Online meeting** and your microphone. The app captures **all Mac system audio**
@@ -465,7 +494,7 @@ Migration copies and archives retain earlier data until you remove those copies.
 
 The [work assistant contract and implementation tasks](docs/work-assistant-contract.md) describe
 the next stages. This foundation supports meeting tasks, decisions and questions.
-The Gmail, Google Chat and GitHub read-only pilots are described below.
+The Gmail, Google Chat and GitHub source integrations are described below.
 
 **Suggested** stores source-backed proposals separately. **Accept** creates an item; **Link** attaches
 the quote to an existing item of the same kind without changing its text, owner or status. Dismiss,
@@ -672,6 +701,31 @@ speaker alignment, rather than estimating word times from text length.
 The original [NVIDIA model](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) uses CC BY 4.0;
 the [Parakeet MLX runtime](https://github.com/senstella/parakeet-mlx) uses Apache 2.0.
 
+### Experimental Parakeet + vocabulary
+
+Select **Settings → Recording → Transcription → Local · Parakeet + vocabulary · experimental**.
+This separate Sherpa-ONNX CPU backend uses **Vocabulary & names** and saved participant names
+while decoding speech, with automatic language detection. Terms are comma/newline/semicolon-separated;
+spaces inside phrases are retained. `/` and `:` are reserved by the decoder and rejected.
+Unsupported characters fail visibly; terms are never silently dropped. Boosting is a preference,
+not a guarantee: an excessive or unrelated dictionary can introduce false words.
+
+The installer includes the runtime by default; `--without-parakeet-sherpa` omits it.
+Manual builds require `requirements-parakeet-sherpa.txt` and `--with-parakeet-sherpa`.
+The pinned runtime includes the [NeMo TDT speech-dropping fix](https://github.com/k2-fsa/sherpa-onnx/pull/4084).
+First use downloads a separate approximately 670 MB ONNX model from
+[csukuangfj](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8)
+at a pinned revision into `models/parakeet-sherpa`. MLX weights cannot be reused for ONNX.
+Audio stays on this Mac; no new server or LM Studio instance is needed.
+
+Existing provider choices stay unchanged. Live captions still use Whisper. AI correction and
+speaker separation remain independent. Real token boundaries support playback and speaker alignment;
+metadata records the runtime/model revision, vocabulary and decoding settings. Interrupted jobs
+resume only with matching audio, vocabulary and decoder settings. Original audio is preserved.
+Compare the same representative Bulgarian recording with MLX and Sherpa, with/without a short
+dictionary, before changing your default: Bulgarian accuracy, speed and memory have not been
+benchmarked on your meetings.
+
 ## My Work: one place for meetings, Gmail, Chat and GitHub
 
 Every task, decision and proposal shows a coloured source chip: **Meeting**, **Gmail**, **Chat** or
@@ -804,16 +858,26 @@ can remove a cached identity after sign-out and keeps promoted WorkItem snapshot
 archives. There is no automatic retention purge. All development tests use synthetic Chat responses;
 live Workspace consent, API access and real conversation sync still need account-owner validation.
 
-## GitHub: open issues and pull requests, read-only
+## GitHub: repositories, open issues and pull requests
 
 Open **My Work → GitHub**. Create a **fine-grained personal access token** for the selected repositories
 with **Issues: Read-only**, **Pull requests: Read-only** and the required metadata access, then Connect.
-The app verifies the account with GitHub and stores the token in a separate macOS Keychain entry.
+The app verifies the account with GitHub and stores the token in the shared Atlanta macOS Keychain vault.
 It does not reuse `gh` credentials or environment tokens. The token input clears after submission;
 status, settings, archives and command arguments never include it. Token creation, organization
 approval and SSO remain GitHub/account-owner setup. See
 [GitHub token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
-The app cannot introspect all token permissions; its own adapter only makes GET requests.
+The sync adapter only makes GET requests. Creating an issue or comment additionally requires **Issues: Read and write** for the target repository and any organization approval. Publication is a separate, explicitly approved POST; metadata access and repository user-role permissions do not prove that the token can publish.
+
+Project repository choices use a separate paginated `GET /user/repos` listing (100 per page),
+including owner, collaborator and organization-member affiliations visible to the token. Open
+**Project settings & repositories** to load the list, or choose **Refresh repositories**.
+A complete successful refresh replaces the access snapshot, removing stale choices; failed,
+interrupted or credential-changing refreshes keep the previous choices with a visible status.
+The issue cache is only a fallback before the first complete listing. Discovery stops visibly
+rather than claiming completeness above 100000 entries. Manual `owner/name` entries remain
+possible offline; attaching one locally does not verify GitHub access. Project saves include
+the previous repository list to reject stale edits and freeze the editor while saving.
 
 After Connect, the GitHub tab lists every open issue and pull request that the token can read, from all
 repositories (`GET /issues`, at most 300 per filter, newest change first). You do not choose a repository
@@ -1332,3 +1396,9 @@ quotes and timestamps. Files, AI instructions and next-meeting preparation are i
 Settings groups the original panels under **Recording, AI, People & sources, Workspace,
 Advanced**. Diagnostics are in **Advanced → Help**. Existing project-section links remain
 valid. See `docs/ux-flow-validation.md` for measured layout and test boundaries.
+
+### Manual tasks
+
+Use **New task** in My Work for a standalone action, or **Add task** in a meeting for a meeting-linked action. Set the text, owner, due date and project before saving. Meeting task rows have **Edit task**; My Work uses the existing task editor. These are normal local WorkItems with history, status, project routing and GitHub preview/approval. Creating one does not call AI or publish externally.
+
+User-added meeting tasks survive regenerated notes and remain available before notes exist. No transcript timestamp is invented. Deleting the meeting keeps the user task in My Work without a dangling meeting link. A repeated creation request uses the same request ID to avoid duplicates after a lost response.

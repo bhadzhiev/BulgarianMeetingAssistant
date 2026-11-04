@@ -139,3 +139,10 @@ class PeopleAndGitHubTests(unittest.TestCase):
         self.assertEqual(request.call_args.args[0], '/users/ivan-p')
         with self.assertRaises(ValueError):
             self.s.github.connection.get('/users/../repos')
+
+    def test_project_repository_save_rejects_a_stale_baseline(self):
+        self.s.set_project_repositories(self.project,['org/first'])
+        self.s.set_project_repositories(self.project,['org/first','org/second'],['org/first'])
+        with self.assertRaisesRegex(WorkItemConflict,'repositories changed'):
+            self.s.set_project_repositories(self.project,['org/third'],['org/first'])
+        self.assertEqual(self.s.projects.get('projects',self.project)['repositories'],['org/first','org/second'])

@@ -1310,7 +1310,8 @@ class MeetingService:
                     project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_person_id=item.get('owner_person_id'),
                     owner_confirmed='owner' in item.get('manual', []) or bool(item.get('owner_person_id')),
                     due_date=item.get('due_date'), status=item['status'], source_label=source,
-                    destination_repository=item.get('destination_repository'),repository_bindings=self.repository_bindings(item['effective_project_ids']))
+                    destination_repository=item.get('destination_repository'),repository_bindings=self.repository_bindings(item['effective_project_ids']),
+                    revision=item.get('revision'))
 
     def github_draft(self, body):
         """Markdown for a GitHub issue or comment. The person copies it, or publishes it after a preview."""
@@ -1375,8 +1376,11 @@ class MeetingService:
                      '## Context\n\n' + context if context else '', '## Evidence\n\n' + quoted if quoted else '',
                      '## Details\n\n' + details if details else '', footer]
         markdown = '\n\n'.join(p for p in parts if p)
+        # The dialog shows where the draft can go, so a person can fix the project or its repositories there.
+        routing = [dict(id=p['id'], name=p['name'], repositories=list(p.get('repositories', []))) for p in projects]
         return dict(format=fmt, title=title, body=markdown, repository=repository, repositories=choices,
-                    assignee=owner if owner.startswith('@') else None, notes=notes, resource=data['target'])
+                    assignee=owner if owner.startswith('@') else None, notes=notes, resource=data['target'],
+                    projects=routing, revision=data.get('revision'))
 
     def github_link(self, body):
         """Link a resource to an existing issue or pull request. Checks the local cache, then GitHub (read only)."""
@@ -2166,7 +2170,7 @@ class MeetingService:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
-            if item and item['kind'] == 'question':
+            if item and item['kind'] == 'question' and set(changes) - {'text', 'dismissed', 'snoozed_until'}:
                 raise ValueError('Use question controls to answer or reopen this question')
             if not item or item['text'] != text:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
@@ -2237,7 +2241,10 @@ class MeetingService:
             return dict(self.items.items[item_id])
 
     def delete_item(self, item_id, text, revision=None):
-        """Remove a task or decision and its mentions from every meeting."""
+        """Remove a task, decision or question and its mentions from every meeting.
+
+        A person can delete anything that the AI suggested. Links to other items go too;
+        saved source quotes stay in the work graph."""
         from meeting_assistant import save_minutes
         with self.lock, self.items.lock:
             item = self.items.items.get(item_id)
@@ -2245,14 +2252,12 @@ class MeetingService:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
-            if self.items.has_graph_links(item_id):
-                raise ValueError('Dismiss this source-linked item to preserve its history')
             field = items.FIELD.get(item['kind'])
-            if field is None:
-                raise ValueError('Use question controls for this item')
-            for _, directory, minutes in list(self._linked_minutes(item)):
-                minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
-                save_minutes(directory, minutes)
+            if field is not None:
+                for _, directory, minutes in list(self._linked_minutes(item)):
+                    minutes[field] = [mention for mention in minutes[field] if mention.get('item_id') != item_id]
+                    save_minutes(directory, minutes)
+            self.items.forget_graph_links(item_id)
             self.items.remove(item_id)
             self.items.save()
             return dict(deleted=item_id)

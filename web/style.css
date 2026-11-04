@@ -767,3 +767,8 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 
 /* Explicit project repository links and accessible catalog selection. */
 .repository-picker{display:grid;gap:10px;margin:16px 0}.repository-picker select{width:100%;min-height:150px}.repository-picker button{justify-self:start}.project-repos>details{margin:16px 0}.project-repos .source-chip{flex-wrap:wrap}.project-repos .source-chip small{flex-basis:100%;white-space:normal}
+
+.repository-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.repository-heading h3{margin:0}.repository-heading+ .item-meetings{margin-top:12px}
+
+/* GitHub draft: fix the project or its repositories inside the dialog. */
+.draft-routing{display:grid;gap:10px;margin:0 0 12px}.draft-routing .work-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.draft-routing select{flex:1 1 200px;width:auto}.draft-routing .project-repos{border:1px solid var(--line);border-radius:10px;padding:12px}

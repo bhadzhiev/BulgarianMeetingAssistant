@@ -2,7 +2,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const UX=require('../web/ux.js'),source=fs.readFileSync('web/app.js','utf8');
 const extract=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.indexOf(a)));
 const tick=()=>new Promise(setImmediate);
-function element(tag,cls,text){return {tag,cls,text,children:[],value:'',disabled:false,inert:false,isConnected:true,append(...nodes){this.children.push(...nodes)},replaceChildren(...nodes){this.children=nodes},setAttribute(k,v){(this.attrs??={})[k]=v},querySelectorAll(){return []},click(){return this.onclick?.()}};}
+function element(tag,cls,text){return {tag,cls,text,children:[],value:'',disabled:false,inert:false,isConnected:true,append(...nodes){this.children.push(...nodes)},replaceChildren(...nodes){this.children=nodes},setAttribute(k,v){(this.attrs??={})[k]=v},querySelectorAll(){return []},focus(){},click(){return this.onclick?.()}};}
 function setup({failure=false,catalogError=false}={}){
  let finish,submitted,loads=0;const errors=[],dirty=UX.dirtyRegistry();
  const c=vm.createContext({el:element,editorDirty:dirty,AtlantaUX:UX,Date,setTimeout,clearTimeout,dateTime:value=>value,
@@ -12,8 +12,9 @@ function setup({failure=false,catalogError=false}={}){
    if(path==='/api/github/repos/sync')return Promise.reject(new Error('rate limited'));
    submitted=JSON.parse(JSON.stringify(body));return new Promise((resolve,reject)=>finish=()=>failure?reject(new Error('conflict; draft kept')):resolve({repositories:submitted.repositories}));
   }});
- vm.runInContext(extract('async function withEditorSave(','function markNotes()')+extract('function repositoryEditor(project){','async function loadWorkspace()'),c);
+ vm.runInContext(extract('async function withEditorSave(','function markNotes()')+extract('function repositoryEditor(project,','async function loadWorkspace()'),c);
  const box=vm.runInContext('repositoryEditor({id:"project",name:"Platform",repositories:[]})',c),[search,list,choose]=box.children[2].children,[input,add]=box.children[3].children[1].children,save=box.children[5];
+ assert.equal(box.children[2].hidden,true);assert.equal(box.children[0].children[0].text,'Repositories');assert.equal(box.children[0].children[1].text,'Link repository');box.children[0].children[1].onclick();assert.equal(box.children[2].hidden,false);
  return {c,box,input,list,search,choose,add,save,dirty,errors,submitted:()=>submitted,finish:()=>finish(),loads:()=>loads};
 }
 (async()=>{

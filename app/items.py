@@ -279,6 +279,13 @@ class Registry:
         return bool(self.items[item_id].get('source_evidence') or any(item_id in (edge['from_id'], edge['to_id'])
             for edge in self.data.get('relationships', {}).values()))
 
+    def forget_graph_links(self, item_id: str) -> None:
+        """A person deletes the item: its relationships go too. Saved source quotes stay in the graph."""
+        relationships = self.data.get('relationships', {})
+        for key in [key for key, edge in relationships.items() if item_id in (edge['from_id'], edge['to_id'])]:
+            del relationships[key]
+        self.items[item_id]['source_evidence'] = []
+
     def remove(self, item_id: str) -> None:
         if self.has_graph_links(item_id):
             raise ValueError('This item has work graph links. Dismiss it to keep its source history.')

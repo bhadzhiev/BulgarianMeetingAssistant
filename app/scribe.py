@@ -6,9 +6,17 @@ import urllib.error
 import urllib.request
 import uuid
 
+from .credentials import CredentialStore
+
 MODEL = 'scribe_v2'
 ALIGNMENT_METHOD = 'ElevenLabs Scribe word timestamps'
 ENDPOINT = 'https://api.elevenlabs.io/v1/speech-to-text'
+
+
+class KeyStore(CredentialStore):
+    """The ElevenLabs API key in the shared Atlanta Keychain item. One key for all libraries."""
+    def __init__(self):
+        super().__init__('default', 'elevenlabs')
 
 
 def keyterms(vocabulary):

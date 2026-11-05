@@ -347,9 +347,9 @@
 <label class="checkbox"><input id="live-enabled" type="checkbox" checked> Show live transcript while recording</label><p class="hint">Live captions run locally using the Whisper model above, including when the final transcript uses Parakeet or cloud processing.</p><label class="checkbox"><input id="auto-process" type="checkbox" checked> Process automatically after recording</label><label class="checkbox"><input id="diarization-enabled" type="checkbox" checked> Identify speakers and calculate talk time after recording</label><p id="diarization-runtime" class="hint" role="status"></p><p class="hint">Optional offline pyannote diarization. Install requirements-diarization.txt and set HF_TOKEN for model access. This speaker identification step runs locally; failures leave the transcript and notes intact.</p>
 <fieldset class="settings-section"><legend>ElevenLabs Scribe v2</legend>
 <label for="elevenlabs-api-key">ElevenLabs API key <span id="elevenlabs-key-state"></span></label>
-<input id="elevenlabs-api-key" type="password" autocomplete="off" placeholder="Kept only until the app closes">
+<input id="elevenlabs-api-key" type="password" autocomplete="off" placeholder="Saved in macOS Keychain">
 <button id="forget-elevenlabs-key" class="quiet" type="button">Forget ElevenLabs key</button>
-<p class="hint">Choose Scribe above to send audio to ElevenLabs for final transcription. Scribe receives the whole recording in one request. Speaker separation and live captions stay local. Vocabulary terms are sent as keyterms and cost extra. The key stays in app memory; leave blank to keep it. You can also set ELEVENLABS_API_KEY before starting the app.</p>
+<p class="hint">Choose Scribe above to send audio to ElevenLabs for final transcription. Scribe receives the whole recording in one request. Speaker separation and live captions stay local. Vocabulary terms are sent as keyterms and cost extra. The app saves the key in macOS Keychain; leave blank to keep it. ELEVENLABS_API_KEY, if set before the app starts, is used instead and is not saved.</p>
 <a href="https://elevenlabs.io/app/api/api-keys" target="_blank" rel="noopener noreferrer">Create an ElevenLabs API key</a>
 </fieldset>
 <fieldset class="settings-section"><legend>OpenAI cloud</legend>

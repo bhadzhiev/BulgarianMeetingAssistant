@@ -34,9 +34,16 @@ def validate(document):
     return copy.deepcopy(document)
 
 
+class _NoLegacy:
+    """A provider that never had its own Keychain item before the shared vault."""
+    def get(self):return None
+    def delete(self):pass
+
+
 class CredentialStore:
     def __init__(self,account,provider,backend=None,legacy=None,lock=vault_lock):
-        if provider not in {'google','github'}:raise ValueError('Unknown credential provider')
+        if provider not in {'google','github','elevenlabs'}:raise ValueError('Unknown credential provider')
+        if provider=='elevenlabs' and legacy is None:legacy=_NoLegacy()
         self.key=provider+':'+account;self.lock=lock
         if backend is None or legacy is None:
             from .google_calendar import LegacyKeychainStore

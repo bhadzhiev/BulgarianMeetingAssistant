@@ -33,6 +33,13 @@ class CredentialsTests(unittest.TestCase):
         self.google.get();self.github.get();other=self.store('other','google',Memory(dict(refresh_token='other')));other.get()
         self.google.set(dict(refresh_token='updated'));self.assertEqual(self.github.get()['token'],'github-secret');self.assertEqual(other.get()['refresh_token'],'other')
         self.google.delete();self.assertIsNone(self.google.get());self.assertIsNone(self.legacy_google.value);self.assertEqual(self.github.get()['token'],'github-secret')
+    def test_elevenlabs_slot_has_no_legacy_item_and_stays_isolated(self):
+        self.google.get()
+        key=CredentialStore('default','elevenlabs',self.backend,None,self.lock)
+        self.assertIsNone(key.get())
+        key.set(dict(api_key='synthetic'));self.assertEqual(key.get(),dict(api_key='synthetic'))
+        self.assertEqual(self.google.get(),dict(refresh_token='google-secret'))
+        key.delete();self.assertIsNone(key.get());self.assertEqual(self.google.get(),dict(refresh_token='google-secret'))
     def test_failed_migration_keeps_legacy_credentials(self):
         original=self.backend.set
         self.backend.set=lambda value:None

@@ -76,9 +76,10 @@ brew install ffmpeg
 The browser talks only to `127.0.0.1`. The server uses a random session credential,
 checks request origins, and does not expose a network listener to other computers.
 OpenAI and ElevenLabs keys can be supplied separately in Settings or through
-`OPENAI_API_KEY` and `ELEVENLABS_API_KEY`. Keys entered in the
-interface stay in process memory, are never returned by the API or stored in meeting files,
-and can be forgotten in Settings. A key supplied in the environment is loaded again on restart.
+`OPENAI_API_KEY` and `ELEVENLABS_API_KEY`. An OpenAI key entered in the interface stays in
+process memory. An ElevenLabs key entered in the interface is saved in macOS Keychain. Keys are
+never returned by the API or stored in meeting files, and can be forgotten in Settings. A key
+supplied in the environment is loaded again on restart and is not saved.
 Do not share the launch URL: it grants access to this local app session.
 
 The tab does not ask the app for news every second. It keeps one connection (server-sent events), and the
@@ -1436,8 +1437,10 @@ A task can publish only to a repository linked to one of its effective projects.
 
 In **Settings → Recording → Transcription**, choose **Cloud · ElevenLabs Scribe v2**.
 Create a key at https://elevenlabs.io/app/api/api-keys with Speech to Text access,
-paste it into **ElevenLabs API key**, then save settings. The key stays in memory until
-the app closes. Alternatively, set `ELEVENLABS_API_KEY` before launching.
+paste it into **ElevenLabs API key**, then save settings. The app saves the key in the shared
+Atlanta Keychain item, so it is available after a restart. **Forget ElevenLabs key** removes it.
+If Keychain refuses the key, Settings shows this, and the key stays only until the app closes.
+Alternatively, set `ELEVENLABS_API_KEY` before launching; the app uses it and does not save it.
 The app shows whether a key is present; this does not validate credits or API access.
 
 The app uploads the whole recording to ElevenLabs in one request for final transcription.

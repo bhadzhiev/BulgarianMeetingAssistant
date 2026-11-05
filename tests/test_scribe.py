@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 from pathlib import Path
@@ -12,6 +13,35 @@ from app.service import MeetingService, DEFAULTS
 from tests.test_app import wait_for
 
 PROJECT = Path(__file__).resolve().parents[1]
+
+
+class MemoryKeyStore:
+    """Stands in for the Keychain in every test of this module."""
+    saved, fail, reads = None, False, 0
+
+    def get(self):
+        MemoryKeyStore.reads += 1
+        if MemoryKeyStore.fail: raise RuntimeError('Keychain denied')
+        return copy.deepcopy(MemoryKeyStore.saved)
+
+    def set(self, value):
+        if MemoryKeyStore.fail: raise RuntimeError('Keychain denied')
+        MemoryKeyStore.saved = copy.deepcopy(value)
+
+    def delete(self):
+        if MemoryKeyStore.fail: raise RuntimeError('Keychain denied')
+        MemoryKeyStore.saved = None
+
+
+_keychain = patch('app.scribe.KeyStore', MemoryKeyStore)
+
+
+def setUpModule():
+    _keychain.start()
+
+
+def tearDownModule():
+    _keychain.stop()
 
 
 def response(text='Проверихме Kubernetes.', start=0, end=.7):
@@ -86,6 +116,63 @@ class ScribeTests(unittest.TestCase):
             scribe.transcribe(b'audio', 'key', [], 0, 2, timeout=900)
         self.assertIn(b'name="diarize"\r\n\r\nfalse', upload.call_args.args[0].data)
         self.assertEqual(upload.call_args.kwargs['timeout'], 900)
+
+    def setUp(self):
+        MemoryKeyStore.saved, MemoryKeyStore.fail, MemoryKeyStore.reads = None, False, 0
+
+    def test_key_is_saved_in_keychain_and_survives_a_restart(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'ELEVENLABS_API_KEY':''}):
+            root=Path(tmp)
+            service=MeetingService(root,PROJECT)
+            try:
+                self.assertEqual(MemoryKeyStore.reads,0)
+                result=service.save_settings(dict(elevenlabs_api_key=' scribe-key '))
+                self.assertIsNone(result['elevenlabs_key_error'])
+                self.assertEqual(MemoryKeyStore.saved,dict(api_key='scribe-key'))
+                self.assertNotIn('scribe-key',''.join(p.read_text() for p in root.glob('*.json')))
+            finally:service.close()
+            service=MeetingService(root,PROJECT)
+            try:
+                self.assertEqual(service.elevenlabs_api_key,'scribe-key')
+                service.save_settings(dict(elevenlabs_api_key=''))
+                self.assertIsNone(MemoryKeyStore.saved)
+                self.assertFalse((root/'elevenlabs.json').exists())
+            finally:service.close()
+            reads=MemoryKeyStore.reads
+            service=MeetingService(root,PROJECT)
+            try:
+                self.assertEqual((service.elevenlabs_api_key,MemoryKeyStore.reads),('',reads))
+            finally:service.close()
+
+    def test_refused_keychain_keeps_the_key_for_this_session_and_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'ELEVENLABS_API_KEY':''}):
+            service=MeetingService(Path(tmp),PROJECT)
+            try:
+                MemoryKeyStore.fail=True
+                result=service.save_settings(dict(elevenlabs_api_key='scribe-key'))
+                self.assertIn('Keychain refused',result['elevenlabs_key_error'])
+                self.assertEqual(service.elevenlabs_api_key,'scribe-key')
+                self.assertFalse((Path(tmp)/'elevenlabs.json').exists())
+            finally:service.close()
+
+    def test_unreadable_keychain_reports_an_error_without_a_key(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'ELEVENLABS_API_KEY':''}):
+            (Path(tmp)/'elevenlabs.json').write_text('{"saved": true}')
+            MemoryKeyStore.fail=True
+            service=MeetingService(Path(tmp),PROJECT)
+            try:
+                self.assertEqual(service.elevenlabs_api_key,'')
+                self.assertIn('could not be read',service.elevenlabs_key_error)
+            finally:service.close()
+
+    def test_environment_key_is_used_and_not_read_from_keychain(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'ELEVENLABS_API_KEY':'env-key'}):
+            (Path(tmp)/'elevenlabs.json').write_text('{"saved": true}')
+            MemoryKeyStore.saved=dict(api_key='saved-key')
+            service=MeetingService(Path(tmp),PROJECT)
+            try:
+                self.assertEqual((service.elevenlabs_api_key,MemoryKeyStore.reads),('env-key',0))
+            finally:service.close()
 
     def test_service_keeps_separate_keys_out_of_settings_and_checks_readiness(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'ELEVENLABS_API_KEY':''}):

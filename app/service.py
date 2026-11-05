@@ -87,6 +87,17 @@ class MeetingService:
         self.base_url = 'http://127.0.0.1:8765'
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
         self.elevenlabs_api_key = os.environ.get('ELEVENLABS_API_KEY', '')
+        self.elevenlabs_key_error = None
+        # This file holds no secret. It says that Keychain has a key, so tests and new libraries never open Keychain.
+        self.elevenlabs_marker = root / 'elevenlabs.json'
+        from .scribe import KeyStore
+        self.elevenlabs_store = KeyStore()
+        if not self.elevenlabs_api_key and self.elevenlabs_marker.exists():
+            try:
+                saved = self.elevenlabs_store.get()
+                self.elevenlabs_api_key = saved.get('api_key', '') if isinstance(saved, dict) else ''
+            except Exception:
+                self.elevenlabs_key_error = 'The ElevenLabs key could not be read from Keychain. Unlock Keychain or enter the key again.'
         self.lock = threading.RLock()
         self.active = None
         self.start_thread = None
@@ -220,8 +231,23 @@ class MeetingService:
             if key is not None:
                 self.api_key = key.strip()
             if elevenlabs_key is not None:
-                self.elevenlabs_api_key = elevenlabs_key.strip()
-            return dict(elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
+                self._save_elevenlabs_key(elevenlabs_key.strip())
+            return dict(elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
+
+    def _save_elevenlabs_key(self, key):
+        """Keep the key in Keychain; an empty key forgets it. Settings stay saved if Keychain refuses."""
+        try:
+            if key:
+                self.elevenlabs_store.set(dict(api_key=key))
+                atomic_json(self.elevenlabs_marker, dict(saved=True))
+            else:
+                self.elevenlabs_store.delete()
+                self.elevenlabs_marker.unlink(missing_ok=True)
+            self.elevenlabs_key_error = None
+        except Exception:
+            self.elevenlabs_key_error = ('The ElevenLabs key is kept only until the app closes: Keychain refused it.' if key else
+                                         'The ElevenLabs key could not be removed from Keychain.')
+        self.elevenlabs_api_key = key
 
     def readiness(self):
         """What the next recording needs, checked without downloading or opening devices."""
@@ -266,7 +292,7 @@ class MeetingService:
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
                 speakers=self.library.speakers(), voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
-                settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
+                settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
                 system_audio_available=(self.project / 'bin/SystemAudio').exists())

@@ -55,36 +55,37 @@ class ScribeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 scribe.keyterms(text)
 
-    def test_pipeline_preserves_words_and_original_audio(self):
+    def test_pipeline_sends_the_whole_recording_once_without_scribe_speakers(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp); recording(path, 62)
             original = (path/'recording.wav').read_bytes()
-            def upload(audio, key, terms, offset, end):
-                self.assertEqual(key, 'scribe-key')
-                self.assertEqual(terms, ['Kubernetes'])
-                return scribe.word_units(response(), offset, end)
+            data = dict(text='Здравей. Добре.', words=[
+                dict(type='word', text='Здравей.', start=1, end=1.5, speaker_id='speaker_0'),
+                dict(type='spacing', text=' ', start=1.5, end=1.6, speaker_id='speaker_0'),
+                dict(type='word', text='Добре.', start=61, end=61.5, speaker_id='speaker_1')])
+            def upload(audio, key, terms, offset, end, timeout=180):
+                self.assertEqual((audio, key, terms, offset, end), (original, 'scribe-key', ['Kubernetes'], 0, 62))
+                self.assertGreaterEqual(timeout, 362)
+                return scribe.word_units(data, offset, end)
             with patch('app.scribe.transcribe', side_effect=upload) as call:
                 processing.transcribe(path, dict(DEFAULTS, transcription='elevenlabs', whisper_vocabulary='Kubernetes'), lambda _:None, 'scribe-key')
-            self.assertEqual(call.call_count, 2)
+            self.assertEqual(call.call_count, 1)
+            transcript = json.loads((path/'transcript.json').read_text())
+            self.assertEqual([(s['text'], s['speaker']) for s in transcript], [('Здравей.', None), ('Добре.', None)])
             units = json.loads((path/'transcript.alignment.json').read_text())['units']
-            self.assertGreater(units[1]['start'], 50)
-            self.assertEqual(json.loads((path/'transcript.metadata.json').read_text())['model'], 'scribe_v2')
+            self.assertEqual([u['start'] for u in units], [1, 61])
+            self.assertFalse((path/'speaker-turns.json').exists())
+            metadata = json.loads((path/'transcript.metadata.json').read_text())
+            self.assertEqual((metadata['model'], metadata['speaker_recognition']), ('scribe_v2', 'local'))
             self.assertEqual((path/'recording.wav').read_bytes(), original)
             self.assertNotIn('scribe-key', ''.join(p.read_text() for p in path.glob('*.json')))
 
-    def test_failed_request_resumes_without_reuploading_completed_chunk(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp); recording(path, 62)
-            settings=dict(DEFAULTS, transcription='elevenlabs')
-            def first(audio,key,terms,offset,end):
-                if offset:raise ValueError('offline')
-                return scribe.word_units(response(),offset,end)
-            with patch('app.scribe.transcribe',side_effect=first), self.assertRaisesRegex(ValueError,'offline'):
-                processing.transcribe(path,settings,lambda _:None,'key')
-            with patch('app.scribe.transcribe',side_effect=lambda a,k,t,o,e:scribe.word_units(response(),o,e)) as upload:
-                processing.transcribe(path,settings,lambda _:None,'key')
-            self.assertEqual(upload.call_count,1)
-            self.assertGreater(upload.call_args.args[3],50)
+    def test_request_never_asks_scribe_for_speakers(self):
+        with patch('app.scribe.urllib.request.urlopen') as upload:
+            upload.return_value.__enter__.return_value = io.StringIO(json.dumps(response()))
+            scribe.transcribe(b'audio', 'key', [], 0, 2, timeout=900)
+        self.assertIn(b'name="diarize"\r\n\r\nfalse', upload.call_args.args[0].data)
+        self.assertEqual(upload.call_args.kwargs['timeout'], 900)
 
     def test_service_keeps_separate_keys_out_of_settings_and_checks_readiness(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'ELEVENLABS_API_KEY':''}):
@@ -101,7 +102,7 @@ class ScribeTests(unittest.TestCase):
                     service.process(meeting['id'],'transcribe')
             finally:service.close()
 
-    def test_service_routes_only_transcription_to_elevenlabs_key(self):
+    def test_scribe_skips_automatic_correction_and_routes_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             service=MeetingService(Path(tmp),PROJECT)
             try:
@@ -115,9 +116,27 @@ class ScribeTests(unittest.TestCase):
                 with patch.object(service,'_execute',side_effect=execute),patch.object(service,'_run_analytics'),patch.object(service,'_queue_metadata'),patch.object(service,'_sync_items'):
                     service.process(meeting['id'],'all')
                     wait_for(lambda:meeting['id'] not in service.busy)
-                self.assertEqual(calls,[('transcribe','scribe-key'),('correct','openai-key'),('summarize','openai-key')])
+                self.assertEqual(calls,[('transcribe','scribe-key'),('summarize','openai-key')])
             finally:service.close()
 
+    def test_local_speaker_separation_runs_after_scribe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service=MeetingService(Path(tmp),PROJECT)
+            try:
+                service.save_settings(dict(transcription='elevenlabs',elevenlabs_api_key='scribe-key',auto_title=False,summarizer='none',diarization_enabled=True))
+                meeting=service.library.create('Synthetic','in_person',dict(service.settings))
+                path=service.library.directory(meeting['id']);recording(path)
+                calls=[]
+                def execute(action,directory,settings,progress,key='',*args):
+                    calls.append(action)
+                    if action=='transcribe':(path/'transcript.json').write_text('[]')
+                with patch.object(service,'_execute',side_effect=execute),patch.object(service,'_run_diarization') as diarize,\
+                        patch.object(service,'_run_analytics'),patch.object(service,'_queue_metadata'),patch.object(service,'_sync_items'):
+                    service.process(meeting['id'],'all')
+                    wait_for(lambda:meeting['id'] not in service.busy)
+                self.assertEqual(calls,['transcribe'])
+                diarize.assert_called_once()
+            finally:service.close()
 
 class ScribeHTTPTests(unittest.TestCase):
     from tests.test_http import HTTPTests as _HTTP

@@ -145,6 +145,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
             provider=provider, model=model_name,
             model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation,
+            **({'request': 'whole recording'} if provider == 'elevenlabs' else {}),
             **({'hotwords_score': parakeet.HOTWORDS_SCORE, 'length_reward': parakeet.LENGTH_REWARD} if provider == 'parakeet_sherpa' else {}),
             **({'model_revision': parakeet.MODEL_REVISION} if provider in {'parakeet', 'parakeet_sherpa'} else {})), sort_keys=True).encode()).hexdigest()
         checkpoint = directory / '.transcription-progress.json'
@@ -159,6 +160,12 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 source.setpos(cursor)
                 progress(f'Resuming transcription from {int(cursor / rate)} seconds')
             first_cursor, inference_started = cursor, time.monotonic()
+            if provider == 'elevenlabs':
+                # One request gives Scribe the context of the whole meeting.
+                progress('Sending the whole recording to ElevenLabs Scribe')
+                segments = [TranscriptSegment(**unit) for unit in scribe.transcribe(audio_path.read_bytes(), api_key, prompt, 0, total / rate,
+                                                                                    timeout=300 + total / rate)]
+                cursor = total
             while cursor < total:
                 # Bound memory and cloud request size. Prefer a quiet boundary in the last 5s.
                 raw = source.readframes(min(rate * 60, total - cursor))
@@ -202,12 +209,8 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                         chunk.setsampwidth(2)
                         chunk.setframerate(rate)
                         chunk.writeframes(samples.tobytes())
-                    if provider == 'elevenlabs':
-                        segments.extend(TranscriptSegment(**unit) for unit in scribe.transcribe(buffer.getvalue(), api_key, prompt, start, end))
-                        response = None
-                    else:
-                        response = upload_audio(buffer.getvalue(), api_key, settings['cloud_model'])
-                    text = response.get('text') if response is not None else ''
+                    response = upload_audio(buffer.getvalue(), api_key, settings['cloud_model'])
+                    text = response.get('text')
                     if not isinstance(text, str):
                         raise ValueError('Cloud transcription returned no text')
                     if text.strip():

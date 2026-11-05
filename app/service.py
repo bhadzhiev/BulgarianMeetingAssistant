@@ -666,7 +666,8 @@ class MeetingService:
                 raise ValueError('Add an ElevenLabs API key in Settings first. Your recording is saved.')
             if (action in {'all', 'transcribe'} and settings['transcription'] == 'openai' or
                 action in {'all', 'summarize','correct_summarize'} and settings['summarizer'] == 'openai' or
-                action in {'all', 'transcribe', 'correct','correct_summarize'} and settings['transcript_correction'] == 'openai') and not key:
+                (action in {'correct','correct_summarize'} or action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs')
+                and settings['transcript_correction'] == 'openai') and not key:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
             if action in {'all','summarize','correct','correct_summarize','reanalyze'} and '_prompt_snapshot' not in settings:
                 settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting_id)
@@ -734,7 +735,9 @@ class MeetingService:
             if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
-            if action in {'all', 'transcribe', 'correct','correct_summarize'} and settings.get('transcript_correction', 'none') != 'none':
+            # Scribe text is final; AI correction runs after it only on explicit request.
+            automatic_correction = action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs'
+            if (automatic_correction or action in {'correct','correct_summarize'}) and settings.get('transcript_correction', 'none') != 'none':
                 try:
                     with job.step('Transcript correction'):
                         before_correction=(directory/'transcript.json').read_bytes()

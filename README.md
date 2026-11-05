@@ -1440,17 +1440,21 @@ paste it into **ElevenLabs API key**, then save settings. The key stays in memor
 the app closes. Alternatively, set `ELEVENLABS_API_KEY` before launching.
 The app shows whether a key is present; this does not validate credits or API access.
 
-Audio is uploaded to ElevenLabs in bounded WAV chunks for final transcription.
+The app uploads the whole recording to ElevenLabs in one request for final transcription.
 The model is `scribe_v2`; language detection is automatic for Bulgarian and English.
-The original recording is kept. Completed chunks are checkpointed for retries.
-Words retain the API timestamps for playback and optional local speaker alignment.
-Scribe speaker IDs are not used because IDs from separate chunks cannot safely identify
-the same person. Speaker identification uses the existing local pipeline; live captions
-continue using local Whisper. Scribe Realtime and importing a transcript from an
+The original recording is kept. A failed request is retried with the whole recording.
+Words retain the API timestamps for playback.
+
+Scribe does not separate the speakers. In online meetings, the voices of other participants
+arrive in one system audio stream, and Scribe merges them into one speaker. The local
+speaker model separates the speakers, and the Scribe word timestamps assign each word to
+a speaker. Live captions continue using local Whisper. Scribe Realtime and importing a transcript from an
 ElevenLabs editor URL are not part of this integration.
 
 **Vocabulary & names** supplies comma- or newline-separated keyterms. Each term must
 have at most 50 characters and 5 words; brackets, braces, angle brackets and backslash
 are unsupported. ElevenLabs charges extra for keyterms. Review current prices and
 account limits at https://elevenlabs.io/pricing/api before processing long recordings.
-Notes, transcript correction and title generation keep their separately chosen providers.
+AI transcript correction does not run automatically after Scribe. To run it on a Scribe
+transcript, choose **AI text correction** explicitly. Notes and title generation keep their
+separately chosen providers.

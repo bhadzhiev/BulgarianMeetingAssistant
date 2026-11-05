@@ -18,26 +18,28 @@ def keyterms(vocabulary):
     return terms
 
 
-def transcribe(audio, key, terms, offset, end):
+def transcribe(audio, key, terms, offset, end, timeout=180):
     boundary = 'scribe-' + uuid.uuid4().hex
     fields = [('model_id', MODEL), ('timestamps_granularity', 'word'),
               ('tag_audio_events', 'false'), ('diarize', 'false')]
+    # The local speaker model separates speakers: Scribe merges voices that share one system audio stream.
     # Omit language_code so Bulgarian and English can both be detected.
     fields.extend(('keyterms', term) for term in terms)
     parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode() for name, value in fields]
-    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="chunk.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode() + audio + b'\r\n')
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode() + audio + b'\r\n')
     parts.append(f'--{boundary}--\r\n'.encode())
     request = urllib.request.Request(ENDPOINT, data=b''.join(parts),
         headers={'xi-api-key': key, 'Content-Type': 'multipart/form-data; boundary=' + boundary}, method='POST')
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             data = json.load(response)
     except urllib.error.HTTPError as exc:
         hints = {401: 'Check the ElevenLabs API key.', 403: 'Check key permissions and plan access.',
-                 402: 'Check your ElevenLabs credits.', 429: 'ElevenLabs quota or concurrency limit reached; retry later.'}
+                 402: 'Check your ElevenLabs credits.', 413: 'The recording is larger than ElevenLabs accepts.',
+                 429: 'ElevenLabs quota or concurrency limit reached; retry later.'}
         raise ValueError(f'Scribe request failed (HTTP {exc.code}). ' + hints.get(exc.code, 'Retry later or check your ElevenLabs account.')) from None
     except (urllib.error.URLError, TimeoutError):
-        raise ValueError('Could not reach ElevenLabs. Check the connection and retry; saved progress is preserved.') from None
+        raise ValueError('Could not reach ElevenLabs. Check the connection and retry; the recording is saved.') from None
     return word_units(data, offset, end)
 
 

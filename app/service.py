@@ -86,6 +86,7 @@ class MeetingService:
         self.google = google or GoogleCalendar(root, builtin=bundled_client(project))
         self.base_url = 'http://127.0.0.1:8765'
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
+        self.elevenlabs_api_key = os.environ.get('ELEVENLABS_API_KEY', '')
         self.lock = threading.RLock()
         self.active = None
         self.start_thread = None
@@ -155,12 +156,15 @@ class MeetingService:
             raise ValueError('Invalid local AI reasoning effort')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid local AI response format')
-        if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai'} or values['summarizer'] not in {'none', 'local', 'openai'}
+        if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai', 'elevenlabs'} or values['summarizer'] not in {'none', 'local', 'openai'}
                 or values['transcript_correction'] not in {'none', 'local', 'openai'}):
             raise ValueError('Invalid processing provider')
         vocabulary = values['whisper_vocabulary']
         if not isinstance(vocabulary, str) or len(vocabulary) > 2000 or any(ord(c) < 32 and c != '\n' for c in vocabulary):
             raise ValueError('The transcription vocabulary must be text of at most 2000 characters')
+        if values['transcription'] == 'elevenlabs':
+            from .scribe import keyterms
+            keyterms(vocabulary)
         for field in ['auto_process', 'live_transcription', 'whisper_vad', 'diarization_enabled', 'auto_title', 'calendar_enabled']:
             if type(values[field]) is not bool:
                 raise ValueError(f'{field} must be true or false')
@@ -181,6 +185,9 @@ class MeetingService:
             values = dict(values)
             if 'calendar_account' in values:
                 raise ValueError('The calendar account is set by Google sign-in, not by settings input.')
+            elevenlabs_key = values.pop('elevenlabs_api_key', None)
+            if elevenlabs_key is not None and (not isinstance(elevenlabs_key, str) or len(elevenlabs_key) > 1000 or any(ord(c) < 32 for c in elevenlabs_key)):
+                raise ValueError('Invalid ElevenLabs API key')
             key = values.pop('api_key', None)
             if key is not None and (not isinstance(key, str) or len(key) > 1000 or '\n' in key):
                 raise ValueError('Invalid API key')
@@ -212,12 +219,16 @@ class MeetingService:
             self.settings = settings
             if key is not None:
                 self.api_key = key.strip()
-            return dict(settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
+            if elevenlabs_key is not None:
+                self.elevenlabs_api_key = elevenlabs_key.strip()
+            return dict(elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
 
     def readiness(self):
         """What the next recording needs, checked without downloading or opening devices."""
         provider = self.settings['transcription']
-        if provider == 'openai':
+        if provider == 'elevenlabs':
+            model = dict(ready=bool(self.elevenlabs_api_key), label='Scribe v2 key set' if self.elevenlabs_api_key else 'Add an ElevenLabs key in Settings')
+        elif provider == 'openai':
             model = dict(ready=bool(self.api_key), label='OpenAI key set' if self.api_key else 'Add an OpenAI key in Settings')
         elif provider == 'parakeet_sherpa':
             cached = parakeet_sherpa.cached(self.models_dir)
@@ -255,7 +266,7 @@ class MeetingService:
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
                 speakers=self.library.speakers(), voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
-                settings=self.settings, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
+                settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
                 system_audio_available=(self.project / 'bin/SystemAudio').exists())
@@ -650,9 +661,13 @@ class MeetingService:
                 raise ValueError('Transcribe or import a meeting before running analytics')
             # Capture the key for this job; it is never persisted in metadata.
             key = self.api_key
+            elevenlabs_key = self.elevenlabs_api_key
+            if action in {'all', 'transcribe'} and settings['transcription'] == 'elevenlabs' and not elevenlabs_key:
+                raise ValueError('Add an ElevenLabs API key in Settings first. Your recording is saved.')
             if (action in {'all', 'transcribe'} and settings['transcription'] == 'openai' or
                 action in {'all', 'summarize','correct_summarize'} and settings['summarizer'] == 'openai' or
-                action in {'all', 'transcribe', 'correct','correct_summarize'} and settings['transcript_correction'] == 'openai') and not key:
+                (action in {'correct','correct_summarize'} or action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs')
+                and settings['transcript_correction'] == 'openai') and not key:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
             if action in {'all','summarize','correct','correct_summarize','reanalyze'} and '_prompt_snapshot' not in settings:
                 settings['_prompt_snapshot']=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting_id)
@@ -664,7 +679,7 @@ class MeetingService:
                                 processing_timings={}, processing_elapsed=0)
             if self.active and self.active in self.live_sessions:
                 self.live_sessions[self.active].request_stop('Live captions paused to process a saved meeting. Audio recording continues.')
-            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key), daemon=True)
+            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key, elevenlabs_key), daemon=True)
             self.processing_threads[meeting_id] = thread
             thread.start()
             return {'id': meeting_id, 'status': 'processing'}
@@ -694,7 +709,7 @@ class MeetingService:
         from .worker import execute
         return execute(action, directory, settings, progress, key, speakers, trackers)
 
-    def _process(self, meeting_id, action, settings, key):
+    def _process(self, meeting_id, action, settings, key, elevenlabs_key=''):
         cancel = self.cancel_events.setdefault(meeting_id, threading.Event())
         job = Job(cancel, lambda **changes: self.library.update(meeting_id, **changes))
         acquired = False
@@ -713,14 +728,16 @@ class MeetingService:
                     self.library.update(meeting_id, duration=duration)
             if action in {'all', 'transcribe'}:
                 with job.step('Transcription'):
-                    self._execute('transcribe', directory, settings, progress, key, self.library.speakers())
+                    self._execute('transcribe', directory, settings, progress, elevenlabs_key if settings['transcription'] == 'elevenlabs' else key, self.library.speakers())
                     if settings.get('_reprocess_preserve_notes'):
                         self.library.update(meeting_id,notes_need_refresh=(directory/'minutes.json').exists(),notes_refresh_error=None)
             should_diarize = action in {'all', 'transcribe', 'speakers'}
             if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
-            if action in {'all', 'transcribe', 'correct','correct_summarize'} and settings.get('transcript_correction', 'none') != 'none':
+            # Scribe text is final; AI correction runs after it only on explicit request.
+            automatic_correction = action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs'
+            if (automatic_correction or action in {'correct','correct_summarize'}) and settings.get('transcript_correction', 'none') != 'none':
                 try:
                     with job.step('Transcript correction'):
                         before_correction=(directory/'transcript.json').read_bytes()
@@ -753,6 +770,8 @@ class MeetingService:
                 error=None, progress='Processing cancelled — saved audio and completed checkpoints are preserved', processing_stage='Cancelled')
         except Exception as exc:
             message = str(exc).replace(key, '[redacted]') if key else str(exc)
+            if elevenlabs_key:
+                message = message.replace(elevenlabs_key, '[redacted]')
             self.library.update(meeting_id, status='error', error=message, processing_stage='Failed',
                                 progress='Processing failed — recording preserved')
         finally:
@@ -781,7 +800,7 @@ class MeetingService:
             method = 'segment overlap'
             try:
                 assigned = align(source, alignment, turns)
-                method = 'Parakeet word boundaries and speaker turns' if alignment.get('method') in {parakeet.ALIGNMENT_METHOD, parakeet_sherpa.ALIGNMENT_METHOD} else 'Whisper word boundaries and speaker turns'
+                method = 'Parakeet word boundaries and speaker turns' if alignment.get('method') in {parakeet.ALIGNMENT_METHOD, parakeet_sherpa.ALIGNMENT_METHOD} else 'Scribe word boundaries and speaker turns' if alignment.get('method') == 'ElevenLabs Scribe word timestamps' else 'Whisper word boundaries and speaker turns'
             except (ValueError, KeyError, TypeError):
                 # Old, cloud or edited transcripts have no trustworthy word alignment.
                 assigned = conversation.assign_speakers(source, turns)

@@ -51,6 +51,28 @@ class SpeakerAlignmentTests(unittest.TestCase):
         result = alignment.align(source, saved, [unit(0, 1, '', 'A'), unit(1, 2, '', 'B')])
         self.assertEqual([s['speaker'] for s in result], [None, None])
 
+    def _assign(self, units, timeline):
+        source = alignment.group_units(units)
+        saved = dict(version=1, units=units, source_revision=alignment.revision(source))
+        return [(row['text'], row['speaker']) for row in alignment.align(source, saved, timeline)]
+
+    def test_late_word_times_move_the_change_to_the_sentence_end(self):
+        units = [unit(0, .5, 'Готово'), unit(.6, 1, 'ли'), unit(1.2, 1.4, 'е?'), unit(1.5, 2, 'Добре,'), unit(2.1, 3, 'започвам.')]
+        timeline = [dict(start=0, end=1.1, speaker='A'), dict(start=1.1, end=3, speaker='B')]
+        self.assertEqual(self._assign(units, timeline), [('Готово ли е?', 'A'), ('Добре, започвам.', 'B')])
+
+    def test_flicker_zero_length_words_and_punctuation_keep_one_speaker(self):
+        units = [unit(0, .5, 'Сега'), unit(.6, .6, 'ще'), unit(.7, 1, 'проверя'), unit(1, 1, ','),
+                 unit(1.1, 1.2, 'с'), unit(1.3, 2, 'теста.')]
+        timeline = [dict(start=0, end=1.05, speaker='A'), dict(start=1.05, end=1.25, speaker='B'), dict(start=1.25, end=2, speaker='A'),
+                    dict(start=5, end=6, speaker='B')]
+        self.assertEqual(self._assign(units, timeline), [('Сега ще проверя , с теста.', 'A')])
+
+    def test_a_short_reply_between_one_speaker_keeps_its_own_speaker(self):
+        units = [unit(0, 1, 'Проблеми?'), unit(1.2, 1.6, 'Не.'), unit(1.8, 2.5, 'Добре.')]
+        timeline = [dict(start=0, end=1.1, speaker='A'), dict(start=1.1, end=1.7, speaker='B'), dict(start=1.7, end=2.5, speaker='A')]
+        self.assertEqual(self._assign(units, timeline), [('Проблеми?', 'A'), ('Не.', 'B'), ('Добре.', 'A')])
+
     def test_edited_transcript_or_invented_word_text_rejects_alignment(self):
         source, saved, timeline = fixture()
         source[0]['text'] += ' Редакция'

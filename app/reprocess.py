@@ -34,17 +34,18 @@ def validate(service,keys,action):
     if action in {'correction','correction_notes'} and settings['transcript_correction']=='none':raise ValueError('Enable transcript correction in Settings')
     providers=[]
     if action in {'notes','correction_notes','audio'} and settings['summarizer']!='none':providers.append(('Notes',settings['summarizer']))
-    if action in {'correction','correction_notes','audio'} and settings['transcript_correction']!='none':providers.append(('Correction',settings['transcript_correction']))
+    if (action in {'correction','correction_notes'} or action=='audio' and settings['transcription']!='elevenlabs') and settings['transcript_correction']!='none':providers.append(('Correction',settings['transcript_correction']))
     if action=='audio':providers.append(('Speech recognition',settings['transcription']))
     semantic=any(tracker.get('semantic_matching') for tracker in service.library.trackers())
     providers.append(('Analytics','local' if semantic else 'on_device'))
     if any(provider=='openai' for _,provider in providers) and not service.api_key:raise ValueError('Add an OpenAI key before starting cloud processing')
+    if any(provider=='elevenlabs' for _,provider in providers) and not service.elevenlabs_api_key:raise ValueError('Add an ElevenLabs key before starting cloud processing')
     for key in keys:
         meeting=service.library.get(key);directory=service.library.directory(key)
         if key==service.active or key in service.busy or meeting.get('title_status')=='generating':raise ValueError('A selected meeting is busy. Try later.')
         if not (directory/'transcript.json').exists():raise ValueError('A saved transcript is required')
         if action=='audio' and not (directory/'recording.wav').exists():raise ValueError('Audio is unavailable. Choose processing from the saved transcript.')
-    return [dict(operation=label,provider=provider,destination='OpenAI cloud' if provider=='openai' else service.settings.get('local_ai_base_url','') if provider=='local' else 'On this Mac') for label,provider in providers]
+    return [dict(operation=label,provider=provider,destination='ElevenLabs cloud' if provider=='elevenlabs' else 'OpenAI cloud' if provider=='openai' else service.settings.get('local_ai_base_url','') if provider=='local' else 'On this Mac') for label,provider in providers]
 
 
 def preview(service,body):

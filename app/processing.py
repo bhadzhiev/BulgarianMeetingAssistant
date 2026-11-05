@@ -87,6 +87,11 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
     model = None
     model_path = None
     vad = prompt = None
+    if provider == 'elevenlabs':
+        from . import scribe
+        if not api_key:
+            raise ValueError('Add an ElevenLabs API key in Settings before transcription.')
+        prompt = scribe.keyterms(settings.get('whisper_vocabulary', ''))
     if provider == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before processing with cloud transcription.')
     if provider == 'local':
@@ -121,8 +126,8 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             from . import vad as voice
             detector, reason = voice.load(Path(settings['models_dir']), progress)
             vad = voice.LABEL if detector else reason
-    word_alignment = provider in {'local', 'parakeet', 'parakeet_sherpa'} and settings.get('diarization_enabled', True)
-    model_name = parakeet.MODEL_NAME if provider in {'parakeet', 'parakeet_sherpa'} else settings['local_model'] if provider == 'local' else settings['cloud_model']
+    word_alignment = provider == 'elevenlabs' or provider in {'local', 'parakeet', 'parakeet_sherpa'} and settings.get('diarization_enabled', True)
+    model_name = parakeet.MODEL_NAME if provider in {'parakeet', 'parakeet_sherpa'} else settings['local_model'] if provider == 'local' else scribe.MODEL if provider == 'elevenlabs' else settings['cloud_model']
     segments = []
     audio_path = directory / 'recording.wav'
     try:
@@ -140,6 +145,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
             provider=provider, model=model_name,
             model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation,
+            **({'request': 'whole recording'} if provider == 'elevenlabs' else {}),
             **({'hotwords_score': parakeet.HOTWORDS_SCORE, 'length_reward': parakeet.LENGTH_REWARD} if provider == 'parakeet_sherpa' else {}),
             **({'model_revision': parakeet.MODEL_REVISION} if provider in {'parakeet', 'parakeet_sherpa'} else {})), sort_keys=True).encode()).hexdigest()
         checkpoint = directory / '.transcription-progress.json'
@@ -154,6 +160,12 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 source.setpos(cursor)
                 progress(f'Resuming transcription from {int(cursor / rate)} seconds')
             first_cursor, inference_started = cursor, time.monotonic()
+            if provider == 'elevenlabs':
+                # One request gives Scribe the context of the whole meeting.
+                progress('Sending the whole recording to ElevenLabs Scribe')
+                segments = [TranscriptSegment(**unit) for unit in scribe.transcribe(audio_path.read_bytes(), api_key, prompt, 0, total / rate,
+                                                                                    timeout=300 + total / rate)]
+                cursor = total
             while cursor < total:
                 # Bound memory and cloud request size. Prefer a quiet boundary in the last 5s.
                 raw = source.readframes(min(rate * 60, total - cursor))
@@ -231,15 +243,17 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         save_transcript(directory, segments)
         if units:
             atomic_json(directory / 'transcript.alignment.json', dict(version=1, source_revision=revision([asdict(s) for s in segments]),
-                method=parakeet.ALIGNMENT_METHOD if provider in {'parakeet', 'parakeet_sherpa'} else 'whisper.cpp experimental word boundaries', units=units))
+                method=parakeet.ALIGNMENT_METHOD if provider in {'parakeet', 'parakeet_sherpa'} else scribe.ALIGNMENT_METHOD if provider == 'elevenlabs' else 'whisper.cpp experimental word boundaries', units=units))
         if preparation['profile'] == 'light':
             os.replace(audio_path, directory / 'transcription.wav')
         else:
             (directory / 'transcription.wav').unlink(missing_ok=True)
         metadata = dict(provider=provider,
             model=model_name,
-            timestamps='segment' if provider in {'local', 'parakeet', 'parakeet_sherpa'} else 'approximate chunk boundaries',
+            timestamps='word' if provider == 'elevenlabs' else 'segment' if provider in {'local', 'parakeet', 'parakeet_sherpa'} else 'approximate chunk boundaries',
             audio_preparation=preparation, resumed_from_seconds=resumed_from)
+        if provider == 'elevenlabs':
+            metadata.update(language='auto', vocabulary_applied=bool(prompt), word_boundaries=True, speaker_recognition='local')
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):

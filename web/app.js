@@ -390,7 +390,7 @@ function historyKeys(event){
 document.addEventListener('keydown',historyKeys);
 $('history-back').onclick=()=>history.back();$('history-forward').onclick=()=>history.forward();
 function show(which) {const changed=view!==which;if(changed)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects','conversations','calendar','importing']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
- $('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar();if(changed)window.scrollTo(0,0); syncRoute(); }
+ if(LIBRARY_VIEWS.includes(which)){const heading=$(which).querySelector('.heading');if(heading)heading.after($('library-tabs'));}$('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar();if(changed)window.scrollTo(0,0); syncRoute(); }
 function renderLibrary() {
  const query='';
  const meetings=state.meetings;
@@ -879,7 +879,6 @@ function renderNotes(busy=false) {
  const minutes=detail.minutes;
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
- $('outcomes').append(noteSection(minutes,'summary','Meeting notes',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
  const section=el('section','note-section');section.append(el('h3','',meetingType(detail).task_title));
  const taskList=el('div');section.append(taskList);

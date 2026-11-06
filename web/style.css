@@ -557,7 +557,7 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 #settings-form.simple .advanced-setting{display:none}
 @media(max-width:720px){.profile-picker{grid-template-columns:1fr 1fr}}
 
-.library-tabs{max-width:820px;margin:18px auto 0;justify-content:flex-start}
+.library-tabs{margin:0 0 18px;justify-content:flex-start}
 
 .topbar-left{display:inline-flex;align-items:center;gap:10px}
 .history-buttons{display:inline-flex;gap:2px}
@@ -687,7 +687,7 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 .conversation-filters .filter-chips{flex-basis:100%}.conversation-list{margin-top:12px}.conversation-card{padding:16px}.conversation-main .hint{margin:6px 0;font-size:12px}
 .empty-work{text-align:center;padding:24px 18px}.empty-work h2,.empty-work h3{font-size:20px;margin:0 0 10px}.empty-work p{color:var(--muted);font-size:14px;margin:0 0 18px}.empty-work .work-actions{justify-content:center}
 #workspace-browser{margin:8px 0}#workspace-browser>summary,.project-settings>summary{cursor:pointer;font-size:13px;color:var(--muted)}.project-settings{margin:12px 0}.project-settings .repository-editor{margin-top:12px}
-.project-navigation{display:flex;align-items:center;gap:12px;margin:16px 0}.project-navigation #workspace-tabs{margin:0;flex:1;min-width:0;gap:20px;flex-wrap:nowrap;overflow-x:auto}.project-navigation #workspace-tabs button{white-space:nowrap;min-height:44px}.project-navigation>.menu{flex:0 0 auto}
+.project-navigation{display:flex;align-items:center;gap:12px;margin:0 0 18px}.project-navigation #workspace-tabs{margin:0;flex:1;min-width:0;gap:20px;flex-wrap:nowrap;overflow-x:auto}.project-navigation #workspace-tabs button{white-space:nowrap;min-height:44px}.project-navigation>.menu{flex:0 0 auto}
 #workspace-content{padding:20px}#workspace-content>h2{font-size:20px;margin-top:0}#workspace-content>.hint{display:none}
 .detail-heading{margin:24px 0 12px;gap:14px}.detail-heading h1{font-family:var(--sans);font-size:27px;line-height:1.25;font-weight:650;letter-spacing:-.6px}.detail-heading .eyebrow{font-size:11px;letter-spacing:0;margin:0 0 8px}
 .detail-actions{gap:8px}.detail-scope{gap:8px}.attention{margin:12px 0;padding:14px 16px}.attention-more>summary{font-size:12px;cursor:pointer;color:var(--muted);padding-top:8px}.attention.done{display:none}

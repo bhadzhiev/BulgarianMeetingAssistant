@@ -822,5 +822,6 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
  .review-route select{width:100%}
 }
 
-.tracked-task:has(.task-pick){grid-template-columns:44px minmax(0,1fr) auto}.task-pick{display:grid;justify-items:center;gap:2px;margin:0;font-size:10px;font-weight:500;color:var(--muted);cursor:pointer}.task-quick-fields .task-done{justify-self:start;align-self:end}
+.tracked-task:has(.task-pick){grid-template-columns:44px minmax(0,1fr) auto}.task-pick{display:grid;justify-items:center;gap:2px;margin:0;font-size:10px;font-weight:500;color:var(--muted);cursor:pointer}.task-row-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
 #toast{display:flex;align-items:center;gap:10px}#toast button{background:transparent;border:1px solid currentColor;border-radius:6px;padding:4px 12px;margin:0;color:inherit;font-weight:600;text-decoration:none;box-shadow:none}
+.scope-type-label{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:11px;font-weight:600;color:var(--muted)}

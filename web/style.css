@@ -273,7 +273,7 @@ meter::-webkit-meter-optimum-value{background:var(--ok)}
 .brand{color:var(--side-ink);gap:13px;margin-bottom:30px}
 .brand-icon{background:var(--glow);font:800 22px var(--display);letter-spacing:-.5px;border-radius:14px;box-shadow:0 8px 24px -8px #14b8a6aa}
 .brand strong{font:800 21px var(--display);letter-spacing:-.3px}
-.brand small{display:block;margin-top:3px;color:var(--side-muted);font-size:10px;letter-spacing:1.6px;font-weight:600}
+.brand small{display:block;margin-top:4px;color:var(--side-muted);font-size:9px;letter-spacing:1.1px;font-weight:600;line-height:1;white-space:nowrap}
 .sidebar .primary{background:var(--glow);color:#fff;box-shadow:0 10px 26px -12px #14b8a6}
 .sidebar .primary:hover:not(:disabled){filter:brightness(1.08);background:var(--glow)}
 .sidebar .tasks-link{justify-content:flex-start;margin-top:4px;padding:10px 14px;background:transparent;color:var(--side-muted);font-weight:600}

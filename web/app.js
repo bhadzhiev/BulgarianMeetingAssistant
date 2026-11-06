@@ -2525,8 +2525,8 @@ function renderWorkspace(){
   for(const meeting of data.meetings){const row=el('article','workspace-item'),open=el('button','quiet',meeting.title);open.onclick=()=>perform(()=>openMeeting(meeting.id));row.append(open,el('p','hint',date(meeting.started_at||meeting.created)+' · '+(statusNames[meeting.status]||meeting.status)));
    const assign=el('select');assign.setAttribute('aria-label','Project for '+meeting.title);fillProjects(assign,meeting.project_id||'','No project');const save=el('button','secondary small-action','Move meeting');save.onclick=()=>perform(async()=>{await api('/api/meetings/'+meeting.id+'/scope',{project:assign.value?{id:assign.value}:null,series:assign.value===meeting.project_id&&meeting.series_id?{id:meeting.series_id}:null});state=await api('/api/state');lastTasks='';itemsData=await api('/api/items');renderState();await loadWorkspace();});row.append(assign,save);box.append(row);}
  }else if(workspaceSection==='conversations'){
-  box.append(el('h2','','Project conversations'),el('p','hint','Whole meetings, pinned excerpts and locally cached external conversations. Source snapshots do not imply a task or commitment.'));
-  for(const meeting of data.meetings){const open=el('button','quiet',meeting.title);open.onclick=()=>perform(()=>openMeeting(meeting.id));box.append(open);}
+  box.append(el('h2','','Project conversations'),el('p','hint','External conversations cached locally and attached to this project. The meetings themselves are in the Meetings tab. Source snapshots do not imply a task or commitment.'));
+  if(!(data.conversations||[]).length)box.append(el('p','hint','No external conversations attached yet.'));
   for(const conversation of data.conversations||[])box.append(attachmentCard(conversation));
  }else if(workspaceSection==='timeline'){
   renderTimeline(box,data);

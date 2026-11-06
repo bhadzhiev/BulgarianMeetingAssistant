@@ -22,7 +22,7 @@ Select transcript segments and choose **Task from selection**. The same source e
 
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 
-The first notes produced for the meeting being viewed open **Notes & tasks**, provided the user has no unsaved edits and is still on Transcript. Explicitly selected other tabs are preserved.
+The first notes produced for the meeting being viewed open **Tasks & decisions**, provided the user has no unsaved edits and is still on Transcript. Explicitly selected other tabs are preserved.
 
 ## Stage 3: managing the list
 

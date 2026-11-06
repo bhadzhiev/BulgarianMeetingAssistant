@@ -406,6 +406,7 @@ a.small-action{padding:7px 12px;font-size:12px}
 .chat-msg .message-text{margin-top:1px}
 .chat-msg.mine .message-top strong{color:var(--green)}
 .chat-msg.gone .message-text{color:var(--muted);font-style:italic}
+.chat-msg>.sender-person{grid-column:2;justify-self:start;margin:0 0 4px;white-space:nowrap}
 .chat-time{align-self:center;font-size:10px;color:var(--muted);text-align:center;opacity:0}
 .chat-msg:hover .chat-time,.chat-msg.selected .chat-time{opacity:1}
 .source-about{padding:2px 20px 16px;font-size:12px}

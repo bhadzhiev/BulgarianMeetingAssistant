@@ -147,3 +147,15 @@ def select_stages(snapshot,stages):
     selected['stages']={stage:copy.deepcopy(snapshot['stages'][stage]) for stage in stages}
     selected['revision']=max((layer['revision'] for row in selected['stages'].values() for layer in row['layers']),default=0)
     return dict(selected,id=digest(selected))
+
+
+def openai_json(messages, schema, name, model, api_key, settings=None, timeout=600):
+    """One strict-schema OpenAI chat completion, shared by notes, titles and correction."""
+    from meeting_assistant import post_json, extract_json
+    if settings is not None:
+        messages = apply(settings, messages, name)
+    response = post_json('https://api.openai.com/v1/chat/completions',
+        dict(model=model, messages=messages, temperature=0,
+             response_format={'type': 'json_schema', 'json_schema': {'name': name, 'strict': True, 'schema': schema}}),
+        headers={'Authorization': 'Bearer ' + api_key}, timeout=timeout)
+    return extract_json(response['choices'][0]['message']['content'])

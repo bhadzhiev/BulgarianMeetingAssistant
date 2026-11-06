@@ -241,7 +241,7 @@ class WorkGraph:
         def apply(data):
             proposal = data['proposals'].get(key)
             if not proposal or type(revision) is not int or proposal['revision'] != revision:
-                raise WorkItemConflict('This proposal changed. Reload Suggested.')
+                raise WorkItemConflict('This proposal changed. Reload the For review list.')
             if proposal['state'] not in {'pending', 'dismissed'}:
                 raise WorkItemConflict('This proposal is no longer available for review.')
             evidence = data['source_evidence'][proposal['evidence_id']]

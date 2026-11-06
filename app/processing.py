@@ -142,9 +142,11 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             backend_version = version('sherpa-onnx') if provider == 'parakeet_sherpa' else version('parakeet-mlx') if provider == 'parakeet' else version('pywhispercpp') if provider == 'local' else None
         except PackageNotFoundError:
             backend_version = 'unknown'
+        # Stable facts only: a varying VAD error message must not invalidate checkpoints.
+        vad_state = bool(detector) if provider in {'parakeet', 'parakeet_sherpa'} else vad is True
         signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
             provider=provider, model=model_name,
-            model_file=model_stat, vad=vad, prompt=prompt, preparation=preparation,
+            model_file=model_stat, vad=vad_state, prompt=prompt, preparation=preparation,
             **({'request': 'whole recording'} if provider == 'elevenlabs' else {}),
             **({'hotwords_score': parakeet.HOTWORDS_SCORE, 'length_reward': parakeet.LENGTH_REWARD} if provider == 'parakeet_sherpa' else {}),
             **({'model_revision': parakeet.MODEL_REVISION} if provider in {'parakeet', 'parakeet_sherpa'} else {})), sort_keys=True).encode()).hexdigest()
@@ -156,6 +158,9 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
                 raise ValueError('Processing requires a 16 kHz mono PCM recording')
             cursor, segments = transcription_checkpoint(checkpoint, signature, total, rate)
             resumed_from = cursor / rate
+            if provider == 'elevenlabs':
+                # One request covers the whole recording; a chunk cursor cannot resume it.
+                cursor, segments, resumed_from = 0, [], 0
             if cursor:
                 source.setpos(cursor)
                 progress(f'Resuming transcription from {int(cursor / rate)} seconds')
@@ -280,15 +285,8 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     segments = [TranscriptSegment(**s) for s in json.loads((directory / 'transcript.json').read_text())]
     if not segments:
         raise ValueError('Transcribe the recording before generating notes')
-    groups, group, length = [], [], 0
-    for segment in segments:
-        if group and length + len(segment.text) > 4000:
-            groups.append(group)
-            group, length = [], 0
-        group.append(segment)
-        length += len(segment.text) + 15
-    if group:
-        groups.append(group)
+    from .transcripts import group_by_length
+    groups = group_by_length(segments, lambda segment: segment.text, 4000, overhead=15)
     args = SimpleNamespace(summarizer=settings['summarizer'], llm_model=settings['llm_model'],
         local_ai_base_url=settings.get('local_ai_base_url', 'http://localhost:1235/v1'),
         local_ai_model=settings.get('local_ai_model', 'qwen3.5-9b'),

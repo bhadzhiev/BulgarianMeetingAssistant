@@ -3,6 +3,20 @@ from contextlib import contextmanager
 import time
 
 
+# Progress messages in the processing modules start with these prefixes.
+# tests/test_progress_phases.py keeps the two sides in sync.
+PHASE_PREFIXES = [('Downloading', 'Model download'), ('Loading', 'Model loading'),
+                  ('Preparing audio', 'Audio preparation'),
+                  ('Checking saved', 'Checkpoint check'), ('Resuming', 'Checkpoint reuse'),
+                  ('Reusing completed notes', 'Checkpoint reuse'),
+                  ('Transcribing', 'Speech inference'), ('Sending the whole recording', 'Speech inference'),
+                  ('Generating notes', 'AI requests'), ('AI correction', 'AI requests'),
+                  ('Output limit reached', 'AI requests'),
+                  ('Identifying speakers', 'Speaker inference'), ('Learning voice', 'Voice learning'),
+                  ('Checking topic', 'Topic analysis'), ('Building conversation analytics', 'Analytics'),
+                  ('Publishing', 'Publishing')]
+
+
 class JobCancelled(Exception):
     pass
 
@@ -27,11 +41,7 @@ class Job:
 
     def classify(self, message):
         phase = None
-        for prefix, value in [('Downloading', 'Model download'), ('Loading', 'Model loading'),
-                              ('Preparing audio', 'Audio preparation'), ('Checking saved', 'Checkpoint check'),
-                              ('Resuming', 'Checkpoint reuse'), ('Transcribing', 'Speech inference'),
-                              ('Generating notes', 'AI requests'), ('AI correction', 'AI requests'),
-                              ('Publishing', 'Publishing')]:
+        for prefix, value in PHASE_PREFIXES:
             if message.startswith(prefix):
                 phase = value
                 break

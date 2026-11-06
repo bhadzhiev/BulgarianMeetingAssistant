@@ -166,11 +166,6 @@ class LiveMeeting:
             n_threads=args.threads,
         )
 
-    def audio_callback(self, data: bytes, frames: int, time_info: Any, status: Any) -> None:
-        if status:
-            print(f"Audio warning: {status}", file=sys.stderr)
-        self.audio_queue.put(bytes(data))
-
     def transcribe(self, final: bool = False) -> None:
         if not self.buffer:
             return
@@ -534,21 +529,8 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
         key = getattr(args, "api_key", None) or os.environ.get("OPENAI_API_KEY")
         if not key:
             raise ValueError("Set OPENAI_API_KEY or use --summarizer local")
-        from app.prompts import apply
-        response = post_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "model": args.llm_model,
-                "messages": apply(vars(args),[{"role":"user","content":prompt}],"meeting_minutes"),
-                "temperature": 0,
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {"name": "meeting_minutes", "strict": True, "schema": schema},
-                },
-            },
-            headers={"Authorization": f"Bearer {key}"},
-        )
-        return extract_json(response["choices"][0]["message"]["content"])
+        from app.prompts import openai_json
+        return openai_json([{"role": "user", "content": prompt}], schema, "meeting_minutes", args.llm_model, key, settings=vars(args))
     raise ValueError(f"Unknown summarizer: {args.summarizer}")
 
 
@@ -663,7 +645,8 @@ def main() -> int:
         live.run(device)
         del live.model
         gc.collect()
-        if not args.no_final and (output_dir / "recording.wav").stat().st_size > 44:
+        recording = output_dir / "recording.wav"
+        if not args.no_final and recording.exists() and recording.stat().st_size > 44:
             postprocess(args, output_dir)
         elif args.summarizer != "none" and live.segments:
             minutes = generate_minutes(args, live.segments)

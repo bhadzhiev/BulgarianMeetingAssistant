@@ -248,4 +248,4 @@ class Library:
                     except (ValueError,OSError):pass
                 self.update(meeting['id'], status='interrupted',
                             progress='Interrupted — saved audio can be recovered',
-                            error='The app closed before this operation finished. Use Recover / Retry.', **timing)
+                            error='The app closed before this operation finished. Use More → Recover audio.', **timing)

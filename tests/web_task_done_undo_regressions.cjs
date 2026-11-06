@@ -30,6 +30,6 @@ function setup(){
  }
  assert.ok(slice('function globalTaskRow(','function decisionRow(').includes("el('span','','Select')"),'the select box has a visible label');
  assert.equal((src.match(/changeWithUndo\(item,\{dismissed:true\}/g)||[]).length,3,'Skip proposal twice and Dismiss offer Undo');
- assert.ok(slice('function taskRow(','function renderNotes(').includes("if(item.acceptance_state!=='proposed')main.append(doneButton(item,busy),edit,remove);else main.append(edit);"),'a proposal has no done control and no Delete');
+ assert.ok(slice('function taskRow(','function renderNotes(').includes("actions.append(doneButton(item,busy),edit,remove);main.append(actions);}else main.append(edit);"),'a proposal has no done control and no Delete');
  console.log('Task done/undo PASS: Mark done with Undo restores the earlier state, Reopen, no unlabelled done checkboxes, Skip and Dismiss Undo.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

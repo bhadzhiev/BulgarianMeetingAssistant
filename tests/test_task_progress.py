@@ -41,6 +41,17 @@ class TaskProgressTests(unittest.TestCase):
   before=copy.deepcopy(self.s.items.data);result=task_progress.build(self.s,self.task['id'])
   update=next(e for e in result['events'] if e['kind']=='progress_update')
   self.assertEqual(update['text'],'Waiting for access');self.assertIsNotNone(update['at']);self.assertEqual(self.s.items.data,before);self.assertEqual(self.conn.calls,[])
+ def test_meeting_linked_task_timeline_reads_its_transcript_evidence(self):
+  from app.storage import atomic_json
+  mid=self.s.library.create('Deployment planning','in_person',self.s.settings)['id']
+  atomic_json(self.s.library.directory(mid)/'transcript.json',[dict(start=0,end=8,speaker='Maria',text='Verify the deployment logs.')])
+  task=self.s.create_task(dict(request_id='f'*32,text='Verify deployment',meeting_id=mid))
+  self.s.items.items[task['id']]['links'][0]['evidence_timestamp']='00:00:00';self.s.items.save()
+  before=copy.deepcopy(self.s.items.data)
+  result=task_progress.build(self.s,task['id'])
+  evidence=next(e for e in result['events'] if e['kind']=='meeting_evidence')
+  self.assertEqual(evidence['quote'],'Verify the deployment logs.');self.assertEqual(evidence['meeting_id'],mid)
+  self.assertEqual(self.s.items.data,before);self.assertEqual(self.conn.calls,[])
  def test_explicit_check_records_activity_and_never_finishes_local_task(self):
   result=self.check();self.assertEqual(result['links'][0]['state'],'closed');self.assertEqual(result['local_state'],'todo')
   self.assertEqual([e['text'] for e in result['events'] if e['kind']=='github_commented'],['Restore verified'])

@@ -17,5 +17,6 @@
   return (!owner||(owner==='__none__'?!item.owner:item.owner===owner))&&(!requester||(requester==='__none__'?!item.requester_person_id:item.requester_person_id===requester))&&(!follower||(follower==='__none__'?!item.follower_person_id:item.follower_person_id===follower));
  }
  function visibleSelection(selection,rows){const visible=new Set(rows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).map(i=>i.id));return new Map([...selection].filter(([id])=>visible.has(id)));}
- return {STATES,workflow,inView,lastUpdate,personMatches,visibleSelection};
+ function meetingGroups(mentions){const groups=[],byId=new Map();mentions.forEach((mention,index)=>{const key=mention.item_id;if(key&&byId.has(key)){byId.get(key).mentions.push(mention);return;}const group={task:mention,index,mentions:[mention]};groups.push(group);if(key)byId.set(key,group);});return groups;}
+ return {STATES,workflow,inView,lastUpdate,personMatches,visibleSelection,meetingGroups};
 });

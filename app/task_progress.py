@@ -130,7 +130,7 @@ def build(service,item_id):
         if link.get('detached'):continue
         try:
             meeting=service.library.get(link['meeting_id']);directory=service.library.directory(link['meeting_id'])
-            from .storage import read_json
+            from .live import read_json
             rows=read_json(directory/'transcript.json',[])
             segment=segment_at(rows,link['evidence_timestamp']) if link.get('evidence_timestamp') else None
             add('meeting_evidence',None,meeting['title'],meeting_id=meeting['id'],source_date=meeting.get('created'),timestamp=link.get('evidence_timestamp'),quote=segment['text'] if segment else None)

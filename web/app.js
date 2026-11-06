@@ -1932,7 +1932,7 @@ $('record-series').onchange=()=>{$('record-type').value=seriesType($('record-ser
 $('record-prepare').onclick=()=>perform(()=>openPrepare($('record-project').value,$('record-series').value,$('record-type').value));
 function renderScope(d) {
  const box=$('detail-scope'), project=projectList().find(p=>p.id===d.project_id), series=seriesOf(d.project_id).find(s=>s.id===d.series_id); box.replaceChildren();
- const edit=el('button','quiet scope-chip',project?'Project: '+project.name+(series?' · '+series.name:'')+' ✎':'＋ Add to a project'); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
+ const edit=el('button','quiet scope-chip'); if(project?.color)edit.append(projectDot(project)); edit.append(document.createTextNode(project?'Project: '+project.name+(series?' · '+series.name:'')+' ✎':'＋ Add to a project')); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
  const type=el('select','scope-chip scope-type'); type.setAttribute('aria-label','Meeting type'); type.title='Meeting type · changes the notes sections and Prepare me'; fillTypes(type,d.meeting_type||'general',d.meeting_template&&!typeList().some(t=>t.id===d.meeting_type)?[option(d.meeting_template.label+' · deleted template',d.meeting_type)]:[]);
  type.onchange=()=>perform(async()=>{const value=type.value;detail=await api('/api/meetings/'+d.id+'/type',{meeting_type:value});lastFingerprint=JSON.stringify(detail);renderDetail();
   // Saved notes stay; new notes for the type become a proposal that the person reviews.
@@ -2337,12 +2337,13 @@ $('audio-source').onchange=()=>{if(!detail)return;const audio=$('audio'),positio
 
 let workspaceData=null, workspaceSection='overview', workspaceSequence=0;
 function projectAssignment(item){
- const box=el('details','project-assignment'), names=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)?.name).filter(Boolean);
- box.append(el('summary','',names.length?'Project: '+names.join(' · '):'Project: none · assign'));
- const hint=el('p','hint',Array.isArray(item.project_ids)?'Manual assignment · preserved during sync':names.length?'Inherited from linked meetings':'No project inherited. Select projects below, or assign a project to a linked meeting.');box.append(hint);
+ const box=el('details','project-assignment'), projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
+ const summary=el('summary'); if(projects.length){summary.append(document.createTextNode('Project: '));projects.forEach((project,i)=>{if(i)summary.append(document.createTextNode(' · '));if(project.color)summary.append(projectDot(project));summary.append(document.createTextNode(project.name));});}else summary.textContent='Project: none · assign';
+ box.append(summary);
+ const hint=el('p','hint',Array.isArray(item.project_ids)?'Manual assignment · preserved during sync':projects.length?'Inherited from linked meetings':'No project inherited. Select projects below, or assign a project to a linked meeting.');box.append(hint);
  const choices=[];
  for(const project of projectList()){
-  const label=el('label','project-choice'),check=el('input');check.type='checkbox';check.checked=(item.effective_project_ids||[]).includes(project.id);label.append(check,document.createTextNode(project.name));box.append(label);choices.push([project.id,check]);
+  const label=el('label','project-choice'),check=el('input');check.type='checkbox';check.checked=(item.effective_project_ids||[]).includes(project.id);label.append(check);if(project.color)label.append(projectDot(project));label.append(document.createTextNode(project.name));box.append(label);choices.push([project.id,check]);
  }
  const save=el('button','primary small-action','Save projects'),inherit=el('button','secondary small-action','Use meeting projects');save.type=inherit.type='button';
  save.onclick=()=>perform(()=>graphAction('project',{id:item.id,revision:item.revision,project_ids:choices.filter(([,check])=>check.checked).map(([id])=>id)}));
@@ -2756,7 +2757,8 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
 }
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
- const dialog=$('task-panel'),box=$('task-panel-body');box.replaceChildren(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),el('h2','task-card-title',item.text),el('p','hint','Projects: '+(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')));
+ const dialog=$('task-panel'),box=$('task-panel-body'),projectHint=el('p','hint');projectHint.append(document.createTextNode('Projects: '));(item.effective_project_ids||[]).forEach((key,i)=>{const project=projectList().find(p=>p.id===key);if(i)projectHint.append(document.createTextNode(', '));if(project?.color)projectHint.append(projectDot(project));projectHint.append(document.createTextNode(project?.name||'Removed project'));});
+ box.replaceChildren(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),el('h2','task-card-title',item.text),projectHint);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
  const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=3;area.setAttribute('aria-label','Task title');
  const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=3;details.setAttribute('aria-label','Details');

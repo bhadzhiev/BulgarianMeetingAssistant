@@ -71,15 +71,10 @@ def ask(settings, messages, response_schema, api_key):
         from .local_ai import complete_json
         return complete_json(settings, messages, response_schema, 'transcript_correction')
     if provider == 'openai':
-        from .prompts import apply
-        messages=apply(settings,messages,'transcript_correction')
-        from meeting_assistant import post_json, extract_json
         if not api_key:
             raise ValueError('Add an OpenAI API key in Settings for cloud transcript correction.')
-        response = post_json('https://api.openai.com/v1/chat/completions', dict(model=settings['llm_model'], messages=messages,
-            temperature=0, response_format={'type': 'json_schema', 'json_schema': {'name': 'transcript_correction', 'strict': True, 'schema': response_schema}}),
-            headers={'Authorization': 'Bearer ' + api_key})
-        return extract_json(response['choices'][0]['message']['content'])
+        from .prompts import openai_json
+        return openai_json(messages, response_schema, 'transcript_correction', settings['llm_model'], api_key, settings=settings)
     raise ValueError('Choose a transcript correction provider in Settings.')
 
 
@@ -89,15 +84,8 @@ def correct(directory: Path, settings: dict, progress, api_key: str = '', speake
     raw = directory / 'transcript.raw.json'
     if not raw.exists():
         shutil.copy2(directory / 'transcript.json', raw)
-    groups, group, length = [], [], 0
-    for index, segment in enumerate(segments):
-        if group and length + len(segment.text) > CHUNK_CHARS:
-            groups.append(group)
-            group, length = [], 0
-        group.append(index)
-        length += len(segment.text)
-    if group:
-        groups.append(group)
+    from .transcripts import group_by_length
+    groups = group_by_length(range(len(segments)), lambda index: segments[index].text, CHUNK_CHARS)
     speakers=list(speakers);terms=vocabulary(settings)
     system=system_prompt(settings,speakers)
     changed = rejected = 0

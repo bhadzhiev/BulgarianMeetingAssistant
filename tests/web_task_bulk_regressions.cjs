@@ -2,7 +2,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const src=fs.readFileSync('web/app.js','utf8');
 (async()=>{
  let finish;const requests=[],body={request_id:'a'.repeat(32),items:[{id:'one',revision:1}],changes:{workflow_state:'waiting'}};
- const c=vm.createContext({$:()=>({}),api:(path,payload)=>{requests.push({path,payload});return new Promise((resolve,reject)=>finish=e=>e?reject(e):resolve({count:1}));},withEditorSave:async(_,fn)=>fn(),renderBulkTasks(){},toast(){},refreshAfterItemChange:async()=>{}});
+ const c=vm.createContext({AtlantaUX:require('../web/ux.js'),$:()=>({}),api:(path,payload)=>{requests.push({path,payload});return new Promise((resolve,reject)=>finish=e=>e?reject(e):resolve({count:1}));},withEditorSave:async(_,fn)=>fn(),renderBulkTasks(){},toast(){},refreshAfterItemChange:async()=>{}});
  vm.runInContext('let bulkSaving=false,bulkPending=null,taskSelection=new Map();'+src.slice(src.indexOf('async function sendBulkTasks('),src.indexOf('function renderBulkTasks(')),c);c.body=body;
  vm.runInContext('bulkPending=body;taskSelection.set("one",body.items[0]);',c);
  const first=vm.runInContext('sendBulkTasks(body)',c);await vm.runInContext('sendBulkTasks(body)',c);assert.equal(requests.length,1,'double click cannot submit twice');

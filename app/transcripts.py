@@ -25,6 +25,26 @@ def stamp_seconds(stamp):
     return sum(int(part) * 60 ** n for n, part in enumerate(reversed(stamp.split(':'))))
 
 
+def time_stamp(seconds):
+    """Whole seconds as HH:MM:SS; the display twin of stamp_seconds."""
+    value = max(0, int(seconds))
+    return f'{value // 3600:02}:{value // 60 % 60:02}:{value % 60:02}'
+
+
+def group_by_length(items, text_of, limit, overhead=0):
+    """Consecutive groups whose text stays under limit characters; overhead counts per item."""
+    groups, group, length = [], [], 0
+    for item in items:
+        if group and length + len(text_of(item)) > limit:
+            groups.append(group)
+            group, length = [], 0
+        group.append(item)
+        length += len(text_of(item)) + overhead
+    if group:
+        groups.append(group)
+    return groups
+
+
 def segment_at(segments, stamp):
     """The words that a note's HH:MM:SS source time cites, as one span.
 

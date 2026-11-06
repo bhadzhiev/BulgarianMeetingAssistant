@@ -22,7 +22,7 @@ import sounddevice as sd
 
 from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
 from .storage import Library, atomic_json, atomic_text
-from .transcripts import segment_at
+from .transcripts import segment_at, stamp_seconds, time_stamp
 from .meeting_review import review_state
 from . import voices
 from .jobs import Job, JobCancelled
@@ -60,11 +60,6 @@ DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model
                 whisper_vad=True, whisper_vocabulary='', audio_preparation='off',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
-
-
-def time_stamp(value):
-    value = max(0, int(value))
-    return f'{value // 3600:02}:{value // 60 % 60:02}:{value % 60:02}'
 
 
 MARKER_KINDS = ('important', 'decision', 'check')
@@ -160,7 +155,7 @@ class MeetingService:
             raise ValueError('Unknown setting')
         values = migrate_settings(dict(self.settings, **settings))
         if values['audio_preparation'] not in {'off', 'light', 'strong'}:
-            raise ValueError('Audio preparation must be Off or Light')
+            raise ValueError('Audio preparation must be Off, Light or Strong')
         values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
         if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:
             raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
@@ -315,7 +310,7 @@ class MeetingService:
                     validate_minutes(meeting['minutes'])  # adds fields that older notes lack
                 except ValueError:
                     notes_valid = False
-            meeting['transcript_revision'] = hashlib.sha256(json.dumps(meeting['transcript'], sort_keys=True).encode()).hexdigest()
+            meeting['transcript_revision'] = self._transcript_revision(meeting['transcript'])
             meeting['voice_suggestions'] = self._voice_suggestions(meeting_id, directory, meeting['transcript'])
             meeting['minutes_revision'] = self._minutes_revision(directory)
             meeting['minutes_proposal'] = None
@@ -356,6 +351,22 @@ class MeetingService:
             self.preview.close()
             self.preview = None
         self.preview_level = 0
+
+    def _release_live(self, meeting_id, reason=None):
+        """Stop a finished recording's caption session; drop it once its worker exits."""
+        live = self.live_sessions.get(meeting_id)
+        if not live:
+            return
+        if reason is None:
+            live.request_stop()
+        else:
+            live.request_stop(reason)
+        thread = getattr(live, 'thread', None)
+        if thread:
+            thread.join(timeout=10)
+        if not thread or not thread.is_alive():
+            with self.lock:
+                self.live_sessions.pop(meeting_id, None)
 
     def input_devices(self):
         """The microphone list, scanned again. The new-meeting form asks for it while it is open."""
@@ -564,6 +575,7 @@ class MeetingService:
                     recorder.stop()
                 except Exception:
                     pass
+            self._release_live(meeting_id)
             with self.lock:
                 self.library.update(meeting_id, status='error', error=str(exc), progress='Recording could not start')
                 self.active, self.recorder = None, None
@@ -619,9 +631,7 @@ class MeetingService:
         try:
             recorder.stop()
             self.library.update(meeting_id,ended_at=dt.datetime.now().astimezone().isoformat())
-            live = self.live_sessions.get(meeting_id)
-            if live:
-                live.request_stop()
+            self._release_live(meeting_id)
             duration = render_recording(self.library.directory(meeting_id))
             with self.lock:
                 meeting = self.library.update(meeting_id, status='recorded', duration=duration,
@@ -637,12 +647,10 @@ class MeetingService:
                         self.library.update(meeting_id, status='recorded', error=str(exc),
                                             progress='Recording saved — update settings and retry processing')
         except Exception as exc:
-            live = self.live_sessions.get(meeting_id)
-            if live:
-                live.request_stop()
+            self._release_live(meeting_id)
             with self.lock:
                 self.library.update(meeting_id, status='interrupted', error=str(exc),
-                                    progress='Raw audio saved — use Recover / Retry')
+                                    progress='Raw audio saved — open More → Recover audio')
                 self.active, self.recorder = None, None
                 self.activity_changed(False)
         finally:
@@ -666,7 +674,7 @@ class MeetingService:
                 if action == 'all':
                     action = 'summarize'
             settings = meeting['settings'] if use_saved else dict(self.settings, models_dir=str(self.models_dir))
-            settings = migrate_settings(settings)
+            # Migrate once, after the per-meeting fields below are pinned.
             if preserve_notes:
                 if action!='all':raise ValueError('Preserve notes applies to full reprocessing')
                 settings['_reprocess_preserve_notes']=True
@@ -951,7 +959,7 @@ class MeetingService:
                 value=body['speaker_assignment']
                 if not isinstance(value,dict):raise ValueError('Choose a speaker for this turn')
                 current=read_json(directory/'transcript.json',[])
-                revision=hashlib.sha256(json.dumps(current,sort_keys=True).encode()).hexdigest()
+                revision=self._transcript_revision(current)
                 if value.get('revision')!=revision:raise items.WorkItemConflict('The transcript changed. Reload before changing this speaker.')
                 indices=value.get('indices');name=value.get('name')
                 if not isinstance(indices,list) or not indices or len(indices)>100000 or any(type(index) is not int or not 0<=index<len(current) for index in indices) or len(set(indices))!=len(indices):raise ValueError('Choose existing transcript segments')
@@ -964,7 +972,7 @@ class MeetingService:
             if 'transcript' in body:
                 # Like the notes: a copy without the current revision must not replace a newer transcript.
                 current = read_json(directory / 'transcript.json', [])
-                revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                revision = self._transcript_revision(current)
                 if current and body.get('transcript_revision') != revision:
                     raise items.WorkItemConflict('The transcript changed. Reload before saving your corrections.')
             if 'speaker_name' in body and set(body) != {'speaker_name'}:
@@ -983,7 +991,7 @@ class MeetingService:
                     raise ValueError('Choose a speaker and name')
                 path = directory / 'transcript.json'
                 current = read_json(path, [])
-                revision = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                revision = self._transcript_revision(current)
                 if value.get('revision') != revision:
                     raise items.WorkItemConflict('The transcript changed. Reload before naming speakers.')
                 old, name = value.get('speaker'), value.get('name')
@@ -1102,6 +1110,11 @@ class MeetingService:
         finally:
             with self.lock:
                 self.busy.discard(meeting_id)
+
+    @staticmethod
+    def _transcript_revision(transcript):
+        """The version of a transcript; an edit must start from it."""
+        return hashlib.sha256(json.dumps(transcript, sort_keys=True).encode()).hexdigest()
 
     @staticmethod
     def _minutes_revision(directory):
@@ -1351,7 +1364,7 @@ class MeetingService:
             stamp = link.get('evidence_timestamp')
             if not stamp:
                 continue
-            seconds = sum(int(part) * 60 ** n for n, part in enumerate(reversed(stamp.split(':'))))
+            seconds = stamp_seconds(stamp)
             meeting = meetings[link['meeting_id']]
             moment = dict(meeting_id=meeting['id'], title=meeting['title'], date=meeting.get('started_at') or meeting['created'], seconds=seconds)
             rows = read_json(self.library.directory(meeting['id']) / 'transcript.json', [])
@@ -1404,7 +1417,7 @@ class MeetingService:
         when = ''
         if moment:
             day = dt.datetime.fromisoformat(moment['date']).strftime('%-d %B %Y')
-            stamp = f"{int(moment['seconds']) // 3600:02}:{int(moment['seconds']) // 60 % 60:02}:{int(moment['seconds']) % 60:02}"
+            stamp = time_stamp(moment['seconds'])
             when = (f"{moment['title']}, {day} · {stamp}" if with_meeting else f'A meeting on {day} · {stamp}')
             if not with_meeting:
                 notes.append('The meeting title is hidden.')
@@ -1726,7 +1739,7 @@ class MeetingService:
                 # A meeting archived during a job comes back as interrupted, like after a crash.
                 if self.library.get(meeting_id)['status'] in {'starting', 'recording', 'paused', 'stopping', 'processing'}:
                     self.library.update(meeting_id, status='interrupted', progress='Restored from an archive',
-                                        error='This meeting was busy when it was archived. Use Recover / Retry.')
+                                        error='This meeting was busy when it was archived. Use More → Recover audio.')
             self._refresh_items()
         return dict(self.backups(), recovered_metadata=recovered_metadata, **result)
 
@@ -2024,7 +2037,7 @@ class MeetingService:
                 if previous and previous[0]==stamps:
                     sources[meeting['id']]=previous[1];fresh[meeting['id']]=previous;continue
                 transcript=json.loads((directory/'transcript.json').read_text()) if (directory/'transcript.json').exists() else []
-                revision=hashlib.sha256(json.dumps(transcript,sort_keys=True).encode()).hexdigest()
+                revision=self._transcript_revision(transcript)
                 minutes=json.loads((directory/'minutes.json').read_text()) if (directory/'minutes.json').exists() else None
                 sources[meeting['id']]=dict(source=source_digest(revision,self._minutes_revision(directory)),evidence=source_digest(revision,minutes_evidence(minutes)))
                 fresh[meeting['id']]=(stamps,sources[meeting['id']])
@@ -2636,6 +2649,7 @@ class MeetingService:
         self.automation.retry_pending()
 
     def _monitor(self):
+        sweeps = 0
         while not self.closed.wait(1):
             try:
                 with self.lock:
@@ -2658,7 +2672,11 @@ class MeetingService:
                                     self.library.update(self.active, **changes)
                                     if meeting.get('microphone_status', 'connected') != changes['microphone_status']:
                                         self.health_changed(changes['microphone_status'] != 'connected')
-                self.automation.retry_pending()
+                # The title/calendar sweeper tolerates half-minute granularity.
+                sweeps += 1
+                if sweeps >= 30:
+                    sweeps = 0
+                    self.automation.retry_pending()
             except Exception as exc:
                 print(f'Monitor: {exc}', flush=True)
 

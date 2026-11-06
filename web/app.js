@@ -1912,6 +1912,8 @@ function typeSections(type,minutes) {
  const own=type.sections, other=[...typeList().filter(t=>!t.custom).flatMap(t=>t.sections),...['custom_1','custom_2','custom_3'].map(key=>({key,title:FIELD_TITLES[key]}))].filter(s=>!own.some(o=>o.key===s.key)&&(minutes[s.key]||[]).length);
  return [...own,...other.filter((s,i)=>other.findIndex(o=>o.key===s.key)===i)];
 }
+const PROJECT_PALETTE=['#5b8def','#4cb782','#e2b33c','#c9699e','#8d6fd1','#d97b54','#3fa9ad','#b15b5b'];
+function projectDot(project){const dot=el('span','project-dot');if(project?.color)dot.style.background=project.color;dot.title=project?.color?'Project color':'No project color';return dot;}
 function fillProjects(select,value,none,extra=[]) { select.replaceChildren(option(none,''),...projectList().map(p=>option(p.name,p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
 function fillSeries(select,projectId,value,none,extra=[]) { select.replaceChildren(option(none,''),...seriesOf(projectId).map(s=>option(s.name,s.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; select.disabled=!projectId&&!extra.length; }
 function syncProjects() {
@@ -1995,6 +1997,7 @@ function renderProjectSettings() {
   const change=async body=>{state.projects=(await api('/api/projects/change',Object.assign({kind,id:entry.id},body))).projects;lastProjects='';syncProjects();renderProjectSettings();};
   if(kind==='series'){const type=el('select');type.setAttribute('aria-label','Default meeting type of '+entry.name);type.title='New meetings of this series start with this type';fillTypes(type,entry.type||'general');
    type.onchange=()=>perform(async()=>{await change({action:'type',name:type.value});toast('New meetings of "'+entry.name+'" start as '+typeOf(type.value).label);});line.insertBefore(type,rename);}
+  if(kind==='projects'){const color=el('input');color.type='color';color.className='project-color';color.value=entry.color||PROJECT_PALETTE[0];color.setAttribute('aria-label','Color of '+entry.name);color.title='Project color, shown on cards and headings';color.onchange=()=>perform(async()=>{await change({action:'color',value:color.value});toast('Color of "'+entry.name+'" saved');});line.insertBefore(color,rename);}
   rename.onclick=()=>perform(async()=>{const name=await ask('New name',{value:entry.name,ok:'Rename'});if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
   remove.onclick=()=>perform(async()=>{if(await ask('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.',{ok:'Delete',danger:true}))await change({action:'delete'});});
   return line;};
@@ -2499,7 +2502,7 @@ async function loadWorkspace(){
 function renderWorkspace(){
  const data=workspaceData;if(!data)return;
  const cards=$('workspace-cards');cards.replaceChildren();$('workspace-browser').hidden=!!data.project_id;
- for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));b.append(el('strong','',project.name),el('span','hint',AtlantaUX.count(project.meetings,'meeting')+' · '+AtlantaUX.count(project.open_tasks,'open task')+' · '+AtlantaUX.count(project.open_questions,'question')));b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
+ for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));const head=el('div','project-card-head');head.append(projectDot(project),el('strong','',project.name));b.append(head,el('span','hint',AtlantaUX.count(project.meetings,'meeting')+' · '+AtlantaUX.count(project.open_tasks,'open task')+' · '+AtlantaUX.count(project.open_questions,'question')));b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
  const activeSection=['task','decision','question'].includes(workspaceSection)?'work':workspaceSection;
  for(const b of $('workspace-tabs').querySelectorAll('button')){const on=b.dataset.section===activeSection;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));const count=b.dataset.section==='meetings'?data.meetings.length:b.dataset.section==='work'?data.items.length:0;const title={overview:'Overview',work:'Work',meetings:'Meetings',timeline:'Timeline'}[b.dataset.section];b.textContent=title+(count?' · '+count:'');}
  $('workspace-more-label').textContent=({sources:'Sources',conversations:'Conversations'}[activeSection]||'More')+' ▾';
@@ -2513,9 +2516,9 @@ function renderWorkspace(){
   const actions=el('div','action-group workspace-actions');actions.append(...editDeleteButtons(item,cardText));const open=el('button','quiet',item.kind==='task'?'Open task':'Open in My Work');open.onclick=()=>item.kind==='task'?perform(()=>openTaskPanel(item.id)):perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});actions.append(open);card.append(actions);return card;
  }
  if(workspaceSection==='overview'){
-  box.append(el('h2','',data.projects.find(p=>p.id===data.project_id)?.name||'All projects'));
+  const current=data.projects.find(p=>p.id===data.project_id),title=el('h2');if(current?.color)title.append(projectDot(current));title.append(document.createTextNode(current?.name||'All projects'));box.append(title);
   box.append(el('p','hint','One work item can belong to several projects. Manual assignments take priority over linked meeting projects. Source states and saved quotes remain unchanged.'));
-  const current=data.projects.find(p=>p.id===data.project_id);if(current&&current.id!=='__none__')box.append(repositoryEditor(current));else{const repositories=el('section','project-repos');repositories.append(el('h3','','Repositories'),el('p','hint','Choose a project above to view and link its repositories.'));box.append(repositories);}
+  if(current&&current.id!=='__none__')box.append(repositoryEditor(current));else{const repositories=el('section','project-repos');repositories.append(el('h3','','Repositories'),el('p','hint','Choose a project above to view and link its repositories.'));box.append(repositories);}
   for(const [kind,title] of Object.entries(kinds)){
    const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
    if(rows.length){box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));}
@@ -2542,7 +2545,8 @@ let workspaceWorkKind='';
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
 $('workspace-refresh').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;itemsData=await api('/api/items');await loadWorkspace();});
-$('workspace-new').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;const name=await ask('New project name',{ok:'Create project',value:''});if(name===null)return;const created=await api('/api/projects/create',{name});state.projects=created.projects;lastProjects='';syncProjects();fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
+function askProject(){return new Promise(resolve=>{const dialog=$('project-dialog');$('project-name').value='';$('project-color').value=PROJECT_PALETTE[projectList().length%PROJECT_PALETTE.length];dialog.returnValue='';dialog.onclose=()=>{resolve(dialog.returnValue==='ok'&&$('project-name').value.trim()?{name:$('project-name').value.trim(),color:$('project-color').value}:null);};dialog.showModal();$('project-name').focus();});}
+$('workspace-new').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;const spec=await askProject();if(!spec)return;const created=await api('/api/projects/create',spec);state.projects=created.projects;lastProjects='';syncProjects();fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
 for(const b of $('workspace-tabs').querySelectorAll('button'))b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;workspaceSection=b.dataset.section;renderWorkspace();syncRoute(true);});
 
 const CONVERSATION_LABELS={meeting:'Meeting',excerpt:'Transcript excerpt',gmail:'Gmail',google_chat:'Google Chat',attached:'Saved snapshot'};

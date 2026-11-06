@@ -1244,14 +1244,16 @@ class MeetingService:
             self.projects.save()
             return dict(meeting_types=meeting_types.public(self.templates.list()), projects=self.projects.data)
 
-    def change_scope(self, kind, entry_id, action, name=None):
-        """Rename or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
-        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type'} or action == 'type' and kind != 'series':
+    def change_scope(self, kind, entry_id, action, name=None, value=None):
+        """Rename, recolor or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
+        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type', 'color'} or action == 'type' and kind != 'series' or action == 'color' and kind != 'projects':
             raise ValueError('Invalid change')
         with self.lock, self.projects.lock:
             if action == 'type':
                 # Only new meetings use the new default; saved meetings keep their type.
                 self.projects.set_series_type(entry_id, self._meeting_type(name)[0])
+            elif action == 'color':
+                self.projects.set_color(entry_id, value)
             elif action == 'rename':
                 self.projects.rename(kind, entry_id, name)
             else:
@@ -1508,9 +1510,9 @@ class MeetingService:
             return rows
         return self.github_links.for_resource(kind, key)
 
-    def create_project(self, name):
+    def create_project(self, name, color=None):
         with self.lock, self.projects.lock:
-            key = self.projects.ensure_project({'name': name})
+            key = self.projects.ensure_project({'name': name, **({'color': color} if color else {})})
             self.projects.save()
             return dict(id=key, projects=self.projects.data)
 

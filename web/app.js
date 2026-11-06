@@ -548,6 +548,7 @@ function privacy(s) { let text=s.transcription==='elevenlabs'?'Audio and vocabul
 function switchTab(name) {
  for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
  meetingTab=name;syncRoute(true);
+ if(detail&&view==='detail')placeActions(detail);
  if(name==='review')perform(openMeetingReview);
 }
 function markTranscript() { dirtyTranscript=true; $('save-transcript').disabled=false; $('save-transcript').textContent='Save corrections'; }
@@ -653,9 +654,10 @@ const ACTIONS=['process','correct','summarize','recover','edit-title','generate-
 // One clear next step is a button; the other actions wait in the More menu.
 function placeActions(d) {
  const action=$('review-primary');action.hidden=!d.minutes_proposal&&(!d.minutes||d.notes_need_refresh||d.notes_refresh_error);action.textContent=d.minutes_proposal?'Review updated notes':'Review decisions and tasks';action.disabled=d.status==='processing';
+ if(!d.minutes_proposal&&meetingTab==='review')action.hidden=true;
  const audio=d.files.includes('recording.wav');
  const primary=d.minutes_proposal?null:!$('recover').hidden&&!audio?'recover':!$('process').hidden&&!d.transcript.length?'process':d.transcript.length&&(d.notes_need_refresh||d.notes_refresh_error)?'summarize':d.transcript.length&&!d.minutes?'summarize':null;
- for(const id of ACTIONS) { const button=$(id); if(id===primary){button.className='primary';$('primary-action').append(button);} else {button.className=id==='delete-meeting'?'danger-text':'';$('more-actions').append(button);} }
+ for(const id of ACTIONS) { const button=$(id); if(id===primary){button.className=action.hidden?'primary':'secondary';$('primary-action').append(button);} else {button.className=id==='delete-meeting'?'danger-text':'';$('more-actions').append(button);} }
 }
 function closeMenus(except) { for(const menu of document.querySelectorAll('details.menu[open]')) if(menu!==except) menu.open=false; }
 document.addEventListener('click',event=>{closeMenus(event.target.closest('details.menu'));if(event.target.closest('.menu-items button,.menu-items a'))closeMenus();});
@@ -679,7 +681,7 @@ function listenButton(meetingId,seconds,{label,until,className='',title}={}){
   button.replaceChildren(el('span','listen-icon',playing?'■':'▶'),...(text?[el('span','listen-label',text)]:[]));
   button.setAttribute('aria-label',(playing?'Stop playback at ':'Play from ')+time(seconds));button.title=title||(playing?'Stop':'Play from '+time(seconds));};
  render(false);
- if(!meetingId||!hasRecording(meetingId)){button.disabled=true;button.title='This meeting has no recording';return button;}
+ if(!meetingId||!hasRecording(meetingId)){button.disabled=true;button.title='This meeting has no recording';if(!text)button.hidden=true;return button;}
  // A list that renders again keeps showing the moment that plays.
  if(moment.key===key&&moment.player&&!moment.player.paused){moment.button=button;moment.render=render;render(true);}
  button.onclick=event=>{event.stopPropagation();
@@ -858,7 +860,7 @@ function taskRow(task,index,busy) {
  main.append(meta);
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
- if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));if(item.acceptance_state!=='proposed')main.append(doneButton(item,busy));main.append(edit,remove);}
+ if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));if(item.acceptance_state!=='proposed')main.append(doneButton(item,busy),edit,remove);else main.append(edit);}
  if(item?.acceptance_state==='proposed'){const accept=el('button','primary small-action','Accept task'),skip=el('button','secondary small-action','Skip proposal');accept.type=skip.type='button';accept.disabled=skip.disabled=busy;accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));const link=el('button','secondary small-action','Link to existing task');link.type='button';link.disabled=busy;link.onclick=()=>perform(async()=>{const at=stampSeconds(task.evidence_timestamp||'00:00:00'),first=detail.transcript.findIndex(s=>s.start<=at&&s.end>=at);if(first<0)throw new Error('Select the supporting transcript passage to link this action.');await suggestTask(link,{provider:'meeting',id:detail.id,revision:detail.transcript_revision,first,last:first,link_only:true,proposal_item_id:item.id,proposal_item_revision:item.revision});});main.append(accept,link,skip);}
  if(item&&item.acceptance_state!=='proposed') main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  row.append(el('span'),main); return row;
@@ -888,7 +890,6 @@ function renderNotes(busy=false) {
   bottom.append(doneLabel,el('label','','Source'));const select=el('select');select.setAttribute('aria-label','Evidence for task '+(index+1));select.disabled=busy;for(const stamp of [...new Set(detail.transcript.map(s=>time(s.start)))]){const option=el('option','',stamp);option.value=stamp;select.append(option);}select.value=task.evidence_timestamp;select.onchange=()=>{task.evidence_timestamp=select.value;markNotes();};
   const remove=el('button','quiet','Remove');remove.disabled=busy;remove.onclick=()=>{minutes.tasks.splice(index,1);markNotes();drawTasks();};bottom.append(select,remove);box.append(bottom);taskList.append(box);}); }
  if(!notesEditing) {
-  const add=el('button','secondary small-action','＋ Add task');add.type='button';add.disabled=busy;add.onclick=()=>perform(()=>openManualTask(detail.id));section.append(add);
   if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
   minutes.tasks.forEach((task,index)=>{if(!detail.items?.[task.item_id]?.dismissed)taskList.append(taskRow(task,index,busy));});
  } else {
@@ -1085,7 +1086,7 @@ function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meetin
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
  for(const link of item.links.filter(link=>link.meeting_id!==except).sort((a,b)=>(meetings[a.meeting_id]?.date||'').localeCompare(meetings[b.meeting_id]?.date||''))) {
-  box.append(originChip('meeting',meetingLabel(link.meeting_id,meetings)+(link.evidence_timestamp?' · '+link.evidence_timestamp:''),async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}));
+  box.append(originChip('meeting',meetingLabel(link.meeting_id,meetings)+(link.evidence_timestamp?' · at '+link.evidence_timestamp:''),async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}));
   if(link.evidence_timestamp)box.append(listenButton(link.meeting_id,stampSeconds(link.evidence_timestamp),{label:'',className:'chip-listen'}));
  }
  return box;
@@ -1312,9 +1313,9 @@ function globalTaskRow(item,today) {
  meta.append(who,el('span','due-label '+kind,label),workReviewBadge(item.review_state));
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
- const roles=el('p','hint task-responsibilities','Received from: '+whoName(item.requester_person_id)+' · Assigned by: '+whoName(item.assigned_by_person_id));
- const update=AtlantaTasks.lastUpdate(item),progress=el('p','task-last-update',update?dateTime(update.at)+' · '+update.text:'No progress update yet');
- main.append(title,meta,roles,progress,sourceChips(item,itemsData.meetings));
+ const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
+ const update=AtlantaTasks.lastUpdate(item);
+ main.append(title,meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));if(update)main.append(el('p','task-last-update',dateTime(update.at)+' · '+update.text));main.append(sourceChips(item,itemsData.meetings));
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
@@ -2735,7 +2736,7 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
 }
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
- const dialog=$('task-panel'),box=$('task-panel-body');box.replaceChildren(el('h2','','Task'),el('p','hint','Projects: '+(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')));
+ const dialog=$('task-panel'),box=$('task-panel-body');box.replaceChildren(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),el('h2','task-card-title',item.text),el('p','hint','Projects: '+(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')));
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
  const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=3;area.setAttribute('aria-label','Task title');
  const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=3;details.setAttribute('aria-label','Details');
@@ -2753,7 +2754,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const routes=el('div','task-card-grid');routes.append(label('Owner',owner),label('Task state',workflow),label('Received from',requester),label('Assigned by',assigner),label('Followed by',follower),label('Due date',due),label('Next follow-up',follow),label('Project',project));
  if(managerSelf){const assigned=el('button','secondary small-action','I assigned this task');assigned.type='button';assigned.onclick=()=>{assigner.value=managerSelf;dirty();};routes.append(assigned);}
  let editing=false;const dirty=()=>{editing=true;github.inert=true;editorDirty.set('task-panel',true);};for(const control of [area,details,criterion,owner,requester,assigner,follower,due,follow,project,workflow,update,updateEvidence]){control.oninput=control.onchange=dirty;}
- const save=el('button','primary','Save changes'),close=el('button','quiet','Close'),footer=el('div','task-card-footer');save.type=close.type='button';
+ const save=el('button','primary','Save changes'),close=el('button','secondary','Close'),footer=el('div','task-card-footer');save.type=close.type='button';
  close.onclick=()=>perform(()=>requestDialogClose(dialog,async()=>{if(editing&&!(await ask('Discard task edits?',{ok:'Discard',cancel:'Keep editing'})))return;dialog.close();}));dialog.oncancel=event=>{event.preventDefault();close.click();};dialog.onclose=()=>{editorDirty.clear('task-panel');};
  const persist=accept=>perform(()=>withDialogAction(dialog,async()=>{
   if(!validDates(box))return;

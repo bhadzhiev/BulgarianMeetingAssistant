@@ -444,7 +444,7 @@ Correction quality on real meeting audio has not been measured.
 ### Meeting notes and task tracking
 
 A saved meeting has four tabs: **Transcript**, **Tasks & decisions** (decisions, tasks,
-unresolved questions, agreed next steps), **Summary & notes** (summary, questions for
+unresolved questions, agreed next steps), **Summary** (summary, questions for
 your decision, private observations), and **Analytics**. Generated notes contain these sections:
 
 - **Summary** and **Decisions**.

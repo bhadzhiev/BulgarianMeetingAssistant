@@ -9,7 +9,7 @@ import json
 import re
 import threading
 from . import items
-from .meeting_review import linked, meeting_state, source_digest
+from .meeting_review import linked, meeting_state, source_digest, minutes_evidence
 
 GENERIC = re.compile(r'^SPEAKER[ _-]?\d+$', re.I)
 _cache, _cache_lock = {}, threading.Lock()
@@ -43,12 +43,13 @@ def _transcript(data):
 def _minutes(data):
     from meeting_assistant import validate_minutes
     minutes, ids = json.loads(data), set()
+    evidence=minutes_evidence(minutes)
     validate_minutes(minutes)
     for field in items.FIELD.values():
         for mention in minutes.get(field, []):
             ids.add(mention.get('item_id'))
             ids.update(c.get('item_id') for c in (mention.get('link') or {}).get('candidates', []))
-    return dict(revision=hashlib.sha256(data).hexdigest(), ids=ids)
+    return dict(revision=hashlib.sha256(data).hexdigest(), evidence=evidence, ids=ids)
 
 
 def build(service):
@@ -70,9 +71,9 @@ def build(service):
                 continue
             transcript = transcript or dict(revision=None, speakers=0)
             minutes = read('minutes.json', _minutes, dict(revision=None, ids=set()))
-            source = source_digest(transcript['revision'], minutes['revision'])
+            source = dict(source=source_digest(transcript['revision'], minutes['revision']),evidence=source_digest(transcript['revision'],minutes.get('evidence',minutes_evidence(None))))
             pending = [item for key in minutes['ids'] if (item := service.items.items.get(key))
-                       and linked(item, meeting['id']) and meeting_state(item, meeting['id'], source) == 'needs_review']
+                       and linked(item, meeting['id']) and meeting_state(item, meeting['id'], source) in {'needs_review','edited'}]
             notes = ('proposal' if (directory / 'minutes.proposed.json').exists()
                      else 'refresh' if meeting.get('notes_need_refresh') or meeting.get('notes_refresh_error') else None)
             if not (pending or transcript['speakers'] or notes or repair):

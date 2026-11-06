@@ -338,6 +338,8 @@ class MeetingService:
                 ids.update(i['id'] for i in self.items.items.values() if any(l['meeting_id']==meeting_id and l.get('manual_task') for l in i['links']))
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
+            review_sources=self.review_sources() if meeting['items'] else {}
+            meeting['items']={key:dict(item,review_state=review_state(item,review_sources)) for key,item in meeting['items'].items()}
             meeting['github_links'] = [link for i in meeting['items'] for link in self.github_links.for_resource('item', i)]
             meeting['live'] = read_json(directory / 'live.json', None)
             meeting['input_gaps'] = read_json(directory / 'capture.json', {}).get('input_gaps', [])
@@ -1058,6 +1060,21 @@ class MeetingService:
                 source = json.loads((directory / 'transcript.json').read_text())
                 minutes = self._edited_minutes(directory, body)
                 validate_minutes(minutes, [TranscriptSegment(**s) for s in source])
+                from .meeting_review import minutes_evidence, fingerprint, source_matches
+                before=read_json(directory/'minutes.json',None)
+                if minutes_evidence(before)==minutes_evidence(minutes):
+                    context=self.review_sources().get(meeting_id)
+                    if isinstance(context,dict):
+                        with self.items.lock:
+                            previous=copy.deepcopy(self.items.data);upgraded=False
+                            for item in self.items.items.values():
+                                receipt=item.get('meeting_reviews',{}).get(meeting_id)
+                                if receipt and not receipt.get('evidence') and receipt.get('content')==fingerprint(item) and source_matches(receipt,context):
+                                    receipt['evidence']=context['evidence'];upgraded=True
+                            if upgraded:
+                                try:self.items.save()
+                                except items.WorkItemConflict:raise
+                                except Exception:self.items.data=previous;raise
                 save_minutes(directory, minutes)
                 self._sync_items(meeting_id)
             if analytics_settings is None:
@@ -1995,7 +2012,7 @@ class MeetingService:
         return result
 
     def review_sources(self):
-        from .meeting_review import source_digest
+        from .meeting_review import source_digest, minutes_evidence
         sources={}
         cache=getattr(self,'_review_source_cache',{})
         fresh={}
@@ -2008,7 +2025,8 @@ class MeetingService:
                     sources[meeting['id']]=previous[1];fresh[meeting['id']]=previous;continue
                 transcript=json.loads((directory/'transcript.json').read_text()) if (directory/'transcript.json').exists() else []
                 revision=hashlib.sha256(json.dumps(transcript,sort_keys=True).encode()).hexdigest()
-                sources[meeting['id']]=source_digest(revision,self._minutes_revision(directory))
+                minutes=json.loads((directory/'minutes.json').read_text()) if (directory/'minutes.json').exists() else None
+                sources[meeting['id']]=dict(source=source_digest(revision,self._minutes_revision(directory)),evidence=source_digest(revision,minutes_evidence(minutes)))
                 fresh[meeting['id']]=(stamps,sources[meeting['id']])
             except (OSError,ValueError):pass
         self._review_source_cache=fresh
@@ -2346,6 +2364,11 @@ class MeetingService:
             previous=copy.deepcopy(self.items.data)
             try:
                 self.items.update(item_id, clean)
+                if clean.get('acceptance_state')=='accepted' or item['kind']=='decision' and clean.get('status')=='accepted':
+                    from .meeting_review import accept_content, confirm_linked
+                    confirmed=accept_content(self.items.items[item_id])
+                    if 'owner' in confirmed:self.items._event(self.items.items[item_id],'confirmed',changes={'owner':confirmed['owner']},by='user')
+                    confirm_linked(self,self.items.items[item_id])
                 if note:self.items.items[item_id]['history'].append(dict(at=items.now(),event='progress_update',by='user',meeting_id=None,changes={},text=note,**({'evidence_id':evidence_id} if evidence_id else {})))
                 self.items.save()
             except items.WorkItemConflict:raise  # Registry.save already reloaded the winning revision

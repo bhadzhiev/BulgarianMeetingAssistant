@@ -237,7 +237,7 @@ class WorkGraph:
             return source
         return self._write(apply)
 
-    def review(self, key, revision, action, *, target_id=None, target_revision=None, snoozed_until=None):
+    def review(self, key, revision, action, *, target_id=None, target_revision=None, snoozed_until=None, edited_text=None):
         def apply(data):
             proposal = data['proposals'].get(key)
             if not proposal or type(revision) is not int or proposal['revision'] != revision:
@@ -252,8 +252,9 @@ class WorkGraph:
                 if proposal['state'] != 'pending':
                     raise ValueError('Restore the proposal before accepting it')
                 if action == 'accept':
+                    accepted_text = text(edited_text,'task text') if edited_text is not None else proposal['text']
                     target_id_value = uuid.uuid4().hex[:16]
-                    item = dict(id=target_id_value, kind=proposal['kind'], text=proposal['text'], status=KINDS[proposal['kind']],
+                    item = dict(id=target_id_value, kind=proposal['kind'], text=accepted_text, status=KINDS[proposal['kind']],
                         managed_by='work_graph', links=[], source_evidence=[], created=now(), manual=[], history=[],
                         owner=None, deadline=None, due_date=None, supersedes=[], superseded_by=None)
                     item.update(proposal.get('fields', {}))
@@ -265,6 +266,7 @@ class WorkGraph:
                     if item['kind'] != proposal['kind']:
                         raise ValueError('Link to an item of the same kind')
                     target_id_value = target_id
+                if edited_text is not None and action=='accept':item['manual'].append('text')
                 item.setdefault('source_evidence', [])
                 if evidence['id'] not in item['source_evidence']:
                     item['source_evidence'].append(evidence['id'])

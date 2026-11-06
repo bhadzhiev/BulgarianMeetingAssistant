@@ -41,6 +41,10 @@ class PrepareTests(unittest.TestCase):
         self.service.library.update(meeting['id'], status='ready', duration=60, started_at=when, created=when)
         atomic_json(self.service.library.directory(meeting['id']) / 'transcript.json', [dict(start=0, end=5, text='Да.', speaker=None)])
         self.service.edit(meeting['id'], {'minutes': minutes})
+        # This fixture describes commitments already accepted by the manager.
+        for task in self.service.items.items.values():
+            if task['kind']=='task':task['acceptance_state']='accepted'
+        self.service.items.save()
         if project:
             self.service.set_scope(meeting['id'], project, series)
         return meeting['id']

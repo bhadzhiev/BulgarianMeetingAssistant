@@ -88,6 +88,7 @@ class Registry:
         item = dict(id=item_id, kind=kind, created=now(), manual=[], links=[], history=[], superseded_by=None, supersedes=[])
         for name, source in MENTION[kind].items():
             item[name] = mention.get(source)
+        if kind == 'task':item['acceptance_state']='proposed'
         if kind == 'decision':
             item['status'] = 'accepted' if mention.get('review') == 'verified' else 'proposed'
         self.items[item_id] = item
@@ -307,13 +308,21 @@ class Registry:
 
     def update(self, item_id: str, changes: dict) -> dict:
         item = self.items[item_id]
+        changes=dict(changes)
+        if item['kind']=='task':
+            if 'workflow_state' in changes:changes['status']='done' if changes['workflow_state']=='done' else 'open'
+            elif 'status' in changes:changes['workflow_state']='done' if changes['status']=='done' else 'todo'
+            if changes.get('status')=='done':changes['acceptance_state']='accepted'
+
+        if changes.get('acceptance_state')=='accepted':changes['legacy_unreviewed']=False
         applied = {name: [item.get(name), value] for name, value in changes.items() if item.get(name) != value}
         # Saving the owner that the AI suggested confirms it: a person now stands behind it.
         if changes.get('owner') and item.get('owner') == changes['owner'] and 'owner' not in item['manual']:
             item['manual'].append('owner')
             self._event(item, 'confirmed', None, {'owner': [changes['owner'], changes['owner']]}, by='user')
         for name, (_, value) in applied.items():
-            item[name] = value
+            if name=='project_ids' and value is None:item.pop(name,None)
+            else:item[name] = value
             if name not in item['manual']:
                 item['manual'].append(name)
         if 'status' in applied and item['kind'] == 'decision' and applied['status'][0] == 'superseded':

@@ -73,6 +73,10 @@ class MeetingTypeServiceTests(unittest.TestCase):
             self.s.set_scope(meeting['id'], {'id': self.project}, {'id': series})
         if value:
             self.s.edit(meeting['id'], {'minutes': value})
+            # Agenda fixtures contain accepted commitments, not pending extraction proposals.
+            for task in self.s.items.items.values():
+                if task['kind']=='task':task['acceptance_state']='accepted'
+            self.s.items.save()
         return meeting['id']
 
     def test_meetings_follow_the_series_type_until_a_person_chooses_another(self):

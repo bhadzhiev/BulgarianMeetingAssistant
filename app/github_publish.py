@@ -122,6 +122,7 @@ class Publisher:
         if assignee:payload['assignees']=[assignee]
         if action=='issue':payload['labels']=[ATLANTA_LABEL]
         operation=self.journal.approve(payload)
+        operation=self.journal.destination(operation['id'],repo,account['login'])
         return dict(operation=operation,repository=repo,account=account['login'],assignees=payload.get('assignees',[]),labels=payload.get('labels',[]))
 
     def assignee(self,value):

@@ -57,6 +57,7 @@ class TaskTrackerTests(unittest.TestCase):
         other=json.loads(json.dumps(OLD));other['tasks'][0].update(task='Резервирай зала',owner='Мария')
         first=self.meeting(late);second=self.meeting(other)
         tasks=self.service.tasks()
+        for task in tasks:self.service.update_item(task['id'],task['text'],{'acceptance_state':'accepted'},task['revision'])
         self.assertEqual({t['links'][0]['meeting_id'] for t in tasks},{first,second})
         self.assertEqual(self.service.task_summary()['open'],2);self.assertEqual(self.service.task_summary()['overdue'],1)
         self.assertEqual(self.service.detail(second)['minutes']['tasks'][0]['status'],'open')

@@ -64,7 +64,7 @@ function renderAttention(busy){
  if(links)add('warn',links+(links===1?' mention looks':' mentions look')+' like existing work · link or keep as new','Check links',async()=>toOutcomes());
  const decisions=(minutes.decisions||[]).filter(m=>m.review!=='verified'&&!m.link).length;
  if(decisions)add('warn','Confirm '+decisions+(decisions===1?' decision':' decisions')+' that the AI proposed','Confirm decisions',async()=>toOutcomes());
- const tasks=(minutes.tasks||[]).filter(t=>t.status!=='done'&&!t.link&&(!t.owner||!t.due_date)).length;
+ const tasks=(minutes.tasks||[]).filter(t=>!d.items?.[t.item_id]?.dismissed&&t.status!=='done'&&!t.link&&(!t.owner||!t.due_date)).length;
  if(tasks)add('info','Give an owner and a due date to '+tasks+(tasks===1?' task':' tasks'),'Complete tasks',async()=>toOutcomes());
  // Each meeting type asks its own review questions, for example to confirm the hypotheses of an incident.
  for(const section of meetingType(d).sections){if(!section.attention)continue;const count=(minutes[section.key]||[]).filter(m=>m.review!=='verified').length;
@@ -217,60 +217,71 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
  const answer=askQueue.then(open,open);askQueue=answer.then(()=>{},()=>{});return answer;
 }
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
-let taskDraftPending=false;
+let taskDraftPending=false,taskEvidenceTarget=null,taskPanelSequence=0;
+function renderTaskEvidenceContext(){const box=$('task-evidence-context');box.replaceChildren();box.hidden=!taskEvidenceTarget;if(!taskEvidenceTarget)return;box.append(el('strong','','Link evidence to: '+taskEvidenceTarget.text.slice(0,160)),el('p','hint','Select a transcript passage or open a source and choose Suggest a task. The editor will link it to this task.'));const cancel=el('button','quiet','Cancel linking');cancel.type='button';cancel.onclick=()=>{taskEvidenceTarget=null;renderTaskEvidenceContext();};box.append(cancel);}
 async function suggestTask(button,source){
  if(taskDraftPending){toast('Finish the current task draft first');return;}
+ if(taskEvidenceTarget&&source.provider!=='manual')source={...source,link_only:true,capture_target:taskEvidenceTarget.id};
  taskDraftPending=true;button.disabled=true;
- try{const preview=await api('/api/task-draft/preview',source);await editTaskDraft(source,preview);}
+ try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);return await editTaskDraft(source,preview);}
  finally{taskDraftPending=false;button.disabled=false;}
 }
 function editTaskDraft(source,preview){
  return new Promise(resolve=>{
   const dialog=$('task-draft-dialog'),area=$('task-draft-text'),submit=$('task-draft-save'),cancel=$('task-draft-cancel'),generate=$('task-draft-generate'),note=$('task-draft-error'),status=$('task-draft-status'),project=$('task-draft-project'),keep=$('task-draft-keep');
-  let jobId='',poll=null,generating=false,preparing=false,saving=false,closed=false,operation=crypto.randomUUID().replaceAll('-','');
+  let createdTaskId=null,submitted=null,jobId='',poll=null,generating=false,preparing=false,saving=false,closed=false,operation=crypto.randomUUID().replaceAll('-','');
+  const extra=$('task-draft-details'),criterion=$('task-draft-criterion'),link=$('task-draft-link');
+  const owner=$('task-draft-owner'),due=$('task-draft-due'),requester=$('task-draft-requester');owner.value=source.capture_owner||'';due.value=source.capture_due_date||'';requester.replaceChildren(option('Not specified',''),...(state.people||[]).map(p=>option(p.name,p.id)));requester.value='';
+  extra.value=criterion.value='';link.replaceChildren(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));link.value=source.capture_target&&itemsData.items.some(i=>i.id===source.capture_target&&i.acceptance_state!=='proposed')?source.capture_target:source.link_only?'__choose__':'';
   const sourceKey=JSON.stringify(source),cacheKey='atlanta-task-draft';
   area.value='';area.disabled=false;keep.checked=false;note.hidden=true;status.textContent='Review the source, generate a draft or write it yourself.';
   $('task-draft-source').textContent=preview.source_excerpt||'';const target=preview.target;
-  $('task-draft-target').textContent='AI: '+target.local_ai_model+' · '+target.local_ai_base_url+' · '+preview.characters+' source characters';
-  fillProjects(project,contextProject(),'No project');
-  try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
-  function persist(){if(keep.checked){store(cacheKey,JSON.stringify({at:Date.now(),source:sourceKey,text:area.value,project:project.value}));}else{try{localStorage.removeItem(cacheKey);}catch{}}}
-  function controls(){submit.disabled=saving||generating||!area.value.trim();generate.disabled=saving||generating||preparing;cancel.disabled=saving;area.disabled=saving||generating;project.disabled=saving;}
+  $('task-draft-target').textContent=preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+target.local_ai_model+' · '+target.local_ai_base_url+' · '+preview.characters+' source characters';
+  fillProjects(project,Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject(),'No project');
+  try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;extra.value=cached.details||'';criterion.value=cached.completion_criteria||'';owner.value=cached.owner||'';due.value=cached.due_date||'';requester.value=cached.requester_person_id||'';project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
+  function persist(){if(keep.checked){store(cacheKey,JSON.stringify({at:Date.now(),source:sourceKey,text:area.value,details:extra.value,completion_criteria:criterion.value,owner:owner.value,due_date:due.value,requester_person_id:requester.value,project:project.value}));}else{try{localStorage.removeItem(cacheKey);}catch{}}}
+  function controls(){submit.textContent=link.value?'Link evidence':'Create task';submit.disabled=saving||generating||link.value==='__choose__'||(!link.value&&!area.value.trim());owner.disabled=due.disabled=requester.disabled=extra.disabled=criterion.disabled=!!link.value||saving||generating;link.disabled=saving||generating;area.disabled=!!link.value||saving||generating;generate.disabled=!!link.value||saving||generating||preparing||preview.ai_available===false;cancel.disabled=saving;area.disabled=!!link.value||saving||generating;project.disabled=saving||!!link.value;}
+  owner.oninput=due.onchange=requester.onchange=extra.oninput=criterion.oninput=()=>{editorDirty.set('task-draft',true);persist();};link.onchange=()=>{editorDirty.set('task-draft',true);controls();};
   area.oninput=()=>{area.setCustomValidity('');editorDirty.set('task-draft',true);persist();controls();};project.onchange=()=>{editorDirty.set('task-draft',true);persist();};keep.onchange=persist;
   async function stop(){closed=true;if(poll)clearTimeout(poll);if(jobId&&generating){try{await api('/api/task-draft/cancel',{id:jobId});}catch{}}}
   async function discard(){if(saving)return;if(editorDirty.keys().includes('task-draft')&&!keep.checked&&!(await ask('Discard this task draft?',{ok:'Discard',cancel:'Keep editing'})))return;await stop();if(!keep.checked){try{localStorage.removeItem(cacheKey);}catch{}}dialog.close();}
-  dialog.oncancel=event=>{event.preventDefault();discard();};dialog.onclose=()=>{stop();editorDirty.clear('task-draft');resolve();};cancel.onclick=discard;
+  dialog.oncancel=event=>{event.preventDefault();discard();};dialog.onclose=()=>{stop();editorDirty.clear('task-draft');resolve(createdTaskId);};cancel.onclick=discard;
   generate.onclick=()=>perform(async()=>{
    if(preparing||generating||saving||closed)return;preparing=true;controls();
    try{
    if(area.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
    const current=await api('/api/task-draft/preview',source);if(closed)return;
+   if(current.ai_available===false){preview=current;note.textContent=current.ai_unavailable_reason;note.hidden=false;return;}
    if(!(await ask('Send the selected source to '+current.target.local_ai_model+' at '+current.target.local_ai_base_url+'? '+current.characters+' characters. The result stays an editable draft.',{ok:'Generate draft'})))return;
    if(closed)return;preview=current;generating=true;note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();
    try{
     const job=await api('/api/task-draft/start',{...source,preview_token:preview.preview_token,approved:true});jobId=job.id;
     if(closed){await api('/api/task-draft/cancel',{id:jobId});return;}
-    const check=async()=>{if(closed)return;try{const job=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=job.status+' · '+Math.max(0,Math.floor(Date.now()/1000-job.started_at))+' s';if(job.running){poll=setTimeout(check,700);return;}generating=false;if(job.error){note.textContent=job.error+' You can still write the task manually.';note.hidden=false;}else if(job.text){area.value=job.text;editorDirty.set('task-draft',true);persist();}controls();area.focus();}catch(e){generating=false;note.textContent=e.message;note.hidden=false;controls();}};
+    const check=async()=>{if(closed)return;try{const job=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=job.status+' · '+Math.max(0,Math.floor(Date.now()/1000-job.started_at))+' s';if(job.running){poll=setTimeout(check,700);return;}generating=false;if(job.error){note.textContent=job.error+' You can still write the task manually.';note.hidden=false;}else if(job.text){area.value=job.text;extra.value=job.details||'';criterion.value=job.completion_criteria||'';editorDirty.set('task-draft',true);persist();}controls();area.focus();}catch(e){generating=false;note.textContent=e.message;note.hidden=false;controls();}};
     await check();
    }catch(e){generating=false;note.textContent=e.message;note.hidden=false;status.textContent='Generation failed. Write the task manually or try again.';controls();}
    }finally{preparing=false;controls();}
   });
   submit.onclick=async()=>{
-   if(!area.value.trim()){area.setCustomValidity('Enter task text');area.reportValidity();return;}
+   if(!link.value&&!area.value.trim()){area.setCustomValidity('Enter task text');area.reportValidity();return;}
+   if(!validDates(dialog))return;
    saving=true;note.hidden=true;controls();
    try{
-    const created=await api('/api/task-draft/create',{...source,preview_token:preview.preview_token,operation_id:operation,title:area.value.trim(),project_ids:project.value?[project.value]:[]});
-    try{localStorage.removeItem(cacheKey);}catch{}editorDirty.clear('task-draft');dialog.close();
-    showCreatedTask(created.item_id);
+    const payload={...source,preview_token:preview.preview_token,operation_id:operation,title:area.value.trim()||'Link source evidence',details:extra.value,completion_criteria:criterion.value,owner:owner.value.trim()||null,due_date:due.value||null,requester_person_id:requester.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
+    if(submitted&&JSON.stringify(submitted)!==JSON.stringify(payload))throw new Error('Previous result uncertain. Retry unchanged or check My Work.');submitted=payload;
+    const created=await api('/api/task-draft/create',payload);
+    try{localStorage.removeItem(cacheKey);}catch{}createdTaskId=created.item_id;editorDirty.clear('task-draft');dialog.close();
+    if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
+    showCreatedTask(created.item_id,!!link.value);
     try{await refreshAfterItemChange();}catch(e){error('Task created. The list could not refresh. Use Open task or Refresh; do not create it again.');}
-   }catch(e){note.textContent=e.message;note.hidden=false;}
+   }catch(e){if(e.status>=400&&e.status<500)submitted=null;note.textContent=e.message;note.hidden=false;}
    finally{saving=false;controls();}
   };
   dialog.querySelector('form').onsubmit=event=>event.preventDefault();
   controls();dialog.showModal();area.focus();
  });
 }
-function showCreatedTask(id){const box=$('toast');box.replaceChildren(document.createTextNode('Task created. '));const open=el('button','quiet','Open task');open.onclick=()=>perform(()=>openTaskPanel(id));box.append(open);box.hidden=false;setTimeout(()=>{if(box.contains(open))box.hidden=true;},15000);}
+function showCreatedTask(id,linked=false){const box=$('toast');box.replaceChildren(document.createTextNode(linked?'Evidence linked. ':'Task created. '));const open=el('button','quiet','Open task');open.onclick=()=>perform(()=>openTaskPanel(id));box.append(open);box.hidden=false;setTimeout(()=>{if(box.contains(open))box.hidden=true;},15000);}
 function contextProject(){if(view==='projects'){const key=$('workspace-project').value;return key&&key!=='__none__'?key:'';}return view==='detail'?detail?.project_id||'':$('record-project').value||'';}
 async function askDate(message,initial){let current=AtlantaUX.display(initial);for(;;){const value=await ask(message,{ok:'Apply date',value:current});if(value===null)return null;const iso=AtlantaUX.inputISO(value);if(iso)return iso;current=value;message='Enter a valid date as dd.mm.yyyy.';}}
 async function leaveEdits() {
@@ -394,9 +405,9 @@ async function openMeeting(id,force=false) {
  if(state.active?.id===id){selected=id;show('recording');renderState();return true;}
  const fresh=await api('/api/meetings/'+id);
  if(sequence!==meetingLoadSequence||!readers.current(request)||(!force&&hasEdits()))return false;
- if(detail?.id!==id){notesEditing=false;questionFilter='open';questionLimit=10;}
+ if(detail?.id!==id){notesEditing=false;questionFilter='open';questionLimit=10;if(!routing)meetingTab=fresh.minutes?'outcomes':'transcript';}
  selected=id;detail=fresh;dirtyTranscript=dirtyNotes=false;detailChangedWhileEditing=false;
- lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');renderLibrary();return true;
+ lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');switchTab(meetingTab);renderLibrary();return true;
 }
 function renderState() {
  const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
@@ -835,14 +846,15 @@ function taskRow(task,index,busy) {
  who.append(speakerBadge(el('span'),current.owner||''),el('span','',current.owner||'No owner'));
  meta.append(item?.created_by==='user'?el('span','badge','Manually added'):reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
  if(current.deadline) meta.append(el('span','hint','Said: '+current.deadline));
- if(task.evidence_timestamp) meta.append(sourceBlock(task.evidence_timestamp));
+ const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp)meta.append(sourceBlock(evidenceStamp));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
  if(item&&item.text!==task.task) main.append(el('p','hint said-here','Said here: '+task.task));
  main.append(meta);
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
  if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));main.append(edit,remove);}
- if(item) main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
+ if(item?.acceptance_state==='proposed'){const accept=el('button','primary small-action','Accept task'),skip=el('button','quiet small-action','Skip proposal');accept.type=skip.type='button';accept.disabled=skip.disabled=busy;accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeItem(item,{dismissed:true}));const link=el('button','secondary small-action','Link to existing task');link.type='button';link.disabled=busy;link.onclick=()=>perform(async()=>{const at=stampSeconds(task.evidence_timestamp||'00:00:00'),first=detail.transcript.findIndex(s=>s.start<=at&&s.end>=at);if(first<0)throw new Error('Select the supporting transcript passage to link this action.');await suggestTask(link,{provider:'meeting',id:detail.id,revision:detail.transcript_revision,first,last:first,link_only:true,proposal_item_id:item.id,proposal_item_revision:item.revision});});main.append(accept,link,skip);}
+ if(item&&item.acceptance_state!=='proposed') main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  row.append(done,main); return row;
 }
 function renderNotes(busy=false) {
@@ -857,6 +869,7 @@ function renderNotes(busy=false) {
  const minutes=detail.minutes;
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
+ $('outcomes').append(noteSection(minutes,'summary','Meeting notes',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
  const section=el('section','note-section');section.append(el('h3','',meetingType(detail).task_title));
  const taskList=el('div');section.append(taskList);
@@ -871,7 +884,7 @@ function renderNotes(busy=false) {
  if(!notesEditing) {
   const add=el('button','secondary small-action','＋ Add task');add.type='button';add.disabled=busy;add.onclick=()=>perform(()=>openManualTask(detail.id));section.append(add);
   if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
-  minutes.tasks.forEach((task,index)=>taskList.append(taskRow(task,index,busy)));
+  minutes.tasks.forEach((task,index)=>{if(!detail.items?.[task.item_id]?.dismissed)taskList.append(taskRow(task,index,busy));});
  } else {
   drawTasks();const add=el('button','secondary','＋ Add task');add.disabled=busy||!detail.transcript.length;add.onclick=()=>{minutes.tasks.push({task:'',owner:null,deadline:null,due_date:null,status:'open',evidence_timestamp:time(detail.transcript[0].start)});markNotes();drawTasks();};section.append(add);
  }
@@ -1056,12 +1069,12 @@ function dueInfo(task,today) {
  if(days===0) return ['today','Due today'];
  return [days<=7?'soon':'later','Due in '+days+(days===1?' day':' days')];
 }
-let itemKind='task', sourceFilter='', itemsData={items:[],pending:[],meetings:{}};
+let itemKind='task', sourceFilter=stored('tasks-source')||'', itemsData={items:[],pending:[],meetings:{}};
 const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']],decision:[['current','In force'],['proposed','Proposed'],['accepted','Accepted'],['superseded','Replaced'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']]};
-const statusFilter={task:'open',decision:'current'};
+const statusFilter={task:stored('tasks-status')||'open',decision:'current'};
 const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
+const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
@@ -1079,11 +1092,11 @@ function sourceChips(item,meetings){const box=meetingChips(item,meetings);if(ite
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
  for(const event of [...item.history].reverse()) {
-  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>{if(name==='project_ids'){const label=ids=>ids===null?'Meeting projects':ids.map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')||'Unassigned';return 'Projects: '+label(from)+' → '+label(to);}return (FIELD_LABELS[name]||name)+': '+(from??'—')+' → '+(to??'—');}).join(' · ');
-  // A meeting event belongs to the meeting's date, not to the moment the app processed it.
-  const when=event.meeting_id&&meetings?.[event.meeting_id]?meetings[event.meeting_id].date:event.at;
-  const entry=el('li'); entry.append(el('span','history-date',date(when)),
-   el('span','',(EVENT_LABELS[event.event]||event.event)+(event.meeting_id?' '+meetingLabel(event.meeting_id,meetings):'')+(changes?' · '+changes:'')+(event.by==='user'?' · by you':' · AI')));
+  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>{if(name==='project_ids'){const label=ids=>ids===null?'Meeting projects':ids.map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')||'Unassigned';return 'Projects: '+label(from)+' → '+label(to);}const labelValue=value=>name.endsWith('_person_id')?(state.people||[]).find(p=>p.id===value)?.name||(value?'Removed person':'—'):name==='workflow_state'?AtlantaTasks.STATES[value]||value:['due_date','follow_up_date'].includes(name)&&value?date(value):value??'—';return ({workflow_state:'State',requester_person_id:'Received from',assigned_by_person_id:'Assigned by',follower_person_id:'Followed by',owner_person_id:'Owner',follow_up_date:'Follow-up',acceptance_state:'Acceptance',details:'Details',completion_criteria:'Expected result'}[name]||FIELD_LABELS[name]||name)+': '+labelValue(from)+' → '+labelValue(to);}).join(' · ');
+  // Date the action itself; the meeting remains its evidence reference.
+  const when=event.at;
+  const entry=el('li'); entry.append(el('span','history-date',dateTime(when)),
+   el('span','',(event.event==='progress_update'?'Update':event.event==='created'&&!event.meeting_id?'Created locally':EVENT_LABELS[event.event]||event.event)+(event.meeting_id?' '+meetingLabel(event.meeting_id,meetings):'')+(changes?' · '+changes:'')+(event.text?' · '+event.text:'')+(event.by==='user'?' · by you':' · AI')));
   list.append(entry);
  }
  box.append(list); return box;
@@ -1148,13 +1161,7 @@ function editDeleteButtons(item,textNode){
 function itemActions(item,row) {
  const actions=el('div','tracked-actions'); actions.append(projectAssignment(item)); const edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
  const main=row.querySelector('.tracked-main'), text=main.querySelector('.tracked-text');
- edit.onclick=()=>{if(itemEditing)return;setItemEditing(true,row);const box=el('textarea','tracked-edit'),bar=el('div','tracked-edit-bar'),save=el('button','primary','Save'),cancel=el('button','secondary','Cancel');let owner=null;
-  box.value=item.text;box.setAttribute('aria-label','Text');bar.append(save,cancel);
-  if(item.kind==='task'){owner=el('input','tracked-owner-input');owner.value=item.owner||'';owner.placeholder='Owner';owner.setAttribute('list','known-speakers');owner.setAttribute('aria-label','Owner');bar.prepend(owner);}
-  const close=()=>{setItemEditing(false);box.replaceWith(text);bar.remove();actions.hidden=false;lastTasks='';perform(loadTasks);};
-  save.onclick=()=>{const value=box.value.trim();if(!value){box.focus();return;}const changes={};if(value!==item.text)changes.text=value;if(owner&&(owner.value.trim()||null)!==item.owner)changes.owner=owner.value.trim()||null;if(!Object.keys(changes).length){close();return;}save.disabled=true;perform(()=>changeItem(item,changes,true)).finally(()=>save.disabled=false);};
-  cancel.onclick=close;box.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))save.click();};
-  text.replaceWith(box);box.after(bar);actions.hidden=true;box.focus();};
+ edit.onclick=()=>item.kind==='task'?perform(()=>openTaskPanel(item.id)):inlineEdit(text,item.text,async value=>{await changeItem(item,{text:value});},'Edit '+item.kind);
  merge.onclick=()=>{const others=itemsData.items.filter(other=>other.kind===item.kind&&other.id!==item.id);if(!others.length){toast('There is no other '+item.kind+' to merge with');return;}
   if(itemEditing)return;setItemEditing(true,row);
   const bar=el('div','tracked-edit-bar'),select=el('select'),go=el('button','primary','Merge'),cancel=el('button','secondary','Cancel');
@@ -1180,7 +1187,7 @@ function githubActions(resource,links){
   remove.onclick=()=>perform(async()=>{await api('/api/github/unlink',{id:link.id,revision:link.revision});await afterGitHubLink(resource);});chip.append(remove);box.append(chip);
  }
  const menu=el('details','menu github-menu'),items=el('div','menu-items');menu.append(el('summary','','GitHub ▾'),items);
- for(const [label,run] of [['Copy as issue…',()=>openDraft(resource,'issue')],['Copy as comment…',()=>openDraft(resource,'comment')],['Link existing issue or PR…',()=>openLink(resource)]]){
+ for(const [label,run] of [['Create GitHub issue…',()=>openDraft(resource,'issue')],['Draft GitHub comment…',()=>openDraft(resource,'comment')],['Link existing issue or PR…',()=>openLink(resource)]]){
   const b=el('button','',label);b.type='button';b.onclick=()=>{menu.open=false;perform(run);};items.append(b);
  }
  box.append(menu);return box;
@@ -1284,10 +1291,27 @@ function globalTaskRow(item,today) {
  done.type='checkbox';done.checked=item.status==='done';done.setAttribute('aria-label','Mark task as done');done.onchange=()=>perform(()=>changeItem(item,{status:done.checked?'done':'open'}));
  who.append(speakerBadge(el('span'),item.owner||''),el('span','',item.owner||'No owner'));
  if(item.owner&&!item.manual?.includes('owner')){const confirm=el('button','quiet small-action owner-confirm','AI suggestion · Confirm');confirm.type='button';confirm.title='A person confirms this owner. Only confirmed owners count as commitments and reach GitHub drafts.';confirm.onclick=()=>perform(()=>changeItem(item,{owner:item.owner}));who.append(confirm);}
- const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');due.onchange=()=>perform(()=>changeItem(item,{due_date:due.value||null}));
- meta.append(who,el('span','due-label '+kind,label),due); if(item.deadline) meta.append(el('span','hint','Said: '+item.deadline)); meta.append(workReviewBadge(item.review_state));
- main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
- row.append(done,main); row.append(itemActions(item,row)); return row;
+ const title=el('button','quiet tracked-text task-title',item.text);title.type='button';title.onclick=()=>perform(()=>openTaskPanel(item.id));
+ meta.append(who,el('span','due-label '+kind,label),workReviewBadge(item.review_state));
+ if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
+ const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
+ const roles=el('p','hint task-responsibilities','Received from: '+whoName(item.requester_person_id)+' · Assigned by: '+whoName(item.assigned_by_person_id));
+ const update=AtlantaTasks.lastUpdate(item),progress=el('p','task-last-update',update?dateTime(update.at)+' · '+update.text:'No progress update yet');
+ main.append(title,meta,roles,progress,sourceChips(item,itemsData.meetings));
+ if(item.acceptance_state!=='proposed'){
+  const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
+  const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
+  const owner=el('select');owner.setAttribute('aria-label','Owner for '+item.text);owner.append(option('No owner',''),...people.map(p=>option(p.name,p.id)));let oldOwner=item.owner_person_id||'';
+  if(!oldOwner&&item.owner){owner.append(option(item.owner+' · current name','__current__'));oldOwner='__current__';}owner.value=oldOwner;
+  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date for '+item.text);
+  const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up for '+item.text);
+  const commit=(input,previous,changes)=>perform(async()=>{if(!validDates(row)){input.value=previous;return;}try{await withEditorSave(row,()=>changeItem(item,changes));}catch(e){input.value=previous;throw e;}});
+  stateSelect.onchange=()=>commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value});owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,oldOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null});};due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null});follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null});
+  const addUpdate=el('button','quiet small-action','Add update');addUpdate.type='button';addUpdate.onclick=()=>perform(()=>openTaskPanel(item.id,{focusUpdate:true}));
+  const timeline=el('button','quiet small-action','Timeline');timeline.type='button';timeline.onclick=()=>perform(()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow),addUpdate,timeline);main.append(quick);
+ }
+ if(item.acceptance_state==='proposed'){done.hidden=true;if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));main.append(restore);}else{const accept=el('button','primary small-action','Accept task'),skip=el('button','quiet small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeItem(item,{dismissed:true}));main.append(accept,skip);}}
+ const marks=el('div','task-row-marks');if(item.acceptance_state!=='proposed'&&!item.dismissed){const select=el('input');select.type='checkbox';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};marks.append(select);}marks.append(done);row.append(marks,main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');more.append(el('summary','','More'),itemActions(item,row));row.append(more);}return row;
 }
 function decisionRow(item,byId) {
  const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
@@ -1301,7 +1325,7 @@ function decisionRow(item,byId) {
 }
 async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
-const SOURCES={meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github']};
+const SOURCES={manual:['Manual',''],meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github']};
 function originChip(provider,label,open){
  const chip=el(open?'button':'span','source-chip '+(SOURCES[provider]?.[1]||''));chip.append(el('i'),el('b','',SOURCES[provider]?.[0]||provider));
  if(label)chip.append(el('span','',label));
@@ -1338,7 +1362,9 @@ function cacheAccounts(select,button,accounts,running){
  const old=select.value;select.replaceChildren(...accounts.map(([label,value])=>option(label,value)));
  if(accounts.some(a=>a[1]===old))select.value=old;button.disabled=running||!accounts.length;
 }
-async function openSource(source){if($('task-panel').open){if(!(await leaveEdits()))return;$('task-panel').close();}
+async function openSource(source){
+ if(source.provider==='meeting')return openMeeting(source.external_id);
+ if(source.provider==='manual'){toast('Your original text is saved under Sources in the task card.');return;}if($('task-panel').open){if(!(await leaveEdits()))return;$('task-panel').close();}
  if(source.remote?.authority==='conversation'){const link=(itemsData.graph?.conversation_links||[]).find(a=>a.source_id===source.id);if(link)return openAttachment(link.id);}
  if(view==='projects'){show('tasks');lastTasks='';await loadTasks();}
  if(source.provider==='gmail'){showWorkTab('gmail');await openMail(source.external_id);}
@@ -1400,7 +1426,7 @@ async function openMail(key){
  }
  box.replaceChildren(head,body);renderMailAI();body.scrollTop=body.scrollHeight;
 }
-function mailAIResultText(ai){const count=ai.proposal_ids?.length||0;return count?count+' AI suggestions are waiting in Suggested.':'Analysis complete. No supported task commitments were found; no suggestions were created.';}
+function mailAIResultText(ai){const count=ai.proposal_ids?.length||0;return count?count+' AI suggestions are waiting in Tasks → For review.':'Analysis complete. No supported task commitments were found; no suggestions were created.';}
 function renderMailAI(){
  for(const card of $('gmail-detail').querySelectorAll('.mail-message')){
   const button=card.querySelector('[data-message-ai]'),note=card.querySelector('.gmail-message-ai-status');if(!button||!note)continue;
@@ -1652,11 +1678,12 @@ function renderWorkGraph(){
  const graph=itemsData.graph||{},today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
  const sources=Object.fromEntries((graph.sources||[]).map(s=>[s.id,s])),evidence=Object.fromEntries((graph.source_evidence||[]).map(e=>[e.id,e]));
  const filters=$('proposal-filters');filters.replaceChildren();
- for(const value of ['pending','snoozed','dismissed','all']){const b=el('button',proposalFilter===value?'selected':'',value[0].toUpperCase()+value.slice(1));b.onclick=()=>{proposalFilter=value;renderWorkGraph();};filters.append(b);}
+ for(const value of ['pending','snoozed','dismissed','all']){const b=el('button',proposalFilter===value?'selected':'',value[0].toUpperCase()+value.slice(1));b.onclick=()=>{proposalFilter=value;renderTasks();};filters.append(b);}
  const list=$('proposal-list');list.replaceChildren();
  const waiting=(graph.proposals||[]).filter(p=>p.state==='pending'&&(!p.snoozed_until||p.snoozed_until<=today)).length;$('work-tabs').querySelector('[data-work-tab=suggested]').textContent='Suggested'+(waiting?' · '+waiting:'');
  const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
  for(const p of proposals){
+  if(itemKind==='task'&&managerView==='inbox'&&stored('task-search')&&!p.text.toLowerCase().includes(stored('task-search').toLowerCase()))continue;
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
   const top=el('div','proposal-top');top.append(source?originChip(source.provider,sourceLabel(source),()=>openSource(source)):originChip('','Unavailable source'),el('span','hint',(['gmail_ai','repo_ai'].includes(p.origin)?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · snoozed until '+p.snoozed_until:'')));
   card.append(top,el('strong','proposal-text',p.text));
@@ -1666,6 +1693,7 @@ function renderWorkGraph(){
   const actions=el('div','work-actions'),review=(action,extra={})=>graphAction('review',{id:p.id,revision:p.revision,action,...extra});
   const button=(label,run)=>{const b=el('button','secondary small-action',label);b.onclick=()=>perform(run);actions.append(b);};
   if(p.state==='pending'){
+   if(p.kind==='task')button('Edit & accept',()=>{const title=card.querySelector('.proposal-text');inlineEdit(title,p.text,async value=>{await review('accept',{text:value});},'Task title');});
    button('Accept',()=>review('accept'));actions.lastChild.className='primary small-action';
    const select=el('select');select.setAttribute('aria-label','Link proposal to existing item');select.append(option('Link to existing…',''),...itemsData.items.filter(i=>i.kind===p.kind).map(i=>option(i.text,i.id)));actions.append(select);
    button('Link',async()=>{const target=itemsData.items.find(i=>i.id===select.value);if(!target){toast('Choose an existing item');return;}await review('link',{target_id:target.id,target_revision:target.revision});});
@@ -1675,7 +1703,7 @@ function renderWorkGraph(){
   if(p.result_id)actions.append(el('span','hint','Item '+p.result_id));
   card.append(actions);list.append(card);
  }
- if(!proposals.length)list.append(el('p','hint','No proposals match this filter.'));
+ if(!proposals.length)list.append(el('p','hint','No source proposals match this filter.'));
  const questions=$('work-questions');questions.replaceChildren();
  for(const q of itemsData.items.filter(i=>i.kind==='question')){
   const row=el('div','work-proposal'),qText=el('strong','',q.text);row.append(qText,el('p','hint',q.status==='answered'?'Answered':'Open'));
@@ -1686,48 +1714,111 @@ function renderWorkGraph(){
 }
 $('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New question',{ok:'Add question',value:''});if(value!==null)await graphAction('question',{text:value});});
 
+let bulkSaving=false,taskSelection=new Map(),taskVisibleRows=[],bulkPending=null,taskRequester=stored('tasks-requester')||'',taskFollower=stored('tasks-follower')||'',taskWorkflow=stored('tasks-workflow')||'';
+let managerView=stored('manager-view')||'all',managerSelf=stored('manager-self')||'';
+function renderManagerControls(){
+ for(const [field,value] of [['requester',taskRequester],['follower',taskFollower]])if(value&&value!=='__none__'&&!(state.people||[]).some(p=>p.id===value)){if(field==='requester')taskRequester='';else taskFollower='';store('tasks-'+field,'');}
+ if(managerSelf&&!(state.people||[]).some(p=>p.id===managerSelf)){managerSelf='';store('manager-self','');}
+ const controls=$('manager-controls');controls.replaceChildren();const person=el('select');person.setAttribute('aria-label','This is me');person.append(option('Choose who you are',''),...(state.people||[]).map(p=>option(p.name,p.id)));person.value=managerSelf;
+ person.onchange=()=>{managerSelf=person.value;store('manager-self',managerSelf);renderTasks();};const label=el('label','hint','This is me');label.append(person);controls.append(label);
+ for(const [key,title] of [['inbox','For review'],['mine','My tasks'],['delegated','Assigned by me'],['followup','Follow-up'],['all','All tasks']]){const button=el('button',managerView===key?'secondary selected':'quiet',title);button.type='button';button.onclick=()=>{managerView=key;store('manager-view',key);renderTasks();};controls.append(button);}
+ const search=el('input');search.type='search';search.placeholder='Search tasks';search.setAttribute('aria-label','Search tasks');search.value=stored('task-search')||'';search.onchange=()=>{store('task-search',search.value);renderTasks();};controls.append(search);
+ const filters=$('manager-person-filters');filters.replaceChildren();filters.hidden=itemKind!=='task';
+ if(managerView!=='inbox'){
+  filters.append(managerPersonFilter('Received from',taskRequester,value=>{taskRequester=value;store('tasks-requester',value);renderTasks();}),managerPersonFilter('Followed by',taskFollower,value=>{taskFollower=value;store('tasks-follower',value);renderTasks();}));
+  const field=el('select');field.setAttribute('aria-label','Task state filter');field.append(option('Any state',''),...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));field.value=taskWorkflow;field.onchange=()=>{taskWorkflow=field.value;store('tasks-workflow',taskWorkflow);if(taskWorkflow){statusFilter.task=taskWorkflow==='done'?'done':taskWorkflow==='cancelled'?'all':'open';store('tasks-status',statusFilter.task);}renderTasks();};filters.append(field);
+ }
+}
+
+function managerPersonFilter(label,value,onchange){const select=el('select');select.setAttribute('aria-label',label);select.append(option('All',''),option('Not specified','__none__'),...(state.people||[]).map(p=>option(p.name,p.id)));select.value=[...select.options].some(o=>o.value===value)?value:'';select.onchange=()=>onchange(select.value);const box=el('label','hint',label);box.append(select);return box;}
+async function sendBulkTasks(body){
+ if(bulkSaving)return;bulkSaving=true;
+ try{
+  await withEditorSave($('task-bulk-bar'),async()=>{try{await api('/api/items/bulk',body);}catch(e){if(e.status>=400&&e.status<500){bulkPending=null;taskSelection.clear();}throw e;}});
+  taskSelection.clear();bulkPending=null;toast('Updated '+body.items.length+' tasks on this Mac');
+ }finally{bulkSaving=false;renderBulkTasks();}
+ await refreshAfterItemChange();
+}
+function renderBulkTasks(){
+ const box=$('task-bulk-bar');box.replaceChildren();box.hidden=itemKind!=='task'||managerView==='inbox';if(box.hidden)return;
+ const count=bulkPending?.items.length||taskSelection.size,choose=el('button','quiet','Select shown tasks'),clear=el('button','quiet','Clear selection');choose.type=clear.type='button';
+ choose.onclick=()=>{for(const item of taskVisibleRows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});renderTasks();};clear.onclick=()=>{taskSelection.clear();bulkPending=null;renderTasks();};
+ box.append(choose,el('strong','',count+' selected'));if(!count)return;box.append(clear);
+ if(bulkPending){choose.disabled=true;const retry=el('button','secondary','Retry the same update');retry.type='button';retry.onclick=()=>perform(()=>sendBulkTasks(bulkPending));box.append(el('p','notice','The previous result is uncertain. Retry the exact approved update, or clear the selection and inspect the list.'),retry);return;}
+ const action=el('select');action.setAttribute('aria-label','Bulk field');action.append(option('Change state','workflow_state'),option('Change owner','owner_person_id'),option('Set due date','due_date'),option('Set next follow-up','follow_up_date'));
+ const input=el('span'),apply=el('button','secondary','Apply to '+count+' selected tasks'),note=el('span','hint','Only the selected tasks on this list. Saved locally; nothing is sent.');apply.type='button';let value;
+ function editor(){input.replaceChildren();if(action.value==='workflow_state'){value=el('select');value.append(...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));}
+ else if(action.value==='owner_person_id'){value=el('select');value.append(option('No owner',''),...(state.people||[]).map(p=>option(p.name,p.id)));}
+ else{value=el('input');value.type='date';}value.setAttribute('aria-label','Bulk value');input.append(value);}
+ action.onchange=editor;editor();
+ apply.onclick=()=>perform(async()=>{
+  if(bulkSaving||!validDates(box))return;
+  bulkSaving=true;apply.disabled=true;try{
+  const changes={[action.value]:value.value||null};if(action.value==='owner_person_id'&&!value.value)changes.owner=null;
+  const body={items:[...taskSelection.values()],changes,request_id:bulkPending?.request_id||crypto.randomUUID().replaceAll('-','')};
+  if(bulkPending&&JSON.stringify({...body,request_id:''})!==JSON.stringify({...bulkPending,request_id:''}))throw new Error('Previous result uncertain. Retry the same action, or clear the selection and check the list.');
+  const summary=action.selectedOptions[0].textContent+': '+(value.tagName==='SELECT'?value.selectedOptions[0]?.textContent:value.value?date(value.value):'Clear date');
+  if(!(await ask(summary+' for '+body.items.length+' selected tasks?\n'+taskVisibleRows.filter(t=>taskSelection.has(t.id)).slice(0,6).map(t=>'• '+t.text).join('\n')+(body.items.length>6?'\n…':''),{ok:'Apply to '+body.items.length,cancel:'Cancel'})))return;
+  bulkPending=body;bulkSaving=false;await sendBulkTasks(body);
+  }finally{bulkSaving=false;apply.disabled=false;}
+ });box.append(action,input,apply,note);
+}
 function renderTasks() {
- if(itemEditing)return;
- renderWorkGraph();
+ if(itemEditing||bulkSaving)return;
+ if($('proposal-filters').parentElement!==$('work-suggested').querySelector('.work-content'))$('work-suggested').querySelector('.work-content').append($('proposal-filters'));
+ if($('proposal-list').parentElement!==$('work-suggested').querySelector('.work-content'))$('work-suggested').querySelector('.work-content').append($('proposal-list'));
+ renderWorkGraph();renderManagerControls();$('manager-controls').hidden=itemKind!=='task';
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
- const project=$('work-project'), oldProject=project.value;
+ const project=$('work-project'), oldProject=project.value||stored('tasks-project')||'';
  project.replaceChildren(option('All projects',''),option('Unassigned','__none__'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
  if([...project.options].some(o=>o.value===oldProject))project.value=oldProject;
- const inProject=item=>!project.value||(project.value==='__none__'?!item.effective_project_ids?.length:item.effective_project_ids?.includes(project.value));
- const tasks=itemsData.items.filter(item=>item.kind==='task'&&inProject(item)), decisions=itemsData.items.filter(item=>item.kind==='decision'&&inProject(item));
- const open=tasks.filter(t=>t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
+ const inbox=itemKind==='task'&&managerView==='inbox';
+ const inProject=item=>inbox||!project.value||(project.value==='__none__'?!item.effective_project_ids?.length:item.effective_project_ids?.includes(project.value));
+ const context={self:managerSelf,people:state.people||[],today,search:stored('task-search')||''};
+ const tasks=itemsData.items.filter(item=>item.kind==='task'&&inProject(item)&&AtlantaTasks.inView(item,managerView,{...context,proposalFilter})), decisions=itemsData.items.filter(item=>item.kind==='decision'&&inProject(item));
+ const open=tasks.filter(t=>t.acceptance_state!=='proposed'&&t.workflow_state!=='cancelled'&&t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
- $('tasks-summary').hidden=!itemsData.items.length&&!itemsData.pending.length;
+ $('tasks-summary').hidden=!inbox&&!itemsData.items.length&&!itemsData.pending.length;
  $('tasks-summary').textContent=open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':'');
+ if(itemKind==='task'&&managerView==='inbox')$('tasks-summary').textContent=tasks.length+' meeting action'+(tasks.length===1?'':'s')+' · '+(itemsData.graph?.proposals||[]).filter(p=>p.state==='pending').length+' source proposals';
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
  const noKindItems=!itemsData.items.some(item=>item.kind===itemKind);
- $('source-filter').hidden=noKindItems;$('status-filter').closest('.task-filters').hidden=noKindItems;document.querySelector('#items-panel .work-messages').hidden=noKindItems;
- const filter=statusFilter[itemKind];
- $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=el('button',key===filter?'selected':'',label);button.type='button';button.onclick=()=>{statusFilter[itemKind]=key;renderTasks();};return button;}));
- segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;renderTasks();});
+ $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').closest('.task-filters').hidden=noKindItems||inbox;document.querySelector('#items-panel .work-messages').hidden=noKindItems;
+ const filter=itemKind==='task'&&managerView==='inbox'?'all':statusFilter[itemKind];
+ $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=el('button',key===filter?'selected':'',label);button.type='button';button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
+ segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
  $('task-owner').hidden=itemKind!=='task';
- const owner=$('task-owner').value, owners=[...new Set(tasks.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+ const owner=$('task-owner').value||stored('tasks-owner')||'', owners=[...new Set(tasks.map(t=>t.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
  $('task-owner').value=[...$('task-owner').options].some(o=>o.value===owner)?owner:'';
  const latest=item=>item.links.map(link=>meetings[link.meeting_id]?.date||'').sort().at(-1)||'';
  let rows;
  const personal=item=>filter==='snoozed'?!!item.snoozed_until&&item.snoozed_until>today&&!item.dismissed:filter==='dismissed'?!!item.dismissed:filter==='all'||!item.dismissed&&(!item.snoozed_until||item.snoozed_until<=today);
- if(itemKind==='task') rows=tasks.filter(personal).filter(t=>['all','snoozed','dismissed'].includes(filter)||(filter==='done'?t.status==='done':t.status==='open'&&(filter==='open'||t.due_date&&t.due_date<today)))
-  .filter(t=>!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:t.owner===$('task-owner').value))
+ if(itemKind==='task') rows=tasks.filter(personal).filter(t=>['all','snoozed','dismissed'].includes(filter)||(filter==='done'?t.status==='done':t.status==='open'&&(filter==='open'&&t.workflow_state!=='cancelled'||t.workflow_state!=='cancelled'&&t.due_date&&t.due_date<today)))
+  .filter(t=>inbox||!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:t.owner===$('task-owner').value))
   .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||latest(b).localeCompare(latest(a)));
  else rows=decisions.filter(personal).filter(d=>['all','snoozed','dismissed'].includes(filter)||(filter==='current'?d.status==='accepted':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
- if(sourceFilter)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
+ if(itemKind==='task'&&['mine','delegated'].includes(managerView)&&!managerSelf)$('tasks-summary').textContent='Choose “This is me” to show your responsibilities.';
+ if(sourceFilter&&!inbox)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
+ if(itemKind==='task'&&!inbox)rows=rows.filter(item=>AtlantaTasks.personMatches(item,{requester:taskRequester,follower:taskFollower})&&(!taskWorkflow||AtlantaTasks.workflow(item)===taskWorkflow));
+ const activeFilters=[sourceFilter&&SOURCES[sourceFilter]?.[0],project.value&&project.selectedOptions[0]?.textContent,$('task-owner').value&&'Owner: '+$('task-owner').selectedOptions[0]?.textContent,itemKind==='task'&&taskRequester&&'From: '+((state.people||[]).find(p=>p.id===taskRequester)?.name||'Not specified'),itemKind==='task'&&taskFollower&&'Following: '+((state.people||[]).find(p=>p.id===taskFollower)?.name||'Not specified'),itemKind==='task'&&taskWorkflow&&AtlantaTasks.STATES[taskWorkflow],filter!==(itemKind==='task'?'open':'current')&&filter].filter(Boolean);$('manager-filter-summary').textContent='Filters'+(activeFilters.length?' · '+activeFilters.join(' · '):'');
+ taskVisibleRows=itemKind==='task'&&!inbox?rows:[];taskSelection=AtlantaTasks.visibleSelection(taskSelection,taskVisibleRows);renderBulkTasks();
+ if(itemKind==='task'&&!inbox){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));$('tasks-summary').textContent=rows.length+' shown · '+active.length+' open · '+active.filter(t=>t.due_date&&t.due_date<today).length+' overdue';}
  $('task-list').replaceChildren();
+ if(inbox&&rows.length&&$('proposal-list').querySelector('.empty-content'))$('proposal-list').replaceChildren();
+ if(itemKind==='task'&&managerView==='inbox')$('task-list').append(el('h2','','Proposed actions'),el('p','hint','Review actions from every source. Project filters apply to tasks after acceptance.'),$('proposal-filters'),$('proposal-list'));
+
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
- if(!rows.length){if(noKindItems){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));const next=el('button','primary',itemKind==='task'?'New task':'Open library');next.onclick=()=>itemKind==='task'?perform(()=>openManualTask()):perform(openConversations);box.append(next);$('task-list').append(box);}else $('task-list').append(el('p','empty-content','Nothing matches this filter.'));}
+ if(!rows.length){if(noKindItems&&!inbox){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));const next=el('button','primary',itemKind==='task'?'New task':'Open library');next.onclick=()=>itemKind==='task'?perform(()=>openManualTask()):perform(openConversations);box.append(next);$('task-list').append(box);}else if(!(itemKind==='task'&&managerView==='inbox'&&$('proposal-list').children.length))$('task-list').append(el('p','empty-content','Nothing matches this filter.'));}
  for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
 const WORK_PANELS={task:'items-panel',decision:'items-panel',suggested:'work-suggested',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
 let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?localStorage.getItem('work-tab'):'task';}catch{}
 function showWorkTab(tab){
+ if(tab==='suggested'){managerView='inbox';store('manager-view',managerView);tab='task';}
  if(tab==='sources')tab=stored('last-source-tab')||'gmail';if(['gmail','chat','github'].includes(tab))store('last-source-tab',tab);
  if(tab!==workTab)readers.invalidate();workTab=tab;syncRoute(true);try{localStorage.setItem('work-tab',tab);}catch{}
  for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab||button.dataset.workTab==='sources'&&['gmail','chat','github'].includes(tab);button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
@@ -2061,7 +2152,7 @@ async function refresh(changed) {
    const fresh=await api('/api/meetings/'+key);const fingerprint=JSON.stringify(fresh);
    if(view!=='detail'||selected!==key||generation!==meetingLoadSequence||!readers.current(request))return;
    if(hasEdits()){if(fingerprint!==lastFingerprint){detailChangedWhileEditing=true;$('detail-refresh-notice').hidden=false;}return;}
-   if(fingerprint!==lastFingerprint){detail=fresh;lastFingerprint=fingerprint;if(notesEditing)notesBase=structuredClone(fresh.minutes);renderDetail();}
+   if(fingerprint!==lastFingerprint){const firstNotes=!detail.minutes&&!!fresh.minutes&&fresh.status==='ready'&&meetingTab==='transcript';detail=fresh;lastFingerprint=fingerprint;if(notesEditing)notesBase=structuredClone(fresh.minutes);renderDetail();if(firstNotes)switchTab('outcomes');}
   }
  } catch(e) { $('connection').textContent=disconnectedMessage(); }
  finally { refreshing=false; if(refreshPending){const next=pendingChanged;refreshPending=false;pendingChanged=[];refresh(next);} }
@@ -2091,8 +2182,9 @@ $('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;di
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
-$('work-project').onchange=()=>renderTasks();
-$('task-owner').onchange=renderTasks;
+$('task-reset-filters').onclick=()=>{taskRequester=taskFollower=taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';for(const key of ['tasks-requester','tasks-follower','tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');renderTasks();};
+$('work-project').onchange=()=>{store('tasks-project',$('work-project').value);renderTasks();};
+$('task-owner').onchange=()=>{store('tasks-owner',$('task-owner').value);renderTasks();};
 // Transcript rows grow with their text instead of showing an inner scroll bar.
 document.addEventListener('input',event=>{const area=event.target;if(area.matches?.('.segment textarea')){area.style.height='auto';area.style.height=area.scrollHeight+2+'px';}});
 $('new-meeting').onclick=async()=>{const context=view==='prepare'?{project_id:prepareScope.project||null,series_id:prepareScope.series||null,meeting_type:prepareScope.type||'general'}:view==='projects'?{project_id:$('workspace-project').value==='__none__'?null:$('workspace-project').value||null}:view==='detail'?{project_id:detail.project_id||null,series_id:detail.series_id||null,meeting_type:detail.meeting_type||'general'}:{};const project=contextProject();if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show(state?.active?'recording':'setup');window.scrollTo(0,0);if(state?.active)selected=state.active.id;else{if(project){fillProjects($('record-project'),project,'No project');fillSeries($('record-series'),project,'','No series');renderRecordMore();}renderTranscriptionTiming(true);captureContext=context;if(Object.keys(context).length)applyCaptureSetup(recordingSetupDraft(context),false);renderCaptureSetup();}renderLibrary();};
@@ -2386,7 +2478,7 @@ function renderWorkspace(){
  function itemCard(item){
   const card=el('article','workspace-item'),cardText=el('strong','',item.text);card.append(cardText,el('p','hint',item.kind+' · '+item.status+(item.owner?' · '+item.owner:'')),projectAssignment(item));
   if(item.answer)card.append(el('p','',item.answer));card.append(sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),relationLinks(item),evidenceBlock(item,itemsData.meetings));
-  card.append(...editDeleteButtons(item,cardText));const open=el('button','quiet',item.kind==='task'?'Open task':'Open in My Work');open.onclick=()=>item.kind==='task'?perform(()=>openTaskPanel(item.id)):perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});card.append(open);return card;
+  const actions=el('div','action-group workspace-actions');actions.append(...editDeleteButtons(item,cardText));const open=el('button','quiet',item.kind==='task'?'Open task':'Open in My Work');open.onclick=()=>item.kind==='task'?perform(()=>openTaskPanel(item.id)):perform(async()=>{show('tasks');lastTasks='';await loadTasks();$('work-project').value=data.project_id;renderTasks();showWorkTab(item.kind==='question'?'questions':item.kind);});actions.append(open);card.append(actions);return card;
  }
  if(workspaceSection==='overview'){
   box.append(el('h2','',data.projects.find(p=>p.id===data.project_id)?.name||'All projects'));
@@ -2410,7 +2502,7 @@ function renderWorkspace(){
   const evs=new Set(data.items.flatMap(i=>i.source_evidence||[])),ids=new Set((data.graph.source_evidence||[]).filter(e=>evs.has(e.id)).map(e=>e.source_id));
   box.append(el('h2','','Sources linked through project work'),el('p','hint','Accept or link a proposal in My Work, then assign its item to a project. This view keeps the original source and its evidence.'));
   for(const source of data.graph.sources||[])if(ids.has(source.id)){const row=el('article','workspace-item');row.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)),el('p','hint',source.available?'Available':'Saved evidence · source unavailable'));box.append(row);}
- }else if(['work','task','decision','question'].includes(workspaceSection)){const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;renderWorkspace();syncRoute(true);};box.append(filter);const rows=visible.filter(i=>!filter.value||i.kind===filter.value);for(const item of rows)box.append(itemCard(item));}
+ }else if(['work','task','decision','question'].includes(workspaceSection)){if(data.project_id&&data.project_id!=='__none__'){const add=el('button','primary','New task in this project');add.type='button';add.onclick=()=>perform(()=>openManualTask());box.append(add);}const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;renderWorkspace();syncRoute(true);};box.append(filter);const rows=visible.filter(i=>!filter.value||i.kind===filter.value);for(const item of rows)box.append(itemCard(item));}
  if(!visible.length&&['overview','work','task','decision','question'].includes(workspaceSection)){const empty=el('div','empty-work');empty.append(el('h3','','A place for your next conversation'),el('p','','Record a meeting or attach a conversation to bring this project to life.'));const next=el('button','primary','New meeting');next.onclick=()=>$('new-meeting').click();empty.append(next);box.append(empty);}
  if(box.children.length<2)box.append(el('p','hint','Nothing assigned here yet.'));
 }
@@ -2569,16 +2661,18 @@ function renderChannelProfile(profile){
 }
 
 async function openManualTask(meetingId=null){
+ if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
  if(!(await leaveEdits()))return;
  const dialog=$('manual-task-dialog'),box=$('manual-task-body');box.replaceChildren(el('h3','','New task'),el('p','hint','Saved on this Mac. Publishing to GitHub uses a separate preview and approval.'));
  const text=el('textarea');text.maxLength=1000;text.rows=5;text.setAttribute('aria-label','Task text');text.placeholder='What needs to be done?';
  const owner=el('input');owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.placeholder='Owner (optional)';owner.setAttribute('list','known-speakers');
  const due=el('input');due.type='date';due.setAttribute('aria-label','Due date');
  const meeting=el('select');meeting.setAttribute('aria-label','Meeting');meeting.append(option('No meeting · standalone task',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=meetingId||'';
- const project=el('select');project.setAttribute('aria-label','Project');const initial=(state.meetings||[]).find(m=>m.id===meetingId)?.project_id||($('work-project').value!=='__none__'?$('work-project').value:'');fillProjects(project,initial||'','No project');
+ const project=el('select');project.setAttribute('aria-label','Project');const initial=(state.meetings||[]).find(m=>m.id===meetingId)?.project_id||(view==='projects'?contextProject():($('work-project').value!=='__none__'?$('work-project').value:''));fillProjects(project,initial||'','No project');
  let projectEdited=false;project.onchange=()=>{projectEdited=true;};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
- const actions=el('div','editor-actions'),save=el('button','primary','Create task'),cancel=el('button','quiet','Cancel');save.type=cancel.type='button';actions.append(save,cancel);
+ const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','quiet','Cancel');save.type=cancel.type='button';actions.append(save,cancel);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};box.append(label('Task',text),label('Owner',owner),label('Due date',due),label('Meeting',meeting),label('Project',project),actions);
+ const refine=el('button','secondary','Draft with AI…');refine.type='button';refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:owner.value,capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});actions.append(refine);
  const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;
  cancel.onclick=()=>perform(()=>requestDialogClose(dialog,()=>dialog.close()));
  save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
@@ -2596,16 +2690,75 @@ async function openManualTask(meetingId=null){
 $('new-task').onclick=()=>perform(()=>openManualTask());
 $('meeting-add-task').onclick=()=>perform(()=>openManualTask(selected));
 
-async function openTaskPanel(id){
- const data=await api('/api/items');itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
- const dialog=$('task-panel'),box=$('task-panel-body');box.replaceChildren(el('h3','','Task'),el('p','hint','Status: '+item.status));
- const area=el('textarea');area.value=item.text;area.maxLength=1000;area.setAttribute('aria-label','Task text');const project=el('select');project.setAttribute('aria-label','Project');fillProjects(project,item.effective_project_ids?.[0]||'','No project');
- const owner=el('input');owner.value=item.owner||'';owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.setAttribute('list','known-speakers');const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');
- const save=el('button','primary','Save changes'),close=el('button','quiet','Close');save.type=close.type='button';let editing=false;
- area.oninput=owner.oninput=due.oninput=project.onchange=()=>{editing=true;editorDirty.set('task-panel',true);};
- close.onclick=()=>perform(()=>requestDialogClose(dialog,async()=>{if(editing&&!(await ask('Discard task edits?',{ok:'Discard',cancel:'Keep editing'})))return;editorDirty.clear('task-panel');dialog.close();}));dialog.oncancel=event=>{event.preventDefault();close.click();};dialog.onclose=()=>editorDirty.clear('task-panel');
- save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{if(!validDates(box))return;save.disabled=true;try{const changes={text:area.value};if((owner.value.trim()||null)!==(item.owner||null))changes.owner=owner.value.trim()||null;if((due.value||null)!==(item.due_date||null))changes.due_date=due.value||null;let current=await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});const fresh=await api('/api/items'),updated=fresh.items.find(i=>i.id===id);if(project.value!==(item.effective_project_ids?.[0]||''))await api('/api/work/project',{id,revision:updated.revision,project_ids:project.value?[project.value]:[]});editing=false;editorDirty.clear('task-panel');dialog.close();toast('Task saved');try{await refreshAfterItemChange();}catch{error('Task saved; refresh the list to see it.');}}finally{save.disabled=false;}}));
- box.append(area,el('label','','Owner'),owner,el('label','','Due date'),due,el('label','','Project'),project,sourceChips(item,data.meetings),save,close);dialog.showModal();
+function progressChangeText(changes){return Object.entries(changes||{}).filter(([key])=>!['legacy_unreviewed'].includes(key)).map(([key,[before,after]])=>{const name={owner:'Owner',owner_person_id:'Owner',requester_person_id:'Received from',assigned_by_person_id:'Assigned by',follower_person_id:'Followed by',workflow_state:'State',follow_up_date:'Next check',due_date:'Due',text:'Title',acceptance_state:'Acceptance'}[key]||key.replaceAll('_',' ');const format=value=>key.endsWith('_person_id')?(state.people||[]).find(p=>p.id===value)?.name||(value?'Removed person':'—'):['due_date','follow_up_date'].includes(key)&&value?date(value):key==='workflow_state'?AtlantaTasks.STATES[value]||value:typeof value==='string'?value.slice(0,300):value==null?'—':Array.isArray(value)?value.join(', '):String(value);return name+': '+format(before)+' → '+format(after);}).join(' · ');}
+function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,onLinks=()=>{}}){
+ box.replaceChildren(el('h3','','Task timeline · '+item.text.slice(0,160)),el('span','badge','Local: '+(AtlantaTasks.STATES[progress.local_state]||progress.local_state)),el('p','hint',progress.note));onLinks(progress.links||[]);
+ const links=el('div','task-progress-links');
+ for(const link of progress.links||[]){const status=el('div','task-progress-link'),remote=el('a','',link.repository+' #'+link.number);remote.href=link.url;remote.target='_blank';remote.rel='noopener noreferrer';status.append(remote,el('span','hint',githubVerificationLabel(link)+' · '+(link.state||'Unknown state')));
+  const snapshot=link.progress||{};if(snapshot.checked_at)status.append(el('p','hint','Activity snapshot: '+dateTime(snapshot.checked_at)));if(snapshot.partial)status.append(el('p','notice','Partial activity · more events may be available; older cached excerpts may be omitted.'));if(snapshot.error)status.append(el('p','notice',snapshot.error));
+  const check=el('button','secondary small-action','Check GitHub activity');check.type='button';const load=async more=>{check.disabled=true;try{const current=await api('/api/items/'+item.id+'/github-progress',{link_id:link.id,more});if(alive())renderTaskProgress(box,current,item,{alive,dirty,editing,setWorkflow,onLinks});}finally{check.disabled=false;}};check.onclick=()=>perform(()=>load(false));status.append(check);
+  if(snapshot.events?.length){const clear=el('button','quiet small-action','Clear activity cache');clear.type='button';clear.onclick=()=>perform(async()=>{if(!(await ask('Remove cached GitHub activity for this link? The local task, its updates, source evidence and GitHub itself stay unchanged.',{ok:'Clear cache'})))return;const current=await api('/api/items/'+item.id+'/github-progress',{link_id:link.id,clear:true});if(alive())renderTaskProgress(box,current,item,{alive,dirty,editing,setWorkflow,onLinks});});status.append(clear);}
+  if(snapshot.next_page){const more=el('button','quiet small-action','Load next activity pages');more.type='button';more.onclick=()=>perform(()=>load(true));status.append(more);}
+  const mismatch=AtlantaProgress.mismatch(progress.local_state,link.state);if(mismatch){status.append(el('p','notice',mismatch));if(link.verification==='github'&&!snapshot.error){const action=el('button','secondary small-action',link.state==='open'?'Review reopening locally':'Review completion locally');action.type='button';action.onclick=()=>{setWorkflow(link.state==='open'?'todo':'done');dirty();};status.append(action);}}
+  links.append(status);
+ }box.append(links);
+ for(const operation of progress.publications||[]){if(!['unknown','created','failed'].includes(operation.state))continue;
+  const status=el('section','notice'),destination=operation.repository||'',repo=el('input');repo.value=destination;repo.placeholder='owner/repository used for this publication';repo.setAttribute('aria-label','Publication repository');status.append(el('strong','',operation.state==='unknown'?'Publication outcome unknown':operation.state==='created'?'Created · verification pending':'Publication refused'),el('p','hint',(operation.account_login?'Account: '+operation.account_login+' · ':'')+destination+(operation.error?' · '+operation.error:'')));
+  if(!destination)status.append(repo);
+  if(['unknown','created'].includes(operation.state)){const check=el('button','secondary','Check GitHub outcome');check.type='button';check.disabled=String(operation.account_id)!==String(progress.account_id);if(check.disabled)status.append(el('p','hint','Connect the original GitHub account to verify this operation.'));check.onclick=()=>perform(async()=>{check.disabled=true;try{await api(operation.state==='unknown'?'/api/github/reconcile':'/api/github/verify',{id:operation.id,repository:repo.value});const current=await api('/api/items/'+item.id+'/progress');if(alive())renderTaskProgress(box,current,item,{alive,dirty,editing,setWorkflow,onLinks});}finally{check.disabled=false;}});status.append(check);}
+  if(operation.state==='unknown'&&operation.last_check){status.append(el('p','hint','Last complete check: '+dateTime(operation.last_check.at)+' · '+operation.last_check.matches+' matches'));if(operation.last_check.matches===0){const release=el('button','quiet','Allow a new preview');release.type='button';release.onclick=()=>perform(async()=>{if(!(await ask('The complete check found no result. A late GitHub result could still appear. Allow a new preview? This does not publish anything.',{ok:'Allow preview'})))return;await api('/api/github/abandon',{id:operation.id});const current=await api('/api/items/'+item.id+'/progress');if(alive())renderTaskProgress(box,current,item,{alive,dirty,editing,setWorkflow,onLinks});});status.append(release);}}
+  box.append(status);
+ }
+ const list=el('ol','task-timeline'),events=progress.events||[];let limit=60;
+ const draw=()=>{list.replaceChildren();for(const event of events.slice(0,limit)){const row=el('li','task-timeline-event');row.append(el('small','hint',event.at?dateTime(event.at):'Date not recorded'),el('strong','',AtlantaProgress.label(event)));if(event.text)row.append(el('p','',event.text));const changes=progressChangeText(event.changes);if(changes)row.append(el('p','hint',changes));if(event.actor)row.append(el('small','hint','@'+event.actor));if(event.quote)row.append(el('blockquote','',event.quote));
+   const mid=event.meeting_id||event.locator?.meeting_id;if(mid){const open=el('button','quiet small-action','Open meeting evidence');open.type='button';open.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('task-panel').close();await openMeeting(mid);if(event.timestamp)showSeconds(stampSeconds(event.timestamp));else if(event.locator?.start!=null)showSeconds(event.locator.start);});row.append(open);if(event.timestamp||event.locator?.start!=null)row.append(listenButton(mid,event.locator?.start??stampSeconds(event.timestamp),{label:'Play evidence',until:event.locator?.end??null}));}
+   if(event.source_id){const source=itemsData.graph?.sources?.find(s=>s.id===event.source_id);if(source){const open=el('button','quiet small-action','Open saved source');open.type='button';open.onclick=()=>perform(()=>openSource(source));row.append(open);}}
+   if(event.url){const open=el('a','','Open in GitHub ↗');open.href=event.url;open.target='_blank';open.rel='noopener noreferrer';row.append(open);}list.append(row);}
+  more.hidden=limit>=events.length;};
+ const more=el('button','quiet','Show more timeline events');more.type='button';more.onclick=()=>{limit+=60;draw();};draw();box.append(list,more);
+ if(progress.revision!==item.revision)box.prepend(el('p','notice','The task changed since this editor opened. Reopen it before saving; your current text has been kept.'));
+}
+async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
+ const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
+ const dialog=$('task-panel'),box=$('task-panel-body');box.replaceChildren(el('h2','','Task'),el('p','hint','Projects: '+(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')));
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
+ const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=3;area.setAttribute('aria-label','Task title');
+ const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=3;details.setAttribute('aria-label','Details');
+ const criterion=el('textarea');criterion.value=item.completion_criteria||'';criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');
+ const project=el('select');project.setAttribute('aria-label','Project');project.append(option('Keep current project links','keep'),option('No project','none'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));project.value='keep';
+ const owner=el('input');owner.value=item.owner||'';owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.setAttribute('list','known-speakers');
+ const personSelect=(value,name)=>{const field=el('select');field.setAttribute('aria-label',name);field.append(option('Not specified',''),...(state.people||[]).map(p=>option(p.name,p.id)));field.value=value||'';return field;};
+ const requester=personSelect(item.requester_person_id,'Received from'),assigner=personSelect(item.assigned_by_person_id,'Assigned by'),follower=personSelect(item.follower_person_id,'Followed by');
+ const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');
+ const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up');
+ const workflow=el('select');workflow.setAttribute('aria-label','Task state');workflow.append(...Object.entries(AtlantaTasks.STATES).map(([key,title])=>option(title,key)));workflow.value=AtlantaTasks.workflow(item);
+ const update=el('textarea');update.maxLength=5000;update.rows=2;update.setAttribute('aria-label','Progress update');update.placeholder='What changed? Who or what are we waiting for?';
+ const updateEvidence=el('select');updateEvidence.setAttribute('aria-label','Evidence for this update');updateEvidence.append(option('No evidence attached',''),...(data.graph?.source_evidence||[]).filter(e=>item.source_evidence?.includes(e.id)).map(e=>option(e.quote.slice(0,120),e.id)));
+ const routes=el('div','task-card-grid');routes.append(label('Owner',owner),label('Task state',workflow),label('Received from',requester),label('Assigned by',assigner),label('Followed by',follower),label('Due date',due),label('Next follow-up',follow),label('Project',project));
+ if(managerSelf){const assigned=el('button','secondary small-action','I assigned this task');assigned.type='button';assigned.onclick=()=>{assigner.value=managerSelf;dirty();};routes.append(assigned);}
+ let editing=false;const dirty=()=>{editing=true;github.inert=true;editorDirty.set('task-panel',true);};for(const control of [area,details,criterion,owner,requester,assigner,follower,due,follow,project,workflow,update,updateEvidence]){control.oninput=control.onchange=dirty;}
+ const save=el('button','primary','Save changes'),close=el('button','quiet','Close'),footer=el('div','task-card-footer');save.type=close.type='button';
+ close.onclick=()=>perform(()=>requestDialogClose(dialog,async()=>{if(editing&&!(await ask('Discard task edits?',{ok:'Discard',cancel:'Keep editing'})))return;dialog.close();}));dialog.oncancel=event=>{event.preventDefault();close.click();};dialog.onclose=()=>{editorDirty.clear('task-panel');};
+ const persist=accept=>perform(()=>withDialogAction(dialog,async()=>{
+  if(!validDates(box))return;
+  const changes={text:area.value,details:details.value,completion_criteria:criterion.value};
+  for(const [key,value] of [['owner',owner.value.trim()||null],['requester_person_id',requester.value||null],['assigned_by_person_id',assigner.value||null],['follower_person_id',follower.value||null],['due_date',due.value||null],['follow_up_date',follow.value||null],['workflow_state',workflow.value]])if(value!==(item[key]??(key==='workflow_state'?AtlantaTasks.workflow(item):null)))changes[key]=value;
+  if(project.value!=='keep')changes.project_ids=project.value==='none'?[]:[project.value];
+  if(update.value.trim()){changes.update_note=update.value.trim();if(updateEvidence.value)changes.update_evidence_id=updateEvidence.value;}if(accept||item.legacy_unreviewed)changes.acceptance_state='accepted';
+  await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});editing=false;editorDirty.clear('task-panel');dialog.close();toast(accept?'Task accepted':'Task saved');await refreshAfterItemChange();
+ }));save.onclick=()=>persist(false);footer.append(save,close);
+ if(item.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(item))){const cancelTask=el('button','danger-action','Cancel task…');cancelTask.type='button';cancelTask.onclick=()=>{workflow.value='cancelled';dirty();workflow.focus();cancelTask.textContent='Cancellation selected · Save changes to apply';};footer.append(cancelTask);}
+ if(item.acceptance_state==='proposed'){const accept=el('button','primary','Accept task');accept.type='button';accept.onclick=()=>persist(true);footer.prepend(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
+ box.append(label('Task',area),label('Details',details),label('Expected result',criterion),routes,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),label('Add an update',update),label('Evidence for this update',updateEvidence),footer);
+ const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=el('button','secondary','Link another source');attach.type='button';attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);box.append(sources);
+ const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);
+ const destinations=[...new Set((item.effective_project_ids||[]).flatMap(key=>projectList().find(p=>p.id===key)?.repositories||[]))];if(destinations.length){const repository=el('select');repository.setAttribute('aria-label','Repository readiness');repository.append(...destinations.map(name=>option(name,name)));const readiness=el('button','quiet','Check repository access'),result=el('p','hint','Read access and issue publication permissions are separate.');readiness.type='button';readiness.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits first.');readiness.disabled=true;try{const value=await api('/api/items/'+item.id+'/readiness',{repository:repository.value});if(dialog.open&&sequence===taskPanelSequence)result.textContent=value.repository+' · '+value.account+' · '+(value.archived?'Archived or disabled':!value.issues_enabled?'Issues disabled':value.message);}finally{readiness.disabled=false;}});github.append(repository,readiness,result);}box.append(github);
+ const timeline=el('section','task-progress');timeline.append(el('h3','','Task timeline'),el('p','hint','Loading saved history…'));box.append(timeline);dialog.showModal();
+ const options={alive:()=>dialog.open&&sequence===taskPanelSequence,dirty,editing:()=>editing,setWorkflow:value=>{workflow.value=value;workflow.focus();},onLinks:links=>{
+  itemsData.github_links=[...(itemsData.github_links||[]).filter(link=>link.resource.kind!=='item'||link.resource.id!==id),...links];const fresh=githubActions({kind:'item',id},links);linkedActions.replaceChildren(...fresh.childNodes);
+  [...linkedActions.querySelectorAll('button')].filter(button=>button.textContent==='Check in GitHub').forEach((button,index)=>{button.onclick=()=>perform(async()=>{button.disabled=true;try{const progress=await api('/api/items/'+id+'/github-progress',{link_id:links[index].id});if(options.alive())renderTaskProgress(timeline,progress,item,options);}finally{button.disabled=false;}});});
+ }};
+ api('/api/items/'+id+'/progress').then(progress=>{if(options.alive()){renderTaskProgress(timeline,progress,item,options);if(focusTimeline&&!editing)timeline.scrollIntoView({block:'start'});}}).catch(error=>{if(options.alive()){timeline.replaceChildren(el('p','notice','Timeline unavailable. '+error.message),historyBlock(item,data.meetings));}});if(focusUpdate){update.focus();update.scrollIntoView({block:'center'});}
 }
 
 // Native close and recovery get only a dirty bit and heartbeat, never editor contents.
@@ -2701,7 +2854,8 @@ function selectedTranscriptRange(){
  const indices=[...root.querySelectorAll('[data-segment-index]')].filter(node=>range.intersectsNode(node)).map(node=>Number(node.dataset.segmentIndex));
  return indices.length?{first:Math.min(...indices),last:Math.max(...indices)}:null;
 }
-document.addEventListener('selectionchange',()=>{clearTimeout(excerptSelectionTimer);excerptSelectionTimer=setTimeout(()=>{if($('excerpt-dialog').open)return;excerptSelection=selectedTranscriptRange();$('save-excerpt').hidden=!excerptSelection;$('save-excerpt').textContent='Attach selection to project';},100);});
+document.addEventListener('selectionchange',()=>{clearTimeout(excerptSelectionTimer);excerptSelectionTimer=setTimeout(()=>{if($('excerpt-dialog').open)return;excerptSelection=selectedTranscriptRange();$('save-excerpt').hidden=!excerptSelection;$('task-from-selection').hidden=!excerptSelection;$('save-excerpt').textContent='Attach selection to project';},100);});
+$('task-from-selection').onclick=()=>perform(async()=>{const range=excerptSelection;if(!range)return;await suggestTask($('task-from-selection'),{provider:'meeting',id:detail.id,revision:detail.transcript_revision,...range});});
 for(const button of document.querySelectorAll('.sidebar>button,.sidebar footer button')){
  button.setAttribute('aria-label',button.id==='open-tasks'?'My Work':button.textContent.replace(/↗/g,'').trim());button.title=button.getAttribute('aria-label');
  for(const node of [...button.childNodes])if(node.nodeType===3&&node.textContent.trim()){const label=el('span','nav-label',node.textContent);node.replaceWith(label);}
@@ -2795,23 +2949,31 @@ async function openMeetingReview(){
   row.append(state,el('p','',item.text));
   if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
   row.append(reviewRouting(item));
-  for(const evidence of item.evidence||[])row.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen to evidence · '+evidence.timestamp,until:evidence.end,className:'secondary'}));
+  for(const evidence of item.evidence||[]){const proof=el('div','review-evidence');proof.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen · '+evidence.timestamp,until:evidence.end,className:'secondary'}));row.append(proof);}
+  const actions=el('div','action-group review-item-actions');
   const edit=el('button','secondary','Edit');edit.type='button';
   edit.onclick=()=>{
+   if(item.kind==='task')return perform(()=>openTaskPanel(item.id));
    edit.disabled=true;const form=el('div','review-inline-editor'),text=el('textarea'),owner=el('input'),save=el('button','primary','Save edit'),cancel=el('button','secondary','Cancel');
    text.value=item.text;text.setAttribute('aria-label','Task or decision text');owner.value=item.owner||'';owner.setAttribute('aria-label','Owner');
    const dirty=()=>editorDirty.set('meeting-review',true);text.oninput=owner.oninput=dirty;
-   save.type=cancel.type='button';form.append(text);if(item.kind==='task')form.append(owner);form.append(save,cancel);row.append(form);
+   save.type=cancel.type='button';form.append(text);if(item.kind==='task')form.append(owner);const editActions=el('div','action-group');editActions.append(save,cancel);form.append(editActions);row.append(form);
    cancel.onclick=()=>{editorDirty.clear('meeting-review');form.remove();edit.disabled=false;};
    save.onclick=()=>perform(async()=>{save.disabled=true;try{const changes={text:text.value};if(item.kind==='task')changes.owner=owner.value;await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action:'edit',changes});editorDirty.clear('meeting-review');await openMeetingReview();}finally{save.disabled=false;}});
-  };row.append(edit);
+  };actions.append(edit);
 
-  for(const [action,label] of item.state==='dismissed'?[['restore','Restore to My Work']]:[['confirm','Confirm locally'],['dismiss','Dismiss · hide everywhere']]){
-   if(item.state==='confirmed')continue;
-   const button=el('button','secondary',label);button.type='button';button.disabled=data.source_changed;
-   button.onclick=()=>perform(async()=>{button.disabled=true;try{await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action});await openMeetingReview();}finally{button.disabled=false;}});row.append(button);
+  if(item.dismiss_blocked_reason&&item.state!=='dismissed'){
+   const notice=el('div','notice review-confirmation-context');
+   notice.append(el('p','',item.dismiss_blocked_reason==='confirmed_elsewhere'?(item.kind==='task'?'Already confirmed in another meeting. Open the task to review it. If it no longer applies, choose Cancel task.':'Already confirmed in another meeting. Review the existing item instead of dismissing it as a new proposal.'):item.kind==='task'?'This task is already accepted. If it no longer applies, open the task and choose Cancel task.':'This item is already confirmed.'));
+   for(const confirmation of item.confirmed_in||[]){const open=el('button','quiet',confirmation.title);open.type='button';open.onclick=()=>perform(()=>openMeeting(confirmation.meeting_id));notice.append(open);}
+   const open=el('button','secondary',item.kind==='task'?'Open task':'Open in My Work');open.type='button';open.onclick=()=>perform(async()=>{if(item.kind==='task')return openTaskPanel(item.id);if(!(await leaveEdits()))return;show('tasks');lastTasks='';await loadTasks();showWorkTab(item.kind);});notice.append(open);row.append(notice);
   }
-  box.append(row);
+  for(const [action,label] of item.state==='dismissed'?[['restore','Restore to My Work']]:[['confirm','Confirm locally'],['dismiss','Dismiss · hide everywhere']]){
+   if(item.state==='confirmed'||action==='dismiss'&&item.can_dismiss===false)continue;
+   const button=el('button',action==='confirm'?'primary':action==='dismiss'?'danger-action':'secondary',label);button.type='button';button.disabled=data.source_changed;
+   button.onclick=()=>perform(async()=>{button.disabled=true;try{await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action});await openMeetingReview();}finally{button.disabled=false;}});actions.append(button);
+  }
+  row.append(actions);box.append(row);
  }
  if(!data.items.length)box.append(el('p','hint','No linked tasks or decisions. Review the saved notes and unresolved mentions in Tasks & decisions.'));
  box.querySelector('.review-pending')?.scrollIntoView({block:'nearest'});
@@ -2856,13 +3018,18 @@ function followupOwner(row){
  choose.onchange=()=>{if(choose.value)link(choose.value);};box.append(choose);
  return box;
 }
+let followupOwnerFilter='';
 function renderFollowup(data){
  const follow=data.followup||{},box=$('followup-content');box.replaceChildren();
+ const owners=[...new Set((follow.commitments||[]).map(row=>row.person_name||row.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b));if(followupOwnerFilter&&!owners.includes(followupOwnerFilter))followupOwnerFilter='';
+ if(owners.length){const filter=el('select');filter.setAttribute('aria-label','Follow-up owner');filter.append(option('All owners',''),...owners.map(name=>option(name,name)));filter.value=followupOwnerFilter;filter.onchange=()=>{followupOwnerFilter=filter.value;renderFollowup(data);};box.append(filter);}
+
  $('followup-boundary').textContent=follow.anchor?'Since '+withDate(follow.anchor.title,follow.anchor.started_at||follow.anchor.created):'No previous meeting of this type — no comparison period yet.';
- for(const [key,label] of [['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
-  const rows=follow[key]||[];if(!rows.length)continue;
+ for(const [key,label] of [['externally_updated','GitHub changes since last meeting'],['updated','Updated since last meeting'],['waiting','Waiting on someone or something'],['follow_up_due','Follow-up due'],['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
+  const rows=(follow[key]||[]).filter(row=>!followupOwnerFilter||row.kind!=='task'||(row.person_name||row.owner)===followupOwnerFilter);if(!rows.length)continue;
   const section=el('section','note-section');section.append(el('h3','',label+' · '+rows.length));
-  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.kind==='task')card.append(followupOwner(row));else if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',row.status));card.append(workReviewBadge(row.review));
+  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.kind==='task')card.append(followupOwner(row));else if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',AtlantaTasks.STATES[row.workflow_state]||row.status));card.append(workReviewBadge(row.review));if(row.follow_up_date)card.append(el('p','hint','Next check: '+date(row.follow_up_date)));if(row.last_update)card.append(el('p','',dateTime(row.last_update.at)+' · '+row.last_update.text));for(const event of row.updates_since||[])if(!(event.event==='progress_update'&&event.at===row.last_update?.at&&event.text===row.last_update?.text))card.append(el('p','hint',dateTime(event.at)+' · '+(event.text||progressChangeText(event.changes)||EVENT_LABELS[event.event]||event.event)));
+   for(const event of row.github_updates||[]){const excerpt=el('p','hint',dateTime(event.at)+' · '+AtlantaProgress.label({kind:'github_'+event.kind})+(event.text?' · '+event.text:''));if(event.url){const open=el('a','',' Open in GitHub ↗');open.href=event.url;open.target='_blank';open.rel='noopener noreferrer';excerpt.append(open);}card.append(excerpt);}if(row.github_updates_omitted)card.append(el('p','hint',row.github_updates_omitted+' more cached changes · open the task timeline'));
    if(row.quote)card.append(el('blockquote','',row.quote));
    if(row.source)card.append(sourceChip(row.source),sourceListen(row.source));
    if(row.item_id){const open=el('button','quiet','Open work item');open.onclick=()=>perform(async()=>{if(row.kind==='task')await openTaskPanel(row.item_id);else{show('tasks');lastTasks='';await loadTasks();showWorkTab(row.kind==='question'?'questions':'decision');}});card.append(open);}

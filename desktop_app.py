@@ -505,13 +505,13 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/conversations/projects':
                 result = service.conversations.assign(body)
             elif path == '/api/projects/create':
-                result = service.create_project(body.get('name'))
+                result = service.create_project(body.get('name'), body.get('color'))
             elif path == '/api/templates/save':
                 result = service.save_template(body)
             elif path == '/api/templates/delete':
                 result = service.delete_template(body['id'], body['revision'])
             elif path == '/api/projects/change':
-                result = service.change_scope(body['kind'], body['id'], body['action'], body.get('name'))
+                result = service.change_scope(body['kind'], body['id'], body['action'], body.get('name'), body.get('value'))
             elif path == '/api/marker':
                 result = service.add_marker(body['kind'], body.get('note', ''))
             elif path == '/api/stop':

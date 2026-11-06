@@ -1355,6 +1355,7 @@ class MeetingService:
                     project_ids=item['effective_project_ids'], owner=item.get('owner'), owner_person_id=item.get('owner_person_id'),
                     owner_confirmed='owner' in item.get('manual', []) or bool(item.get('owner_person_id')),
                     due_date=item.get('due_date'), status=item['status'], source_label=source,
+                    details=item.get('details',''),completion_criteria=item.get('completion_criteria',''),
                     destination_repository=item.get('destination_repository'),repository_bindings=self.repository_bindings(item['effective_project_ids']),
                     revision=item.get('revision'))
 
@@ -1421,6 +1422,8 @@ class MeetingService:
             parts = [f'## {kind}\n\n' + data['text'] if data['kind'] not in {'excerpt', 'conversation'} else '',
                      '## Context\n\n' + context if context else '', '## Evidence\n\n' + quoted if quoted else '',
                      '## Details\n\n' + details if details else '', footer]
+        if data.get('details'):parts.insert(-1,'## Details\n\n'+data['details'])
+        if data.get('completion_criteria'):parts.insert(-1,'## Expected result\n\n'+data['completion_criteria'])
         markdown = '\n\n'.join(p for p in parts if p)
         # The dialog shows where the draft can go, so a person can fix the project or its repositories there.
         routing = [dict(id=p['id'], name=p['name'], repositories=list(p.get('repositories', []))) for p in projects]
@@ -1497,7 +1500,7 @@ class MeetingService:
                 cards.append(dict(p, linked_conversations=len(self.conversations.attachments(p['id'])), meetings=sum(includes([m['project_id']] if m.get('project_id') else [], p['id']) for m in all_meetings),
                     repository_usage={r:sum(i['kind']=='task' and (i.get('destination_repository') or '').casefold()==r.casefold() for i in items_here) for r in p.get('repositories',[])},
                     repository_projects={r:[q['name'] for q in projects if any(v.casefold()==r.casefold() for v in q.get('repositories',[]))] for r in p.get('repositories',[])},
-                    open_tasks=sum(i['kind']=='task' and i['status']=='open' and not i.get('dismissed') for i in items_here),
+                    open_tasks=sum(i['kind']=='task' and i['status']=='open' and i.get('workflow_state')!='cancelled' and i.get('acceptance_state')!='proposed' and not i.get('dismissed') for i in items_here),
                     open_questions=sum(i['kind']=='question' and i['status']=='open' for i in items_here)))
             return dict(project_id=project_id, projects=cards, meetings=meetings, items=rows, graph=data['graph'], conversations=self.conversations.attachments(project_id), timeline=self.conversations.timeline(project_id, rows, meetings))
 
@@ -1674,7 +1677,7 @@ class MeetingService:
                     # Items this library already has stay as they are.
                     for item_id, item in archived.items():
                         links = [link for link in item.get('links', []) if link.get('meeting_id') in restored]
-                        if (links or item.get('managed_by') == 'work_graph' or item.get('source_evidence') or item_id in graph_ids) and item_id not in self.items.items:
+                        if (links or item.get('created_by') == 'user' or item.get('managed_by') == 'work_graph' or item.get('source_evidence') or item_id in graph_ids) and item_id not in self.items.items:
                             restored_item = dict(item, links=links)
                             if 'project_ids' in restored_item:
                                 restored_item['project_ids'] = sorted({mapping['projects'].get(key, key) for key in restored_item['project_ids']
@@ -1990,25 +1993,52 @@ class MeetingService:
                                            text=mention[items.MENTION[kind]['text']], candidates=candidates))
         return result
 
+    def review_sources(self):
+        from .meeting_review import source_digest
+        sources={}
+        cache=getattr(self,'_review_source_cache',{})
+        fresh={}
+        for meeting in self.library.list():
+            directory=self.library.directory(meeting['id'])
+            try:
+                stamps=tuple((p.stat().st_mtime_ns,p.stat().st_ctime_ns,p.stat().st_size) if p.exists() else None for p in [directory/'transcript.json',directory/'minutes.json'])
+                previous=cache.get(meeting['id'])
+                if previous and previous[0]==stamps:
+                    sources[meeting['id']]=previous[1];fresh[meeting['id']]=previous;continue
+                transcript=json.loads((directory/'transcript.json').read_text()) if (directory/'transcript.json').exists() else []
+                revision=hashlib.sha256(json.dumps(transcript,sort_keys=True).encode()).hexdigest()
+                sources[meeting['id']]=source_digest(revision,self._minutes_revision(directory))
+                fresh[meeting['id']]=(stamps,sources[meeting['id']])
+            except (OSError,ValueError):pass
+        self._review_source_cache=fresh
+        return sources
+
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
             meetings = self._meeting_refs()
-            rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item))
+            sources=self.review_sources()
+            rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item,sources))
                     for item in self.items.items.values()]
             graph = WorkGraph(self.items).snapshot()
             conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
             # Pinned conversation bodies are fetched on demand, not with every My Work refresh.
             for revision in graph['source_revisions']:
                 if revision['source_id'] in conversations:revision.pop('text',None)
-            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=self.github_links.all())
+            # The list needs state, not every cached remote comment; cards load activity on demand.
+            github_rows=self.github_links.all()
+            for link in github_rows:
+                link.pop('observations',None)
+                if link.get('progress'):link['progress']={k:v for k,v in link['progress'].items() if k!='events'}
+            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=github_rows)
 
-    def _github_publish(self,account,record,suggestions):
+    def _github_publish(self,account,record,suggestions,after=None):
         graph=WorkGraph(self.items)
         def metadata(data,result):
             data['sources'][result['source_id']]['remote']=dict(state=record['state'],kind=record['kind'],
                 repository_id=record['repository_id'],repository=record['repository'],number=record['number'],
                 authority='github',fetched_at=record['fetched_at'])
+            if after:after(data,result)
         return graph.ingest(dict(provider='github',account='github.com:'+account,external_id='issue:'+str(record['issue_id']),
             revision=record['revision'],text=record['text']),suggestions,after=metadata)
 
@@ -2037,7 +2067,7 @@ class MeetingService:
                 graph._activity(data,'github_repository_unavailable',account=account,repository_id=repo)
             graph._write(apply)
 
-    def github_proposal(self,key,revision,title):
+    def github_proposal(self,key,revision,title,after=None):
         with self.github.lock,self.lock,self.items.lock:
             account=self.github._account();record=self.github.detail(key,expected_account=account)
             if not record['available']:raise ValueError('This GitHub source is unavailable. Refresh repository access first.')
@@ -2046,7 +2076,7 @@ class MeetingService:
             quote=(record['body'] or record['title'])[:10000]
             return self._github_publish(account,record,[dict(kind='task',text=title,quote=quote,
                 locator=dict(repository_id=record['repository_id'],repository=record['repository'],issue_id=key,
-                             number=record['number'],kind=record['kind'],url=record['url'],head_sha=record.get('head_sha')))])
+                             number=record['number'],kind=record['kind'],url=record['url'],head_sha=record.get('head_sha')))],after=after)
 
     def _refresh_chat_message(self, account, record):
         with self.lock,self.items.lock:
@@ -2076,7 +2106,7 @@ class MeetingService:
                 graph._activity(data,'chat_source_unavailable',account=account,resource=resource)
             graph._write(apply)
 
-    def chat_proposal(self,name,revision,title):
+    def chat_proposal(self,name,revision,title,after=None):
         # Match the cache writer lock order: cache -> service -> registry.
         with self.chat.lock,self.lock,self.items.lock:
             account=self.chat._account()
@@ -2087,7 +2117,7 @@ class MeetingService:
                 raise items.WorkItemConflict('The Chat message/account changed. Reopen it before proposing a task.')
             return WorkGraph(self.items).ingest(dict(provider='google_chat',account=account,external_id=name,
                 revision=revision,text=record['body']),[dict(kind='task',text=title,quote=record['body'][:10000],
-                locator=dict(space=record['space'],thread=record['thread'],message=name,sender_id=record['sender_id'],created=record['date']))])
+                locator=dict(space=record['space'],thread=record['thread'],message=name,sender_id=record['sender_id'],created=record['date']))],after=after)
 
     def _refresh_gmail_source(self, account, key, record):
         with self.lock, self.items.lock:
@@ -2106,7 +2136,7 @@ class MeetingService:
                 else:
                     graph.availability(source['id'],source['current_revision'],False)
 
-    def gmail_proposal(self, key, revision, message_id, title):
+    def gmail_proposal(self, key, revision, message_id, title, after=None):
         with self.lock, self.items.lock:
             account = self.gmail._account()
             record = self.gmail.detail(key,expected_account=account)
@@ -2119,7 +2149,7 @@ class MeetingService:
                 raise items.WorkItemConflict('The Google account changed. Reopen the email thread.')
             return WorkGraph(self.items).ingest(dict(provider='gmail',account=account,external_id=key,
                 revision=record['revision'],text=record['text']),
-                [dict(kind='task',text=title,quote=message['body'][:10000],locator=dict(thread_id=key,message_id=message_id))])
+                [dict(kind='task',text=title,quote=message['body'][:10000],locator=dict(thread_id=key,message_id=message_id))],after=after)
 
     def work_graph_action(self, action, body):
         # The same service/registry lock order as meeting edits and backup snapshots.
@@ -2147,7 +2177,7 @@ class MeetingService:
             if action == 'review':
                 return graph.review(body['id'], body['revision'], body['action'],
                     target_id=body.get('target_id'), target_revision=body.get('target_revision'),
-                    snoozed_until=body.get('snoozed_until'))
+                    snoozed_until=body.get('snoozed_until'),edited_text=body.get('text'))
             if action == 'question':
                 return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'))
             if action == 'relate':
@@ -2162,7 +2192,7 @@ class MeetingService:
 
     def task_summary(self):
         today = dt.date.today().isoformat()
-        open_tasks = [t for t in self.tasks() if t['status'] == 'open' and not t.get('dismissed')
+        open_tasks = [t for t in self.tasks() if t['status'] == 'open' and t.get('workflow_state')!='cancelled' and t.get('acceptance_state')!='proposed' and not t.get('dismissed')
                       and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
                     today=today, review=len(self.pending_links()))
@@ -2217,6 +2247,87 @@ class MeetingService:
             if meeting_id is not None:self._sync_items(meeting_id)
             return copy.deepcopy(self.items.items[key])
 
+    def _clean_item_changes(self, item, changes):
+        allowed = {'text', 'owner', 'owner_person_id', 'destination_repository', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+        allowed |= {'dismissed', 'snoozed_until'}
+        if item['kind']=='task':allowed |= {'project_ids','details','completion_criteria','workflow_state','acceptance_state','requester_person_id','assigned_by_person_id','follower_person_id','follow_up_date','update_note','update_evidence_id'}
+        if set(changes) - allowed:
+            raise ValueError('These fields cannot change here')
+        clean = {}
+        for name, value in changes.items():
+            if name=='update_evidence_id':
+                if value is not None and value not in item.get('source_evidence',[]):raise ValueError('Choose evidence already linked to this task')
+                clean[name]=value
+            elif name=='project_ids':
+                if value is not None and (not isinstance(value,list) or len(value)>50 or any(not isinstance(p,str) or not self.projects.get('projects',p) for p in value)):raise ValueError('Choose existing projects')
+                clean[name]=None if value is None else sorted(set(value))
+            elif name in {'requester_person_id','assigned_by_person_id','follower_person_id'}:
+                if value is not None and not self.people.get(value):raise ValueError('Choose an existing person')
+                clean[name]=value
+            elif name in {'details','completion_criteria','update_note'}:
+                if not isinstance(value,str) or len(value)>5000:raise ValueError('Text must be up to 5000 characters')
+                clean[name]=value.strip()
+            elif name=='workflow_state':
+                if value not in {'todo','in_progress','waiting','done','cancelled'}:raise ValueError('Choose a task state')
+                clean[name]=value
+            elif name=='acceptance_state':
+                if value!='accepted':raise ValueError('Use Skip to hide a proposal')
+                clean[name]=value
+            elif name == 'dismissed':
+                if type(value) is not bool:
+                    raise ValueError('Dismissed must be true or false')
+                clean[name] = value
+            elif name == 'snoozed_until':
+                if value is not None:
+                    try:
+                        if dt.date.fromisoformat(value).isoformat() != value:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        raise ValueError('Snooze date must use YYYY-MM-DD') from None
+                clean[name] = value
+            elif name == 'text':
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError('The text cannot be empty')
+                clean[name] = value.strip()[:1000]
+            elif name == 'status':
+                if value not in (items.TASK_STATES if item['kind'] == 'task' else items.DECISION_STATES):
+                    raise ValueError('Invalid status')
+                clean[name] = value
+            elif name == 'owner_person_id':
+                # A person chooses who owns the task. That also confirms the owner.
+                person = self.people.get(value) if value is not None else None
+                if value is not None and not person:
+                    raise ValueError('This person no longer exists. Reload and try again.')
+                clean[name] = value
+                if person and 'owner' not in changes:
+                    clean['owner'] = item.get('owner') if item.get('owner') and item['owner'].casefold() in self._person_names(person) else person['name']
+            elif name == 'destination_repository':
+                # Where the task goes when a person publishes it: a repository of its projects, or this Mac only.
+                if value is not None:
+                    from .github_source import repo_name
+                    value = repo_name(value)
+                    candidate=dict(item,**({'project_ids':clean.get('project_ids',changes['project_ids'])} if 'project_ids' in changes else {}))
+                    if value.casefold() not in {r.casefold() for r in self.project_repositories(self.effective_project_ids(candidate))}:
+                        raise ValueError('Choose a repository of the task project')
+                clean[name] = value
+            elif name in {'due_date','follow_up_date'}:
+                if value is not None:
+                    try:
+                        dt.date.fromisoformat(value)
+                    except (TypeError, ValueError):
+                        raise ValueError('Due date must be a date in YYYY-MM-DD format') from None
+                clean[name] = value
+            else:
+                if value is not None and not isinstance(value, str):
+                    raise ValueError(f'{name} must be text')
+                clean[name] = (value or '').strip()[:160] or None
+        # A new owner name that the linked person does not have ends the link.
+        linked = self.people.get(item.get('owner_person_id')) if item.get('owner_person_id') else None
+        if 'owner' in clean and 'owner_person_id' not in clean and item.get('owner_person_id') and (
+                not linked or not clean['owner'] or clean['owner'].casefold() not in self._person_names(linked)):
+            clean['owner_person_id'] = None
+        return clean
+
     def update_item(self, item_id, text, changes, revision=None):
         if not isinstance(changes, dict) or not changes:
             raise ValueError('Nothing to change')
@@ -2228,69 +2339,58 @@ class MeetingService:
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
-            allowed = {'text', 'owner', 'owner_person_id', 'destination_repository', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
-            allowed |= {'dismissed', 'snoozed_until'}
-            if set(changes) - allowed:
-                raise ValueError('These fields cannot change here')
-            clean = {}
-            for name, value in changes.items():
-                if name == 'dismissed':
-                    if type(value) is not bool:
-                        raise ValueError('Dismissed must be true or false')
-                    clean[name] = value
-                elif name == 'snoozed_until':
-                    if value is not None:
-                        try:
-                            if dt.date.fromisoformat(value).isoformat() != value:
-                                raise ValueError()
-                        except (ValueError, TypeError):
-                            raise ValueError('Snooze date must use YYYY-MM-DD') from None
-                    clean[name] = value
-                elif name == 'text':
-                    if not isinstance(value, str) or not value.strip():
-                        raise ValueError('The text cannot be empty')
-                    clean[name] = value.strip()[:1000]
-                elif name == 'status':
-                    if value not in (items.TASK_STATES if item['kind'] == 'task' else items.DECISION_STATES):
-                        raise ValueError('Invalid status')
-                    clean[name] = value
-                elif name == 'owner_person_id':
-                    # A person chooses who owns the task. That also confirms the owner.
-                    person = self.people.get(value) if value is not None else None
-                    if value is not None and not person:
-                        raise ValueError('This person no longer exists. Reload and try again.')
-                    clean[name] = value
-                    if person and 'owner' not in changes:
-                        clean['owner'] = item.get('owner') if item.get('owner') and item['owner'].casefold() in self._person_names(person) else person['name']
-                elif name == 'destination_repository':
-                    # Where the task goes when a person publishes it: a repository of its projects, or this Mac only.
-                    if value is not None:
-                        from .github_source import repo_name
-                        value = repo_name(value)
-                        if value.casefold() not in {r.casefold() for r in self.project_repositories(self.effective_project_ids(item))}:
-                            raise ValueError('Choose a repository of the task project')
-                    clean[name] = value
-                elif name == 'due_date':
-                    if value is not None:
-                        try:
-                            dt.date.fromisoformat(value)
-                        except (TypeError, ValueError):
-                            raise ValueError('Due date must be a date in YYYY-MM-DD format') from None
-                    clean[name] = value
-                else:
-                    if value is not None and not isinstance(value, str):
-                        raise ValueError(f'{name} must be text')
-                    clean[name] = (value or '').strip()[:160] or None
-            # A new owner name that the linked person does not have ends the link.
-            linked = self.people.get(item.get('owner_person_id')) if item.get('owner_person_id') else None
-            if 'owner' in clean and 'owner_person_id' not in clean and item.get('owner_person_id') and (
-                    not linked or not clean['owner'] or clean['owner'].casefold() not in self._person_names(linked)):
-                clean['owner_person_id'] = None
-            self.items.update(item_id, clean)
-            self.items.save()
+            clean=self._clean_item_changes(item,changes)
+            note=clean.pop('update_note',None);evidence_id=clean.pop('update_evidence_id',None)
+            if evidence_id and not note:raise ValueError('Add an update before choosing its evidence')
+            previous=copy.deepcopy(self.items.data)
+            try:
+                self.items.update(item_id, clean)
+                if note:self.items.items[item_id]['history'].append(dict(at=items.now(),event='progress_update',by='user',meeting_id=None,changes={},text=note,**({'evidence_id':evidence_id} if evidence_id else {})))
+                self.items.save()
+            except items.WorkItemConflict:raise  # Registry.save already reloaded the winning revision
+            except Exception:
+                self.items.data=previous
+                raise
             # The notes of each meeting show the same state, so exports and searches agree.
             self._sync_linked({item_id})
             return dict(self.items.items[item_id])
+
+    def bulk_update_tasks(self, body):
+        """One explicit selection, one revision-checked commit; never writes externally."""
+        selected=body.get('items');changes=body.get('changes');operation=body.get('request_id')
+        if not isinstance(selected,list) or not 1<=len(selected)<=100:raise ValueError('Select 1–100 tasks')
+        if not isinstance(changes,dict) or not changes or set(changes)-{'owner','owner_person_id','workflow_state','due_date','follow_up_date'}:raise ValueError('Choose owner, state or dates')
+        if not isinstance(operation,str) or not re.fullmatch('[a-f0-9]{32}',operation):raise ValueError('A bulk request ID is required')
+        ids=[]
+        for row in selected:
+            if not isinstance(row,dict) or not isinstance(row.get('id'),str) or type(row.get('revision')) is not int:raise ValueError('Reload the task selection')
+            ids.append(row['id'])
+        if len(set(ids))!=len(ids):raise ValueError('Select each task once')
+        from .work_items import canonical
+        payload=hashlib.sha256(canonical(dict(items=selected,changes=changes)).encode()).hexdigest()
+        with self.lock,self.items.lock,self.items.store.serialized():
+            self.items.data,self.items.revision=self.items.store.load()
+            old=next((e for e in self.items.data['activity'].values() if e.get('event')=='tasks_bulk_updated' and e.get('request_id')==operation),None)
+            if old:
+                if old['payload']!=payload:raise items.WorkItemConflict('This operation already changed a different selection')
+                return dict(updated=old['item_ids'],count=len(old['item_ids']))
+            validated=[]
+            for row in selected:
+                item=self.items.items.get(row['id'])
+                if not item or item['kind']!='task' or item.get('revision')!=row['revision']:raise items.WorkItemConflict('A selected task changed. Reload and select again; no tasks changed.')
+                if item.get('acceptance_state')=='proposed' or item.get('dismissed'):raise ValueError('Select accepted, visible tasks only')
+                validated.append((item['id'],self._clean_item_changes(item,changes)))
+            previous=copy.deepcopy(self.items.data)
+            try:
+                for key,clean in validated:self.items.update(key,clean)
+                WorkGraph._activity(self.items.data,'tasks_bulk_updated',request_id=operation,payload=payload,item_ids=ids)
+                self.items.save()
+            except items.WorkItemConflict:raise
+            except Exception:
+                self.items.data=previous
+                raise
+            self._sync_linked(set(ids))
+            return dict(updated=ids,count=len(ids))
 
     def delete_item(self, item_id, text, revision=None):
         """Remove a task, decision or question and its mentions from every meeting.

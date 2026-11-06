@@ -110,9 +110,8 @@ def generate(settings,key=''):
     elif stage=='meeting_title':
         if set(result)!={'title'} or not isinstance(result['title'],str) or not 3<=len(result['title'].strip())<=100 or any(ord(c)<32 for c in result['title']):raise ValueError('Invalid title')
     elif stage=='task_draft':
-        from .work_graph import text
-        if set(result)!={'text'}:raise ValueError('Invalid task draft')
-        text(result['text'],'task draft')
+        from .task_draft import draft_fields
+        draft_fields(result)
     elif stage=='topic_matches':
         if set(result)!={'matches'} or not isinstance(result['matches'],list) or any(type(v) is not int or v!=0 for v in result['matches']):raise ValueError('Invalid segment IDs')
     elif stage=='meeting_answer':

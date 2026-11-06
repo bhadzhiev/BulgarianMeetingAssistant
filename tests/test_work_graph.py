@@ -28,6 +28,16 @@ class GraphTests(unittest.TestCase):
     def proposal(self, result):
         return self.registry.data['proposals'][result['proposals'][0]]
 
+    def test_edit_and_accept_keeps_original_proposal_and_evidence(self):
+        proposal = self.proposal(self.ingest())
+        accepted = self.graph.review(proposal['id'], proposal['revision'], 'accept', edited_text='Review backup and report the result')
+        item = self.registry.items[accepted['result_id']]
+        self.assertEqual(item['text'], 'Review backup and report the result')
+        self.assertIn('text', item['manual'])
+        self.assertEqual(self.registry.data['proposals'][proposal['id']]['text'], 'Review backup')
+        self.assertEqual(self.registry.data['source_evidence'][item['source_evidence'][0]]['quote'], 'review the backup')
+        self.assertEqual(Registry(self.path).items[item['id']]['text'], item['text'])
+
     def test_idempotent_ingestion_survives_restart_and_dismissal(self):
         result = self.ingest()
         proposal = self.proposal(result)

@@ -609,7 +609,7 @@ class RepoReports:
             if meeting_id:self.service.library.get(meeting_id)
             row['meeting_id']=meeting_id or None;self._save(row);return row
 
-    def propose(self,key,finding_id,title=None):
+    def propose(self,key,finding_id,title=None,after=None):
         with self.service.lock,self.service.items.lock,self.lock:
             row=self._row(key);analysis=row.get('analysis') or {}
             finding=next((f for part in [*analysis.get('parts',{}).values(),analysis.get('summary',[])] for f in part if f['id']==finding_id),None)
@@ -618,7 +618,9 @@ class RepoReports:
             validate_findings(dict(findings=[{k:v for k,v in finding.items() if k!='id'}]),[e for e in row['evidence'] if e['id'] in {r['id'] for r in finding['evidence']}],limit=40)
             # Snapshot the exact quoted evidence, not an AI paraphrase of what the code says.
             graph=WorkGraph(self.service.items)
-            def metadata(data,result):data['sources'][result['source_id']]['remote']=dict(authority='github_code',repository=row['repository'],report_id=row['id'],url=ev['url'])
+            def metadata(data,result):
+                data['sources'][result['source_id']]['remote']=dict(authority='github_code',repository=row['repository'],report_id=row['id'],url=ev['url'])
+                if after:after(data,result)
             return graph.ingest(dict(provider='github',account='github.com:'+row['account'],external_id='code:'+row['repository']+':'+ev['id'],revision=ev['id'],text=ev['text']),
                 [dict(kind='task',text=checked_text(title) if title is not None else finding['text'],quote=ref['quote'],locator=dict(report_id=key,url=ev['url'],evidence_id=ev['id']),fields={},origin='repo_ai')],after=metadata)
 

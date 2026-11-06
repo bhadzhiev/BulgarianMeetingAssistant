@@ -26,8 +26,11 @@ class TaskDraftReliabilityTests(test_task_draft.DraftTests):
  def test_operation_retry_with_different_text_does_not_create_twice(self):
   project=self.s.create_project('Synthetic project')['id']
   body=dict(self.approved(),title='Original confirmed text',operation_id='a'*32,project_ids=[project])
-  first=task_draft.create(self.s,body);second=task_draft.create(self.s,dict(body,title='Changed after a lost response'))
-  self.assertEqual(first,second);self.assertEqual(len(self.s.tasks()),1)
+  first=task_draft.create(self.s,body)
+  # An uncertain retry may recover the same task, but cannot silently discard changed text.
+  from app.work_items import WorkItemConflict
+  with self.assertRaises(WorkItemConflict):task_draft.create(self.s,dict(body,title='Changed after a lost response'))
+  self.assertEqual(first,task_draft.create(self.s,body));self.assertEqual(len(self.s.tasks()),1)
   self.assertEqual(self.s.tasks()[0]['text'],'Original confirmed text');self.assertEqual(self.s.tasks()[0]['project_ids'],[project])
   prepared=self.s.prepare(project);self.assertIn(first['item_id'],[task['item_id'] for task in prepared['tasks']])
  def test_cancelled_job_does_not_publish_a_late_result(self):

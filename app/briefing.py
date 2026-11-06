@@ -48,7 +48,7 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
         links = sorted((link for link in item['links'] if link['meeting_id'] in ids), key=lambda link: dates[link['meeting_id']])
         return source(links[-1]['meeting_id'], links[-1].get('evidence_timestamp')) if links else None
 
-    in_scope = [item for item in registry if (any(link['meeting_id'] in ids for link in item['links']) or project_id and project_id in item.get('effective_project_ids',[])) and not item.get('dismissed') and (not item.get('snoozed_until') or item['snoozed_until']<=today.isoformat())]
+    in_scope = [item for item in registry if item.get('workflow_state')!='cancelled' and item.get('acceptance_state')!='proposed' and (any(link['meeting_id'] in ids for link in item['links']) or project_id and project_id in item.get('effective_project_ids',[])) and not item.get('dismissed') and (not item.get('snoozed_until') or item['snoozed_until']<=today.isoformat())]
     soon = (today + dt.timedelta(days=7)).isoformat()
     tasks = []
     for item in in_scope:

@@ -81,7 +81,7 @@ class MeetingReviewTests(unittest.TestCase):
 
     def test_item_confirmed_in_another_meeting_cannot_be_dismissed_here(self):
         act(self.service,self.body());item=self.service.items.items[self.key]
-        item['meeting_reviews']['b'*32]=item['meeting_reviews'].pop(self.mid);self.service.items.save()
+        item['meeting_reviews']['b'*32]=item['meeting_reviews'].pop(self.mid);item['links'].append(dict(meeting_id='b'*32));self.service.items.save()
         with self.assertRaises(ValueError):act(self.service,self.body('dismiss'))
         self.assertFalse(self.service.items.items[self.key]['dismissed'])
 
@@ -95,3 +95,55 @@ class MeetingReviewTests(unittest.TestCase):
         other=self.service.items.create('task',dict(task='Second task',status='open'),self.mid);self.service.items.save()
         act(self.service,self.body())
         self.assertEqual([r['id'] for r in snapshot(self.service,self.mid)['items']],[other,self.key])
+
+    def test_changed_same_meeting_does_not_claim_confirmation_elsewhere(self):
+        act(self.service,self.body());self.source='changed'
+        row=snapshot(self.service,self.mid)['items'][0]
+        self.assertEqual(row['state'],'needs_review');self.assertEqual(row['confirmed_in'],[])
+        self.assertEqual(row['dismiss_blocked_reason'],'accepted_task')
+        with self.assertRaisesRegex(ValueError,'choose Cancel task'):act(self.service,self.body('dismiss'))
+
+    def test_stale_other_meeting_receipt_does_not_block_proposal(self):
+        act(self.service,self.body());item=self.service.items.items[self.key]
+        item['meeting_reviews']['b'*32]=item['meeting_reviews'].pop(self.mid)
+        item['links'].append(dict(meeting_id='b'*32));item['acceptance_state']='proposed';self.source='changed';self.service.items.save()
+        row=snapshot(self.service,self.mid)['items'][0]
+        self.assertEqual(row['confirmed_in'],[]);self.assertTrue(row['can_dismiss'])
+        self.assertTrue(act(self.service,self.body('dismiss'))['items'][0]['state']=='dismissed')
+
+    def test_valid_other_confirmation_is_visible_and_blocks_direct_request(self):
+        act(self.service,self.body());item=self.service.items.items[self.key]
+        item['meeting_reviews']['b'*32]=item['meeting_reviews'].pop(self.mid);item['links'].append(dict(meeting_id='b'*32));self.service.items.save()
+        row=snapshot(self.service,self.mid)['items'][0]
+        self.assertEqual(row['confirmed_in'][0]['meeting_id'],'b'*32)
+        self.assertFalse(row['can_dismiss']);self.assertEqual(row['dismiss_blocked_reason'],'confirmed_elsewhere')
+        with self.assertRaises(ValueError):act(self.service,self.body('dismiss'))
+
+    def test_detached_confirmation_does_not_block_a_proposal(self):
+        act(self.service,self.body());item=self.service.items.items[self.key]
+        item['meeting_reviews']['b'*32]=item['meeting_reviews'].pop(self.mid);item['links'].append(dict(meeting_id='b'*32,detached=True));item['acceptance_state']='proposed';self.service.items.save()
+        self.assertTrue(snapshot(self.service,self.mid)['items'][0]['can_dismiss'])
+
+class CurrentConfirmationIntegrationTests(unittest.TestCase):
+    def test_real_sources_and_meeting_titles_control_dismissal(self):
+        from app.service import MeetingService
+        from app.storage import atomic_json
+        from tests.test_calendar import FakeGoogle
+        from app.meeting_review import source_digest, fingerprint
+        with tempfile.TemporaryDirectory() as tmp:
+            service=MeetingService(Path(tmp)/'library',Path(__file__).resolve().parents[1],google=FakeGoogle(),backup_dir=Path(tmp)/'backups')
+            try:
+                previous=service.library.create('Previous planning','in_person',service.settings)['id']
+                current=service.library.create('Today','in_person',service.settings)['id']
+                key=service.create_task(dict(request_id='d'*32,text='Shared task',meeting_id=current))['id']
+                item=service.items.items[key];item['links'].append(dict(meeting_id=previous,seen={}))
+                detail=service.detail(previous)
+                item.setdefault('meeting_reviews',{})[previous]=dict(state='confirmed',source=source_digest(detail['transcript_revision'],detail['minutes_revision']),content=fingerprint(item))
+                service.items.save()
+                row=next(r for r in snapshot(service,current)['items'] if r['id']==key)
+                self.assertEqual(row['dismiss_blocked_reason'],'confirmed_elsewhere')
+                self.assertEqual(row['confirmed_in'],[dict(meeting_id=previous,title='Previous planning')])
+                atomic_json(service.library.directory(previous)/'transcript.json',[dict(start=0,end=1,speaker='Maria',text='Corrected source')])
+                row=next(r for r in snapshot(service,current)['items'] if r['id']==key)
+                self.assertFalse(row['can_dismiss']);self.assertEqual(row['dismiss_blocked_reason'],'accepted_task');self.assertEqual(row['confirmed_in'],[])
+            finally:service.close()

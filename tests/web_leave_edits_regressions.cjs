@@ -7,8 +7,8 @@ function context({notes=false,stay=false,wait=false}={}){
  const c=vm.createContext({structuredClone,readers:UX.requests(),editorDirty:UX.dirtyRegistry(),
   ask:async()=>!stay,toast:()=>{},editorHeartbeat:()=>{},
   api:path=>{requests.push(path);return wait?new Promise(resolve=>resolveFetch=resolve):Promise.resolve({id:'B',transcript:[{text:'B saved'}]});},
-  $:()=>({open:false}),renderDetail:()=>{},show:()=>{},renderLibrary:()=>{},setItemEditing:()=>{}});
- vm.runInContext(`let state={active:null},view='detail',selected='A',meetingLoadSequence=0,detailChangedWhileEditing=false,
+  $:()=>({open:false}),renderDetail:()=>{},switchTab:()=>{},show:()=>{},renderLibrary:()=>{},setItemEditing:()=>{}});
+ vm.runInContext(`let routing=false,meetingTab='transcript',state={active:null},view='detail',selected='A',meetingLoadSequence=0,detailChangedWhileEditing=false,
   detail={id:'A',transcript:[{text:'unsaved transcript'}],minutes:{summary:'unsaved notes'}},
   dirtyTranscript=${!notes},dirtyNotes=${notes},itemEditing=false,speakerNaming=false,
   transcriptEditing=${!notes},notesEditing=${notes},transcriptBaseline=[{text:'saved transcript'}],

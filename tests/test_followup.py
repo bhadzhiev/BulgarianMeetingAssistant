@@ -32,3 +32,14 @@ class FollowupTests(unittest.TestCase):
         self.brief['meeting_type']='sprint_review'
         result=build(self.service,self.brief,[self.item],[self.meeting],{})
         self.assertIsNone(result['anchor']);self.assertEqual(result['unchanged'],[])
+
+    def test_progress_update_counts_as_change_without_a_field_edit(self):
+        self.item['history']=[dict(at='2026-01-11T12:00:00Z',event='progress_update',text='Waiting for access',changes={})]
+        self.item['workflow_state']='waiting';self.item['follow_up_date']='2026-01-12'
+        result=build(self.service,self.brief,[self.item],[self.meeting],{})
+        self.assertEqual(result['unchanged'],[]);self.assertEqual(result['updated'][0]['last_update']['text'],'Waiting for access');self.assertEqual(len(result['waiting']),1)
+
+    def test_same_second_progress_notes_keep_the_latest_history_entry(self):
+        self.item['history']=[dict(event='progress_update',at='2026-01-11T12:00:00Z',text='First'),dict(event='progress_update',at='2026-01-11T12:00:00Z',text='Second')]
+        result=build(self.service,self.brief,[self.item],[self.meeting],{})
+        self.assertEqual(result['updated'][0]['last_update']['text'],'Second')

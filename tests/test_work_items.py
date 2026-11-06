@@ -212,7 +212,7 @@ class FoundationTests(unittest.TestCase):
         self.assertEqual((fresh['status'], fresh['evidence']), ('open', old['evidence']))
         fresh = self.service.update_item(fresh['id'], fresh['text'], dict(snoozed_until=None, dismissed=True), fresh['revision'])
         self.assertEqual(self.service.task_summary()['open'], 0)
-        self.service.update_item(fresh['id'], fresh['text'], dict(dismissed=False), fresh['revision'])
+        self.service.update_item(fresh['id'], fresh['text'], dict(dismissed=False,acceptance_state='accepted'), fresh['revision'])
         self.assertEqual(self.service.task_summary()['open'], 1)
 
     def test_evidence_preserves_earlier_note_wording(self):

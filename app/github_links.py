@@ -54,12 +54,19 @@ class GitHubLinks(SafeJSON):
 
     def _valid_library(self, data):
         if not isinstance(data,dict) or len(data)>MAX_LINKS:raise ValueError('Invalid GitHub link library')
+        if len(json.dumps(data,ensure_ascii=False).encode())>7_900_000:raise ValueError('GitHub activity cache is full. Clear cached activity for older links.')
         for key,row in data.items():
             if not isinstance(row,dict) or row.get('id')!=key:raise ValueError('Invalid GitHub link')
             target=resource(row.get('resource'));repository=repo_name(row.get('repository'));number=row.get('number')
             if type(number) is not int or number<=0 or self.key(target,repository,number)!=key:raise ValueError('Invalid GitHub link key')
             if type(row.get('revision')) is not int or row['revision']<1 or not isinstance(row.get('linked_at'),str):raise ValueError('Invalid GitHub link revision')
             if not isinstance(row.get('url'),str) or not isinstance(row.get('title'),str) or not isinstance(row.get('kind'),str):raise ValueError('Invalid GitHub link details')
+            if 'progress' in row:
+                progress=row['progress']
+                if not isinstance(progress,dict) or not isinstance(progress.get('events',[]),list) or len(progress.get('events',[]))>300:raise ValueError('Invalid GitHub activity cache')
+                for event in progress.get('events',[]):
+                    if not isinstance(event,dict) or not isinstance(event.get('id'),str) or not isinstance(event.get('kind'),str) or not isinstance(event.get('text'),str) or len(event['text'])>1500:raise ValueError('Invalid GitHub activity event')
+            if 'observations' in row and (not isinstance(row['observations'],list) or len(row['observations'])>100 or any(not isinstance(e,dict) for e in row['observations'])):raise ValueError('Invalid GitHub observations')
         return data
 
     def _save(self, links=None):
@@ -93,6 +100,28 @@ class GitHubLinks(SafeJSON):
             if old and row['verification']=='offline':
                 for field in ('kind','title','state','issue_id','verified','checked_at','cached_at'):row[field]=old.get(field)
             elif old and not row.get('checked_at'):row['checked_at']=old.get('checked_at')
+            if old:
+                for field in ('progress','observations'):
+                    if field in old:row[field]=copy.deepcopy(old[field])
+            observations=row.setdefault('observations',[])
+            if not old or row.get('state')!=old.get('state') or row.get('verification')!=old.get('verification'):
+                observations.append(dict(at=dt.datetime.now(dt.timezone.utc).isoformat(),state=row.get('state'),verification=row.get('verification'),title=row.get('title')))
+                row['observations']=observations[-100:]
+            self._save(dict(self.links,**{key:row}))
+            return copy.deepcopy(row)
+
+    def save_progress(self,key,revision,progress,details=None):
+        """CAS prevents a late network response from recreating an unlinked resource."""
+        with self.lock:
+            self.guard_write()
+            old=self.links.get(key)
+            if not old or old['revision']!=revision:raise Conflict('The GitHub link changed. Check it again.')
+            row=copy.deepcopy(old);row['progress']=copy.deepcopy(progress);row['revision']+=1
+            if details:
+                before=row.get('state');row.update(details)
+                if before!=row.get('state'):
+                    row.setdefault('observations',[]).append(dict(at=progress['checked_at'],state=row.get('state'),verification=row.get('verification'),title=row.get('title')))
+                    row['observations']=row['observations'][-100:]
             self._save(dict(self.links,**{key:row}))
             return copy.deepcopy(row)
 

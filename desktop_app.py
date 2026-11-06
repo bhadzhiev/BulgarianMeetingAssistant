@@ -228,6 +228,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200,self.server.service.task_drafts.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
             return self.respond(200, self.server.service.item_list())
+        if re.fullmatch(r'/api/items/[a-f0-9]{1,64}/progress',url.path):
+            from app.task_progress import build
+            return self.respond(200,build(self.server.service,url.path.split('/')[3]))
         if url.path == '/api/tasks':
             return self.respond(200, self.server.service.tasks())
         if url.path == '/api/trackers':
@@ -251,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/status.js': 'status.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/task-model.js':'task-model.js', '/task-progress.js':'task-progress.js', '/status.js': 'status.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
@@ -513,6 +516,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.add_marker(body['kind'], body.get('note', ''))
             elif path == '/api/stop':
                 result = service.stop()
+            elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}/(?:github-progress|readiness)',path):
+                from app.task_progress import check,readiness
+                item_id=path.split('/')[3]
+                result=check(service,item_id,body) if path.endswith('/github-progress') else readiness(service,item_id,body.get('repository'))
+            elif path == '/api/items/bulk':
+                result = service.bulk_update_tasks(body)
             elif path == '/api/items/create':
                 result = service.create_task(body)
             elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}(/delete|/merge)?', path):

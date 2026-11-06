@@ -46,10 +46,11 @@ class CommitJournal:
                 if previous['payload']['resource']!=payload['resource'] or previous['payload']['action']!=payload['action'] or previous['state'] in CLOSED:continue
                 if previous['state']=='approved':
                     # Never sent: a new preview replaces it.
-                    previous['state']='cancelled';db.execute('UPDATE external_operations SET intent=?,document=? WHERE id=?',(_key(previous),canonical(previous),key))
+                    previous['state']='cancelled';previous['updated_at']=dt.datetime.now(dt.timezone.utc).isoformat();previous.setdefault('history',[]).append(dict(state='cancelled',at=previous['updated_at']));db.execute('UPDATE external_operations SET intent=?,document=? WHERE id=?',(_key(previous),canonical(previous),key))
                 elif previous['state'] in {'sending','unknown'} or payload['action']=='issue':
                     raise WorkItemConflict('This resource already has a publication. Check its outcome before creating another.')
-            operation=dict(id=uuid.uuid4().hex,intent=digest,payload=payload,state='approved',result=None)
+            stamp=dt.datetime.now(dt.timezone.utc).isoformat()
+            operation=dict(id=uuid.uuid4().hex,intent=digest,payload=payload,state='approved',result=None,created_at=stamp,updated_at=stamp,history=[dict(state='approved',at=stamp)])
             db.execute('INSERT INTO external_operations VALUES (?,?,?)',(operation['id'],digest,canonical(operation)));db.commit();return operation
 
     def get(self,key):
@@ -57,6 +58,16 @@ class CommitJournal:
             row=db.execute('SELECT document FROM external_operations WHERE id=?',(key,)).fetchone()
         if not row:raise ValueError('Unknown publication operation')
         return json.loads(row[0])
+
+    def destination(self,key,repository,login):
+        """Display metadata is outside the approved payload and cannot change its digest."""
+        with closing(self.connect()) as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT document FROM external_operations WHERE id=?',(key,)).fetchone()
+            if not row:raise ValueError('Unknown publication operation')
+            operation=json.loads(row[0])
+            operation.update(repository=repository,account_login=login)
+            db.execute('UPDATE external_operations SET document=? WHERE id=?',(canonical(operation),key));db.commit();return operation
 
     def transition(self,key,expected,state,result=None):
         allowed={('approved','sending'),('approved','cancelled'),('sending','unknown'),('sending','created'),('sending','failed'),('unknown','created'),('unknown','abandoned'),('created','verified')}
@@ -67,7 +78,9 @@ class CommitJournal:
             if not row:raise ValueError('Unknown publication operation')
             operation=json.loads(row[0])
             if operation['state']!=expected:raise WorkItemConflict('Publication already advanced. Check its result before trying again.')
-            operation.update(state=state)
+            stamp=dt.datetime.now(dt.timezone.utc).isoformat()
+            operation.update(state=state,updated_at=stamp)
+            operation.setdefault('history',[]).append(dict(state=state,at=stamp))
             if result is not None:operation['result']=result
             db.execute('UPDATE external_operations SET intent=?,document=? WHERE id=?',(_key(operation),canonical(operation),key));db.commit();return operation
 
@@ -89,9 +102,14 @@ class CommitJournal:
             for key,raw in db.execute('SELECT id,document FROM external_operations').fetchall():
                 operation=json.loads(raw)
                 if operation['state']=='sending':
-                    operation['state']='unknown'
+                    operation['state']='unknown';stamp=dt.datetime.now(dt.timezone.utc).isoformat();operation['updated_at']=stamp;operation.setdefault('history',[]).append(dict(state='unknown',at=stamp))
                     db.execute('UPDATE external_operations SET document=? WHERE id=?',(canonical(operation),key))
             db.commit()
+
+    def for_resource(self,kind,key):
+        with closing(self.connect()) as db:
+            rows=db.execute("SELECT document FROM external_operations WHERE json_extract(document,'$.payload.resource.kind')=? AND json_extract(document,'$.payload.resource.id')=?",(kind,key))
+            return [json.loads(raw) for raw, in rows]
 
     def export(self):
         with closing(self.connect()) as db:
@@ -104,7 +122,7 @@ class CommitJournal:
         for row in rows:
             if not isinstance(row,dict) or not re.fullmatch(r'[a-f0-9]{32}',str(row.get('id',''))) or not isinstance(row.get('payload'),dict):raise ValueError('Invalid publication operation')
             payload=row['payload']
-            if set(payload)!={'resource','resource_revision','source_revision','account_id','repository_id','action','target','title','body'} or row.get('intent')!=hashlib.sha256(canonical(payload).encode()).hexdigest() or row.get('state') not in STATES:raise ValueError('Invalid publication intent')
+            if not {'resource','resource_revision','source_revision','account_id','repository_id','action','target','title','body'}<=set(payload)<={'resource','resource_revision','source_revision','account_id','repository_id','action','target','title','body','assignees','labels'} or row.get('intent')!=hashlib.sha256(canonical(payload).encode()).hexdigest() or row.get('state') not in STATES:raise ValueError('Invalid publication intent')
         return rows
 
     def restore(self,rows):
@@ -114,5 +132,6 @@ class CommitJournal:
             for archived in rows:
                 # A restored approval is never sent; anything that may have been sent needs a new check.
                 row=dict(archived,state='cancelled' if archived['state']=='approved' else archived['state'] if archived['state'] in CLOSED else 'unknown')
+                row['history']=list(archived.get('history',[]));row['updated_at']=dt.datetime.now(dt.timezone.utc).isoformat();row['history'].append(dict(state=row['state'],at=row['updated_at']))
                 db.execute('INSERT OR IGNORE INTO external_operations VALUES (?,?,?)',(row['id'],_key(row),canonical(row)))
             db.commit()

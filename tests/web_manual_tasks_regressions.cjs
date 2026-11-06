@@ -3,7 +3,7 @@ const src=fs.readFileSync('web/app.js','utf8');
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
 function setup(){
  const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:'project'}},errors=[],requests=[];let finish;
- const c=vm.createContext({el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:'project'}]},crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
+ const c=vm.createContext({taskEvidenceTarget:null,renderTaskEvidenceContext(){},view:'tasks',contextProject:()=> 'project',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:'project'}]},crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
   option:(text,value)=>Object.assign(node('option','',text),{value}),fillProjects:(e,value)=>e.value=value,
   leaveEdits:async()=>true,validDates:()=>true,editorDirty:{clear(){}},requestDialogClose:async(d,fn)=>fn(),
   withDialogAction:async(d,fn)=>{if(d.busy)return;d.busy=true;try{return await fn()}finally{d.busy=false}},
@@ -14,6 +14,7 @@ function setup(){
  return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries(nodes['manual-task-body'].children.filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>nodes['manual-task-body'].children.at(-1).children};
 }
 (async()=>{
+ const projectContext=setup();vm.runInContext("view='projects';contextProject=()=> 'workspace-project';",projectContext.c);await vm.runInContext('openManualTask()',projectContext.c);assert.equal(projectContext.fields().Project.value,'workspace-project');
  const f=setup();await vm.runInContext("openManualTask('meeting')",f.c);const fields=f.fields(),[save,cancel]=f.actions();
  assert.equal(fields.Meeting.value,'meeting');assert.equal(fields.Project.value,'project');
  fields.Task.value='Провери Kubernetes backup';fields.Owner.value='Иван';fields['Due date'].value='2026-11-10';

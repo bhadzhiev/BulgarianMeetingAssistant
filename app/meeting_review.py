@@ -18,9 +18,9 @@ def fingerprint(item):
     return hashlib.sha256(canonical({k:item.get(k) for k in REVIEWED}).encode()).hexdigest()
 
 
-def review_state(item):
+def review_state(item, sources=None):
     """The item's review across meetings: confirmed, edited, needs_review, or None without a meeting."""
-    digest=fingerprint(item);states={r['state'] for r in item.get('meeting_reviews',{}).values() if r['content']==digest}
+    digest=fingerprint(item);states={r['state'] for mid,r in item.get('meeting_reviews',{}).items() if r['content']==digest and (sources is None or r.get('source')==sources.get(mid))}
     if 'confirmed' in states:return 'confirmed'
     if 'edited' in states:return 'edited'
     return 'needs_review' if any(not link.get('detached') for link in item.get('links',[])) else None
@@ -42,10 +42,40 @@ def meeting_state(item, meeting_id, source):
     return 'needs_review' if state=='dismissed' and not item.get('dismissed') else state
 
 
+def current_sources(service, meeting_ids, meeting_id, source):
+    """Resolve actual source revisions; a receipt alone is never proof of a current review."""
+    if hasattr(service,'review_sources'):
+        result=dict(service.review_sources())
+    else:
+        result={}
+        for mid in meeting_ids:
+            try:
+                meeting=service.detail(mid)
+                result[mid]=source_digest(meeting['transcript_revision'],meeting['minutes_revision'])
+            except (OSError,ValueError,KeyError):pass
+    result[meeting_id]=source
+    return result
+
+
+def dismissal(item, meeting_id, source, sources):
+    digest=fingerprint(item)
+    confirmed=[mid for mid,receipt in item.get('meeting_reviews',{}).items()
+               if mid!=meeting_id and linked(item,mid) and receipt.get('state')=='confirmed'
+               and receipt.get('content')==digest and mid in sources and receipt.get('source')==sources[mid]]
+    if meeting_state(item,meeting_id,source)=='confirmed':reason='confirmed_here'
+    elif confirmed:reason='confirmed_elsewhere'
+    elif item['kind']=='task' and item.get('acceptance_state')=='accepted':reason='accepted_task'
+    else:reason=None
+    return dict(can_dismiss=reason is None,dismiss_blocked_reason=reason,confirmed_in=confirmed)
+
+
 def snapshot(service, meeting_id):
     meeting = service.detail(meeting_id)
     source = source_digest(meeting['transcript_revision'],meeting['minutes_revision'])
     rows = []
+    linked_ids={link['meeting_id'] for item in meeting['items'].values() for link in item.get('links',[]) if not link.get('detached')}
+    sources=current_sources(service,linked_ids,meeting_id,source)
+    refs=meeting.get('item_meetings',{})
     for item in meeting['items'].values():
         if not linked(item,meeting_id):continue
         digest = fingerprint(item)
@@ -61,7 +91,9 @@ def snapshot(service, meeting_id):
         projects=service.effective_project_ids(item)
         routing=dict(project_ids=copy.deepcopy(item.get('project_ids')),effective_project_ids=projects,
                      destination_repository=item.get('destination_repository'),repositories=service.project_repositories(projects) if item['kind']=='task' else [])
-        rows.append(dict(routing,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,
+        guard=dismissal(item,meeting_id,source,sources)
+        guard['confirmed_in']=[dict(meeting_id=mid,title=refs.get(mid,{}).get('title') or 'Confirmed meeting') for mid in guard['confirmed_in']]
+        rows.append(dict(routing,**guard,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,
                          revision=item.get('revision'),content=digest,receipt=copy.deepcopy(receipt),
                          links=copy.deepcopy(item.get('links',[]))))
     rows.sort(key=lambda row:ORDER[row['state']])
@@ -97,12 +129,13 @@ def act(service, body):
         receipt=dict(state='edited' if action=='edit' else 'confirmed' if action=='confirm' else 'dismissed',source=current['source'],content=row['content'])
         if old and all(old.get(k)==v for k,v in receipt.items()) and (action!='confirm' or not item.get('dismissed')):return current
         if action=='dismiss':
-            if row['state']=='confirmed':raise ValueError('A confirmed commitment cannot be dismissed as a proposal.')
-            if review_state(item)=='confirmed':raise ValueError('Another meeting confirmed this item. Dismiss it in My Work if it no longer applies.')
+            if not row['can_dismiss']:
+                raise ValueError('This task is already confirmed or accepted. Open the task to review its current state. If it no longer applies, choose Cancel task.' if item['kind']=='task' else 'This item is already confirmed. Open it in My Work to review its current state.')
         changes={}
         # Dismiss hides the item everywhere; Confirm brings a dismissed item back.
         if item.get('dismissed')!=(action=='dismiss') and action!='edit':
             changes['dismissed']=[bool(item.get('dismissed')),action=='dismiss'];item['dismissed']=action=='dismiss'
+        if action=='confirm' and item['kind']=='task':item.update(acceptance_state='accepted',legacy_unreviewed=False)
         receipt.update(actor='user',at=now)
         item.setdefault('meeting_reviews',{})[meeting_id]=receipt
         item.setdefault('history',[]).append(dict(at=now,event='meeting_review_'+action,by='user',meeting_id=meeting_id,changes=changes))

@@ -40,6 +40,22 @@ def normalize(item):
         if (not isinstance(ids, list) or len(ids) > 50
                 or any(not isinstance(key, str) or not re.fullmatch(r'[a-f0-9]{12}', key) for key in ids) or len(set(ids)) != len(ids)):
             raise ValueError('Invalid WorkItem projects')
+    if item['kind']=='task':
+        item.setdefault('task_model_version',1)
+        if type(item['task_model_version']) is not int or item['task_model_version']!=1:raise ValueError('This task needs a newer app version')
+        item.setdefault('workflow_state','done' if item['status']=='done' else 'todo')
+        if item['workflow_state'] not in {'todo','in_progress','waiting','done','cancelled'}:raise ValueError('Invalid task workflow state')
+        # Older writers still change open/done. Keep these transitions explicit.
+        if item['status']=='done':item['workflow_state']='done'
+        elif item['workflow_state']=='done':item['workflow_state']='todo'
+        if 'acceptance_state' not in item and item.get('links') and item.get('created_by')!='user' and item.get('managed_by')!='work_graph' and not item.get('meeting_reviews'):item.setdefault('legacy_unreviewed',True)
+        item.setdefault('acceptance_state','accepted')  # preserve existing commitments, never invent a review receipt
+        if item['acceptance_state'] not in {'proposed','accepted'}:raise ValueError('Invalid task acceptance')
+        for name in ('requester_person_id','assigned_by_person_id','follower_person_id'):
+            if item.get(name) is not None and not (isinstance(item[name],str) and re.fullmatch(r'[a-f0-9]{12}',item[name])):raise ValueError('Invalid task person')
+        for name in ('details','completion_criteria'):
+            if item.get(name) is not None and (not isinstance(item[name],str) or len(item[name])>5000):raise ValueError('Invalid task details')
+        if item.get('follow_up_date') is not None and dt.date.fromisoformat(item['follow_up_date']).isoformat()!=item['follow_up_date']:raise ValueError('Invalid follow-up date')
     item.setdefault('dismissed', False)
     if item.get('owner_person_id') is not None and not (isinstance(item['owner_person_id'], str) and re.fullmatch(r'[a-f0-9]{12}', item['owner_person_id'])):
         raise ValueError('Invalid WorkItem owner link')

@@ -38,6 +38,15 @@ def now() -> str:
     return dt.datetime.now().astimezone().isoformat(timespec='seconds')
 
 
+def meeting_time(meeting: dict) -> str | None:
+    """When the meeting took place: the recording start, else the meeting creation time."""
+    value = meeting.get('started_at') or meeting.get('created')
+    try:
+        return dt.datetime.fromisoformat(value).astimezone().isoformat(timespec='seconds')
+    except (TypeError, ValueError):
+        return None
+
+
 def _stems(text: str) -> set[str]:
     # Bulgarian words change their endings; the first five letters stand for the word.
     return {word[:5] for word in re.findall(r'\w+', text.casefold()) if len(word) >= 3 and word not in STOP_WORDS}
@@ -68,6 +77,7 @@ class Registry:
         self.store = WorkItemStore(path.with_name('work-items.sqlite3'), path)
         self.data, self.revision = self.store.load()
         self.status_changed = set()  # items whose status a sync changed; other meetings must follow
+        self.meeting_date = None  # meeting_id -> ISO time of the meeting, set by the service
 
     @property
     def items(self) -> dict:
@@ -83,9 +93,16 @@ class Registry:
     def _event(self, item, event, meeting_id=None, changes=None, by='ai', **extra):
         item['history'].append(dict(at=now(), event=event, meeting_id=meeting_id, changes=changes or {}, by=by, **extra))
 
+    def created_at(self, meeting_id) -> str:
+        """An item from a meeting is created on the meeting date: the recording time, not the processing time."""
+        try:
+            return (self.meeting_date and meeting_id and self.meeting_date(meeting_id)) or now()
+        except (OSError, ValueError, KeyError):
+            return now()
+
     def create(self, kind: str, mention: dict, meeting_id: str) -> str:
         item_id = uuid.uuid4().hex[:16]
-        item = dict(id=item_id, kind=kind, created=now(), manual=[], links=[], history=[], superseded_by=None, supersedes=[])
+        item = dict(id=item_id, kind=kind, created=self.created_at(meeting_id), manual=[], links=[], history=[], superseded_by=None, supersedes=[])
         for name, source in MENTION[kind].items():
             item[name] = mention.get(source)
         if kind == 'task':item['acceptance_state']='proposed'
@@ -94,7 +111,15 @@ class Registry:
         self.items[item_id] = item
         item['links'].append(dict(meeting_id=meeting_id, evidence_timestamp=mention.get('evidence_timestamp'), seen=seen(kind, mention)))
         self._event(item, 'created', meeting_id)
+        self._date_creation(item)
         return item_id
+
+    @staticmethod
+    def _date_creation(item):
+        """The created event shows the meeting date; recorded_at keeps when Atlanta saved it."""
+        event = item['history'][-1]
+        if event['event'] == 'created' and event['at'] != item['created']:
+            event.update(recorded_at=event['at'], at=item['created'])
 
     def candidates(self, kind: str, mention: dict, meeting_id=None) -> list[dict]:
         text = mention.get(MENTION[kind]['text']) or ''

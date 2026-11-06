@@ -200,7 +200,7 @@ def create(service, body):
                 if proposal['state']!='pending':raise WorkItemConflict('Restore the proposal before creating a task.')
                 key=uuid.uuid4().hex[:16]
                 item=dict(id=key,kind='task',text=title,status='open',acceptance_state='accepted',managed_by='work_graph',
-                    created=now(),manual=['text',*fields],links=[],source_evidence=[proposal['evidence_id']],
+                    created=service.items.created_at(body.get('id') if provider=='meeting' else capture_meeting),manual=['text',*fields],links=[],source_evidence=[proposal['evidence_id']],
                     deadline=None,supersedes=[],superseded_by=None,
                     history=[dict(at=now(),event='source_linked',by='user',changes={},meeting_id=None,evidence_id=proposal['evidence_id'])],**fields)
                 item.setdefault('owner',None);item.setdefault('due_date',None)

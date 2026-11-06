@@ -125,6 +125,7 @@ class MeetingService:
             if meeting.get('title_status') == 'generating':
                 self.library.update(meeting['id'],title_status='pending')
         self.items = items.Registry(root / 'items.json')
+        self.items.meeting_date = lambda meeting_id: items.meeting_time(self.library.get(meeting_id))
         from .commit_journal import CommitJournal
         CommitJournal(self.items.store.path).recover()
         self.projects = Projects(root / 'projects.json')
@@ -2235,14 +2236,14 @@ class MeetingService:
             if project_id is not None and not self.projects.get('projects',project_id):raise ValueError('This project no longer exists')
             key=uuid.uuid4().hex[:16]
             item=dict(id=key,kind='task',text=payload['text'],owner=payload['owner'],due_date=due,deadline=None,status='open',
-                created=items.now(),created_by='user',manual=['text','owner','deadline','due_date','status'],links=[],history=[],
+                created=self.items.created_at(meeting_id),created_by='user',manual=['text','owner','deadline','due_date','status'],links=[],history=[],
                 supersedes=[],superseded_by=None,creation_request=request_id,creation_payload=payload)
             if project_id is not None:item['project_ids']=[project_id]
             if meeting_id is not None:
                 item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=None,
                     seen=dict(task=item['text'],owner=item['owner'],deadline=None,due_date=due,status='open')))
             self.items.items[key]=item
-            self.items._event(item,'created',meeting_id,by='user')
+            self.items._event(item,'created',meeting_id,by='user');self.items._date_creation(item)
             self.items.save()
             if meeting_id is not None:self._sync_items(meeting_id)
             return copy.deepcopy(self.items.items[key])

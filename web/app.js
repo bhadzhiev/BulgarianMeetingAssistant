@@ -1043,6 +1043,8 @@ function renderMarkdown(source) {
  }
  return out.join('');
 }
+// Rendered markdown for texts authored in markdown (GitHub, drafts, AI output). renderMarkdown escapes all HTML first.
+function markdownBlock(source){const box=el('div','markdown compact');box.innerHTML=renderMarkdown(source||'');return box;}
 // The result of a meeting in the format of its type. Built from saved notes; nothing is saved as a file.
 let viewerUrl=null;
 async function openTypeExport(id) {
@@ -1223,7 +1225,7 @@ let draftResource=null,draftFormat='issue',draftSequence=0,draftActiveKey='',dra
 const draftBuffers=new Map();
 function captureDraft(){if(draftActiveKey&&draftBuffers.has(draftActiveKey))draftBuffers.get(draftActiveKey).capture($('github-draft-issue-title').value,$('github-draft-body').value);}
 function draftEditNotice(){const buffer=draftBuffers.get(draftActiveKey);$('github-draft-edits').hidden=!buffer?.edited;}
-async function openDraft(resource,format){captureDraft();draftResource=resource;draftFormat=format;draftActiveKey='';$('github-draft-repo').replaceChildren();$('github-draft-assignee').replaceChildren();$('github-draft-assignee').dataset.chosen='';await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
+async function openDraft(resource,format){captureDraft();draftResource=resource;draftFormat=format;draftActiveKey='';$('github-draft-repo').replaceChildren();$('github-draft-assignee').replaceChildren();$('github-draft-assignee').dataset.chosen='';$('github-draft-preview').hidden=true;$('github-draft-body').hidden=false;$('github-draft-preview-toggle').textContent='Preview rendered text';await renderDraft();if(!$('github-draft-dialog').open)$('github-draft-dialog').showModal();}
 async function renderDraft(){
  captureDraft();const sequence=++draftSequence,key=JSON.stringify([draftResource,draftFormat]),format=draftFormat;
  if(!draftBuffers.has(key)){if(draftBuffers.size>=20){const clean=[...draftBuffers].find(([,buffer])=>!buffer.edited);if(clean)draftBuffers.delete(clean[0]);}draftBuffers.set(key,new DraftBuffer());}
@@ -1284,6 +1286,7 @@ $('github-draft-close').onclick=()=>{captureDraft();$('github-draft-dialog').clo
 $('github-draft-dialog').addEventListener('close',captureDraft);
 for(const id of ['github-draft-meeting','github-draft-speaker','github-draft-repo'])$(id).onchange=()=>{updateDraftLink();perform(renderDraft);};
 $('github-draft-body').oninput=$('github-draft-issue-title').oninput=()=>{captureDraft();draftEditNotice();updateDraftLink();};
+$('github-draft-preview-toggle').onclick=()=>{const area=$('github-draft-body'),view=$('github-draft-preview'),show=view.hidden;if(show)view.innerHTML=renderMarkdown(area.value);view.hidden=!show;area.hidden=show;$('github-draft-preview-toggle').textContent=show?'Back to editing':'Preview rendered text';};
 $('github-draft-copy').onclick=()=>perform(()=>copyText($('github-draft-body').value));
 $('github-draft-copy-title').onclick=()=>perform(()=>copyText($('github-draft-issue-title').value));
 let linkResource=null,linkCandidates=[];
@@ -1323,7 +1326,7 @@ function globalTaskRow(item,today) {
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
  const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
  const update=AtlantaTasks.lastUpdate(item);
- main.append(title,meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));if(update)main.append(el('p','task-last-update',dateTime(update.at)+' · '+update.text));main.append(sourceChips(item,itemsData.meetings));
+ main.append(title,meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));if(update){main.append(el('p','task-last-update',dateTime(update.at)));main.append(markdownBlock(update.text));}main.append(sourceChips(item,itemsData.meetings));
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
@@ -1591,7 +1594,7 @@ $('github-search').oninput=$('github-repo-filter').onchange=renderGitHubList;lis
 async function openGitHubItem(key){
  const request=readers.start('github-item'),r=await api('/api/github/item?id='+key);if(!readers.current(request)||view!=='tasks'||workTab!=='github')return;ghItem=key;syncRoute(true);renderGitHubList();
  const head=el('div','reader-head'),title=el('h3','',r.title),meta=el('p','hint',r.repository+' #'+r.number+' · '+(r.kind==='issue'?'Issue':'Pull request')+' · '+r.state+' · '+(r.available?'cached '+relTime(r.fetched_at*1000):'source unavailable'));head.append(title,meta);
- const body=el('div','reader-body');body.append(el('p','message-text',r.available?r.body||'No description.':'Access or source unavailable. Saved work item source quotes remain.'));
+ const body=el('div','reader-body');body.append(r.available&&r.body?markdownBlock(r.body):el('p','message-text',r.available?'No description.':'Access or source unavailable. Saved work item source quotes remain.'));
  const actions=el('div','reader-actions'),suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh'),link=el('a','secondary small-action button-link','Open on GitHub ↗');
  link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';suggest.disabled=!r.available;
  suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'github',id:key,revision:r.revision}));
@@ -1683,12 +1686,12 @@ function renderRepoReport(){
   const findings=r.analysis.summary||reportFindings(r.analysis.parts);
   if(r.analysis.metrics)box.append(el('p','hint',r.analysis.metrics.worker_steps+' AI worker steps · '+Math.round(r.analysis.metrics.elapsed_seconds||0)+' s measured processing time'));
   if(r.analysis.summary_omitted_sources)box.append(el('p','notice','Overall summary has bounded coverage; '+r.analysis.summary_omitted_sources+' source passages are omitted. Review all group findings below.'));
-  if(r.analysis.summary){const groups=el('details','report-groups');groups.append(el('summary','','Per-change findings'));groups.ontoggle=()=>{if(groups.open&&groups.children.length===1)for(const f of reportFindings(r.analysis.parts)){const card=el('article','report-finding');card.append(el('p','',f.text));for(const ref of f.evidence){const ev=r.evidence.find(e=>e.id===ref.id);card.append(el('blockquote','',ref.quote));if(ev){const link=reportLink(ev.url,ev.filename||ev.kind);if(link)card.append(link);}}const button=el('button','secondary small-action','Suggest a task');button.type='button';button.disabled=busy;button.onclick=()=>perform(()=>suggestTask(button,{provider:'report',id:r.id,finding_id:f.id}));card.append(button);groups.append(card);}};box.append(groups);}
+  if(r.analysis.summary){const groups=el('details','report-groups');groups.append(el('summary','','Per-change findings'));groups.ontoggle=()=>{if(groups.open&&groups.children.length===1)for(const f of reportFindings(r.analysis.parts)){const card=el('article','report-finding');card.append(markdownBlock(f.text));for(const ref of f.evidence){const ev=r.evidence.find(e=>e.id===ref.id);card.append(el('blockquote','',ref.quote));if(ev){const link=reportLink(ev.url,ev.filename||ev.kind);if(link)card.append(link);}}const button=el('button','secondary small-action','Suggest a task');button.type='button';button.disabled=busy;button.onclick=()=>perform(()=>suggestTask(button,{provider:'report',id:r.id,finding_id:f.id}));card.append(button);groups.append(card);}};box.append(groups);}
   const groups={change:'What changed',impact:'Practical effect',risk:'Risks and uncertainties',verification:'Checks to make',follow_up:'Suggested follow-ups'};
   if(!findings.length)box.append(el('p','empty-note',r.analysis.complete?'Analysis complete. No supported findings were returned.':'No completed analysis parts yet.'));
   for(const [kind,title] of Object.entries(groups)){
    const rows=findings.filter(f=>f.kind===kind);if(!rows.length)continue;const section=el('section','report-findings');section.append(el('h4','',title));
-   for(const f of rows){const card=el('article','report-finding');card.append(el('p','',f.text),el('span','hint','AI · '+(f.certainty==='inference'?'inference':'source-based observation')));
+   for(const f of rows){const card=el('article','report-finding');card.append(markdownBlock(f.text),el('span','hint','AI · '+(f.certainty==='inference'?'inference':'source-based observation')));
     for(const ref of f.evidence){const ev=r.evidence.find(e=>e.id===ref.id);if(!ev)continue;const quote=el('blockquote','',ref.quote),source=reportLink(ev.url,ev.filename||ev.kind);card.append(quote);if(source)card.append(source);}
     const suggest=el('button','secondary small-action','Suggest a task');suggest.type='button';suggest.disabled=busy;suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'report',id:r.id,finding_id:f.id}));card.append(suggest);section.append(card);
    }box.append(section);
@@ -2111,7 +2114,7 @@ async function runAsk() {
   const response=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,project}),signal:controller.signal});
   const full=await response.json(); if(!response.ok) throw new Error(full.error||'Request failed');
   written.replaceChildren();
-  if(full.ai?.found){written.append(el('p','',full.ai.answer));const cites=el('div','item-meetings');cites.append(el('span','hint','Sources'));
+  if(full.ai?.found){written.append(markdownBlock(full.ai.answer));const cites=el('div','item-meetings');cites.append(el('span','hint','Sources'));
    for(const number of full.ai.cited){const chip=sourceChip(full.sources[number-1]);chip.textContent='['+number+'] '+chip.textContent;cites.append(chip,sourceListen(full.sources[number-1]));}written.append(cites);}
   else if(full.ai) written.append(el('p','hint','The found passages do not answer this question.'));
   else if(full.ai_error) written.append(el('p','notice warning','No written answer: '+full.ai_error));
@@ -2658,8 +2661,8 @@ function githubVerificationLabel(link){
 }
 $('github-draft-review').onclick=()=>{
  captureDraft();const buffer=draftBuffers.get(draftActiveKey);if(!buffer)return;
- $('draft-review-current').textContent=buffer.values.title+'\n\n'+buffer.values.body;
- $('draft-review-generated').textContent=buffer.generated.title+'\n\n'+buffer.generated.body;
+ $('draft-review-current').innerHTML=renderMarkdown((buffer.values.title?'# '+buffer.values.title+'\n\n':'')+(buffer.values.body||''));
+ $('draft-review-generated').innerHTML=renderMarkdown((buffer.generated.title?'# '+buffer.generated.title+'\n\n':'')+(buffer.generated.body||''));
  $('draft-review-dialog').showModal();
 };
 $('draft-review-cancel').onclick=()=>$('draft-review-dialog').close();
@@ -2740,7 +2743,7 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
   box.append(status);
  }
  const list=el('ol','task-timeline'),events=progress.events||[];let limit=60;
- const draw=()=>{list.replaceChildren();for(const event of events.slice(0,limit)){const row=el('li','task-timeline-event');row.append(el('small','hint',event.at?dateTime(event.at):'Date not recorded'),el('strong','',AtlantaProgress.label(event)));if(event.text)row.append(el('p','',event.text));const changes=progressChangeText(event.changes);if(changes)row.append(el('p','hint',changes));if(event.actor)row.append(el('small','hint','@'+event.actor));if(event.quote)row.append(el('blockquote','',event.quote));
+ const draw=()=>{list.replaceChildren();for(const event of events.slice(0,limit)){const row=el('li','task-timeline-event');row.append(el('small','hint',event.at?dateTime(event.at):'Date not recorded'),el('strong','',AtlantaProgress.label(event)));if(event.text)row.append(markdownBlock(event.text));const changes=progressChangeText(event.changes);if(changes)row.append(el('p','hint',changes));if(event.actor)row.append(el('small','hint','@'+event.actor));if(event.quote)row.append(el('blockquote','',event.quote));
    const mid=event.meeting_id||event.locator?.meeting_id;if(mid){const open=el('button','quiet small-action','Open meeting evidence');open.type='button';open.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('task-panel').close();await openMeeting(mid);if(event.timestamp)showSeconds(stampSeconds(event.timestamp));else if(event.locator?.start!=null)showSeconds(event.locator.start);});row.append(open);if(event.timestamp||event.locator?.start!=null)row.append(listenButton(mid,event.locator?.start??stampSeconds(event.timestamp),{label:'Play evidence',until:event.locator?.end??null}));}
    if(event.source_id){const source=itemsData.graph?.sources?.find(s=>s.id===event.source_id);if(source){const open=el('button','quiet small-action','Open saved source');open.type='button';open.onclick=()=>perform(()=>openSource(source));row.append(open);}}
    if(event.url){const open=el('a','','Open in GitHub ↗');open.href=event.url;open.target='_blank';open.rel='noopener noreferrer';row.append(open);}list.append(row);}
@@ -3064,7 +3067,7 @@ function renderFollowup(data){
  for(const [key,label] of [['externally_updated','GitHub changes since last meeting'],['updated','Updated since last meeting'],['waiting','Waiting on someone or something'],['follow_up_due','Follow-up due'],['completed','Completed since last meeting'],['completed_unknown','Completed, date unknown'],['unchanged','No local edits since last meeting'],['blocked','Confirmed blockers'],['blockers_to_review','Blockers to review'],['commitments','Open commitments'],['questions','Open questions'],['decisions','Current and proposed decisions']]){
   const rows=(follow[key]||[]).filter(row=>!followupOwnerFilter||row.kind!=='task'||(row.person_name||row.owner)===followupOwnerFilter);if(!rows.length)continue;
   const section=el('section','note-section');section.append(el('h3','',label+' · '+rows.length));
-  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.kind==='task')card.append(followupOwner(row));else if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',AtlantaTasks.STATES[row.workflow_state]||row.status));card.append(workReviewBadge(row.review));if(row.follow_up_date)card.append(el('p','hint','Next check: '+date(row.follow_up_date)));if(row.last_update)card.append(el('p','',dateTime(row.last_update.at)+' · '+row.last_update.text));for(const event of row.updates_since||[])if(!(event.event==='progress_update'&&event.at===row.last_update?.at&&event.text===row.last_update?.text))card.append(el('p','hint',dateTime(event.at)+' · '+(event.text||progressChangeText(event.changes)||EVENT_LABELS[event.event]||event.event)));
+  for(const row of rows){const card=el('div','prepare-question');card.append(el('p','',row.text));if(row.kind==='task')card.append(followupOwner(row));else if(row.owner)card.append(el('p','hint','Owner: '+row.owner));if(row.status)card.append(el('span','badge',AtlantaTasks.STATES[row.workflow_state]||row.status));card.append(workReviewBadge(row.review));if(row.follow_up_date)card.append(el('p','hint','Next check: '+date(row.follow_up_date)));if(row.last_update){card.append(el('p','hint',dateTime(row.last_update.at)));card.append(markdownBlock(row.last_update.text));}for(const event of row.updates_since||[])if(!(event.event==='progress_update'&&event.at===row.last_update?.at&&event.text===row.last_update?.text))card.append(el('p','hint',dateTime(event.at)+' · '+(event.text||progressChangeText(event.changes)||EVENT_LABELS[event.event]||event.event)));
    for(const event of row.github_updates||[]){const excerpt=el('p','hint',dateTime(event.at)+' · '+AtlantaProgress.label({kind:'github_'+event.kind})+(event.text?' · '+event.text:''));if(event.url){const open=el('a','',' Open in GitHub ↗');open.href=event.url;open.target='_blank';open.rel='noopener noreferrer';excerpt.append(open);}card.append(excerpt);}if(row.github_updates_omitted)card.append(el('p','hint',row.github_updates_omitted+' more cached changes · open the task timeline'));
    if(row.quote)card.append(el('blockquote','',row.quote));
    if(row.source)card.append(sourceChip(row.source),sourceListen(row.source));

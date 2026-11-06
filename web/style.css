@@ -880,3 +880,12 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 
 .meeting-task-citation{padding:10px 0;border-top:1px solid var(--line-soft);overflow-wrap:anywhere}
 .meeting-task-citation p{margin:0 0 8px}
+
+/* Unified button scale and action spacing. This block is last on purpose: it wins over
+   the context-specific sizes declared above. Tabs, segments, chips, menu rows, timestamps
+   and dense settings rows keep their own compact styles — they are navigation, not actions. */
+button{font-size:14px}
+.small-action{font-size:12px;padding:6px 12px}
+.start-row .primary{font-size:14px}
+.action-bar button,.work-actions button,.note-actions button,.marker-bar button,.proposal-banner button,.backup-actions button,.link-actions button,.import-row button,.import-paste button,.input-row button,.library-search-row button,.capture-shortcuts button,.setup-heading button,.tracked-edit-bar button{font-size:13px}
+.action-bar,.conversation-bulk,.google-actions,.message-actions,.github-actions,.link-actions,.backup-actions,.viewer-actions,.workspace-actions,.project-assignment-actions,.proposal-actions,.settings-control-actions,.task-card-footer,.recording-controls,.note-actions{gap:8px}

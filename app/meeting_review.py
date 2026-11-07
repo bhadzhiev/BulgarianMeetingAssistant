@@ -21,8 +21,8 @@ def fingerprint(item):
     return hashlib.sha256(canonical(fields).encode()).hexdigest()
 
 
-def minutes_evidence(minutes):
-    """Review markers are UI metadata, not new evidence or changed wording."""
+def legacy_minutes_evidence(minutes):
+    """The first evidence: the whole notes without review markers. Receipts made with it stay valid while it holds."""
     def clean(value):
         if isinstance(value,dict):return {k:clean(v) for k,v in value.items() if k!='review'}
         if isinstance(value,list):return [clean(v) for v in value]
@@ -30,10 +30,21 @@ def minutes_evidence(minutes):
     return hashlib.sha256(canonical(clean(minutes)).encode()).hexdigest()
 
 
+def minutes_evidence(minutes):
+    """What the notes say, without their task and decision lists.
+
+    Those lists mirror the registry: an owner, a due date, a status or a new task that a person sets is
+    written back into them. Each item has its own content fingerprint, so a change to one item asks for
+    a new review of that item only, not of every item in the meeting.
+    """
+    if isinstance(minutes,dict):minutes={k:v for k,v in minutes.items() if k not in ('tasks','decisions')}
+    return legacy_minutes_evidence(minutes)
+
+
 def source_matches(receipt, source):
     if isinstance(source,dict):
         # Older receipts stay valid on their original exact source; no review is invented.
-        if receipt.get('evidence'):return receipt['evidence']==source.get('evidence')
+        if receipt.get('evidence'):return receipt['evidence'] in {source.get('evidence'),source.get('legacy_evidence')}
         return receipt.get('source')==source.get('source')
     return receipt.get('source')==source
 
@@ -52,6 +63,22 @@ def accept_content(item):
         item['status']='accepted'
         if 'status' not in item['manual']:item['manual'].append('status')
     return changes
+
+
+# A person sets these as the current state of an item. Setting them is itself a check, not new wording.
+PERSON_STATE=('owner','owner_person_id','due_date')
+
+
+def keep_confirmed(item, before, changed):
+    """A person's own owner or due date keeps the reviews that held before it.
+
+    Without this, every owner or date set after a confirmation asks for the same confirmation again.
+    New wording, details or an AI change still need a new review.
+    """
+    if not set(changed)&set(REVIEWED) or set(changed)&set(REVIEWED)-set(PERSON_STATE):return
+    after=fingerprint(item)
+    for receipt in item.get('meeting_reviews',{}).values():
+        if receipt.get('state')=='confirmed' and receipt.get('content')==before:receipt['content']=after
 
 
 def confirm_linked(service, item):

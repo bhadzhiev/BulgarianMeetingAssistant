@@ -2051,7 +2051,7 @@ class MeetingService:
         return result
 
     def review_sources(self):
-        from .meeting_review import source_digest, minutes_evidence
+        from .meeting_review import source_digest, minutes_evidence, legacy_minutes_evidence
         sources={}
         cache=getattr(self,'_review_source_cache',{})
         fresh={}
@@ -2065,7 +2065,8 @@ class MeetingService:
                 transcript=json.loads((directory/'transcript.json').read_text()) if (directory/'transcript.json').exists() else []
                 revision=self._transcript_revision(transcript)
                 minutes=json.loads((directory/'minutes.json').read_text()) if (directory/'minutes.json').exists() else None
-                sources[meeting['id']]=dict(source=source_digest(revision,self._minutes_revision(directory)),evidence=source_digest(revision,minutes_evidence(minutes)))
+                sources[meeting['id']]=dict(source=source_digest(revision,self._minutes_revision(directory)),evidence=source_digest(revision,minutes_evidence(minutes)),
+                                            legacy_evidence=source_digest(revision,legacy_minutes_evidence(minutes)))
                 fresh[meeting['id']]=(stamps,sources[meeting['id']])
             except (OSError,ValueError):pass
         self._review_source_cache=fresh
@@ -2401,8 +2402,11 @@ class MeetingService:
             note=clean.pop('update_note',None);evidence_id=clean.pop('update_evidence_id',None)
             if evidence_id and not note:raise ValueError('Add an update before choosing its evidence')
             previous=copy.deepcopy(self.items.data)
+            from .meeting_review import fingerprint, keep_confirmed
+            before=fingerprint(item)
             try:
                 self.items.update(item_id, clean)
+                keep_confirmed(self.items.items[item_id],before,clean)
                 if clean.get('acceptance_state')=='accepted' or item['kind']=='decision' and clean.get('status')=='accepted':
                     from .meeting_review import accept_content, confirm_linked
                     confirmed=accept_content(self.items.items[item_id])
@@ -2445,7 +2449,9 @@ class MeetingService:
                 validated.append((item['id'],self._clean_item_changes(item,changes)))
             previous=copy.deepcopy(self.items.data)
             try:
-                for key,clean in validated:self.items.update(key,clean)
+                from .meeting_review import fingerprint, keep_confirmed
+                for key,clean in validated:
+                    before=fingerprint(self.items.items[key]);self.items.update(key,clean);keep_confirmed(self.items.items[key],before,clean)
                 WorkGraph._activity(self.items.data,'tasks_bulk_updated',request_id=operation,payload=payload,item_ids=ids)
                 self.items.save()
             except items.WorkItemConflict:raise

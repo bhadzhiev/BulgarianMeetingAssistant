@@ -102,6 +102,9 @@ while the new-meeting form is open.
   step that resolves it: a processing error, speakers to name, new AI notes to review, notes to update
   after transcript edits, mentions that look like existing work, AI-proposed decisions to confirm, and
   tasks without an owner or a due date. When nothing is left, it offers **Prepare the next meeting**.
+- **A confirmation holds:** an owner, a due date or a status that you set keeps the confirmation of
+  that task. A new task in the meeting keeps the confirmations of the other items. New wording, new
+  details, changed notes text or a changed transcript still ask for a new review.
 - **Settings:** **Fast**, **Balanced**, **Best quality** and **Maximum privacy** fill the fields; nothing
   changes until **Save settings**. **Show advanced settings** reveals audio preparation, voice detection
   and the local AI response options. Closing Settings with unsaved changes asks first.

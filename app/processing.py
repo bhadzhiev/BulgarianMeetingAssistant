@@ -280,13 +280,32 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         gc.collect()
 
 
+NOTES_PART_CHARS = 10000
+
+
+def canonical_notes(minutes: dict, vocabulary: str) -> dict:
+    """The preferred spelling from the vocabulary in the generated notes. The transcript stays as it was."""
+    from .vocabulary import canonicalize, entries
+    rows = entries(vocabulary or '')
+    if not any(row['aliases'] for row in rows):
+        return minutes
+    for items in minutes.values():
+        for item in items if isinstance(items, list) else []:
+            for key in ('text', 'task'):
+                if isinstance(item, dict) and isinstance(item.get(key), str):
+                    item[key] = canonicalize(item[key], rows)
+    return minutes
+
+
 def summarize(directory: Path, settings: dict, progress, api_key: str = '', speakers=()) -> None:
     from meeting_assistant import ITEM_FIELDS, TranscriptSegment, generate_minutes, save_minutes, timestamp, validate_minutes
     segments = [TranscriptSegment(**s) for s in json.loads((directory / 'transcript.json').read_text())]
     if not segments:
         raise ValueError('Transcribe the recording before generating notes')
     from .transcripts import group_by_length
-    groups = group_by_length(segments, lambda segment: segment.text, 4000, overhead=15)
+    # About 4,000 tokens of Bulgarian per part. With the prompt and a 4,096-token answer it fits a
+    # 16k context. Smaller parts split one meeting into many partial summaries.
+    groups = group_by_length(segments, lambda segment: segment.text, NOTES_PART_CHARS, overhead=15)
     args = SimpleNamespace(summarizer=settings['summarizer'], llm_model=settings['llm_model'],
         local_ai_base_url=settings.get('local_ai_base_url', 'http://localhost:1235/v1'),
         local_ai_model=settings.get('local_ai_model', 'qwen3.5-9b'),
@@ -391,6 +410,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
             from .notes_consolidation import failed_audit
             audit = failed_audit(completed, segments, error)
             progress('Notes saved without merging repeated statements · ' + audit['error'])
+    result = canonical_notes(result, args.whisper_vocabulary)
     validate_minutes(result, segments)
     proposed = (directory / 'minutes.json').exists()
     audit_path = directory / ('minutes.consolidation.proposed.json' if proposed else 'minutes.consolidation.json')

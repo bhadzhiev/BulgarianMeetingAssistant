@@ -4,7 +4,9 @@ Prompt practices applied across the codebase (small local models such as Qwen
 benefit from them the most):
 - One task per prompt with an explicit output contract and a JSON schema.
 - The critical contract is repeated AFTER the data (lost-in-the-middle guard):
-  complete_json appends the schema reminder as the final user message.
+  complete_json appends the schema reminder as the final user message. Long value
+  lists (such as every timestamp of a part) are shown as a short description there;
+  the server still enforces them through response_format.
 - A one-shot example anchors the format where the format is subtle (meeting
   notes items, meeting titles).
 - Prompts say what TO do and give a reason, not only what to avoid; the model
@@ -68,6 +70,27 @@ def list_models(base_url):
     return models
 
 
+# A value list longer than this is described, not listed, in the prompt text.
+SCHEMA_ENUM_LIMIT = 24
+
+
+def schema_hint(schema):
+    """The schema for the prompt text. A long enum repeats every timestamp of a part in each of
+    about ten fields; that doubled a notes prompt and filled the local context."""
+    if isinstance(schema, list):
+        return [schema_hint(value) for value in schema]
+    if not isinstance(schema, dict):
+        return schema
+    hint = {key: schema_hint(value) for key, value in schema.items() if key != 'enum'}
+    values = schema.get('enum')
+    if isinstance(values, list):
+        if len(values) > SCHEMA_ENUM_LIMIT:
+            hint['description'] = 'One value that appears in the input' + (' or null' if None in values else '') + '.'
+        else:
+            hint['enum'] = values
+    return hint
+
+
 def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     from meeting_assistant import post_json, extract_json
     base_url = validate_base_url(settings.get('local_ai_base_url', DEFAULT_BASE_URL))
@@ -78,7 +101,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # Include the schema in the prompt even when the server cannot constrain output.
     from .prompts import apply
     messages = apply(settings,messages,name)
-    messages.append({'role': 'user', 'content': 'Return only one JSON object matching this schema: ' + json.dumps(schema, ensure_ascii=False)})
+    messages.append({'role': 'user', 'content': 'Return only one JSON object matching this schema: ' + json.dumps(schema_hint(schema), ensure_ascii=False)})
     max_tokens = settings.get('local_ai_max_tokens', 4096)
     if type(max_tokens) is not int or not 128 <= max_tokens <= 32768:
         raise ValueError('Local AI output limit must be between 128 and 32768 tokens')

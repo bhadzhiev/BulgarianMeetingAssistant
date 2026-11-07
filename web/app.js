@@ -414,16 +414,17 @@ function historyKeys(event){
 document.addEventListener('keydown',historyKeys);
 $('history-back').onclick=()=>history.back();$('history-forward').onclick=()=>history.forward();
 // App-wide shortcuts in the macOS slots: Cmd+N new meeting, Cmd+, settings, Cmd+F find.
-// Chrome and Safari reserve Cmd+N for a new window; Cmd+Option+N reaches the page reliably.
+// Browsers keep Cmd+N for a new window, so there Cmd+Option+N is the form that reaches the page.
+// Option changes event.key on macOS (Option+N is a dead key), so match the physical key.
 function appKeys(event){
  if(event.ctrlKey||event.shiftKey||!event.metaKey||document.querySelector('dialog[open]'))return;
- const key=event.key.toLowerCase();
- if(key==='n'){event.preventDefault();perform(()=>$('new-meeting').onclick());}
- else if(key===','){event.preventDefault();openSettings();}
- else if(key==='f'){event.preventDefault();if(view==='find'){$('find-query').focus();$('find-query').select();}else perform(()=>openFind());}
+ if(event.code==='KeyN'){event.preventDefault();perform(()=>$('new-meeting').onclick());}
+ else if(event.code==='Comma'&&!event.altKey){event.preventDefault();openSettings();}
+ else if(event.code==='KeyF'&&!event.altKey){event.preventDefault();if(view==='find'){$('find-query').focus();$('find-query').select();}else perform(()=>openFind());}
 }
 document.addEventListener('keydown',appKeys);
-$('new-meeting').title='New meeting (⌥⌘N)';
+// The app's WKWebView has no Safari token in its user agent; browsers do.
+$('new-meeting').title=!/Safari\//.test(navigator.userAgent)?'New meeting (⌘N)':'New meeting (⌥⌘N)';
 $('settings-open').title='Settings (⌘,)';
 $('open-find').title='Search (⌘F)';
 // Move the existing heading and action, preserving handlers and field identities.

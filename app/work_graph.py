@@ -290,7 +290,13 @@ class WorkGraph:
             return proposal
         return self._write(apply)
 
-    def question(self, value, *, item_id=None, revision=None, answer=None):
+    def question(self, value, *, item_id=None, revision=None, answer=None, source=None):
+        # A question from meeting notes keeps its meeting and moment, without a meeting link: new notes never remove it.
+        if source is not None and (not isinstance(source, dict) or set(source) - {'meeting_id', 'evidence_timestamp'}
+                or not isinstance(source.get('meeting_id'), str) or not re.fullmatch(r'[a-f0-9]{32}', source['meeting_id'])
+                or source.get('evidence_timestamp') is not None and not (isinstance(source['evidence_timestamp'], str)
+                and re.fullmatch(r'\d{2}:\d{2}:\d{2}', source['evidence_timestamp']))):
+            raise ValueError('Invalid question source')
         def apply(data):
             if item_id:
                 item = data['items'].get(item_id)
@@ -304,6 +310,10 @@ class WorkGraph:
                 item = dict(id=key, kind='question', text=text(value, 'question'), status='open', answer=None,
                     managed_by='work_graph', links=[], source_evidence=[], created=now(), manual=['text', 'status'], history=[],
                     supersedes=[], superseded_by=None)
+                if source:
+                    item['origin'] = dict(meeting_id=source['meeting_id'], evidence_timestamp=source.get('evidence_timestamp'))
+                if answer is not None:
+                    item.update(status='answered', answer=text(answer, 'answer', 10000))
                 data['items'][key] = item
             changes = {name: [before[name], item.get(name)] for name in before if before[name] != item.get(name)} if item_id else {}
             item['history'].append(dict(at=now(), event='question_updated' if item_id else 'created', by='user', changes=changes, meeting_id=None))

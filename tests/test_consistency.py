@@ -27,7 +27,8 @@ def notes(tasks=(), decisions=()):
     return dict(summary=[], decisions=list(decisions), tasks=list(tasks), open_questions=[])
 
 
-class ConsistencyTests(unittest.TestCase):
+class ConsistencyBase(unittest.TestCase):
+    """A service with a temporary library and helpers that process a meeting again."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.service = MeetingService(Path(self.tmp.name), PROJECT, google=FakeGoogle())
@@ -63,6 +64,8 @@ class ConsistencyTests(unittest.TestCase):
             self.service._process(meeting_id, 'summarize', JOB, '')
         self.assertEqual(self.service.library.get(meeting_id)['status'], 'ready')
 
+
+class ConsistencyTests(ConsistencyBase):
     def test_transcribing_again_keeps_a_done_task_with_its_manual_owner(self):
         meeting_id = self.meeting(notes([task('Провери VPN failover', 'Иван')]))
         [item] = self.service.tasks()

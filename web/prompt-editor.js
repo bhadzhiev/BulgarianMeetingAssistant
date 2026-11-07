@@ -3,9 +3,9 @@ let promptCatalog=null,promptRequestedScope=null,promptSelection=null,promptOrig
 function promptBody(){return {stage:$('prompt-stage').value,scope:$('prompt-scope').value,text:$('prompt-text').value.trim()||null,revision:promptCatalog.revision,mode:promptDraftMode};}
 function promptError(error){$('prompt-error').textContent=error?.message||'';$('prompt-error').hidden=!error;}
 function promptDirty(){return $('prompt-text').value!==promptOriginal;}
-async function leavePromptEditor(){
- if((promptJob||promptPending)&&!(await ask('Cancel the running prompt test and close settings?',{ok:'Cancel test'})))return false;
- if(promptDirty()&&!(await ask('Discard the unsaved AI instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
+async function leavePromptEditor(confirmed=false){
+ if(!confirmed&&(promptJob||promptPending)&&!(await ask('Cancel the running prompt test and close settings?',{ok:'Cancel test'})))return false;
+ if(!confirmed&&promptDirty()&&!(await ask('Discard the unsaved AI instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
  if(promptJob)await api('/api/prompts/test/cancel',{id:promptJob});
  ++promptLaunch;promptPending=false;promptJob=null;promptBusy(false);invalidatePromptTest();clearTimeout(promptTimer);$('prompt-text').value=promptOriginal;editorDirty.clear('ai-prompts');return true;
 }

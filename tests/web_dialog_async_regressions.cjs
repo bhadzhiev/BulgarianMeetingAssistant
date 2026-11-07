@@ -18,7 +18,7 @@ const tick=()=>new Promise(setImmediate);
   promptDirty:()=>false,editorDirty:{clear(){}},pollPromptTest:()=>{polled++;},
   api:(path,body)=>{requests.push([path,body]);return path==='/api/prompts/test/start'?new Promise(r=>start=r):Promise.resolve({});}});
  vm.runInContext("let promptPreview={preview_token:'preview'},promptPending=false,promptLaunch=0,promptJob=null,promptTimer=null,promptOriginal='';"+
-  slice(prompts,'async function leavePromptEditor()','function invalidatePromptTest()')+
+  slice(prompts,'async function leavePromptEditor(','function invalidatePromptTest()')+
   slice(prompts,"$('prompt-test').onclick=","$('prompt-reprocess').onclick="),q);
  const request=vm.runInContext("$('prompt-test').onclick()",q);await tick();assert.equal(requests.length,1);
  await vm.runInContext('leavePromptEditor()',q);field('settings-dialog').open=false;start({id:'late-job'});await request;

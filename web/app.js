@@ -263,6 +263,14 @@ async function perform(fn) {
  }
 }
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
+// What a person would lose, in their words, so the question says what it is about.
+const EDITOR_NAMES={'task-draft':'task draft','task-panel':'task changes','meeting-review':'review edit','inline-edit':'note edit',
+ 'project-repositories':'project links','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
+function unsavedNames(){
+ const names=[dirtyTranscript&&'transcript corrections',dirtyNotes&&'notes changes',itemEditing&&'task changes',speakerNaming&&'speaker name',
+  ...editorDirty.keys().map(key=>key.startsWith('dialog:')?'changes in the open window':EDITOR_NAMES[key]||'changes')];
+ return [...new Set(names.filter(Boolean))];
+}
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
 let askQueue=Promise.resolve();
 // With extra, a third button answers 'extra'.
@@ -348,7 +356,7 @@ async function askDate(message,initial){let current=AtlantaUX.display(initial);f
 async function leaveEdits() {
  if(editorDirty.keys().some(key=>key==='saving'||key.startsWith('dialog-save:'))){toast('Wait for the current save to finish');return false;}
  const edited=hasEdits();
- if(edited&&!(await ask('Leave without saving your corrections?',{ok:'Leave',cancel:'Stay'})))return false;
+ if(edited&&!(await ask('Leave without saving the '+unsavedNames().join(', ')+'?',{ok:'Leave without saving',cancel:'Stay'})))return false;
  // Navigation checks hasEdits() again after loading. Discard both the edits and
  // their flags now; typing after this point must still block a late response.
  if(dirtyTranscript&&detail&&transcriptBaseline)detail.transcript=structuredClone(transcriptBaseline);
@@ -1166,10 +1174,15 @@ function settingsValues(){
  return JSON.stringify([...fields].map(f=>f.type==='checkbox'?f.checked:f.value));
 }
 let settingsOpened='';
+// One question names everything that closing loses; the editors then discard without asking again.
 async function closeSettings(){
- if(!(await leaveTypePrompt()))return;
- if(!(await leavePromptEditor()))return;
- if(settingsValues()!==settingsOpened&&!(await ask('Discard the changes in Settings? They are not saved.',{ok:'Discard changes',cancel:'Keep editing',danger:true})))return;
+ const lost=[settingsValues()!==settingsOpened&&'settings',typePromptDirty()&&'meeting-type instructions',promptDirty()&&'AI instructions'].filter(Boolean);
+ const running=promptJob||promptPending;
+ if(lost.length||running){
+  const message=(lost.length?'Close Settings without saving the '+lost.join(', ')+'?':'Close Settings?')+(running?'\n\nThe running prompt test stops.':'');
+  if(!(await ask(message,{ok:lost.length?'Discard and close':'Stop test and close',cancel:'Keep editing',danger:!!lost.length})))return;
+ }
+ await leaveTypePrompt(true);await leavePromptEditor(true);
  editorDirty.clear('ai-prompts');$('settings-dialog').close();
 }
 function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('diarization-runtime').textContent=state.diarization?.message||'Speaker separation is checked after recording.';$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('elevenlabs-api-key').value='';$('forget-elevenlabs-key').disabled=!state.elevenlabs_api_key_configured;$('elevenlabs-key-state').textContent=state.elevenlabs_key_error?'· '+state.elevenlabs_key_error:state.elevenlabs_api_key_configured?'· configured':'';$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();markProfile();renderPeople();settingsOpened=settingsValues();
@@ -2417,8 +2430,11 @@ $('add-tracker').onclick=()=>{trackersData.push({id:'',name:'',phrases:[],semant
 $('save-trackers').onclick=()=>perform(saveTrackers);
 $('delete-meeting').onclick=()=>perform(async()=>{
  const id=selected, title=detail.title;
- if(!(await ask('Delete "'+title+'"?\n\nThe recording, transcript, notes and all other files of this meeting are removed from this Mac. You cannot undo this.',{ok:'Delete meeting',danger:true}))) return;
- const calendar_event=!!detail.calendar_sync?.event_id&&await ask('Also delete the Google Calendar event of this meeting?',{ok:'Delete event',cancel:'Keep event',danger:true});
+ const hasEvent=!!detail.calendar_sync?.event_id;
+ const answer=await ask('Delete "'+title+'"?\n\nThe recording, transcript, notes and all other files of this meeting are removed from this Mac. You cannot undo this.'+(hasEvent?'\n\nThe meeting also has a Google Calendar event.':''),
+  hasEvent?{ok:'Delete meeting and event',extra:'Delete meeting, keep event',danger:true}:{ok:'Delete meeting',danger:true});
+ if(!answer) return;
+ const calendar_event=answer===true&&hasEvent;
  await api('/api/meetings/'+id+'/delete',{calendar_event});
  $('audio').pause();$('audio').removeAttribute('src');
  dirtyTranscript=dirtyNotes=false;detail=null;selected=null;
@@ -2992,6 +3008,13 @@ const dialogPolicies={
  'followup-dialog':{close:'followup-close',cancel:'followup-cancel'},
  'ask-dialog':{transient:true},'project-dialog':{transient:true,dismiss:()=>$('project-dialog').close()}
 };
+// The values before the first edit. pointerdown and keydown come before the change they cause.
+const dialogBaselines=new WeakMap();
+function dialogValues(dialog){return JSON.stringify([...dialog.querySelectorAll('input:not([type=file]):not([type=button]):not([type=submit]),select,textarea')].map(f=>f.type==='checkbox'||f.type==='radio'?f.checked:f.value));}
+function rememberDialog(event){const dialog=event.target.closest?.('dialog');if(dialog?.open&&!dialogBaselines.has(dialog))dialogBaselines.set(dialog,dialogValues(dialog));}
+for(const type of ['pointerdown','keydown','focusin'])document.addEventListener(type,rememberDialog,true);
+// A change that is typed and then undone again is no change.
+function dialogChanged(dialog){return editorDirty.keys().includes('dialog:'+dialog.id)&&(!dialogBaselines.has(dialog)||dialogValues(dialog)!==dialogBaselines.get(dialog));}
 function markDialogDirty(event){
  const dialog=event.target.closest?.('dialog');if(!dialog)return;
  const policy=dialogPolicies[dialog.id];
@@ -3005,7 +3028,7 @@ async function requestDialogClose(dialog,close){
  if(dialogClosings.has(dialog))return dialogClosings.get(dialog);
  const pending=(async()=>{
   const policy=dialogPolicies[dialog.id]||{};
-  if(!policy.custom&&!policy.transient&&editorDirty.keys().includes('dialog:'+dialog.id)&&
+  if(!policy.custom&&!policy.transient&&dialogChanged(dialog)&&
      !(await ask('Discard unsaved changes in this editor?',{ok:'Discard',cancel:'Keep editing'})))return false;
   await close();return !dialog.open;
  })();
@@ -3026,7 +3049,7 @@ async function withDialogAction(dialog,action){
  finally{waiting.remove();dialog.inert=inert;dialog.removeAttribute('aria-busy');dialogJobs.delete(dialog);editorDirty.clear('dialog-save:'+dialog.id);editorHeartbeat();if(dialog.open&&focus?.isConnected)focus.focus();}
 }
 document.addEventListener('input',markDialogDirty);document.addEventListener('change',markDialogDirty);
-document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG')editorDirty.clear('dialog:'+event.target.id);},true);
+document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG'){editorDirty.clear('dialog:'+event.target.id);dialogBaselines.delete(event.target);}},true);
 document.addEventListener('cancel',event=>{
  const dialog=event.target,policy=dialogPolicies[dialog.id];if(!policy)return;
  if(dialogJobs.has(dialog)){event.preventDefault();event.stopImmediatePropagation();toast('Wait for the current operation to finish');return;}
@@ -3258,8 +3281,8 @@ $('followup-check').onclick=()=>perform(async()=>{const button=$('followup-check
 
 let typePromptCatalog=null,typePromptSelected=null,typePromptOriginal='',typePromptSequence=0;
 function typePromptDirty(){return typePromptSelected!==null&&$('type-prompt-text').value!==typePromptOriginal;}
-async function leaveTypePrompt(){
- if(typePromptDirty()&&!(await ask('Discard unsaved meeting-type instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
+async function leaveTypePrompt(confirmed=false){
+ if(!confirmed&&typePromptDirty()&&!(await ask('Discard unsaved meeting-type instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
  $('type-prompt-text').value=typePromptOriginal;editorDirty.clear('type-prompt');return true;
 }
 async function loadTypePrompt(){

@@ -647,8 +647,8 @@ Click **More ▾ → Delete meeting** on a saved meeting and confirm. The app re
 with the recording, transcripts, notes, and versions. You cannot undo this. Make a copy
 of the folder first if you are not sure.
 
-If the meeting has a Google Calendar event, the app asks a second question. Choose OK to
-delete the event too, or Cancel to keep it. The app deletes only the event that it created
+If the meeting has a Google Calendar event, the same question has three answers: **Delete meeting
+and event**, **Delete meeting, keep event**, or **Cancel**. The app deletes only the event that it created
 for this meeting. If Google cannot delete the event, the meeting stays on this Mac.
 You cannot delete a meeting while it records or processes.
 The app validates notes' structure and source timestamps, but factual correctness still requires

@@ -43,3 +43,14 @@ class GitHubDraftDialogTests(unittest.TestCase):
         self.assertIn('max-height:', dialog)
         self.assertRegex(CSS, r'#github-draft-dialog>\*\{flex-shrink:0\}')
         self.assertRegex(CSS, r'#github-draft-body\{min-height:\d+px')
+
+
+class GitHubListRowTests(unittest.TestCase):
+    def test_item_number_has_its_own_column(self):
+        # The number used to be glued onto the title, which broke scanning.
+        desktop = re.search(r'#github-items \.source-row\{grid-template-columns:([^}]*)\}', CSS)[1]
+        self.assertEqual(len(desktop.split()), 5)
+        self.assertRegex(CSS, r'\.row-number\{[^}]*tabular-nums')
+        script = (Path(__file__).resolve().parents[1] / 'web' / 'app.js').read_text()
+        self.assertIn("el('span','row-number','#'+r.number)", script)
+        self.assertIn("el('strong','row-title',r.title)", script)

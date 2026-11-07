@@ -365,13 +365,14 @@ button.source-chip:hover:not(:disabled){border-color:var(--src);background:var(-
 .row-who{font-weight:600}
 .row-title{color:var(--ink)}
 .row-when{color:var(--muted);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+.row-number{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .row-tag{justify-self:start;padding:2px 8px;border-radius:6px;background:var(--surface-2);color:var(--muted);font-size:11px;font-weight:700}
 .row-tag.needs_reply{background:var(--danger-soft);color:var(--danger-ink)}
 .row-tag.waiting{background:var(--warn-soft);color:var(--warn-ink)}
 .row-tag.issue{background:var(--ok-soft);color:var(--ok)}
 .row-tag.pr{background:color-mix(in srgb,var(--src-github) 14%,transparent);color:var(--src-github)}
 #chat-spaces .source-row{grid-template-columns:26px minmax(0,1fr) 62px 120px 66px}
-#github-items .source-row{grid-template-columns:52px 150px minmax(0,1fr) 66px}
+#github-items .source-row{grid-template-columns:52px 150px 64px minmax(0,1fr) 66px}
 .source-empty{margin:0;padding:28px 18px;text-align:center;color:var(--muted);font-size:13px}
 .reader{display:flex;flex-direction:column;height:480px;margin:14px 20px 18px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
 .reader:empty{display:none}
@@ -413,7 +414,7 @@ a.small-action{padding:7px 12px;font-size:12px}
 .source-about summary{cursor:pointer;color:var(--muted);font-weight:600}
 .source-about .hint{margin:10px 0}
 @media(max-width:1000px){.source-row{grid-template-columns:56px 120px minmax(0,1fr) 56px}#chat-spaces .source-row{grid-template-columns:26px minmax(0,1fr) 56px 56px}#chat-spaces .row-title{display:none}
- #github-items .source-row{grid-template-columns:44px minmax(0,1fr) 56px}#github-items .row-who{display:none}.reader{height:420px}}
+ #github-items .source-row{grid-template-columns:44px 60px minmax(0,1fr) 56px}#github-items .row-who{display:none}.reader{height:420px}}
 .source-row .speaker-badge,.message-top .speaker-badge,.chat-msg>.speaker-badge{width:26px;height:26px;min-width:26px;font-size:10px}
 
 /* Read speech as turns; retain individual segment anchors for evidence links. */

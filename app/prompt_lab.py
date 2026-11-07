@@ -67,6 +67,10 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
         from .meeting_automation import TITLE_SYSTEM
         return [dict(role='system',content=TITLE_SYSTEM),dict(role='user',content=snippet)],dict(type='object',additionalProperties=False,required=['title'],properties=dict(title=dict(type='string')))
     if stage=='task_draft':return [dict(role='system',content=task_draft.SYSTEM),dict(role='user',content=canonical(dict(untrusted_source=dict(body=snippet))))],task_draft.SCHEMA
+    if stage=='followup_email':
+        from . import followup_email
+        notes=dict(meeting_title='Test meeting',meeting_date='',summary=[snippet],decisions=[],tasks=[],open_questions=[],next_steps=[])
+        return [dict(role='system',content=followup_email.SYSTEM),dict(role='user',content=canonical(dict(reviewed_meeting_notes=notes)))],followup_email.SCHEMA
     if stage=='email_commitments':return [dict(role='system',content=gmail_ai.SYSTEM),dict(role='user',content=canonical(dict(untrusted_email=dict(body=snippet))))],gmail_ai.SCHEMA
     if stage in {'repository_changes','repository_summary'}:
         suffix='\nProduce one overall report across these changes; prioritize consequences, risks and follow-ups, without repeating each file.' if stage=='repository_summary' else ''
@@ -112,6 +116,9 @@ def generate(settings,key=''):
     elif stage=='task_draft':
         from .task_draft import draft_fields
         draft_fields(result)
+    elif stage=='followup_email':
+        from .followup_email import clean
+        clean(result)
     elif stage=='topic_matches':
         if set(result)!={'matches'} or not isinstance(result['matches'],list) or any(type(v) is not int or v!=0 for v in result['matches']):raise ValueError('Invalid segment IDs')
     elif stage=='meeting_answer':

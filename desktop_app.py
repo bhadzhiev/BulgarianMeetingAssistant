@@ -387,6 +387,11 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.prompt_lab.start(body)
             elif path == '/api/prompts/test/cancel':
                 result=service.prompt_lab.stop(body['id'])
+            elif path in {'/api/followup-email/prepare', '/api/followup-email/generate', '/api/followup-email/draft'}:
+                from app import followup_email
+                action = path.rsplit('/', 1)[-1]
+                result = (followup_email.prepare(service, body) if action == 'prepare' else
+                          followup_email.generate(service, body) if action == 'generate' else followup_email.save_draft(service, body))
             elif path == '/api/task-draft/start':
                 result=service.task_drafts.start(body)
             elif path == '/api/task-draft/cancel':

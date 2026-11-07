@@ -57,7 +57,7 @@ class ChatOAuthTests(unittest.TestCase):
     def test_chat_only_scopes_verified_identity_and_no_calendar_or_gmail_call(self):
         url,status=self.connect()
         self.assertEqual(set(parse_qs(urlsplit(url).query)['scope'][0].split()),set(CHAT_SCOPES))
-        self.assertEqual(status['capabilities'],dict(chat=True,calendar=False,gmail=False))
+        self.assertEqual(status['capabilities'],dict(chat=True,calendar=False,gmail=False,gmail_compose=False))
         self.assertEqual(status['chat_account_id'],'synthetic-user-1')
         self.assertFalse(any('/calendar/' in call[0] or '/gmail/' in call[0] for call in self.calls))
         self.assertNotIn('synthetic-refresh',str(status));self.assertNotIn('synthetic-access',str(status))
@@ -65,7 +65,7 @@ class ChatOAuthTests(unittest.TestCase):
         self.google.bundle.update(account_id='synthetic@example.invalid',scopes=list(SCOPES)+[GMAIL_SCOPE],refresh_token='old-token')
         self.granted|=set(SCOPES)|{GMAIL_SCOPE}
         _,status=self.connect()
-        self.assertEqual(status['capabilities'],dict(chat=True,calendar=True,gmail=True))
+        self.assertEqual(status['capabilities'],dict(chat=True,calendar=True,gmail=True,gmail_compose=False))
     def test_denied_chat_or_mismatched_identity_preserves_credentials(self):
         for mismatch in (False,True):
             self.google.bundle.update(account_id='synthetic@example.invalid',scopes=list(SCOPES),refresh_token='old-token')

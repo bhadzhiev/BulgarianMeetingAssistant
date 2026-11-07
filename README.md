@@ -467,6 +467,20 @@ task has a **source moment** and a **review state**:
   becomes **✓ Checked**. Statements that you add yourself start as checked.
 - The AI must cite the moment where a decision was taken, not where it was proposed.
 
+### Follow-up email
+
+After you review a meeting, open **More → Follow-up email…**. The draft uses only reviewed content:
+accepted decisions, accepted tasks with their owners and due dates, and checked summary, open-question
+and next-step statements. Open questions get their own section only when there are checked ones. Private observations and AI proposals stay out.
+
+- The editor opens with a plain draft. **Write with AI** rewrites it with the Notes & AI provider.
+  Edit the instructions in **Settings → AI instructions → Follow-up email**.
+- Recipients come from **People**. Participants and task owners with an email address are preselected.
+  You can add other addresses.
+- **Save Gmail draft** saves the email as a draft in Gmail. It needs the separate `gmail.compose`
+  permission: choose **Connect Gmail drafts** once. Atlanta never sends email. You check the draft and
+  send it from Gmail. Saving again updates the same draft until you send or delete it.
+
 **Generate new AI notes** never replaces saved notes. The new result waits as a proposal, and
 **Review changes** lists each new, changed, or missing statement or task. New and changed items are
 preselected; removals and changes to checked statements are not. **Apply selected** keeps task status
@@ -758,6 +772,9 @@ reload) are in the **⋯** menu. Explanations and cache clearing are under **Abo
 - **GitHub** lists every open issue and pull request without a repository choice. See below.
 
 ## Gmail: local read-only pilot
+
+Gmail sync is read-only. The only Gmail write is a follow-up email draft, with its own `gmail.compose`
+permission (see **Follow-up email**).
 
 Open **My Work → Gmail → Connect Gmail read-only**. Use the shared Google connection and approve
 `gmail.readonly`. Calendar permission is requested only if already used or separately connected.

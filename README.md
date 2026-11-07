@@ -470,8 +470,8 @@ task has a **source moment** and a **review state**:
 ### Follow-up email
 
 After you review a meeting, open **More → Follow-up email…**. The draft uses only reviewed content:
-accepted decisions, accepted tasks with their owners and due dates, and checked summary and next-step
-statements. Private observations and AI proposals stay out.
+accepted decisions, accepted tasks with their owners and due dates, and checked summary, open-question
+and next-step statements. Open questions get their own section only when there are checked ones. Private observations and AI proposals stay out.
 
 - The editor opens with a plain draft. **Write with AI** rewrites it with the Notes & AI provider.
   Edit the instructions in **Settings → AI instructions → Follow-up email**.

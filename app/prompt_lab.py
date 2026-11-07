@@ -69,7 +69,7 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
     if stage=='task_draft':return [dict(role='system',content=task_draft.SYSTEM),dict(role='user',content=canonical(dict(untrusted_source=dict(body=snippet))))],task_draft.SCHEMA
     if stage=='followup_email':
         from . import followup_email
-        notes=dict(meeting_title='Test meeting',meeting_date='',summary=[snippet],decisions=[],tasks=[],next_steps=[])
+        notes=dict(meeting_title='Test meeting',meeting_date='',summary=[snippet],decisions=[],tasks=[],open_questions=[],next_steps=[])
         return [dict(role='system',content=followup_email.SYSTEM),dict(role='user',content=canonical(dict(reviewed_meeting_notes=notes)))],followup_email.SCHEMA
     if stage=='email_commitments':return [dict(role='system',content=gmail_ai.SYSTEM),dict(role='user',content=canonical(dict(untrusted_email=dict(body=snippet))))],gmail_ai.SCHEMA
     if stage in {'repository_changes','repository_summary'}:

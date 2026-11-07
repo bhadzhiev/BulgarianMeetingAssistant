@@ -50,7 +50,9 @@ class FollowupEmailTests(unittest.TestCase):
             tasks=[dict(task='Update the runbook', owner='Maria', deadline=None, evidence_timestamp='00:00:08'),
                    dict(task='Proposed task', owner='SPEAKER_01', deadline=None, evidence_timestamp='00:00:08')],
             next_steps=[dict(text='Review again next week', evidence_timestamp='00:00:08', review='verified')],
-            open_questions=[], observations=[dict(text='Private remark about a person', evidence_timestamp='00:00:00')])))
+            open_questions=[dict(text='Who approves the rollback window?', evidence_timestamp='00:00:08', review='verified'),
+                            dict(text='Unchecked question', evidence_timestamp='00:00:08')],
+            observations=[dict(text='Private remark about a person', evidence_timestamp='00:00:00')])))
         items = self.s.detail(self.mid)['items'].values()
         decision = next(i for i in items if i['text'] == 'Release on Friday')
         task = next(i for i in items if i['text'] == 'Update the runbook')
@@ -63,8 +65,13 @@ class FollowupEmailTests(unittest.TestCase):
         self.assertEqual(data['tasks'], [dict(task='Update the runbook', owner='Maria', due_date='2026-11-12', said_deadline=None)])
         self.assertEqual(data['summary'], ['Release scope agreed'])
         self.assertEqual(data['next_steps'], ['Review again next week'])
+        self.assertEqual(data['open_questions'], ['Who approves the rollback window?'])
         self.assertEqual(data['meeting_date'], '05.11.2026')
         self.assertNotIn('Private remark', repr(data));self.assertNotIn('Proposed', repr(data))
+
+    def test_no_open_questions_means_no_section(self):
+        data = dict(followup_email.source(self.s, self.mid), open_questions=[])
+        self.assertNotIn('Отворени въпроси', followup_email.template(data)['body'])
 
     def test_nothing_reviewed_is_refused(self):
         other = self.s.library.create('Empty', 'in_person', self.s.settings)['id']
@@ -75,6 +82,9 @@ class FollowupEmailTests(unittest.TestCase):
         result = followup_email.prepare(self.s, dict(meeting_id=self.mid))
         self.assertIn('Update the runbook — Maria — 12.11.2026', result['body'])
         self.assertIn('Release on Friday', result['body']);self.assertNotIn('Private remark', result['body'])
+        self.assertIn('Отворени въпроси:\n- Who approves the rollback window?', result['body']);self.assertNotIn('Unchecked question', result['body'])
+        self.assertLess(result['body'].index('План за действие'), result['body'].index('Отворени въпроси'))
+        self.assertLess(result['body'].index('Отворени въпроси'), result['body'].index('Следващи стъпки'))
         self.assertEqual([(r['email'], r['involved']) for r in result['recipients']],
                          [('maria@example.test', True), ('guest@example.test', False)])
         self.assertFalse(result['ai']['available']);self.assertTrue(result['gmail']['drafts']);self.assertIsNone(result['draft'])

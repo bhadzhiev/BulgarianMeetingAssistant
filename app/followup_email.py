@@ -1,7 +1,7 @@
 """Follow-up email after a meeting: a draft from reviewed notes, saved as a Gmail draft.
 
-Only what a person reviewed goes in: accepted decisions, accepted tasks and checked summary
-and next-step items. Private observations and AI proposals stay out. Nothing is sent from
+Only what a person reviewed goes in: accepted decisions, accepted tasks and checked summary,
+next-step and open-question items. Private observations and AI proposals stay out. Nothing is sent from
 here: the person opens the Gmail draft, checks it and sends it from Gmail.
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ A person edits this draft and sends it from Gmail, so leave a section out rather
 - Use only the supplied data. Do not add decisions, tasks, owners, dates, meetings or promises.
 - Copy owner names and due dates exactly as supplied. Write "без срок" when a task has no due date.
 - List each task on its own line as: task — owner — due date.
+- List open_questions as unresolved questions, without owners or answers. Leave the section out when the list is empty.
 - Do not add a signature, a name for the sender or placeholders such as [Име]."""
 
 
@@ -74,7 +75,8 @@ def source(service, meeting_id):
     if not decisions and not tasks:
         raise ValueError('Accept at least one decision or task in Review before you write the follow-up email.')
     return dict(meeting_title=meeting['title'], meeting_date=_date(meeting.get('started_at') or meeting.get('created')),
-                summary=checked('summary'), decisions=decisions, tasks=tasks, next_steps=checked('next_steps'))
+                summary=checked('summary'), decisions=decisions, tasks=tasks, open_questions=checked('open_questions'),
+                next_steps=checked('next_steps'))
 
 
 def recipients(service, meeting_id):
@@ -103,6 +105,8 @@ def template(data):
         for task in data['tasks']:
             due = _date(task['due_date'] + 'T12:00:00') if task['due_date'] else 'без срок'
             lines.append('- ' + ' — '.join([task['task'], task['owner'] or 'без отговорник', due]))
+    if data['open_questions']:
+        lines += ['', 'Отворени въпроси:'] + ['- ' + text for text in data['open_questions'][:5]]
     if data['next_steps']:
         lines += ['', 'Следващи стъпки:'] + ['- ' + text for text in data['next_steps']]
     subject = 'Follow-up: ' + data['meeting_title'] + (' · ' + data['meeting_date'] if data['meeting_date'] else '')

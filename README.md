@@ -105,6 +105,9 @@ while the new-meeting form is open.
 - **Settings:** **Fast**, **Balanced**, **Best quality** and **Maximum privacy** fill the fields; nothing
   changes until **Save settings**. **Show advanced settings** reveals audio preparation, voice detection
   and the local AI response options. Closing Settings with unsaved changes asks first.
+- **Action feedback:** an action that takes longer than a quarter of a second shows a spinner on its
+  button and a thin bar at the top of the window. A second press of the same button waits for the first
+  action. A button that saved or started something shows a ✓ for a moment. An error shows in red.
 
 ## Record an in-person meeting
 

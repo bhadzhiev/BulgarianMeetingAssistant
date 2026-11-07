@@ -222,6 +222,7 @@ async function readApiResponse(response){
  return data;
 }
 async function api(path,body) {
+ if(body!==undefined)actionWrites++;
  const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  return readApiResponse(response);
 }
@@ -231,7 +232,36 @@ document.addEventListener('click',event=>{
  if(!link||event.defaultPrevented||event.button!==0||!link.href.startsWith('https://'))return;
  event.preventDefault();perform(()=>api('/api/open-external',{url:link.href}));
 });
-async function perform(fn) { clearError(); try { await fn(); } catch(e) { error(e.message); } }
+// A pressed control shows that its action runs, and a saved change shows a check mark.
+// The capture listener runs before the control's own handler, so perform() sees the control.
+let actionTrigger=null,actionWrites=0,runningActions=0,activityTimer=null;
+const busyTriggers=new WeakSet(),BUSY_DELAY=250,DONE_TIME=1500;
+for(const type of ['click','change','submit'])document.addEventListener(type,event=>{
+ const node=type==='submit'?event.submitter||event.target.querySelector?.('[type=submit]'):event.target.closest?.('button,select,input');
+ actionTrigger=node||null;setTimeout(()=>{if(actionTrigger===node)actionTrigger=null;});
+},true);
+function showActivity(){activityTimer=null;if(runningActions)$('activity').hidden=false;}
+async function perform(fn) {
+ // Nested and later calls do not take the control of the first press.
+ const trigger=actionTrigger;actionTrigger=null;
+ const button=trigger?.matches('button,[type=submit]')?trigger:null;
+ // A second press of the same button waits for the first action. Selects and checkboxes always apply.
+ if(button&&busyTriggers.has(button))return;
+ if(trigger)busyTriggers.add(trigger);
+ const writes=actionWrites;let failed=false;
+ runningActions++;if(!activityTimer&&$('activity').hidden)activityTimer=setTimeout(showActivity,BUSY_DELAY);
+ const busy=trigger&&setTimeout(()=>{trigger.classList.add('is-busy');trigger.setAttribute('aria-busy','true');},BUSY_DELAY);
+ clearError();
+ try { await fn(); } catch(e) { failed=true; error(e.message); }
+ finally {
+  runningActions--;if(!runningActions){clearTimeout(activityTimer);activityTimer=null;$('activity').hidden=true;}
+  if(trigger){clearTimeout(busy);busyTriggers.delete(trigger);trigger.classList.remove('is-busy');trigger.removeAttribute('aria-busy');}
+  // A button that saved or started something confirms it in place, also when the action was fast.
+  if(button&&!failed&&actionWrites!==writes&&button.isConnected&&button.getClientRects().length){
+   button.classList.add('is-done');setTimeout(()=>button.classList.remove('is-done'),DONE_TIME);
+  }
+ }
+}
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
 let askQueue=Promise.resolve();

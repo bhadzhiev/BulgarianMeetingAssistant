@@ -19,3 +19,12 @@ assert.match(app,/if\(\$\('local-ai-api-key'\)\.value\.trim\(\)\)body\.local_ai_
 assert.match(app,/local_ai_context:Number\(\$\('local-ai-context'\)\.value\)/);
 assert.doesNotMatch(html,/Local · Configured API/);
 console.log('Configured API PASS: cloud detection, privacy text names the host, key and context fields.');
+
+// The Settings footer names the cloud host too; it gets the API address from the form.
+const fields=app.slice(app.indexOf('function settingsFields('),app.indexOf('\nfunction ',app.indexOf('function settingsFields(')+1));
+assert.match(fields,/privacy\(\{[^}]*local_ai_base_url:\$\('local-ai-base-url'\)\.value/);
+assert.match(app,/\$\('local-ai-base-url'\)\.addEventListener\('input',\(\)=>\{renderCloudNote\(\);settingsFields\(\);\}\)/);
+// The settings body shrinks and scrolls, so the dialog never cuts off Save settings.
+const css=fs.readFileSync('web/style.css','utf8');
+assert.match(css,/\.settings-body\{flex:1 1 auto;min-height:120px;/);
+console.log('Settings footer PASS: cloud host in the footer, Save settings stays visible.');

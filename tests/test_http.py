@@ -18,7 +18,7 @@ class HTTPTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory()
         self.service=MeetingService(Path(self.tmp.name),PROJECT)
         self.server=Server(('127.0.0.1',0),self.service)
-        self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
+        self.thread=threading.Thread(target=self.server.serve_forever,kwargs=dict(poll_interval=.01),daemon=True);self.thread.start()
         self.headers={'Cookie':'meeting_session='+self.server.token,'Origin':self.server.origin,'Content-Type':'application/json'}
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.service.close();self.thread.join();self.tmp.cleanup()

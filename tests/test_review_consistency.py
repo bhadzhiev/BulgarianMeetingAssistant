@@ -52,6 +52,37 @@ class ReviewConsistencyTests(unittest.TestCase):
   self.confirm(self.task['id'])
   atomic_json(self.s.library.directory(self.mid)/'transcript.json',[dict(start=0,end=8,speaker='Maria',text='Corrected source')])
   self.assertEqual(self.row(self.task['id'])['state'],'needs_review')
+ def test_owner_or_date_of_one_task_keeps_every_review_in_the_meeting(self):
+  # The registry writes a person's owner, date and status back into the notes; that is not new evidence.
+  self.confirm(self.task['id']);self.confirm(self.decision['id'])
+  item=self.s.items.items[self.task['id']]
+  self.s.update_item(item['id'],item['text'],dict(due_date='2026-11-20'),item['revision'])
+  self.assertEqual(self.s.detail(self.mid)['minutes']['tasks'][0]['due_date'],'2026-11-20')
+  self.assertEqual(self.row(self.decision['id'])['state'],'confirmed')
+  self.assertEqual(self.row(self.task['id'])['state'],'confirmed')
+  item=self.s.items.items[self.task['id']]
+  self.s.update_item(item['id'],item['text'],dict(owner='Ivan'),item['revision'])
+  item=self.s.items.items[self.task['id']]
+  self.s.update_item(item['id'],item['text'],dict(status='done'),item['revision'])
+  self.assertEqual(self.row(self.task['id'])['state'],'confirmed');self.assertEqual(self.row(self.decision['id'])['state'],'confirmed')
+  self.assertEqual(queue(self.s)['totals']['items'],0)
+ def test_a_new_task_in_the_meeting_keeps_the_other_reviews(self):
+  self.confirm(self.task['id']);self.confirm(self.decision['id'])
+  self.s.create_task(dict(request_id='c'*32,text='Write the runbook',meeting_id=self.mid))
+  self.assertEqual(self.row(self.task['id'])['state'],'confirmed');self.assertEqual(self.row(self.decision['id'])['state'],'confirmed')
+ def test_bulk_owner_keeps_the_confirmation(self):
+  self.confirm(self.task['id']);item=self.s.items.items[self.task['id']]
+  self.s.bulk_update_tasks(dict(items=[dict(id=item['id'],revision=item['revision'])],changes=dict(due_date='2026-11-21'),request_id='d'*32))
+  self.assertEqual(self.row(self.task['id'])['state'],'confirmed')
+ def test_unconfirmed_task_still_needs_review_after_an_owner(self):
+  item=self.s.items.items[self.task['id']]
+  self.s.update_item(item['id'],item['text'],dict(owner='Ivan'),item['revision'])
+  self.assertEqual(self.row(self.task['id'])['state'],'needs_review')
+ def test_receipts_made_before_the_new_evidence_stay_valid(self):
+  from app.meeting_review import legacy_minutes_evidence, source_digest
+  self.confirm(self.task['id']);item=self.s.items.items[self.task['id']];receipt=item['meeting_reviews'][self.mid]
+  d=self.s.detail(self.mid);receipt['evidence']=source_digest(d['transcript_revision'],legacy_minutes_evidence(d['minutes']));self.s.items.save()
+  self.assertEqual(self.row(self.task['id'])['state'],'confirmed')
  def test_repeated_mentions_keep_one_review_row_and_both_citations(self):
   self.change_notes('tasks',lambda rows:rows.append(dict(rows[0],task='Check recovery before deployment',evidence_timestamp='00:00:08')))
   rows=snapshot(self.s,self.mid)['items'];task=next(i for i in rows if i['id']==self.task['id'])

@@ -372,7 +372,7 @@ button.source-chip:hover:not(:disabled){border-color:var(--src);background:var(-
 .row-tag.issue{background:var(--ok-soft);color:var(--ok)}
 .row-tag.pr{background:color-mix(in srgb,var(--src-github) 14%,transparent);color:var(--src-github)}
 #chat-spaces .source-row{grid-template-columns:26px minmax(0,1fr) 62px 120px 66px}
-#github-items .source-row{grid-template-columns:52px 150px 64px minmax(0,1fr) 66px}
+#github-items .source-row,#github-link-results .source-row{grid-template-columns:52px 150px 64px minmax(0,1fr) 66px}
 .source-empty{margin:0;padding:28px 18px;text-align:center;color:var(--muted);font-size:13px}
 .reader{display:flex;flex-direction:column;height:480px;margin:14px 20px 18px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
 .reader:empty{display:none}

@@ -48,9 +48,13 @@ class GitHubDraftDialogTests(unittest.TestCase):
 class GitHubListRowTests(unittest.TestCase):
     def test_item_number_has_its_own_column(self):
         # The number used to be glued onto the title, which broke scanning.
-        desktop = re.search(r'#github-items \.source-row\{grid-template-columns:([^}]*)\}', CSS)[1]
-        self.assertEqual(len(desktop.split()), 5)
+        rule = re.search(r'([^{}]*\.source-row)\{grid-template-columns:52px 150px 64px', CSS)[1]
+        self.assertIn('#github-items', rule)
+        # The link dialog reuses the same row layout, so it needs the same columns.
+        self.assertIn('#github-link-results', rule)
         self.assertRegex(CSS, r'\.row-number\{[^}]*tabular-nums')
         script = (Path(__file__).resolve().parents[1] / 'web' / 'app.js').read_text()
-        self.assertIn("el('span','row-number','#'+r.number)", script)
-        self.assertIn("el('strong','row-title',r.title)", script)
+        # Both the sources list and the link dialog render the number separately.
+        self.assertEqual(script.count("el('span','row-number','#'+r.number)"), 2)
+        self.assertEqual(script.count("el('strong','row-title',r.title)"), 2)
+        self.assertNotIn("'#'+r.number+' '+r.title", script)

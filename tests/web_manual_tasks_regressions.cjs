@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const src=fs.readFileSync('web/app.js','utf8');
-function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
+function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
 function setup(){
  const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:'project'}},errors=[],requests=[];let finish;
  const c=vm.createContext({taskEvidenceTarget:null,renderTaskEvidenceContext(){},view:'tasks',contextProject:()=> 'project',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:'project'}]},crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
@@ -10,8 +10,9 @@ function setup(){
   withEditorSave:async(box,fn)=>{box.inert=true;try{return await fn()}finally{box.inert=false}},
   perform:async fn=>{try{return await fn()}catch(e){errors.push(e.message)}},toast(){},error:message=>errors.push(message),refreshAfterItemChange:async()=>{},
   api:(path,body)=>{requests.push({path,body:JSON.parse(JSON.stringify(body))});return new Promise((res,rej)=>finish=(error)=>error?rej(error):res({id:'task'}))}});
+ vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
  vm.runInContext(src.slice(src.indexOf('async function openManualTask('),src.indexOf("$('new-task').onclick=")),c);
- return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries(nodes['manual-task-body'].children.filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>nodes['manual-task-body'].children.at(-1).children};
+ return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries(nodes['manual-task-body'].children.filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>{const buttons=nodes['manual-task-body'].children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Draft with AI…','Create task']);return [buttons.find(b=>b.text==='Create task'),buttons.find(b=>b.text==='Cancel')];}};
 }
 (async()=>{
  const projectContext=setup();vm.runInContext("view='projects';contextProject=()=> 'workspace-project';",projectContext.c);await vm.runInContext('openManualTask()',projectContext.c);assert.equal(projectContext.fields().Project.value,'workspace-project');

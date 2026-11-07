@@ -7,7 +7,8 @@ const context=vm.createContext({el,STATUS_LABELS:{},date:d=>d,time:s=>String(s),
  workspaceData:{items:[{id:'t1',kind:'task'}]},perform:async fn=>fn(),openTaskPanel:async id=>opened.push(['task',id]),
  openMeeting:async id=>opened.push(['meeting',id]),showSeconds:()=>{},listenButton:()=>el('button','play'),openAttachment:async()=>{},
  show:()=>{throw new Error('Task trace must open the card directly')},loadTasks:async()=>{},showWorkTab:()=>{}});
-vm.runInContext(source.slice(source.indexOf('const TRACE_STAGES='),source.indexOf("let timelineView='chains';")),context);
+vm.runInContext(source.slice(source.indexOf('function btn('),source.indexOf('function option(')),context);
+ vm.runInContext(source.slice(source.indexOf('const TRACE_STAGES='),source.indexOf("let timelineView='chains';")),context);
 const task={kind:'task',label:'Подготовка на тестова среда за мобилното приложение и описание на стъпките за новия колега',ref:{item_id:'t1'}};
 const stageNodes=Array.from({length:8},(_,i)=>({kind:'meeting',label:'Планиране на миграцията към новия сървър за отчети '+i,ref:{meeting_id:'m'+i}}));
 context.chain={stages:{conversation:stageNodes,decision:[],task:[task],github:[],code:[]}};

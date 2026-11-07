@@ -2,14 +2,15 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const source=fs.readFileSync('web/app.js','utf8');
 function setup(aiAvailable=true){
  const nodes=new Map(),requests=[],storage=new Map();let fail=false;
- const field=id=>{if(!nodes.has(id))nodes.set(id,{value:'',checked:false,disabled:false,open:false,textContent:'',replaceChildren(){},focus(){},setCustomValidity(){},reportValidity(){},showModal(){this.open=true},close(){this.open=false;this.onclose?.()},querySelector(){return {}}});return nodes.get(id);};
+ const field=id=>{if(!nodes.has(id))nodes.set(id,{value:'',checked:false,disabled:false,open:false,textContent:'',classList:{add(){}},replaceChildren(...nodes){this.children=nodes;this.textContent=nodes.map(n=>n.textContent||'').join('');},focus(){},setCustomValidity(){},reportValidity(){},showModal(){this.open=true},close(){this.open=false;this.onclose?.()},querySelector(){return {}}});return nodes.get(id);};
  const dirty=new Set();
  const c=vm.createContext({$:field,state:{people:[]},itemsData:{items:[{id:'existing',kind:'task',text:'Current task',revision:7,acceptance_state:'accepted'}]},
-  crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},el(){return {}},option:(name,value)=>({name,value}),contextProject:()=>'',fillProjects:(f,v)=>f.value=v,
+  crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},document:{activeElement:null},el(tag,cls,text){return {textContent:text||'',setAttribute(){}}},option:(name,value)=>({name,value}),contextProject:()=>'',fillProjects:(f,v)=>f.value=v,
   store:(k,v)=>storage.set(k,v),localStorage:{getItem:k=>storage.get(k)||null,removeItem:k=>storage.delete(k)},
   editorDirty:{set:k=>dirty.add(k),clear:k=>dirty.delete(k),keys:()=>[...dirty]},validDates:()=>true,
   perform:fn=>fn(),ask:async()=>true,showCreatedTask(){},refreshAfterItemChange:async()=>{},error(){},setTimeout(){},clearTimeout(){},
   api:async(path,body)=>{requests.push({path,body});if(fail)throw new Error('Network lost');return {item_id:'saved'};}});
+ vm.runInContext(source.slice(source.indexOf('function btn('),source.indexOf('function option('))+source.slice(source.indexOf('function showError('),source.indexOf('function error(')),c);
  vm.runInContext(source.slice(source.indexOf('function editTaskDraft('),source.indexOf('function showCreatedTask(')),c);
  const preview={ai_available:aiAvailable,ai_unavailable_reason:'AI is optional',target:{local_ai_model:'fixture',local_ai_base_url:'local'},preview_token:'approved',characters:40,source_excerpt:'Exact source'};
  return {field,requests,c,start:()=>{c.input={provider:'manual',id:'b'.repeat(32),source_text:'Capture source'};c.preview=preview;return vm.runInContext('editTaskDraft(input,preview)',c)},fail:v=>fail=v};

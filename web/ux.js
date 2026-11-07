@@ -19,3 +19,51 @@
  function dirtyRegistry(){const entries=new Map();return {set(key,value){if(value)entries.set(key,true);else entries.delete(key);},has(){return entries.size>0;},clear(key){entries.delete(key);},keys(){return [...entries.keys()];}};}
  return {parseISO,iso,display,inputISO,date,dateTime,count,requests,dirtyRegistry,meetingDay,calendarDays,shiftDay,shiftMonth,calendarMeetings};
 });
+
+/* One dismissal style and actual DOM order for desktop and narrow editors. */
+(function(root){
+ 'use strict';
+ const GROUPS='.editor-actions,.tracked-edit-bar,.review-footer,.task-card-footer,.note-actions,.transcript-view-actions,.review-footer>span';
+ const DISMISS=new Set(['Cancel','Close','Not now','Keep editing','Keep my edits','Cancel editing']);
+ function kind(node){
+  if(node.id==='ask-ok')return 'primary';
+  if(node.matches('button')&&(node.id==='ask-cancel'||node.id==='task-draft-cancel'||DISMISS.has(node.textContent.trim())))return 'dismiss';
+  if(node.matches('.danger,.danger-action,.danger-text'))return 'destructive';
+  if(node.matches('.primary')||node.querySelector('.primary'))return 'primary';
+  return 'auxiliary';
+ }
+ function arrange(group,narrow){
+  const before=[...group.children];
+  for(const node of before){if(kind(node)==='dismiss'){node.classList.add('dismiss-action');node.classList.remove('quiet');}else node.classList.remove('dismiss-action');}
+  const rank=narrow?{primary:0,auxiliary:1,dismiss:2,destructive:3}:{destructive:0,auxiliary:1,dismiss:2,primary:3};
+  const after=before.map((node,index)=>({node,index})).sort((a,b)=>rank[kind(a.node)]-rank[kind(b.node)]||a.index-b.index).map(x=>x.node);
+  if(after.some((node,index)=>node!==before[index])){
+   const focused=group.ownerDocument?.activeElement,restore=focused&&group.contains(focused);
+   group.append(...after);if(restore&&focused.isConnected)focused.focus({preventScroll:true});
+  }
+ }
+ if(typeof module==='object'&&module.exports)module.exports.dialogActions={arrange,kind};
+ if(!root.document)return;
+ const media=root.matchMedia('(max-width:480px)');
+ function decorate(scope){
+  if(scope.nodeType!==1)return;
+  if(scope.matches('dialog button[aria-label^="Close"]'))scope.classList.add('dialog-close');
+  for(const close of scope.querySelectorAll('dialog button[aria-label^="Close"]'))close.classList.add('dialog-close');
+ }
+ function init(){
+  const document=root.document;
+  const refresh=()=>{decorate(document.body);for(const group of document.querySelectorAll(GROUPS))arrange(group,media.matches);};
+  refresh();media.addEventListener('change',refresh);
+  new MutationObserver(records=>{
+   const groups=new Set();
+   for(const record of records){
+    const target=record.target.nodeType===1?record.target:record.target.parentElement;
+    const group=target?.closest(GROUPS);if(group)groups.add(group);
+    for(const added of record.addedNodes){if(added.nodeType!==1)continue;decorate(added);if(added.matches(GROUPS))groups.add(added);for(const nested of added.querySelectorAll(GROUPS))groups.add(nested);}
+   }
+   // Only move nodes when their order changes. The next mutation delivery is a no-op.
+   for(const group of groups)if(group.isConnected)arrange(group,media.matches);
+  }).observe(document.body,{subtree:true,childList:true});
+ }
+ if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+})(typeof window!=='undefined'?window:globalThis);

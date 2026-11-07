@@ -162,7 +162,7 @@ class PromptHTTPTests(unittest.TestCase):
     request=test_http.HTTPTests.request
     def test_prompt_routes_use_session_and_cas(self):
         self.assertEqual(self.request('/api/prompts',headers={})[0],403)
-        code,raw,_=self.request('/api/prompts');self.assertEqual(code,200);catalog=json.loads(raw);self.assertEqual(len(catalog['stages']),10)
+        code,raw,_=self.request('/api/prompts');self.assertEqual(code,200);catalog=json.loads(raw);self.assertEqual(len(catalog['stages']),11)
         body=dict(stage='task_draft',scope='global',text='My instructions',revision=catalog['revision'])
         self.assertEqual(self.request('/api/prompts/save',body)[0],200)
         self.assertEqual(self.request('/api/prompts/save',body)[0],409)

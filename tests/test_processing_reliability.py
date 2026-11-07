@@ -29,7 +29,10 @@ class ProcessingReliabilityTests(unittest.TestCase):
         atomic_json(self.root / 'transcript.json', self.segments)
 
     def run_notes(self, fake, settings=None):
-        with patch('meeting_assistant.generate_minutes', side_effect=fake) as model:
+        def consolidate(settings, messages, schema, stage):
+            facts = json.loads(messages[1]['content'])['untrusted_candidates']
+            return dict(groups=[dict(members=[fact['id']], text=fact['statement']['text']) for fact in facts])
+        with patch('app.local_ai.complete_json', side_effect=consolidate), patch('meeting_assistant.generate_minutes', side_effect=fake) as model:
             processing.summarize(self.root, settings or self.settings, lambda _: None, 'secret-key')
         return model
 
@@ -48,7 +51,7 @@ class ProcessingReliabilityTests(unittest.TestCase):
         self.assertEqual(resumed.call_count, 1)
         self.assertEqual(resumed.call_args.args[1][0].start, 30)
         self.assertFalse((self.root / '.notes-progress.json').exists())
-        self.assertEqual(len(json.loads((self.root / 'minutes.json').read_text())['summary']), 2)
+        self.assertEqual(len(json.loads((self.root / 'minutes.json').read_text())['summary']), 1)
 
     def test_changed_configuration_invalidates_cached_notes(self):
         with self.assertRaises(RuntimeError):
@@ -65,7 +68,7 @@ class ProcessingReliabilityTests(unittest.TestCase):
             return notes(group)
         model = self.run_notes(generate)
         self.assertEqual([len(call.args[1]) for call in model.call_args_list], [2, 1, 1])
-        self.assertEqual(len(json.loads((self.root / 'minutes.json').read_text())['summary']), 2)
+        self.assertEqual(len(json.loads((self.root / 'minutes.json').read_text())['summary']), 1)
 
     def test_failed_split_resume_skips_failed_parent_and_completed_child(self):
         atomic_json(self.root / 'transcript.json', self.segments[:2])

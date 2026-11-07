@@ -308,8 +308,11 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
     # Cache only validated parts of an unfinished run. Settings, sources and
     # prompts must match exactly before a retry can reuse them. No API key is saved.
-    identity = dict(version=2, segments=[asdict(s) for s in segments],
-                    args={k: v for k, v in vars(args).items() if k != 'api_key'})
+    from .prompts import select_stages
+    map_args = {k: v for k, v in vars(args).items() if k != 'api_key'}
+    if map_args.get('_prompt_snapshot'):
+        map_args['_prompt_snapshot'] = select_stages(map_args['_prompt_snapshot'], ('meeting_minutes',))
+    identity = dict(version=3, segments=[asdict(s) for s in segments], args=map_args)
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     checkpoint = directory / '.notes-progress.json'
     saved = read_json(checkpoint, {})
@@ -365,14 +368,33 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
         atomic_json(checkpoint, dict(signature=signature, parts=parts, splits=sorted(splits)))
         return [minutes]
 
+    completed = []
     for index, group in enumerate(groups):
         for minutes in generate_part(group, f'{index + 1} of {len(groups)}'):
+            completed.append(minutes)
             for field in result:
                 result[field].extend(minutes.get(field, []))
+    audit = None
+    if len(completed) > 1:
+        from .notes_consolidation import consolidate
+        try:
+            consolidation_settings = dict(vars(args))
+            if consolidation_settings.get('_prompt_snapshot'):
+                consolidation_settings['_prompt_snapshot'] = select_stages(consolidation_settings['_prompt_snapshot'], ('meeting_consolidation',))
+            result, audit = consolidate(completed, segments, consolidation_settings, directory, progress, api_key)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            raise ValueError('Notes consolidation incomplete. Completed extraction parts are kept; retry resumes them. ' + str(error)) from error
     validate_minutes(result, segments)
+    proposed = (directory / 'minutes.json').exists()
+    audit_path = directory / ('minutes.consolidation.proposed.json' if proposed else 'minutes.consolidation.json')
+    if audit is not None:
+        atomic_json(audit_path, audit)
+    elif audit_path.exists():
+        audit_path.unlink()
     if (directory / 'minutes.json').exists():
         # Saved notes may hold checked statements and manual edits; the new run waits for review.
         atomic_json(directory / 'minutes.proposed.json', result)
     else:
         save_minutes(directory, result)
     checkpoint.unlink(missing_ok=True)
+    (directory / '.consolidation-progress.json').unlink(missing_ok=True)

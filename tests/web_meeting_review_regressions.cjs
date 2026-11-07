@@ -3,9 +3,9 @@ const src=fs.readFileSync('web/app.js','utf8');
 function node(tag,cls,text){return {tag,cls,text,type:'',disabled:false,children:[],attrs:{},append(...x){this.children.push(...x.filter(v=>typeof v==='object'))},replaceChildren(...x){this.children=x},setAttribute(k,v){this.attrs[k]=v},querySelector(){return null}};}
 const walk=n=>[n,...(n.children||[]).flatMap(walk)];
 const row=(over={})=>Object.assign({id:'task',kind:'task',text:'Shared task',state:'needs_review',content:'c',evidence:[],can_dismiss:true,dismiss_blocked_reason:null,confirmed_in:[]},over);
-async function render(item){
+async function render(item,audit=null){
  const box=node('div'),opened=[],requests=[],undos=[];
- const c=vm.createContext({detail:{id:'today'},editorDirty:{keys:()=>[],set(){},clear(){}},$:()=>box,el:node,
+ const c=vm.createContext({detail:{id:'today',notes_consolidation:audit},consolidationProof:()=>node('details','proof','Consolidation evidence'),editorDirty:{keys:()=>[],set(){},clear(){}},$:()=>box,el:node,
   api:async(path,body)=>{requests.push({path,body});return {source:'s',summary:[],items:[item]};},
   AtlantaStatus:{label:()=>'Changed',status:(k,s)=>({tone:'x',label:s})},statusBadge:s=>node('span','',s.label),
   reviewRouting:()=>node('div'),listenButton:()=>node('button'),stampButton:()=>node('button'),
@@ -18,6 +18,7 @@ async function render(item){
  return {nodes,opened,requests,undos,button:label=>buttons.find(b=>b.text===label),texts:nodes.map(n=>n.text).filter(Boolean)};
 }
 (async()=>{
+ const proof=await render(row(),{merged:1});assert.ok(proof.texts.includes('Consolidation evidence'),'Proof must survive clearing the Review panel');
  // A proposal with no current confirmation keeps Dismiss.
  const free=await render(row());
  assert.ok(free.button('Skip proposal'));assert.equal(free.button('Open task'),undefined);

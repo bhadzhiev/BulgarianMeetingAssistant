@@ -13,7 +13,7 @@ from .local_ai import complete_json
 from .prompts import STAGES, MAX_TEXT, apply, digest, key_for
 from .work_items import WorkItemConflict, canonical
 
-MEETING_STAGES={'meeting_minutes','transcript_correction','meeting_title','topic_matches'}
+MEETING_STAGES={'meeting_consolidation','meeting_minutes','transcript_correction','meeting_title','topic_matches'}
 
 
 def context(service,stage,scope):
@@ -61,6 +61,10 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
     """Use production task contracts with a synthetic single source for previews."""
     from meeting_assistant import llm_prompt,minutes_schema
     from . import correction,task_draft,gmail_ai,repo_reports,search
+    if stage=='meeting_consolidation':
+        from .notes_consolidation import messages, schema
+        fact=dict(id='preview',field='summary',value=dict(text=snippet,evidence_timestamp='00:00:00'),evidence=[dict(index=0,start=0,end=1,speaker=None,text=snippet)])
+        return messages([fact]),schema([fact])
     if stage=='meeting_minutes':return [dict(role='user',content=llm_prompt('[00:00:00] '+snippet,meeting_type=kind))],minutes_schema(meeting_types.sections(kind))
     if stage=='transcript_correction':return [dict(role='system',content=correction.system_prompt(settings or {},speakers)),dict(role='user',content=canonical([dict(id=0,text=snippet)]))],correction.schema(1)
     if stage=='meeting_title':
@@ -102,6 +106,9 @@ def generate(settings,key=''):
     if stage=='transcript_correction':
         from .correction import accept
         if set(result)!={'segments'} or len(result['segments'])!=1 or result['segments'][0].get('id')!=0 or not accept(snippet,result['segments'][0].get('text')):raise ValueError('Correction failed the production preservation checks')
+    elif stage=='meeting_consolidation':
+        from .notes_consolidation import validate_plan
+        validate_plan(result,[dict(id='preview')])
     elif stage=='meeting_minutes':
         from meeting_assistant import validate_minutes,TranscriptSegment
         validate_minutes(result,[TranscriptSegment(start=0,end=1,text=snippet)])

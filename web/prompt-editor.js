@@ -30,7 +30,7 @@ function renderPromptSelection(){
  const body=promptBody(),row=promptCatalog.entries[body.stage+'|'+body.scope];promptSelection={stage:body.stage,scope:body.scope};promptDraftMode=row?.mode||'append';
  $('prompt-text').value=row?.text||'';promptOriginal=$('prompt-text').value;editorDirty.clear('ai-prompts');invalidatePromptTest();promptError(null);
  $('prompt-history').replaceChildren(option('Choose a saved version…',''),...(row?.history||[]).slice().reverse().map(v=>option('v'+v.revision+' · '+date(v.at)+(v.text===null?' · inherited':''),String(v.revision))));
- $('prompt-reprocess').hidden=!(body.stage==='meeting_minutes'&&body.scope.startsWith('meeting:'));
+ $('prompt-reprocess').hidden=!(['meeting_minutes','meeting_consolidation'].includes(body.stage)&&body.scope.startsWith('meeting:'));
  $('prompt-policy').textContent=promptCatalog.policy;$('prompt-save').disabled=!!promptCatalog.error;$('prompt-reset').disabled=!!promptCatalog.error;
  if(promptCatalog.error)promptError(new Error(promptCatalog.error));
  renderPromptEffective();
@@ -51,7 +51,7 @@ $('prompt-text').oninput=()=>{editorDirty.set('ai-prompts',promptDirty());editor
 $('prompt-snippet').oninput=invalidatePromptTest;
 async function savePrompt(reset=false){
  promptError(null);const body=promptBody();if(reset)body.text=null;
- try{const result=await api('/api/prompts/save',body);promptCatalog={...promptCatalog,...result};renderPromptSelection();toast('AI instructions saved');if(['meeting_minutes','transcript_correction','topic_matches'].includes(body.stage))await offerReprocess({scope:body.scope,action:({meeting_minutes:'notes',transcript_correction:'correction_notes',topic_matches:'analytics'})[body.stage],reason:'AI instructions saved. Select existing meetings to update.'});}
+ try{const result=await api('/api/prompts/save',body);promptCatalog={...promptCatalog,...result};renderPromptSelection();toast('AI instructions saved');if(['meeting_minutes','meeting_consolidation','transcript_correction','topic_matches'].includes(body.stage))await offerReprocess({scope:body.scope,action:({meeting_minutes:'notes',meeting_consolidation:'notes',transcript_correction:'correction_notes',topic_matches:'analytics'})[body.stage],reason:'AI instructions saved. Select existing meetings to update.'});}
  catch(error){promptError(error);if(error.message.includes('changed')){$('prompt-context').textContent='Another editor saved changes. Copy your unsaved instructions, then close and reopen Settings to reload.';}}
 }
 $('prompt-save').onclick=()=>perform(()=>savePrompt());$('prompt-reset').onclick=()=>perform(async()=>{if(await ask('Reset this layer to inherited instructions? The previous text stays in version history.',{ok:'Reset layer'}))await savePrompt(true);});

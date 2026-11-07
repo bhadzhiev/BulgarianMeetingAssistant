@@ -305,9 +305,19 @@ def transcribe_file(args: argparse.Namespace, audio_path: Path) -> list[Transcri
 
 
 def transcript_for_llm(segments: list[TranscriptSegment]) -> str:
-    return "\n".join(
-        f"[{timestamp(s.start)}] {(s.speaker + ': ') if s.speaker else ''}{s.text}" for s in segments
-    )
+    blocks = []
+    previous = None
+    for segment in segments:
+        text = f"[{timestamp(segment.start)}] {segment.text}"
+        contiguous = (previous is not None and segment.speaker and segment.speaker == previous.speaker
+                      and 0 <= segment.start - previous.end <= 2
+                      and len(blocks[-1]) + len(text) < 2000)
+        if contiguous:
+            blocks[-1] += ' ' + text
+        else:
+            blocks.append(f"[{timestamp(segment.start)}] {(segment.speaker + ': ') if segment.speaker else ''}{segment.text}")
+        previous = segment
+    return "\n".join(blocks)
 
 
 def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -382,6 +392,9 @@ text е твърдението, evidence_timestamp е timestamp на сегме�
 За решение посочи момента, в който решението е прието, а не момента, в който е предложено.
 Обсъждана възможност не е решение. Върни null за evidence_timestamp само ако няма един конкретен момент.
 Разграничавай решения, задачи и отворени въпроси. Върни само JSON по дадената схема.
+summary: до 6 съществени извода, без задължителен минимум и без преразказ на задачите.
+Кратки потвърждения, откази и промени на договореното са съществени. Не ги премахвай като шум.
+Пропускай поздрави и странични разговори само когато нямат отношение към целта и типа на срещата.
 Дата на срещата: {meeting_date or dt.date.today().isoformat()}. Ако срокът на задача може да се определи
 като конкретна дата спрямо нея, попълни due_date във формат YYYY-MM-DD; иначе върни null.
 next_steps: договорени следващи стъпки за процеса (например следваща среща); не повтаряй задачите.

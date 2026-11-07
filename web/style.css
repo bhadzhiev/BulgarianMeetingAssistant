@@ -1046,3 +1046,7 @@ button:has(.icon),a:has(.icon){display:inline-flex;align-items:center;gap:6px}
 .followup-person{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;font-weight:400}
 .followup-person .hint{margin:0}
 #followup-result a{font-weight:600}
+
+.consolidation-proof{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:10px;overflow-wrap:anywhere}
+.consolidation-proof>summary{cursor:pointer;font-weight:600}.consolidation-group{padding:12px 0;border-top:1px solid var(--line)}
+.consolidation-source{margin:10px 0}.consolidation-source>button{margin-left:8px}.consolidation-source blockquote{margin:8px 0;padding:8px 12px;border-left:2px solid var(--line-strong);white-space:pre-wrap}

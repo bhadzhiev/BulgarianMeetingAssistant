@@ -313,6 +313,8 @@ class MeetingService:
             meeting['transcript_revision'] = self._transcript_revision(meeting['transcript'])
             meeting['voice_suggestions'] = self._voice_suggestions(meeting_id, directory, meeting['transcript'])
             meeting['minutes_revision'] = self._minutes_revision(directory)
+            from .notes_consolidation import audit_for
+            meeting['notes_consolidation'] = audit_for(directory, meeting['minutes'], meeting['transcript']) if notes_valid else None
             meeting['minutes_proposal'] = None
             if notes_valid and (directory / 'minutes.proposed.json').exists():
                 from meeting_assistant import validate_minutes
@@ -321,7 +323,8 @@ class MeetingService:
                     proposed = json.loads((directory / 'minutes.proposed.json').read_text())
                     validate_minutes(proposed)
                     meeting['minutes_proposal'] = dict(revision=self._notes_revision(directory),
-                                                       changes=notes.changes(meeting['minutes'], proposed))
+                                                       changes=notes.changes(meeting['minutes'], proposed),
+                                                       consolidation=audit_for(directory, proposed, meeting['transcript'], proposed=True))
                 except (OSError, ValueError):
                     pass
             ids = set()
@@ -1164,9 +1167,12 @@ class MeetingService:
                 result = notes.apply(current, proposed, set(accept))
                 source = json.loads((directory / 'transcript.json').read_text())
                 validate_minutes(result, [TranscriptSegment(**s) for s in source])
-                processing.archive(directory, ['minutes.json', 'minutes.md'])
+                processing.archive(directory, ['minutes.json', 'minutes.md', 'minutes.consolidation.json'])
+                from .notes_consolidation import promote_audit
+                promote_audit(directory, result, source)
                 save_minutes(directory, result)
                 proposal.unlink()
+                (directory / 'minutes.consolidation.proposed.json').unlink(missing_ok=True)
                 self._sync_items(meeting_id)
                 self.library.update(meeting_id, notes_need_refresh=False, notes_refresh_error=None)
                 return self.detail(meeting_id)
@@ -1176,6 +1182,7 @@ class MeetingService:
             if not notes.changes(current, proposed):
                 self.library.update(meeting_id, notes_need_refresh=False, notes_refresh_error=None)
             proposal.unlink()
+            (directory / 'minutes.consolidation.proposed.json').unlink(missing_ok=True)
             return self.detail(meeting_id)
 
     def set_scope(self, meeting_id, project=None, series=None):

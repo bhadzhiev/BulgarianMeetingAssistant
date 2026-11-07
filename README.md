@@ -576,9 +576,11 @@ its older proposal. **All** includes reviewed and stale proposals. Reprocessing 
 does not create another proposal or reset a dismissal. Automatic extraction from Gmail or Chat is
 not enabled yet.
 
-**Questions** holds personal open questions and questions accepted from proposals. Add a question,
-save an answer, or reopen it; the earlier answer stays in its history. Existing meeting-note open
-questions are not automatically imported into this list. Suggested and Questions cover all sources,
+**Questions** first shows **From meeting notes**: the open questions and the questions for your decision
+in the notes of every meeting, newest first. A question asked again shows once. **Answer** or **Track**
+moves it to **Tracked questions** with its meeting and moment; new notes of the meeting do not remove it.
+Tracked questions also hold personal questions and questions accepted from proposals. Add a question,
+save an answer, or reopen it; the earlier answer stays in its history. Suggested and Questions cover all sources,
 independent of the meeting project filter. **Edit** and **Delete** work on every question, task and
 decision, also on items with saved sources. Delete removes the links to other items; the saved source
 quotes stay. Proposal Link adds sources without merging away IDs or history.

@@ -1900,12 +1900,31 @@ function renderWorkGraph(){
  }
  if(!proposals.length)list.append(el('p','hint','No source proposals match this filter.'));
  const questions=$('work-questions');questions.replaceChildren();
- for(const q of itemsData.items.filter(i=>i.kind==='question')){
-  const row=el('div','work-proposal'),qText=el('strong','',q.text);row.append(qText,el('p','hint',q.status==='answered'?'Answered':'Open'));
+ renderMeetingQuestions(questions);
+ const tracked=itemsData.items.filter(i=>i.kind==='question');
+ if(tracked.length)questions.append(el('h3','','Tracked questions'));
+ for(const q of tracked){
+  const row=el('div','work-proposal'),qText=el('strong','',q.text);row.append(qText,el('p','hint',(q.status==='answered'?'Answered':'Open')+questionOrigin(q.origin)));
   if(q.answer)row.append(el('p','',q.answer));row.append(historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));
   const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,...editDeleteButtons(q,qText),projectAssignment(q),githubActions({kind:'item',id:q.id}));questions.append(row);
  }
- if(!questions.children.length)questions.append(el('p','hint','No questions yet. Add one or accept a question proposal.'));
+ if(!questions.children.length)questions.append(el('p','hint','No questions yet. Questions from meeting notes appear here. You can also add one.'));
+}
+// The questions in meeting notes: the same list as Prepare me, from every meeting. Track or answer one to keep it here.
+function questionOrigin(origin){const meeting=origin&&itemsData.meetings?.[origin.meeting_id];return meeting?' · '+withDate(meeting.title,meeting.date):'';}
+function renderMeetingQuestions(target){
+ const list=itemsData.meeting_questions||[];if(!list.length)return;
+ target.append(el('h3','','From meeting notes'),el('p','hint','Questions that the notes of your meetings left open. Answer one, or track it to answer later.'));
+ for(const q of list){
+  const meeting=itemsData.meetings?.[q.meeting_id],row=el('div','work-proposal meeting-question'),actions=el('div','action-group');
+  row.append(el('strong','',q.text),el('p','hint',(q.kind==='decide'?'Needs your decision':'Open question')+(meeting?' · '+withDate(meeting.title,meeting.date):'')));
+  const source={meeting_id:q.meeting_id,evidence_timestamp:q.evidence_timestamp||null};
+  if(q.evidence_timestamp&&meeting?.has_audio)actions.append(listenButton(q.meeting_id,stampSeconds(q.evidence_timestamp),{label:'Listen from '+q.evidence_timestamp,className:'quiet'}));
+  actions.append(btn('quiet','Open meeting',()=>perform(()=>openMeeting(q.meeting_id))),
+   btn('secondary small-action','Answer',()=>perform(async()=>{const answer=await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(answer===null)return;await graphAction('question',{text:q.text,source,answer});toast('Answer saved');})),
+   btn('secondary small-action','Track',()=>perform(async()=>{await graphAction('question',{text:q.text,source});toast('Question tracked in My Work');})));
+  row.append(actions);target.append(row);
+ }
 }
 $('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New question',{ok:'Add question',value:''});if(value!==null)await graphAction('question',{text:value});});
 

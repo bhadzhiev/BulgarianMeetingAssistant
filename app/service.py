@@ -2147,7 +2147,23 @@ class MeetingService:
             for link in github_rows:
                 link.pop('observations',None)
                 if link.get('progress'):link['progress']={k:v for k,v in link['progress'].items() if k!='events'}
-            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=github_rows)
+            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=github_rows,
+                        meeting_questions=self.meeting_questions(meetings))
+
+    def meeting_questions(self, meetings):
+        """The questions in the notes of every meeting, newest first. A question asked again shows once, with its
+        newest source. A question that a person tracks in My Work shows there instead."""
+        tracked = [item['text'] for item in self.items.items.values() if item['kind'] == 'question']
+        result = []
+        for meeting_id in sorted(meetings, key=lambda key: meetings[key]['date'] or '', reverse=True):
+            for field, kind in (('needs_decision', 'decide'), ('open_questions', 'discuss')):
+                for entry in (self._minutes(meeting_id) or {}).get(field, []):
+                    text = ((entry.get('text') if isinstance(entry, dict) else str(entry)) or '').strip()
+                    if not text or any(items.similarity(text, known) >= items.MATCH for known in tracked + [q['text'] for q in result]):
+                        continue
+                    result.append(dict(text=text, kind=kind, meeting_id=meeting_id,
+                                       evidence_timestamp=entry.get('evidence_timestamp') if isinstance(entry, dict) else None))
+        return result
 
     def _github_publish(self,account,record,suggestions,after=None):
         graph=WorkGraph(self.items)
@@ -2296,7 +2312,7 @@ class MeetingService:
                     target_id=body.get('target_id'), target_revision=body.get('target_revision'),
                     snoozed_until=body.get('snoozed_until'),edited_text=body.get('text'))
             if action == 'question':
-                return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'))
+                return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'), source=body.get('source'))
             if action == 'relate':
                 return graph.relate(body['from_id'], body['to_id'], body['kind'], body['from_revision'], body['to_revision'])
             raise ValueError('Unknown work graph action')

@@ -33,7 +33,7 @@ def validate(service,keys,action):
     if action in {'notes','correction_notes'} and settings['summarizer']=='none':raise ValueError('Choose a notes provider in Settings')
     if action in {'correction','correction_notes'} and settings['transcript_correction']=='none':raise ValueError('Enable transcript correction in Settings')
     providers=[]
-    if action in {'notes','correction_notes','audio'} and settings['summarizer']!='none':providers.append(('Notes',settings['summarizer']))
+    if action in {'notes','correction_notes','audio'} and settings['summarizer']!='none':providers.extend([('Notes',settings['summarizer']),('Consolidation of multipart notes',settings['summarizer'])])
     if (action in {'correction','correction_notes'} or action=='audio' and settings['transcription']!='elevenlabs') and settings['transcript_correction']!='none':providers.append(('Correction',settings['transcript_correction']))
     if action=='audio':providers.append(('Speech recognition',settings['transcription']))
     semantic=any(tracker.get('semantic_matching') for tracker in service.library.trackers())

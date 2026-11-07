@@ -301,8 +301,20 @@ If recording stops while captions are far behind, final processing covers the re
 The worker has up to 15 seconds to finish before the app ends it to release model memory. Live and final processing share one model slot so model jobs do not compete for memory.
 Capture uses a separate disk-writing thread and does not wait for transcription.
 Long audio is processed in bounded chunks, preferring a quiet boundary near each split.
-Long transcripts are summarized in parts; notes retain their part order rather than inventing
-an overall synthesis. Local and cloud jobs preserve the prior final transcript until success.
+Long transcripts are extracted in parts, then consolidated with the same selected AI provider.
+The global summary has at most six points; tasks and decisions have no fixed count limit.
+Consolidation selects an existing task or decision instead of rewriting its owner or deadline.
+Different owners, dates, negations, numbers and environments veto a proposed merge. Similarity
+is only a candidate search, never an automatic deletion rule. Expand **Consolidation evidence**
+in Review or Notes to see the original statements and transcript moments; AI grouping still
+requires human review and is not a guarantee of semantic equivalence.
+
+Inputs and requests are bounded. If consolidation fails, completed extraction parts are kept
+for retry and saved notes remain unchanged. Editing only the consolidation prompt reuses
+completed extraction. The new **Meeting notes consolidation** prompt is editable in Settings
+and participates in prompt snapshots and reprocessing previews. Rerunning existing notes
+creates a review proposal and preserves manual edits until accepted. Original recordings and
+transcripts are unchanged by consolidation.
 
 The meeting header shows one button for the next step (for example **Transcribe** or
 **Generate notes**). The other actions are in **More ▾**, and the saved files are in **Files ▾**.

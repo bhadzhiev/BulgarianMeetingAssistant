@@ -88,7 +88,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # Qwen3.5 can consume the entire budget on thinking without returning JSON.
     # Apply this task policy before requesting, not after a slow, empty response.
     # Email extraction keeps its separately approved target settings unchanged.
-    if (reasoning == 'default' and name in {'meeting_minutes', 'transcript_correction', 'meeting_title'}
+    if (reasoning == 'default' and name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title'}
             and isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I)):
         reasoning = 'none'
     payload = dict(model=model, messages=messages, temperature=0, stream=False, max_tokens=max_tokens)

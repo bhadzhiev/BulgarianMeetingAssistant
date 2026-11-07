@@ -858,8 +858,23 @@ async function reviewNotes(action,accept) {
  detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
 }
+function consolidationProof(audit){
+ const box=el('details','consolidation-proof'),groups=Object.values(audit.groups||{}).filter(group=>(group.members||[]).length>1);
+ box.append(el('summary','','Consolidation evidence · '+(audit.merged||0)+((audit.merged||0)===1?' repeated statement grouped':' repeated statements grouped')));
+ box.append(el('p','hint','AI grouped extracted statements. Review the original wording and moments below; grouping does not confirm a task or decision.'));
+ const candidates=new Map((audit.candidates||[]).map(fact=>[fact.id,fact]));
+ for(const group of groups){const row=el('section','consolidation-group');row.append(el('strong','',FIELD_TITLES[group.field]||group.field));
+  for(const id of group.members||[]){const fact=candidates.get(id);if(!fact)continue;const item=el('div','consolidation-source'),value=fact.value||{};item.append(el('span','',value.task||value.text||''));
+   if(value.owner)item.append(el('span','hint',' · '+value.owner));if(value.evidence_timestamp)item.append(stampButton(value.evidence_timestamp));
+   const quotes=el('details');quotes.append(el('summary','','Original transcript'));for(const evidence of fact.evidence||[])quotes.append(el('blockquote','',evidence.text));item.append(quotes);row.append(item);
+  }box.append(row);
+ }
+ if(audit.rejected?.length)box.append(el('p','notice',audit.rejected.length+' proposed merges were kept separate because their details differ. Review tasks, owners, dates and environments.'));
+ return box;
+}
 function openReview() {
  const proposal=detail.minutes_proposal, body=$('review-body'), choices=new Map(); body.replaceChildren(); clearError();
+ if(proposal.consolidation)body.append(consolidationProof(proposal.consolidation));
  for(const field of Object.keys(FIELD_TITLES)) {
   const list=proposal.changes.filter(change=>change.field===field); if(!list.length) continue;
   const section=el('section','review-section'); section.append(el('h3','',meetingType(detail).sections.find(s=>s.key===field)?.title||FIELD_TITLES[field]));
@@ -929,6 +944,7 @@ function renderNotes(busy=false) {
  }
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(emptyNote('Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
+ if(detail.notes_consolidation&&!notesEditing&&!busy)$('notes').append(consolidationProof(detail.notes_consolidation));
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
@@ -3078,6 +3094,7 @@ async function openMeetingReview(){
  const data=await api('/api/meeting-review',{meeting_id:meetingId});
  if(detail.id!==meetingId)return;
  reviewShownFor=meetingId;box.replaceChildren();
+ if(detail.notes_consolidation)box.append(consolidationProof(detail.notes_consolidation));
  // What Atlanta understood: the saved summary statements, each with its moment.
  const summary=typeof data.summary==='string'?[{text:data.summary}]:(data.summary||[]).filter(entry=>entry?.text);
  if(summary.length){const list=el('ul','review-summary');for(const entry of summary){const line=el('li','',entry.text);if(entry.evidence_timestamp)line.append(' ',stampButton(entry.evidence_timestamp));list.append(line);}box.append(el('h3','','What Atlanta understood'),list);}

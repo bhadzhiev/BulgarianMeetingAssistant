@@ -13,6 +13,7 @@ from .storage import atomic_json
 from .work_items import WorkItemConflict,canonical
 
 STAGES={
+ 'meeting_consolidation':('Meeting notes consolidation','Обедини повторените факти от частите на срещата, като отчетеш всеки изходен идентификатор точно веднъж. Пази различни отговорници, срокове, обекти, среди, отрицания и несъгласия отделно. Не пренаписвай задачи и решения; избери най-пълния съществуващ запис. За глобалното summary синтезирай до 6 извода без задължителен минимум, с всички предоставени доказателства.'),
  'meeting_minutes':('Meeting notes, tasks and decisions','Обобщи срещата на български. Разграничавай приети решения, изрични ангажименти и отворени въпроси. Запази английските технически термини. Не измисляй собственици или срокове.'),
  'transcript_correction':('Transcript spelling correction','Коригирай българска реч с английски компютърни термини, продукти, съкращения и лични имена. Използвай зададения речник и известните участници за точно изписване, без превод на техническите термини и без добавяне на неподкрепени думи. Запази смисъла, отрицанията и числата. При съмнение запази оригинала.'),
  'meeting_title':('Meeting title','Предложи кратко конкретно заглавие, подкрепено от темите в транскрипта, без измислени имена или решения.'),
@@ -150,13 +151,18 @@ def select_stages(snapshot,stages):
     return dict(selected,id=digest(selected))
 
 
-def openai_json(messages, schema, name, model, api_key, settings=None, timeout=600):
+def openai_json(messages, schema, name, model, api_key, settings=None, timeout=600, max_completion_tokens=None):
     """One strict-schema OpenAI chat completion, shared by notes, titles and correction."""
     from meeting_assistant import post_json, extract_json
     if settings is not None:
         messages = apply(settings, messages, name)
-    response = post_json('https://api.openai.com/v1/chat/completions',
-        dict(model=model, messages=messages, temperature=0,
-             response_format={'type': 'json_schema', 'json_schema': {'name': name, 'strict': True, 'schema': schema}}),
+    payload = dict(model=model, messages=messages, temperature=0,
+                   response_format={'type': 'json_schema', 'json_schema': {'name': name, 'strict': True, 'schema': schema}})
+    if max_completion_tokens is not None:
+        payload['max_completion_tokens'] = max_completion_tokens
+    response = post_json('https://api.openai.com/v1/chat/completions', payload,
         headers={'Authorization': 'Bearer ' + api_key}, timeout=timeout)
+    if max_completion_tokens is not None and response['choices'][0].get('finish_reason') == 'length':
+        from .local_ai import OutputTruncatedError
+        raise OutputTruncatedError('The consolidation output limit was reached. Completed extraction was kept.')
     return extract_json(response['choices'][0]['message']['content'])

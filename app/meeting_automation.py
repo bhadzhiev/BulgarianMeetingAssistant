@@ -75,6 +75,10 @@ class MeetingAutomation:
         while not self.stopping.is_set():
             try:meeting_id=self.queue.get(timeout=.2)
             except queue.Empty:continue
+            if meeting_id is None:
+                # close() wakes the worker at once instead of after the next timeout.
+                self.queue.task_done()
+                continue
             with self.lock:
                 task=self.pending.pop(meeting_id,{})
                 if meeting_id in self.deleted:
@@ -203,4 +207,5 @@ class MeetingAutomation:
 
     def close(self):
         self.stopping.set()
+        self.queue.put(None)
         self.thread.join(timeout=2)

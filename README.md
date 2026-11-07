@@ -796,6 +796,10 @@ dates** opens the owner, state, due date and next check fields, with **Add updat
 The fields stay open after a save. An owner name that matches one person in People shows as that
 person. A name without a People entry shows as "· not in People".
 
+Projects shows tasks and decisions with the same rows as My Work. The overview shows five of each kind;
+**All tasks in Work →** opens the full list. **Delete** and other rare actions of a task, a decision or a
+notes line are in its **...** menu, so the row keeps its main action in view.
+
 The Gmail, Chat and GitHub tabs use the same layout. The bar on top shows the connection and the sync
 state. A list of threads, conversations or issues comes next; arrow keys move through it. The open
 item fills a fixed-height reader below, with its actions under it. Rare actions (reconnect, stop,

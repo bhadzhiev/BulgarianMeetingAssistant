@@ -159,19 +159,39 @@ class ConsolidationTests(unittest.TestCase):
         self.assertEqual(len(json.loads((self.root/'minutes.proposed.json').read_text())['tasks']),1)
         self.assertTrue((self.root/'minutes.consolidation.proposed.json').exists())
 
-    def test_reducer_failure_keeps_extraction_then_retry_reuses_it(self):
-        atomic_json(self.root/'transcript.json',[dict(start=i*10,end=i*10+9,text='Text '*600,speaker='Иван') for i in range(2)])
+    def test_reducer_failure_saves_unmerged_notes_then_retry_reuses_extraction(self):
+        transcript=[dict(start=i*10,end=i*10+9,text='Text '*600,speaker='Иван') for i in range(2)]
+        atomic_json(self.root/'transcript.json',transcript)
         saved=minutes(tasks=[task('Ръчно')]); atomic_json(self.root/'minutes.json',saved)
         fake=lambda args,group:minutes(tasks=[task(stamp=timestamp(group[0].start))])
+        messages=[]
         with patch('meeting_assistant.generate_minutes',side_effect=fake), patch('app.local_ai.complete_json',side_effect=ValueError('bad response')):
-            with self.assertRaisesRegex(ValueError,'consolidation incomplete'):
-                processing.summarize(self.root,self.settings,lambda _:None)
+            processing.summarize(self.root,self.settings,messages.append)
+        # Notes with repeated statements beat no notes; saved notes stay and the new run waits for review.
         self.assertEqual(json.loads((self.root/'minutes.json').read_text()),saved)
+        self.assertEqual(len(json.loads((self.root/'minutes.proposed.json').read_text())['tasks']),2)
+        segments=[TranscriptSegment(**row) for row in transcript]
+        proposal=json.loads((self.root/'minutes.proposed.json').read_text())
+        warning=nc.audit_for(self.root,proposal,segments,proposed=True)
+        self.assertEqual((warning['status'],warning['parts'],warning['error']),('failed',2,'bad response'))
+        self.assertTrue(any('without merging' in m for m in messages))
         self.assertTrue((self.root/'.notes-progress.json').exists())
-        self.assertFalse((self.root/'minutes.proposed.json').exists())
+        # Accepting the unmerged proposal keeps the warning with the saved notes.
+        nc.promote_audit(self.root,proposal,segments)
+        self.assertEqual(nc.audit_for(self.root,proposal,segments)['status'],'failed')
         with patch('meeting_assistant.generate_minutes',side_effect=AssertionError('must reuse')), patch('app.local_ai.complete_json',side_effect=grouped):
             processing.summarize(self.root,self.settings,lambda _:None)
         self.assertFalse((self.root/'.notes-progress.json').exists())
+        self.assertEqual(len(json.loads((self.root/'minutes.proposed.json').read_text())['tasks']),1)
+        self.assertEqual(nc.audit_for(self.root,json.loads((self.root/'minutes.proposed.json').read_text()),segments,proposed=True)['status'],'completed')
+
+    def test_cancelled_consolidation_is_not_saved_as_notes(self):
+        from app.jobs import JobCancelled
+        atomic_json(self.root/'transcript.json',[dict(start=i*10,end=i*10+9,text='Text '*600,speaker='Иван') for i in range(2)])
+        fake=lambda args,group:minutes(tasks=[task(stamp=timestamp(group[0].start))])
+        with patch('meeting_assistant.generate_minutes',side_effect=fake), patch('app.local_ai.complete_json',side_effect=JobCancelled()):
+            with self.assertRaises(JobCancelled):processing.summarize(self.root,self.settings,lambda _:None)
+        self.assertFalse((self.root/'minutes.json').exists())
 
     def test_cloud_provider_preserves_model_and_caps_output(self):
         self.settings.update(summarizer='openai', llm_model='chosen-model')
@@ -190,7 +210,8 @@ class ConsolidationTests(unittest.TestCase):
         settings=dict(self.settings,_prompt_snapshot=prompts.snapshot())
         fake=lambda args,group:minutes(tasks=[task(stamp=timestamp(group[0].start))])
         with patch('meeting_assistant.generate_minutes',side_effect=fake), patch('app.local_ai.complete_json',side_effect=ValueError('offline')):
-            with self.assertRaises(ValueError): processing.summarize(self.root,settings,lambda _:None)
+            processing.summarize(self.root,settings,lambda _:None)
+        self.assertEqual(json.loads((self.root/'minutes.consolidation.json').read_text())['status'],'failed')
         snapshot=copy.deepcopy(settings['_prompt_snapshot'])
         snapshot['stages']['meeting_consolidation']['layers'].append(dict(text='More concise',revision=1))
         snapshot['revision']=1;snapshot['id']='changed'

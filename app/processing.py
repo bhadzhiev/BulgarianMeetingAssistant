@@ -383,8 +383,14 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
             if consolidation_settings.get('_prompt_snapshot'):
                 consolidation_settings['_prompt_snapshot'] = select_stages(consolidation_settings['_prompt_snapshot'], ('meeting_consolidation',))
             result, audit = consolidate(completed, segments, consolidation_settings, directory, progress, api_key)
-        except (ValueError, OSError, KeyError, TypeError) as error:
-            raise ValueError('Notes consolidation incomplete. Completed extraction parts are kept; retry resumes them. ' + str(error)) from error
+        except Exception as error:
+            from .jobs import JobCancelled
+            if isinstance(error, JobCancelled):
+                raise
+            # Notes with repeated statements beat no notes. Keep both checkpoints so a retry resumes.
+            from .notes_consolidation import failed_audit
+            audit = failed_audit(completed, segments, error)
+            progress('Notes saved without merging repeated statements · ' + audit['error'])
     validate_minutes(result, segments)
     proposed = (directory / 'minutes.json').exists()
     audit_path = directory / ('minutes.consolidation.proposed.json' if proposed else 'minutes.consolidation.json')
@@ -397,5 +403,6 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
         atomic_json(directory / 'minutes.proposed.json', result)
     else:
         save_minutes(directory, result)
-    checkpoint.unlink(missing_ok=True)
-    (directory / '.consolidation-progress.json').unlink(missing_ok=True)
+    if audit is None or audit.get('status') != 'failed':
+        checkpoint.unlink(missing_ok=True)
+        (directory / '.consolidation-progress.json').unlink(missing_ok=True)

@@ -1070,3 +1070,6 @@ button.primary.is-done::after{color:inherit}
 .record-more>summary{justify-content:flex-start}
 .record-more-summary{margin-left:auto}
 #ask-dialog:has(#ask-extra:not([hidden])){width:min(620px,94vw)}
+
+/* A task card shows the task; its fields open on request. */
+.tracked-main>.task-row-actions{margin-top:10px}

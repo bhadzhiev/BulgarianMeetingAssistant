@@ -1429,6 +1429,7 @@ $('github-link-form').onsubmit=event=>{event.preventDefault();return perform(asy
 // Statuses come from one vocabulary (status.js).
 function statusBadge(status,detail){return el('span','status-badge status-'+status.tone,status.label+(detail?' · '+detail:''));}
 function workReviewBadge(state){return ['needs_review','edited'].includes(state)?statusBadge(AtlantaStatus.status('review',state)):'';}
+const openTaskFields=new Set();
 function globalTaskRow(item,today) {
  const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(avatar(item.owner||''),el('span','',item.owner||'No owner'));
@@ -1448,18 +1449,26 @@ function globalTaskRow(item,today) {
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
   const owner=el('select');owner.setAttribute('aria-label','Owner for '+item.text);owner.append(option('No owner',''),...people.map(p=>option(p.name,p.id)));let oldOwner=item.owner_person_id||'';
-  if(!oldOwner&&item.owner){owner.append(option(item.owner+' · current name','__current__'));oldOwner='__current__';}owner.value=oldOwner;
+  // An owner name that matches one person shows as that person, not as a second entry with the same name.
+  const ownerPerson=!oldOwner&&item.owner?personFor(item.owner):null;
+  if(!oldOwner&&item.owner&&!ownerPerson){owner.append(option(item.owner+' · not in People','__current__'));oldOwner='__current__';}owner.value=oldOwner||ownerPerson?.id||'';const shownOwner=owner.value;
   const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date for '+item.text);
   const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up for '+item.text);
   const commit=(input,previous,changes,message,undo)=>perform(async()=>{if(!validDates(row)){input.value=previous;return;}try{await withEditorSave(row,()=>changeWithUndo(item,changes,message,undo));}catch(e){input.value=previous;throw e;}});
-  const ownerUndo=oldOwner==='__current__'?{owner_person_id:null,owner:item.owner}:oldOwner?{owner_person_id:oldOwner}:{owner_person_id:null,owner:null};
+  const ownerUndo=item.owner_person_id?{owner_person_id:item.owner_person_id}:item.owner?{owner_person_id:null,owner:item.owner}:{owner_person_id:null,owner:null};
   const dayText=(name,value)=>value?name+': '+date(value):name+' removed';
   stateSelect.onchange=()=>commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value},'State: '+AtlantaTasks.STATES[stateSelect.value],{workflow_state:AtlantaTasks.workflow(item)});
-  owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,oldOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null},owner.value?'Owner: '+owner.selectedOptions[0].textContent:'Owner removed',ownerUndo);};
+  owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,shownOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null},owner.value?'Owner: '+owner.selectedOptions[0].textContent:'Owner removed',ownerUndo);};
   due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null},dayText('Due date',due.value),{due_date:item.due_date||null});
   follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null},dayText('Next follow-up',follow.value),{follow_up_date:item.follow_up_date||null});
   const addUpdate=actionBtn('secondary small-action','Add update',()=>openTaskPanel(item.id,{focusUpdate:true}));
-  const timeline=actionBtn('secondary small-action','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow));const rowActions=el('div','task-row-actions');rowActions.append(doneButton(item),addUpdate,timeline);quick.append(rowActions);main.append(quick);
+  const timeline=actionBtn('secondary small-action','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow));
+  // The card shows the task; the fields open on request and stay open across a refresh after a save.
+  const fieldActions=el('div','task-row-actions');fieldActions.append(addUpdate,timeline);quick.append(fieldActions);quick.id='task-fields-'+item.id;quick.hidden=!openTaskFields.has(item.id);
+  const toggle=btn('secondary small-action task-fields-toggle','');toggle.type='button';toggle.setAttribute('aria-controls',quick.id);
+  const showFields=open=>{quick.hidden=!open;toggle.textContent=open?'Hide fields':'Change owner or dates';toggle.setAttribute('aria-expanded',String(open));if(open)openTaskFields.add(item.id);else openTaskFields.delete(item.id);};
+  toggle.onclick=()=>showFields(quick.hidden);showFields(!quick.hidden);
+  const rowActions=el('div','task-row-actions');rowActions.append(doneButton(item),toggle);main.append(rowActions,quick);
  }
  if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(restore);}else{const accept=el('button','primary small-action','Accept task'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));actions.append(accept,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','','Select'));marks.append(pick);}row.append(marks,main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';more.append(trigger,itemActions(item,row));row.append(more);}return row;

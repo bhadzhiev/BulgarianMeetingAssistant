@@ -787,6 +787,11 @@ benchmarked on your meetings.
 Every task, decision and proposal shows a coloured source chip: **Meeting**, **Gmail**, **Chat** or
 **GitHub**. Click a chip to open the source. **All sources** filters the task and decision lists.
 
+A task card shows the task, its owner, its due date, its source and **Mark done**. **Change owner or
+dates** opens the owner, state, due date and next check fields, with **Add update** and **Timeline**.
+The fields stay open after a save. An owner name that matches one person in People shows as that
+person. A name without a People entry shows as "· not in People".
+
 The Gmail, Chat and GitHub tabs use the same layout. The bar on top shows the connection and the sync
 state. A list of threads, conversations or issues comes next; arrow keys move through it. The open
 item fills a fixed-height reader below, with its actions under it. Rare actions (reconnect, stop,

@@ -1,4 +1,17 @@
-"""Shared OpenAI-compatible text inference for every local AI feature."""
+"""Shared OpenAI-compatible text inference for every local AI feature.
+
+Prompt practices applied across the codebase (small local models such as Qwen
+benefit from them the most):
+- One task per prompt with an explicit output contract and a JSON schema.
+- The critical contract is repeated AFTER the data (lost-in-the-middle guard):
+  complete_json appends the schema reminder as the final user message.
+- A one-shot example anchors the format where the format is subtle (meeting
+  notes items, meeting titles).
+- Prompts say what TO do and give a reason, not only what to avoid; the model
+  may always answer null / found=false / [] instead of guessing.
+- Qwen3.5 thinking can exhaust the output budget before any JSON appears, so
+  JSON tasks default to reasoning 'none' below unless the user chose otherwise.
+"""
 from __future__ import annotations
 
 import json

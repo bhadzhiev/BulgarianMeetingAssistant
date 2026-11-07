@@ -18,12 +18,13 @@ SCHEMA = dict(type='object', additionalProperties=False, required=['text','detai
               properties=dict(text=dict(type='string', minLength=1, maxLength=1000),details=dict(type='string',maxLength=5000),completion_criteria=dict(type='string',maxLength=5000)))
 SYSTEM = """Draft exactly one editable task card from the supplied source DATA.
 Return only the three JSON keys text, details and completion_criteria, matching the schema.
-text is a short action title (usually 6–14 words, ideally within 160 characters): action + object.
-Put relevant context, scope and supported next steps in details, not in the title.
-Put a concise, source-supported, verifiable completion outcome in completion_criteria.
+A person edits this card before anything is saved, so an honest incomplete card beats an invented complete one.
+- text: a short action title (usually 6–14 words, ideally within 160 characters): action + object.
+- details: relevant context, scope and supported next steps; do not repeat the title or copy an entire conversation.
+- completion_criteria: a concise, source-supported, verifiable completion outcome.
 Use empty strings for unsupported context or completion criteria; never invent requirements,
-tests, deadlines or commitments to make a card look complete. Do not repeat the title or copy
-an entire conversation. Keep technical terms, names and identifiers exactly as supplied.
+tests, deadlines or commitments to make a card look complete. Keep technical terms, names
+and identifiers exactly as supplied.
 Owner, requester, assigner, follower, project, workflow state and dates are separate human
 choices: do not return them or infer assignments from a mentioned name. Distinguish a request,
 a suggested investigation and an established defect. Do not assert that any task was created.

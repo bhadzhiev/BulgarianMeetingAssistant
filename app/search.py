@@ -191,7 +191,9 @@ def answer_prompt(question: str, sources: list[dict]) -> str:
 ВЪПРОС: {question}
 
 ИЗТОЧНИЦИ:
-""" + '\n'.join(lines)
+""" + '\n'.join(lines) + """
+
+Напомняне: върни само JSON по схемата, на български; ако източниците не стигат, върни found=false вместо да отгатваш."""
 
 
 def ai_answer(settings: dict, api_key: str, question: str, sources: list[dict]) -> dict | None:

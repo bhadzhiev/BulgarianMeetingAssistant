@@ -1073,3 +1073,7 @@ button.primary.is-done::after{color:inherit}
 
 /* A task card shows the task; its fields open on request. */
 .tracked-main>.task-row-actions{margin-top:10px}
+
+/* An accepted decision that a change asks to check again. */
+.decision-status.recheck{background:var(--warn-soft);color:var(--warn-ink)}
+.decision-status.dismissed{background:var(--surface-2);color:var(--muted)}

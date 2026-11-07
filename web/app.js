@@ -83,8 +83,10 @@ function renderAttention(busy){
  else if(d.notes_need_refresh||d.notes_refresh_error)add('warn',d.notes_refresh_error||'The transcript changed after the notes were made','Review update',async()=>{switchTab('transcript');$('primary-action').scrollIntoView({block:'center'});});
  const links=['tasks','decisions'].reduce((n,field)=>n+(minutes[field]||[]).filter(m=>m.link&&!m.item_id).length,0);
  if(links)add('warn',links+(links===1?' mention looks':' mentions look')+' like existing work · link or keep as new','Check links',async()=>toOutcomes());
- const decisions=AtlantaTasks.meetingGroups(minutes.decisions||[]).map(group=>group.task).filter(m=>!m.link&&(d.items?.[m.item_id]?.review_state|| (m.review==='verified'?'confirmed':'needs_review'))!=='confirmed').length;
- if(decisions)add('warn','Confirm '+decisions+(decisions===1?' decision':' decisions')+' that the AI proposed','Confirm decisions',async()=>toOutcomes());
+ // The same state as the decision badges, so the count and the list agree.
+ const decisionStates=AtlantaTasks.meetingGroups(minutes.decisions||[]).map(group=>group.task).filter(m=>!m.link).map(m=>{const item=d.items?.[m.item_id];return item?decisionState(item).cls:m.review==='verified'?'accepted':'proposed';});
+ const proposedDecisions=decisionStates.filter(s=>s==='proposed').length,recheckDecisions=decisionStates.filter(s=>s==='recheck').length;
+ if(proposedDecisions||recheckDecisions)add('warn',[proposedDecisions&&'Accept '+AtlantaUX.count(proposedDecisions,'decision')+' that the AI proposed',recheckDecisions&&'Check '+AtlantaUX.count(recheckDecisions,'accepted decision')+' again after a change'].filter(Boolean).join(' · '),'Review decisions',async()=>toOutcomes());
  const tasks=AtlantaTasks.meetingGroups(minutes.tasks||[]).map(group=>group.task).filter(t=>!d.items?.[t.item_id]?.dismissed&&t.status!=='done'&&!t.link&&(!t.owner||!t.due_date)).length;
  if(tasks)add('info','Give an owner and a due date to '+tasks+(tasks===1?' task':' tasks'),'Add owners and dates',async()=>toOutcomes());
  // Each meeting type asks its own review questions, for example to confirm the hypotheses of an incident.
@@ -870,9 +872,9 @@ function noteSection(minutes,field,title,busy,hint) {
  if(!notesEditing) {
   if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
   else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&detail.items?.[item.item_id];
-   if(decision) meta.append(el('span','decision-status '+decision.status,DECISION_LABELS[decision.status]));
-   const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions)action.disabled=busy;meta.append(decision?workReviewBadge(decision.review_state):reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
-   if(decision&&decision.review_state!=='confirmed'){const accept=btn('primary small-action',decision.status==='proposed'?'Accept decision':'Confirm decision');accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText,meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
+   if(decision) meta.append(decisionBadge(decision));
+   const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions)action.disabled=busy;meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
+   if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText,meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
    if(field==='decisions'&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
    list.append(li); }); section.append(list); }
@@ -1203,6 +1205,17 @@ let itemKind='task', sourceFilter=stored('tasks-source')||'', itemsData={items:[
 const STATUS_FILTERS={task:[['open','Open'],['overdue','Overdue'],['done','Done'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']],decision:[['current','In force'],['proposed','Proposed'],['accepted','Accepted'],['superseded','Replaced'],['all','All'],['snoozed','Snoozed'],['dismissed','Dismissed']]};
 const statusFilter={task:stored('tasks-status')||'open',decision:'current'};
 const DECISION_LABELS={proposed:'Proposed',accepted:'Accepted',superseded:'Replaced'};
+// One state for a decision: what was decided, and whether a person must look at it again.
+// The status and the review state stay separate in the data; one badge shows both.
+function decisionState(item){
+ // A person hid it in My Work; it asks for nothing until it is restored there.
+ if(item.dismissed)return {cls:'dismissed',label:'Hidden in My Work',title:'Restore it in My Work to work with it again.',action:null};
+ if(item.status==='accepted'&&['needs_review','edited'].includes(item.review_state))
+  return {cls:'recheck',label:'Accepted · check again',title:'The notes or the transcript changed after this decision was accepted. Confirm that it still holds.',action:'Confirm decision'};
+ if(item.status==='proposed')return {cls:'proposed',label:'Proposed',title:'The AI proposed this decision. Accept it if it was agreed.',action:'Accept decision'};
+ return {cls:item.status,label:DECISION_LABELS[item.status]||item.status,title:'',action:null};
+}
+function decisionBadge(item){const s=decisionState(item),badge=el('span','decision-status '+s.cls,s.label);if(s.title)badge.title=s.title;return badge;}
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
 const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
@@ -1475,11 +1488,13 @@ function globalTaskRow(item,today) {
 }
 function decisionRow(item,byId) {
  const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
- meta.append(el('span','decision-status '+item.status,DECISION_LABELS[item.status])); meta.append(workReviewBadge(item.review_state));
+ meta.append(decisionBadge(item));
+ // A decision that waits for a person has one clear button; the status change stays next to it.
+ if(item.status==='accepted'&&decisionState(item).action)meta.append(actionBtn('primary small-action',decisionState(item).action,()=>changeItem(item,{status:'accepted'})));
  if(item.superseded_by&&byId[item.superseded_by]) meta.append(el('span','hint','Replaced by: '+byId[item.superseded_by].text));
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
- const change=actionBtn('secondary small-action',next[1],()=>changeItem(item,{status:next[0]}));meta.append(change);
+ const change=actionBtn(item.status==='proposed'?'primary small-action':'secondary small-action',next[1],()=>changeItem(item,{status:next[0]}));meta.append(change);
  main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(el('span'),main); row.append(itemActions(item,row)); return row;
 }

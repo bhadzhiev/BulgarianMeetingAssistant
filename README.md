@@ -653,6 +653,8 @@ of the folder first if you are not sure.
 If the meeting has a Google Calendar event, the same question has three answers: **Delete meeting
 and event**, **Delete meeting, keep event**, or **Cancel**. The app deletes only the event that it created
 for this meeting. If Google cannot delete the event, the meeting stays on this Mac.
+After the delete, the Library opens. A saved link to a deleted meeting also opens the Library and says
+that the meeting is no longer on this Mac.
 You cannot delete a meeting while it records or processes.
 The app validates notes' structure and source timestamps, but factual correctness still requires
 review against the recording. See [benchmarks/README.md](benchmarks/README.md) for a repeatable

@@ -1064,3 +1064,9 @@ button.primary.is-done::after{color:inherit}
 /* A modal dialog that the action opened owns the feedback while it is open. */
 :root:has(dialog[open]) #activity{display:none}
 :root:has(dialog[open]) :is(main,.sidebar) button.is-busy::after{display:none}
+
+/* Navigation polish: one line for the library link, the options label next to its arrow, room for three answers. */
+.library-all{display:block;width:100%;text-align:left;padding:10px 12px;white-space:nowrap;font-size:12px}
+.record-more>summary{justify-content:flex-start}
+.record-more-summary{margin-left:auto}
+#ask-dialog:has(#ask-extra:not([hidden])){width:min(620px,94vw)}

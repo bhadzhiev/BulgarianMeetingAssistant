@@ -1037,3 +1037,12 @@ dialog{border-radius:10px}
 .icon{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px}
 button:has(.icon),a:has(.icon){display:inline-flex;align-items:center;gap:6px}
 .mode-icon .icon,.small-icon .icon{width:22px;height:22px;display:block}
+
+/* Follow-up email: recipients as a short checklist above the editable draft. */
+#followup-dialog{width:min(720px,95vw)}
+#followup-dialog textarea{width:100%;line-height:1.6;resize:vertical}
+.followup-recipients{margin:12px 0}
+.followup-people{display:grid;gap:6px;max-height:180px;overflow:auto;margin-bottom:10px}
+.followup-person{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;font-weight:400}
+.followup-person .hint{margin:0}
+#followup-result a{font-weight:600}

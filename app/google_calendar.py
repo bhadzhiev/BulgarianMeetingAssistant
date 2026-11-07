@@ -22,6 +22,8 @@ from .storage import atomic_json
 SCOPES = ('https://www.googleapis.com/auth/calendar.calendarlist.readonly',
           'https://www.googleapis.com/auth/calendar.events')
 GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+# Drafts only: the person sends a follow-up email from Gmail, never from this app.
+GMAIL_COMPOSE_SCOPE = 'https://www.googleapis.com/auth/gmail.compose'
 CHAT_SCOPES = ('openid','https://www.googleapis.com/auth/userinfo.email',
                'https://www.googleapis.com/auth/chat.spaces.readonly','https://www.googleapis.com/auth/chat.messages.readonly')
 CHAT_URL = 'https://chat.googleapis.com/v1'
@@ -201,6 +203,7 @@ class GoogleCalendar:
                         chat_account_id=bundle.get('account_sub','') if connected else '',
                         capabilities=dict(calendar=connected and set(SCOPES).issubset(self._scopes(bundle)),
                                           gmail=connected and GMAIL_SCOPE in self._scopes(bundle),
+                                          gmail_compose=connected and GMAIL_COMPOSE_SCOPE in self._scopes(bundle),
                                           chat=connected and set(CHAT_SCOPES).issubset(self._scopes(bundle))),
                         authorizing=bool(self.pending and time.monotonic()-self.pending['created'] < 600))
         finally:
@@ -233,7 +236,7 @@ class GoogleCalendar:
         return set(bundle.get('scopes', SCOPES if bundle.get('account_id') else ()))
 
     def begin(self, origin, capability='calendar'):
-        if capability not in {'calendar', 'gmail', 'chat'}:
+        if capability not in {'calendar', 'gmail', 'gmail_compose', 'chat'}:
             raise ValueError('Unknown Google capability')
         parts = urllib.parse.urlsplit(origin)
         if parts.scheme != 'http' or parts.hostname != '127.0.0.1' or not parts.port or parts.path:
@@ -246,7 +249,7 @@ class GoogleCalendar:
             if not bundle.get('client_id'):
                 raise CalendarError('Google sign-in is not set up for this app. Add google_oauth_client.json '
                                     '(see README), or import a Desktop OAuth client JSON under Advanced.')
-            requested = {'calendar':set(SCOPES),'gmail':{GMAIL_SCOPE},'chat':set(CHAT_SCOPES)}[capability]
+            requested = {'calendar':set(SCOPES),'gmail':{GMAIL_SCOPE},'gmail_compose':{GMAIL_COMPOSE_SCOPE},'chat':set(CHAT_SCOPES)}[capability]
             scopes = self._scopes(bundle) | requested
             verifier = secrets.token_urlsafe(48)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
@@ -286,7 +289,7 @@ class GoogleCalendar:
             # Query calendars using this candidate credential before committing it.
             calendars = self._calendars(bundle['access_token']) if set(SCOPES).issubset(granted) else []
             primary = next((c['id'] for c in calendars if c['primary']),None)
-            if GMAIL_SCOPE in granted:
+            if GMAIL_SCOPE in granted or GMAIL_COMPOSE_SCOPE in granted:
                 profile = self.request(GMAIL_URL+'/profile',token=bundle['access_token'])
                 address = profile.get('emailAddress')
                 if not isinstance(address,str) or '@' not in address:
@@ -361,6 +364,26 @@ class GoogleCalendar:
                 raise CalendarError('The Google account changed. Start sync again for the connected account.')
             url = GMAIL_URL + path + ('?' + urllib.parse.urlencode(query) if query else '')
             return self.request(url, token=self._access())
+
+    def gmail_draft(self, raw, draft_id=None, expected_account=None):
+        """Create a Gmail draft, or replace the one with draft_id. This is the only Gmail write."""
+        if not isinstance(raw,str) or not raw or len(raw) > 5_000_000 or not re.fullmatch(r'[A-Za-z0-9_=-]+',raw):
+            raise ValueError('Invalid email draft')
+        if draft_id is not None and not (isinstance(draft_id,str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}',draft_id)):
+            raise ValueError('Invalid Gmail draft ID')
+        with self.lock:
+            if GMAIL_COMPOSE_SCOPE not in self._scopes():
+                raise CalendarError('Allow Gmail drafts first: choose Connect Gmail drafts.')
+            if expected_account and self._load().get('account_id') != expected_account:
+                raise CalendarError('The Google account changed. Open the follow-up email again.')
+            token = self._access()
+            if draft_id:
+                try:
+                    return self.request(GMAIL_URL+'/drafts/'+draft_id,'PUT',dict(id=draft_id,message=dict(raw=raw)),token=token)
+                except CalendarError as exc:
+                    # The person sent or deleted the earlier draft; make a new one.
+                    if getattr(exc,'status',None) != 404:raise
+            return self.request(GMAIL_URL+'/drafts','POST',dict(message=dict(raw=raw)),token=token)
 
     def chat_get(self, resource, query=None, expected_account=None):
         if not isinstance(resource,str) or not re.fullmatch(r'spaces(?:/[A-Za-z0-9_-]{1,128}(?:/messages(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127})?)?)?',resource):

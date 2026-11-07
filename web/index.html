@@ -32,7 +32,7 @@
   <div id="error" class="error" role="alert" hidden></div>
   <div id="metadata-warning" class="notice warning" role="alert" hidden><p id="metadata-warning-text"></p><button id="metadata-recover" type="button" class="secondary">Open Backup settings</button></div>
   <section id="setup">
-    <div class="heading setup-heading"><h1>New meeting</h1><div class="capture-shortcuts"><button id="repeat-capture" class="secondary" type="button" disabled>Repeat last setup</button><button id="open-import" class="secondary" type="button" aria-label="Import audio or transcript">Import…</button></div></div>
+    <div class="heading setup-heading"><div><h1>New meeting</h1><p class="subheading">Choose how to capture and where the meeting belongs.</p></div><div class="capture-shortcuts"><button id="repeat-capture" class="secondary" type="button" disabled>Repeat last setup</button><button id="open-import" class="secondary" type="button" aria-label="Import audio or transcript">Import…</button></div></div>
     <form id="record-form" class="card setup-card">
       <div class="record-identity-grid"><div class="record-name">      <label for="meeting-title">Meeting name</label><input id="meeting-title" placeholder="Leave blank for an AI-generated title" maxlength="160" autocomplete="off">
 </div><div>      <label for="record-type">Meeting type</label><select id="record-type" aria-describedby="record-type-help"></select><p id="record-type-help" class="visually-hidden"></p>
@@ -94,7 +94,7 @@
     <div class="work-actions conversation-pagination"><button id="conversation-prev" class="secondary">Previous page</button><button id="conversation-next" class="secondary">Next page</button></div>
   </section>
   <section id="projects" hidden>
-    <div class="heading"><h1>Projects</h1><p class="subheading">Meetings and work from every source, together.</p></div>
+    <div class="heading"><h1>Projects</h1><p class="subheading">Meetings, work and sources, grouped by project.</p></div>
     <div class="project-navigation"><div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="work">Work</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="timeline">Timeline</button></div><details class="menu" id="workspace-more"><summary id="workspace-more-label" class="overflow-trigger" aria-label="More project sections" title="More project sections">...</summary><div class="menu-items"><button type="button" data-project-section="conversations">Conversations</button><button type="button" data-project-section="sources">Sources</button></div></details></div>
     <div class="work-actions"><select id="workspace-project" aria-label="Project workspace"></select><button id="workspace-prepare" class="secondary" type="button">Prepare me</button><button id="workspace-refresh" class="secondary">Refresh</button><button id="workspace-new" class="primary">＋ New project</button></div>
     <details id="workspace-browser"><summary>Browse projects</summary><div id="workspace-cards" class="project-cards"></div></details>
@@ -108,7 +108,7 @@
     <p id="calendar-notice" class="hint"></p>
   </section>
   <section id="tasks" hidden>
-    <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading"></p><button id="new-task" type="button" class="primary">＋ New task</button></div>
+    <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading">Your tasks and decisions from every meeting and source.</p><button id="new-task" type="button" class="primary">＋ New task</button></div>
     <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested" hidden>Suggested</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
     <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
     <div class="card work-panel" id="items-panel" role="tabpanel">
@@ -210,7 +210,7 @@
     </div>
   </section>
   <section id="find" hidden>
-    <div class="heading"><p class="eyebrow">FIND THE ANSWER</p><h1>Search your meetings</h1><p class="subheading">Words also find their other forms. Put "exact words" in quotes.</p></div>
+    <div class="heading"><p class="eyebrow">FIND THE ANSWER</p><h1>Search &amp; ask</h1><p class="subheading">Words also find their other forms. Put "exact words" in quotes.</p></div>
     <form id="find-form" class="card find-card"><div class="input-row"><input id="find-query" type="search" maxlength="500" placeholder="What did we decide about the backup internet?" aria-label="Search or ask"><button class="primary" type="submit">Search</button><button id="find-ask" class="secondary" type="button">Answer from sources</button></div>
       <div class="task-filters"><div id="find-kinds" class="segmented" role="group" aria-label="Show only"></div><select id="find-project" aria-label="Project"></select></div></form>
     <div id="find-answer" class="card answer-card" hidden aria-live="polite"></div>
@@ -232,7 +232,7 @@
     <p class="below-card">Built from saved notes, tasks, decisions and markers, not from a new AI run. Each line links to its meeting and moment.</p>
   </section>
   <section id="analytics" hidden>
-    <div class="heading"><p class="eyebrow">CONVERSATION INTELLIGENCE</p><h1>Analytics across meetings</h1><p id="analytics-summary" class="subheading">Talk time, topics and questions from saved analytics.</p></div>
+    <div class="heading"><p class="eyebrow">CONVERSATION INTELLIGENCE</p><h1>Conversation analytics</h1><p id="analytics-summary" class="subheading">Talk time, topics and questions from saved analytics.</p></div>
     <div class="card">
       <div class="analytics-filters"><label>From<input id="analytics-from" type="date"></label><label>To<input id="analytics-to" type="date"></label><label>Speaker<select id="analytics-speaker"><option value="">All speakers</option></select></label><label>Topic<select id="analytics-topic"><option value="">All topics</option></select></label><div class="analytics-filter-actions"><button id="analytics-apply" class="secondary" type="button">Apply</button><button id="analytics-reset" class="quiet" type="button">Reset</button></div></div>
       <div id="analytics-overview" class="metric-grid"></div>

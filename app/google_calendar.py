@@ -248,7 +248,7 @@ class GoogleCalendar:
             bundle = self._load()
             if not bundle.get('client_id'):
                 raise CalendarError('Google sign-in is not set up for this app. Add google_oauth_client.json '
-                                    '(see README), or import a Desktop OAuth client JSON under Advanced.')
+                                    '(see docs/calendar-and-titles.md), or import a Desktop OAuth client JSON under Advanced.')
             requested = {'calendar':set(SCOPES),'gmail':{GMAIL_SCOPE},'gmail_compose':{GMAIL_COMPOSE_SCOPE},'chat':set(CHAT_SCOPES)}[capability]
             scopes = self._scopes(bundle) | requested
             verifier = secrets.token_urlsafe(48)

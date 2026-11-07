@@ -2477,7 +2477,7 @@ $('settings-form').onsubmit=event=>{event.preventDefault();if(settingsTab==='pro
 
 function renderGoogleStatus() {
  const google=state.google||{};
- $('google-status').textContent=(google.connected?'Signed in as '+google.account:google.sign_in_available?'Not signed in. Sign in with your Google account to add meetings to your calendar.':'Google sign-in is not set up for this app yet. See README → Google Calendar, or use Advanced below.')+(google.error?' · '+google.error:'');
+ $('google-status').textContent=(google.connected?'Signed in as '+google.account:google.sign_in_available?'Not signed in. Sign in with your Google account to add meetings to your calendar.':'Google sign-in is not set up for this app yet. See docs/calendar-and-titles.md, or use Advanced below.')+(google.error?' · '+google.error:'');
  $('google-connect').disabled=!google.sign_in_available;$('google-connect').textContent=google.connected?(calendarConnected(google)?'Switch Google account':'Connect Calendar permission'):'Sign in with Google';$('google-disconnect').disabled=!google.connected;
  if(!google.sign_in_available) $('google-advanced').open=true;
  $('refresh-calendars').disabled=!calendarConnected(google);

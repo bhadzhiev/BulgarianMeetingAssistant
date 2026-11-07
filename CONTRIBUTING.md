@@ -41,7 +41,7 @@ library for development:
 
 6. For a change in the web interface (`web/`), open the app and check the change in a browser.
    Describe what you checked in the PR.
-7. Update `README.md` when a change affects what a user sees or does.
+7. Update `README.md` or the matching file in `docs/` when a change affects what a user sees or does.
 
 ## Protect privacy
 

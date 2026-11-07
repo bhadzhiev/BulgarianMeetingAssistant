@@ -1135,7 +1135,7 @@ class MeetingService:
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 old_names = {s.speaker for s in old_segments}
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and s.speaker not in old_names and not conversation.is_generic_speaker(s.speaker))
-                analytics_settings = dict(self.settings, models_dir=str(self.models_dir))
+                analytics_settings = dict(self.settings, models_dir=str(self.models_dir), reuse_semantic_topics=True)
             if 'minutes' in body or 'minutes_fields' in body:
                 self._refresh_items()
                 source = json.loads((directory / 'transcript.json').read_text())

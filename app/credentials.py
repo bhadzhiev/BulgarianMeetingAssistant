@@ -42,8 +42,8 @@ class _NoLegacy:
 
 class CredentialStore:
     def __init__(self,account,provider,backend=None,legacy=None,lock=vault_lock):
-        if provider not in {'google','github','elevenlabs'}:raise ValueError('Unknown credential provider')
-        if provider=='elevenlabs' and legacy is None:legacy=_NoLegacy()
+        if provider not in {'google','github','elevenlabs','local_ai'}:raise ValueError('Unknown credential provider')
+        if provider in {'elevenlabs','local_ai'} and legacy is None:legacy=_NoLegacy()
         self.key=provider+':'+account;self.lock=lock
         if backend is None or legacy is None:
             from .google_calendar import LegacyKeychainStore

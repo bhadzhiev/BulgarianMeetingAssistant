@@ -30,7 +30,7 @@ def execute(action, directory, settings, progress, key='', speakers=(), trackers
         return analyze(settings['repo_evidence'],settings,progress,key)
     if action == 'gmail_extract':
         from .gmail_ai import extract
-        return extract(settings['gmail_ai_input'],settings,progress)
+        return extract(settings['gmail_ai_input'],settings,progress,key)
     from . import processing, correction, diarization, capture, analytics
     if action == 'transcribe':
         return processing.transcribe(directory, settings, progress, key, speakers)
@@ -45,7 +45,7 @@ def execute(action, directory, settings, progress, key='', speakers=(), trackers
     if action == 'recover':
         return capture.render_recording(directory)
     if action == 'analytics':
-        return analytics.analyze(directory, settings, trackers, progress)
+        return analytics.analyze(directory, settings, trackers, progress, key)
     raise ValueError('Unknown processing step')
 
 

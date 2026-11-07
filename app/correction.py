@@ -72,7 +72,7 @@ def ask(settings, messages, response_schema, api_key):
     provider = settings.get('transcript_correction', 'none')
     if provider == 'local':
         from .local_ai import complete_json
-        return complete_json(settings, messages, response_schema, 'transcript_correction')
+        return complete_json(settings, messages, response_schema, 'transcript_correction', api_key=api_key)
     if provider == 'openai':
         if not api_key:
             raise ValueError('Add an OpenAI API key in Settings for cloud transcript correction.')

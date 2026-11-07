@@ -23,6 +23,27 @@ from urllib.request import urlopen
 
 DEFAULT_BASE_URL = 'http://localhost:1235/v1'
 DEFAULT_MODEL = 'qwen3.5-9b'
+DEFAULT_CONTEXT = 16384
+
+
+class KeyStore:
+    """The key of the configured API in the shared Atlanta Keychain item. A local server needs none."""
+    def __new__(cls):
+        from .credentials import CredentialStore
+        return CredentialStore('default', 'local_ai')
+
+
+def is_remote(base_url):
+    """True when the configured API is outside this Mac and its local network, so text leaves them."""
+    import ipaddress
+    host = (urlsplit(base_url or '').hostname or '').casefold()
+    if host == 'localhost' or host.endswith('.local'):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (address.is_loopback or address.is_private or address.is_link_local)
 
 
 class OutputTruncatedError(ValueError):
@@ -111,10 +132,14 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # Qwen3.5 can consume the entire budget on thinking without returning JSON.
     # Apply this task policy before requesting, not after a slow, empty response.
     # Email extraction keeps its separately approved target settings unchanged.
+    # A cloud API (Kimi K3) also spent a 16,384-token budget on thinking and returned no notes.
     if (reasoning == 'default' and name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title'}
-            and isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I)):
+            and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))):
         reasoning = 'none'
-    payload = dict(model=model, messages=messages, temperature=0, stream=False, max_tokens=max_tokens)
+    payload = dict(model=model, messages=messages, stream=False, max_tokens=max_tokens)
+    # Some cloud models accept only their own temperature (Kimi K3: only 1). "server" leaves it to them.
+    if settings.get('local_ai_temperature', 'zero') == 'zero':
+        payload['temperature'] = 0
     if reasoning not in {'default', 'server'}:
         payload['reasoning_effort'] = reasoning
     if mode == 'json_schema':

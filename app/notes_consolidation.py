@@ -258,7 +258,7 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
                 'meeting_consolidation', target['llm_model'], api_key, settings=target, max_completion_tokens=4096)
         else:
             from .local_ai import complete_json
-            value = complete_json(target, messages(batch, summary), schema(batch, summary), 'meeting_consolidation')
+            value = complete_json(target, messages(batch, summary), schema(batch, summary), 'meeting_consolidation', api_key=api_key)
         # Only a fresh answer is repaired; a cached answer was saved after its repair.
         value, fixed = repair_plan(value, batch, summary)
         audit['repaired'] = audit.get('repaired', 0) + fixed

@@ -21,7 +21,7 @@ def task(quote='Please review synthetic backups.', **changes):
 
 class Runner:
     def __init__(self,result=None):self.result=result or dict(tasks=[task()]);self.calls=[]
-    def run(self,action,directory,settings,progress,cancel=None):
+    def run(self,action,directory,settings,progress,key="",cancel=None):
         self.calls.append(copy.deepcopy(settings))
         if cancel and cancel.is_set():raise JobCancelled()
         progress('Synthetic AI analysis')
@@ -30,7 +30,7 @@ class Runner:
 
 class BlockingRunner(Runner):
     def __init__(self):super().__init__();self.entered=threading.Event()
-    def run(self,action,directory,settings,progress,cancel=None):
+    def run(self,action,directory,settings,progress,key="",cancel=None):
         self.calls.append(copy.deepcopy(settings));self.entered.set()
         deadline=time.monotonic()+5
         while not cancel.is_set() and time.monotonic()<deadline:time.sleep(.01)

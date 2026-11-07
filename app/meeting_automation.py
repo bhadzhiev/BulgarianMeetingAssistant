@@ -33,7 +33,7 @@ def generate_title(directory: Path, settings: dict, api_key: str):
     provider=settings['title_provider']
     if provider in {'local', 'ollama'}:
         from .local_ai import complete_json
-        result = complete_json(settings, messages, schema, 'meeting_title', timeout=600)
+        result = complete_json(settings, messages, schema, 'meeting_title', timeout=600, api_key=api_key)
     elif provider=='openai':
         if not api_key:raise ValueError('Add an OpenAI API key in Settings for AI meeting titles.')
         from .prompts import openai_json
@@ -117,7 +117,7 @@ class MeetingAutomation:
                     acquired=True
                     break
             if not acquired:return
-            key=service.api_key
+            key=service.ai_key(settings.get('title_provider'))
             try:
                 record_usage(directory,'title',settings['_prompt_snapshot'])
                 title,basis=generate_title(directory,settings,key)
@@ -136,8 +136,7 @@ class MeetingAutomation:
                 current=service.library.get(meeting_id)
                 if current.get('title_revision',0)==revision:
                     message=str(exc)
-                    for secret in [service.api_key,key]:
-                        if secret:message=message.replace(secret,'[redacted]')
+                    message=service.redact(message)
                     service.library.update(meeting_id,title_status='error',title_error=message)
 
     def _sync(self, meeting_id):

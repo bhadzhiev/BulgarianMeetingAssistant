@@ -281,6 +281,22 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
 
 
 NOTES_PART_CHARS = 10000
+# Measured with Qwen on Bulgarian: about 2.4 characters per token and 2,500 tokens of instructions.
+CHARS_PER_TOKEN = 2.0
+PROMPT_TOKENS = 3000
+MAX_PART_CHARS = 400000
+
+
+def notes_part_chars(settings: dict) -> int:
+    """Characters of transcript per notes part. A 16k local model keeps the measured 10,000; a larger
+    context, for example a cloud model, takes a long meeting in one part and needs no consolidation."""
+    if settings.get('summarizer') != 'local':
+        return NOTES_PART_CHARS
+    context = settings.get('local_ai_context') or 16384
+    if context <= 16384:
+        return NOTES_PART_CHARS
+    free = context - (settings.get('local_ai_max_tokens') or 4096) - PROMPT_TOKENS
+    return max(NOTES_PART_CHARS, min(MAX_PART_CHARS, int(free * CHARS_PER_TOKEN)))
 
 
 def canonical_notes(minutes: dict, vocabulary: str) -> dict:
@@ -305,13 +321,14 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     from .transcripts import group_by_length
     # About 4,000 tokens of Bulgarian per part. With the prompt and a 4,096-token answer it fits a
     # 16k context. Smaller parts split one meeting into many partial summaries.
-    groups = group_by_length(segments, lambda segment: segment.text, NOTES_PART_CHARS, overhead=15)
+    groups = group_by_length(segments, lambda segment: segment.text, notes_part_chars(settings), overhead=15)
     args = SimpleNamespace(summarizer=settings['summarizer'], llm_model=settings['llm_model'],
         local_ai_base_url=settings.get('local_ai_base_url', 'http://localhost:1235/v1'),
         local_ai_model=settings.get('local_ai_model', 'qwen3.5-9b'),
         local_ai_format=settings.get('local_ai_format', 'json_schema'),
         local_ai_max_tokens=settings.get('local_ai_max_tokens', 4096),
-        local_ai_reasoning=settings.get('local_ai_reasoning', 'default'))
+        local_ai_reasoning=settings.get('local_ai_reasoning', 'default'),
+        local_ai_temperature=settings.get('local_ai_temperature', 'zero'))
     if args.summarizer == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before generating cloud notes.')
     # Pass credentials explicitly; never alter the process environment across jobs.

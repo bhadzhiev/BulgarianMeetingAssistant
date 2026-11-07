@@ -154,14 +154,14 @@ class PromptLab:
             acquired=True
             from .worker import ProcessingWorker
             with tempfile.TemporaryDirectory(prefix='.prompt-test-',dir=self.service.library.root) as tmp:
-                output=(self.runner or ProcessingWorker(self.service.project)).run('prompt_test',Path(tmp),current['target'],lambda _:None,self.service.api_key if current['target']['provider']=='openai' else '',cancel=self)
+                output=(self.runner or ProcessingWorker(self.service.project)).run('prompt_test',Path(tmp),current['target'],lambda _:None,self.service.ai_key(current['target']['provider']),cancel=self)
             if self.is_set():raise JobCancelled()
             with self.lock:self.job.update(output,status='Test complete · no meeting changed')
         except JobCancelled:
             with self.lock:self.job.update(status='Cancelled')
         except Exception as exc:
             message=str(exc)
-            if self.service.api_key:message=message.replace(self.service.api_key,'[redacted]')
+            message=self.service.redact(message)
             with self.lock:self.job.update(status='Failed',error=message)
         finally:
             if acquired:self.service.processing_slot.release()

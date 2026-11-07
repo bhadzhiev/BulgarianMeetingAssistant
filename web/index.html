@@ -423,7 +423,7 @@
 <button id="sync-all-meetings" class="secondary" type="button">Sync saved meetings</button><p class="hint">Save the calendar choice first. Repeated sync updates the same events.</p>
 <details id="google-advanced"><summary>Advanced · use your own Google OAuth client</summary><label for="google-client-file">Google Desktop OAuth client JSON</label><input id="google-client-file" type="file" accept="application/json,.json"><p class="hint">Only needed when this app has no built-in Google client. Credentials are stored in macOS Keychain.</p></details>
 </div>
-<div class="settings-panel" data-tab="projects" role="tabpanel" hidden><p class="hint">Deleting a project or series never deletes meetings; they only leave the group.</p><div id="project-list" class="project-list"></div></div>
+<div class="settings-panel" data-tab="projects" role="tabpanel" hidden><div class="action-group settings-control-actions"><button id="settings-new-project" class="secondary" type="button">＋ New project</button></div><p class="hint">Deleting a project or series never deletes meetings; they only leave the group.</p><div id="project-list" class="project-list"></div></div>
 <div class="settings-panel" data-tab="types" role="tabpanel" hidden>
 <label for="type-prompt-select">Meeting type</label><select id="type-prompt-select"></select>
 <p id="type-prompt-description" class="hint"></p><p id="type-prompt-sections" class="type-sections"></p>

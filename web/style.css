@@ -53,7 +53,7 @@ select:disabled{opacity:.55;cursor:default}input::placeholder,textarea::placehol
 #settings-dialog{width:min(620px,95vw);padding:0;overflow:hidden}
 #settings-form{display:flex;flex-direction:column;max-height:90vh;padding:30px 30px 0}
 .settings-tabs{margin:18px 0 0;flex:none;overflow-x:auto}.settings-tabs button{white-space:nowrap}
-.settings-body{flex:1;min-height:360px;overflow-y:auto;overscroll-behavior:contain;padding:4px 2px 24px}
+.settings-body{flex:1 1 auto;min-height:120px;overflow-y:auto;overscroll-behavior:contain;padding:4px 2px 24px}
 .settings-panel>.settings-section:first-child{border-top:0;margin-top:0;padding-top:0}
 .settings-footer{flex:none;border-top:1px solid var(--line);padding:16px 0 24px;background:var(--card)}.settings-footer .notice{margin:0 0 8px}.settings-footer .hint{margin:0 0 12px}
 @media(max-width:720px){#settings-form{padding:20px 16px 0}.settings-body{min-height:0}}

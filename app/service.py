@@ -482,9 +482,9 @@ class MeetingService:
             self.library.add_speakers(s.speaker for s in segments if s.speaker)
             self.busy.add(meeting['id'])
         self._analyze_unlocked(meeting['id'], settings)
-        if settings.get('auto_process') and settings['summarizer'] != 'none':
+        if settings.get('auto_process') and (settings['summarizer'] != 'none' or settings.get('transcript_correction', 'none') != 'none'):
             try:
-                self.process(meeting['id'], 'summarize')
+                self.process(meeting['id'], 'all')
             except ValueError:
                 pass  # For example, a missing API key. The user can generate notes later.
         else:
@@ -668,11 +668,10 @@ class MeetingService:
                 raise ValueError('This meeting is already busy')
             if meeting['mode'] == 'audio' and action == 'recover':
                 raise ValueError('An imported audio file has no raw tracks to recover')
-            if meeting['mode'] == 'imported':
-                if action in {'transcribe', 'recover', 'speakers'}:
-                    raise ValueError('An imported transcript has no audio to transcribe')
-                if action == 'all':
-                    action = 'summarize'
+            # A full run of an imported transcript corrects the text like a transcription would, then makes notes.
+            imported_all = meeting['mode'] == 'imported' and action == 'all'
+            if meeting['mode'] == 'imported' and action in {'transcribe', 'recover', 'speakers'}:
+                raise ValueError('An imported transcript has no audio to transcribe')
             settings = meeting['settings'] if use_saved else dict(self.settings, models_dir=str(self.models_dir))
             # Migrate once, after the per-meeting fields below are pinned.
             if preserve_notes:
@@ -682,6 +681,14 @@ class MeetingService:
             for field in ['calendar_enabled','calendar_id','calendar_name','calendar_account','auto_title','title_provider','title_model']:
                 settings[field] = meeting['settings'].get(field, DEFAULTS[field] if field != 'auto_title' else False)
             settings = migrate_settings(settings)
+            if imported_all:
+                correction_on = settings.get('transcript_correction', 'none') != 'none'
+                if settings['summarizer'] != 'none':
+                    action = 'summarize'
+                elif correction_on:
+                    action = 'correct'
+                else:
+                    raise ValueError('Choose Local API or OpenAI for notes or transcript correction in Settings first')
             if action in {'summarize','correct_summarize'} and settings['summarizer'] == 'none':
                 raise ValueError('Choose Local API or OpenAI for notes in Settings first')
             settings.setdefault('transcript_correction', 'none')
@@ -703,7 +710,7 @@ class MeetingService:
                 raise ValueError('Add an ElevenLabs API key in Settings first. Your recording is saved.')
             if (action in {'all', 'transcribe'} and settings['transcription'] == 'openai' or
                 action in {'all', 'summarize','correct_summarize'} and settings['summarizer'] == 'openai' or
-                (action in {'correct','correct_summarize'} or action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs')
+                (action in {'correct','correct_summarize'} or imported_all or action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs')
                 and settings['transcript_correction'] == 'openai') and not key:
                 raise ValueError('Add an OpenAI API key in Settings first. Your recording is saved.')
             if action in {'all','summarize','correct','correct_summarize','reanalyze'} and '_prompt_snapshot' not in settings:
@@ -716,7 +723,7 @@ class MeetingService:
                                 processing_timings={}, processing_elapsed=0)
             if self.active and self.active in self.live_sessions:
                 self.live_sessions[self.active].request_stop('Live captions paused to process a saved meeting. Audio recording continues.')
-            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key, elevenlabs_key), daemon=True)
+            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key, elevenlabs_key, imported_all), daemon=True)
             self.processing_threads[meeting_id] = thread
             thread.start()
             return {'id': meeting_id, 'status': 'processing'}
@@ -746,7 +753,7 @@ class MeetingService:
         from .worker import execute
         return execute(action, directory, settings, progress, key, speakers, trackers)
 
-    def _process(self, meeting_id, action, settings, key, elevenlabs_key=''):
+    def _process(self, meeting_id, action, settings, key, elevenlabs_key='', auto_correct=False):
         cancel = self.cancel_events.setdefault(meeting_id, threading.Event())
         job = Job(cancel, lambda **changes: self.library.update(meeting_id, **changes))
         acquired = False
@@ -773,7 +780,8 @@ class MeetingService:
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
             # Scribe text is final; AI correction runs after it only on explicit request.
-            automatic_correction = action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs'
+            # An imported transcript is corrected like a new transcription; its failure does not stop the notes.
+            automatic_correction = action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs' or auto_correct
             if (automatic_correction or action in {'correct','correct_summarize'}) and settings.get('transcript_correction', 'none') != 'none':
                 try:
                     with job.step('Transcript correction'):
@@ -787,7 +795,7 @@ class MeetingService:
                 except JobCancelled:
                     raise
                 except Exception as exc:
-                    if action in {'correct','correct_summarize'}:
+                    if action in {'correct','correct_summarize'} and not auto_correct:
                         raise
                     message = str(exc).replace(key, '[redacted]') if key else str(exc)
                     self.library.update(meeting_id, correction_error=message)

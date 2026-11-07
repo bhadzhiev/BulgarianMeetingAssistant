@@ -78,6 +78,46 @@ class ImportTests(unittest.TestCase):
         self.assertTrue((self.service.library.directory(d['id'])/'transcript.md').read_text().startswith('# Нова среща: transcript'))
 
 
+
+class ImportProcessingTests(unittest.TestCase):
+    """An imported transcript gets the same AI correction as a new transcription, then notes."""
+    def setUp(self):
+        from types import SimpleNamespace
+        from tests.test_calendar import wait_for
+        self.wait_for=wait_for
+        self.tmp=tempfile.TemporaryDirectory();self.service=MeetingService(Path(self.tmp.name),PROJECT,google=FakeGoogle())
+        self.service.settings.update(auto_process=True,summarizer='local',transcript_correction='local',auto_title=False)
+        self.steps=[];self.fail=set()
+        def run(action,directory,settings,*args,**kwargs):
+            self.steps.append(action)
+            if action in self.fail:raise RuntimeError(action+' failed')
+            if action=='analytics':return {}
+        self.service.step_runner=SimpleNamespace(run=run)
+        self.service._run_analytics=lambda *a,**k:self.steps.append('analytics')
+    def tearDown(self):self.service.close();self.tmp.cleanup()
+    def imported(self):
+        d=self.service.import_transcript('[00:00:00] Иван: Провери VPN.\n','test.txt')
+        self.wait_for(lambda:d['id'] not in self.service.busy)
+        return self.service.library.get(d['id'])
+    def test_correction_runs_before_notes(self):
+        self.assertEqual(self.imported()['status'],'ready')
+        self.assertEqual([s for s in self.steps if s in {'correct','summarize'}],['correct','summarize'])
+    def test_failed_correction_keeps_the_notes(self):
+        self.fail={'correct'};meeting=self.imported()
+        self.assertEqual(meeting['status'],'ready');self.assertIn('correct failed',meeting['correction_error'])
+        self.assertIn('summarize',self.steps)
+    def test_correction_only_when_notes_are_off(self):
+        self.service.settings.update(summarizer='none')
+        meeting=self.imported()
+        self.assertEqual([s for s in self.steps if s in {'correct','summarize'}],['correct']);self.assertEqual(meeting['status'],'ready')
+    def test_no_correction_when_it_is_off(self):
+        self.service.settings.update(transcript_correction='none');self.imported()
+        self.assertEqual([s for s in self.steps if s in {'correct','summarize'}],['summarize'])
+    def test_explicit_summarize_still_skips_correction(self):
+        self.service.settings.update(auto_process=False);meeting=self.imported()
+        self.service.process(meeting['id'],'summarize');self.wait_for(lambda:meeting['id'] not in self.service.busy)
+        self.assertEqual([s for s in self.steps if s in {'correct','summarize'}],['summarize'])
+
 class ImportHTTPTests(unittest.TestCase):
     setUp,tearDown,request=HTTPTests.setUp,HTTPTests.tearDown,HTTPTests.request
     def test_import_route(self):

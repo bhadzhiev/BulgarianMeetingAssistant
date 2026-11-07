@@ -20,7 +20,7 @@ def task(text='Обнови базата данни', stamp='00:00:00', **extra)
     return dict(task=text, owner='Иван', deadline=None, due_date=None, evidence_timestamp=stamp, **extra)
 
 
-def grouped(settings, messages, schema, stage):
+def grouped(settings, messages, schema, stage, **_):
     facts = json.loads(messages[1]['content'])['untrusted_candidates']
     assert stage == 'meeting_consolidation'
     ids = [f['id'] for f in facts]

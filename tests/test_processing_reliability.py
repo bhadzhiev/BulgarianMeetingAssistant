@@ -33,7 +33,7 @@ class ProcessingReliabilityTests(unittest.TestCase):
         atomic_json(self.root / 'transcript.json', self.segments)
 
     def run_notes(self, fake, settings=None):
-        def consolidate(settings, messages, schema, stage):
+        def consolidate(settings, messages, schema, stage, **_):
             facts = json.loads(messages[1]['content'])['untrusted_candidates']
             return dict(groups=[dict(members=[fact['id']], text=fact['statement']['text']) for fact in facts])
         with patch('app.local_ai.complete_json', side_effect=consolidate), patch('meeting_assistant.generate_minutes', side_effect=fake) as model:

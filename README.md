@@ -280,15 +280,27 @@ the settings it started with for automatic processing.
   incurs API charges. Default model is `gpt-transcribe`, configurable in Settings. Cloud
   timestamps indicate approximate audio chunk boundaries, not word alignment. See the
   [official file-transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text).
-- **Local notes:** uses the OpenAI-compatible API configured in **Settings → Local AI**.
-  Defaults: `http://localhost:1235/v1`, model `qwen3.5-9b`. Click **Load available models**
-  and enter a text/chat model ID exposed by your server. This one endpoint/model powers
-  summaries, decisions, task extraction, open questions, and local meeting titles.
+- **Configured API notes:** use the OpenAI-compatible API configured in **Settings → Notes & AI →
+  Configured API**. Defaults: `http://localhost:1235/v1`, model `qwen3.5-9b`. Click **Load available
+  models** and enter a text/chat model ID exposed by your server. This one endpoint/model powers
+  summaries, decisions, task extraction, open questions, and meeting titles.
+- **A cloud configured API**, for example Kimi Platform (`https://api.moonshot.ai/v1`): enter its
+  **API key**. The app saves it in macOS Keychain and sends it only to that endpoint; the OpenAI key
+  never goes there. An address outside this Mac and its local network shows a warning, and the
+  privacy text names the host that receives meeting text. Without a key, processing stops before it
+  starts. `LOCAL_AI_API_KEY`, if set before the app starts, is used instead and is not saved.
+- **Model context** (advanced) is the context of the served model. Up to 16,384 tokens, a long
+  meeting goes in parts of 10,000 characters. A larger context takes the meeting in larger parts, up
+  to 400,000 characters, so a cloud model usually reads the whole meeting at once.
+- **Temperature** (advanced): **0** gives the same answer for the same input. Kimi K3 models accept
+  only their own value; choose **Server default** for them. Keep reasoning on **Automatic** for Kimi.
+  With thinking on, Kimi K3 models used the full 16,384-token output limit and returned no notes.
   Keep your model server running. It must accept unauthenticated requests on this endpoint.
   JSON schema is the default; choose JSON object or Prompt only if your server needs it.
   All modes still validate generated notes and task evidence timestamps before saving.
   Reasoning effort defaults to **Automatic**: Qwen3.5 notes, transcript correction and titles
-  send `reasoning_effort=none` before the first request. Selected-email analysis resolves Automatic
+  send `reasoning_effort=none` before the first request. The same applies to every model on a
+  cloud (non-local) API. Selected-email analysis resolves Automatic
   to Off for Qwen3.5 and shows the effective reasoning/output limit before approval. Other models
   keep the server default. Explicit Off/Low/Medium/High choices are kept. Choose
   **Server default** if your endpoint does not accept `reasoning_effort`. The shared maximum output defaults to
@@ -465,7 +477,7 @@ suite; verify a short recording before relying on speaker statistics.
 
 After you stop a recording, processing runs in this order: Whisper transcription,
 optional diarization, AI correction, notes, analytics, then any calendar automation. Set the provider in **Settings → Recording → AI correction after
-transcription**: **Local · Configured API** (default), **Cloud · OpenAI**, or **Off**.
+transcription**: **Configured API** (default), **Cloud · OpenAI**, or **Off**.
 
 - The model fixes spelling, punctuation, capital letters, and words that were heard wrong.
   It uses the known speakers for the spelling of names.
@@ -648,7 +660,8 @@ decisions with their current status. Matches are highlighted, and each result op
 
 A local model can take several minutes; the answer shows the time and a **Stop waiting** button. A local
 model server may still finish a request after you stop waiting, before it starts the next one.
-With "Local · Configured API" notes, the question and passages stay on this Mac.
+With "Configured API" notes, the question and passages go to that API; they stay on this Mac only
+when the API runs here.
 
 ### People and meeting participants
 
@@ -1182,7 +1195,7 @@ Ask participants before recording and protect the saved audio and transcripts.
 
 Leave the meeting name blank to let AI name it from the final transcript (or the saved
 live draft when final processing is disabled/unavailable). Names you type are preserved.
-In **Settings → Automatic meeting titles**, choose **Local · Configured API** or **Cloud · OpenAI**.
+In **Settings → Automatic meeting titles**, choose **Configured API** or **Cloud · OpenAI**.
 Local titles use the shared Local AI model; cloud titles have their own model setting. Title generation is independent of meeting notes; it works when notes are off.
 Cloud titles send bounded transcript excerpts to OpenAI. If the model is unavailable or
 there is no recognized speech, the original name remains and the meeting shows the reason.

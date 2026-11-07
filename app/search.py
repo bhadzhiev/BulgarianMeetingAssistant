@@ -202,7 +202,7 @@ def ai_answer(settings: dict, api_key: str, question: str, sources: list[dict]) 
     messages = [{'role': 'user', 'content': answer_prompt(question, sources)}]
     if provider == 'local':
         from .local_ai import complete_json
-        result = complete_json(settings, messages, ANSWER_SCHEMA, 'meeting_answer', timeout=300)
+        result = complete_json(settings, messages, ANSWER_SCHEMA, 'meeting_answer', timeout=300, api_key=api_key)
     elif provider == 'openai':
         from .prompts import apply
         messages=apply(settings,messages,'meeting_answer')

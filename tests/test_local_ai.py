@@ -99,6 +99,16 @@ class LocalAITests(unittest.TestCase):
                 self.assertEqual(payload['model'], model)
                 self.assertEqual(payload['max_tokens'], 4096)
 
+    def test_automatic_policy_turns_off_thinking_on_a_cloud_api(self):
+        cloud = dict(DEFAULTS, local_ai_base_url='https://api.example.com/v1', local_ai_model='cloud-model')
+        for name, disabled in [('meeting_minutes', True), ('meeting_consolidation', True), ('meeting_answer', False)]:
+            with self.subTest(name=name), patch('meeting_assistant.post_json', return_value=response({})) as post:
+                complete_json(cloud, [], SCHEMA, name)
+                self.assertEqual(post.call_args.args[1].get('reasoning_effort'), 'none' if disabled else None)
+        with patch('meeting_assistant.post_json', return_value=response({})) as post:
+            complete_json(dict(cloud, local_ai_reasoning='low'), [], SCHEMA, 'meeting_minutes')
+            self.assertEqual(post.call_args.args[1]['reasoning_effort'], 'low')
+
     def test_explicit_reasoning_is_never_overridden_or_retried(self):
         from app.local_ai import OutputTruncatedError
         empty = {'choices': [{'finish_reason': 'length', 'message': {'content': None}}]}
@@ -145,9 +155,13 @@ class LocalAITests(unittest.TestCase):
                 self.assertEqual(post.call_args.args[0],'http://localhost:9999/v1/chat/completions')
                 self.assertEqual(post.call_args.args[1]['model'],'shared')
             with patch('meeting_assistant.post_json',return_value=response({'title':'Оферта за новия сайт'})) as post:
-                self.assertEqual(generate_title(root,settings,'cloud-secret')[0],'Оферта за новия сайт')
+                # The caller gives the key of the title provider; a local server without a key gets none.
+                self.assertEqual(generate_title(root,settings,'')[0],'Оферта за новия сайт')
                 self.assertEqual(post.call_args.args[1]['model'],'shared')
-                self.assertNotIn('cloud-secret',str(post.call_args))
+                self.assertNotIn('Authorization',str(post.call_args))
+            with patch('meeting_assistant.post_json',return_value=response({'title':'Оферта за новия сайт'})) as post:
+                generate_title(root,settings,'configured-api-key')
+                self.assertEqual(post.call_args.kwargs['headers'],{'Authorization':'Bearer configured-api-key'})
 
     def test_old_providers_migrate_and_config_persists(self):
         self.assertEqual(migrate_settings({'summarizer':'ollama','title_provider':'ollama'}),

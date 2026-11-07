@@ -236,7 +236,7 @@ class _Flag:
             try:
                 if self.owner.target()!=self.target:return True
             except ValueError:return True
-            if self.target.get('provider')=='openai' and s.api_key!=self.key:return True
+            if s.ai_key(self.target.get('provider'))!=self.key:return True
         return False
     def check(self):
         if self.is_set():raise JobCancelled()
@@ -531,7 +531,7 @@ class RepoReports:
                     row.setdefault('analysis_history',[]).append(analysis);row['analysis_history']=row['analysis_history'][-2:]
                 row['analysis']=dict(key=preview['cache_key'],target=preview['target'],parts={},complete=False)
             if row['analysis']['complete']:return dict(running=False,status='reused',report_id=key,error=None)
-            return self._start(row,'analyze',preview['target'],self.service.api_key if preview['target']['provider']=='openai' else '')
+            return self._start(row,'analyze',preview['target'],self.service.ai_key(preview['target']['provider']))
 
     def _analyze(self,row,target,key):
         from .worker import ProcessingWorker

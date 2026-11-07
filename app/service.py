@@ -52,11 +52,11 @@ from .gmail_ai import GmailAI
 from .google_chat import ChatSync
 from .github_source import GitHubConnection,GitHubSync,GitHubError
 from .meeting_automation import MeetingAutomation
-from .local_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, migrate_settings, validate_base_url
+from .local_ai import DEFAULT_BASE_URL, DEFAULT_CONTEXT, DEFAULT_MODEL, migrate_settings, validate_base_url
 
 DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model='gpt-transcribe',
                 summarizer='none', llm_model='gpt-4.1-mini', transcript_correction='local',
-                local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', auto_process=True, live_transcription=True,
+                local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', local_ai_context=DEFAULT_CONTEXT, local_ai_temperature='zero', auto_process=True, live_transcription=True,
                 whisper_vad=True, whisper_vocabulary='', audio_preparation='off',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
@@ -83,6 +83,18 @@ class MeetingService:
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
         self.elevenlabs_api_key = os.environ.get('ELEVENLABS_API_KEY', '')
         self.elevenlabs_key_error = None
+        # The key of the configured (OpenAI-compatible) API, for example a cloud endpoint. A local server needs none.
+        self.local_ai_api_key = os.environ.get('LOCAL_AI_API_KEY', '')
+        self.local_ai_key_error = None
+        self.local_ai_marker = root / 'local-ai-key.json'
+        from .local_ai import KeyStore as LocalAIKeyStore
+        self.local_ai_store = LocalAIKeyStore()
+        if not self.local_ai_api_key and self.local_ai_marker.exists():
+            try:
+                saved = self.local_ai_store.get()
+                self.local_ai_api_key = saved.get('api_key', '') if isinstance(saved, dict) else ''
+            except Exception:
+                self.local_ai_key_error = 'The API key could not be read from Keychain. Unlock Keychain or enter the key again.'
         # This file holds no secret. It says that Keychain has a key, so tests and new libraries never open Keychain.
         self.elevenlabs_marker = root / 'elevenlabs.json'
         from .scribe import KeyStore
@@ -161,6 +173,10 @@ class MeetingService:
             raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
         if values['local_ai_reasoning'] not in {'default', 'server', 'none', 'low', 'medium', 'high'}:
             raise ValueError('Invalid local AI reasoning effort')
+        if values['local_ai_temperature'] not in {'zero', 'server'}:
+            raise ValueError('Invalid temperature setting')
+        if type(values['local_ai_context']) is not int or not 4096 <= values['local_ai_context'] <= 2_000_000:
+            raise ValueError('The model context must be between 4096 and 2000000 tokens')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid local AI response format')
         if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai', 'elevenlabs'} or values['summarizer'] not in {'none', 'local', 'openai'}
@@ -200,6 +216,9 @@ class MeetingService:
             key = values.pop('api_key', None)
             if key is not None and (not isinstance(key, str) or len(key) > 1000 or '\n' in key):
                 raise ValueError('Invalid API key')
+            local_key = values.pop('local_ai_api_key', None)
+            if local_key is not None and (not isinstance(local_key, str) or len(local_key) > 1000 or any(ord(c) < 32 for c in local_key)):
+                raise ValueError('Invalid API key for the configured API')
             settings = self.validate_settings(values)
             previous = dict(self.settings)
             # Choose Parakeet only where it can run, so a meeting does not fail after the recording.
@@ -230,7 +249,40 @@ class MeetingService:
                 self.api_key = key.strip()
             if elevenlabs_key is not None:
                 self._save_elevenlabs_key(elevenlabs_key.strip())
-            return dict(elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status())
+            if local_key is not None:
+                self._save_local_ai_key(local_key.strip())
+            return dict(elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, settings=self.settings, api_key_configured=bool(self.api_key), google=self.google.status(),
+                        **self.local_ai_key_status())
+
+    def local_ai_key_status(self):
+        from .local_ai import is_remote
+        return dict(local_ai_api_key_configured=bool(self.local_ai_api_key), local_ai_key_error=self.local_ai_key_error,
+                    local_ai_remote=is_remote(self.settings.get('local_ai_base_url')))
+
+    def ai_key(self, provider):
+        """The key for one AI provider. A key never goes to another provider."""
+        return self.api_key if provider == 'openai' else self.local_ai_api_key if provider == 'local' else ''
+
+    def redact(self, message):
+        for secret in (self.api_key, self.local_ai_api_key, self.elevenlabs_api_key):
+            if secret:
+                message = message.replace(secret, '[redacted]')
+        return message
+
+    def _save_local_ai_key(self, key):
+        """Keep the key in Keychain; an empty key forgets it. Settings stay saved if Keychain refuses."""
+        try:
+            if key:
+                self.local_ai_store.set(dict(api_key=key))
+                atomic_json(self.local_ai_marker, dict(saved=True))
+            else:
+                self.local_ai_store.delete()
+                self.local_ai_marker.unlink(missing_ok=True)
+            self.local_ai_key_error = None
+        except Exception:
+            self.local_ai_key_error = ('The API key is kept only until the app closes: Keychain refused it.' if key else
+                                       'The API key could not be removed from Keychain.')
+        self.local_ai_api_key = key
 
     def _save_elevenlabs_key(self, key):
         """Keep the key in Keychain; an empty key forgets it. Settings stay saved if Keychain refuses."""
@@ -290,7 +342,7 @@ class MeetingService:
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
                 speakers=self.library.speakers(), people_migration=self.library.people_migration, voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
-                settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
+                settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, api_key_configured=bool(self.api_key), **self.local_ai_key_status(), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
                 system_audio_available=(self.project / 'bin/SystemAudio').exists())
@@ -708,9 +760,15 @@ class MeetingService:
                 raise ValueError('A saved recording and final transcript are required for speaker separation')
             if action == 'reanalyze' and not (self.library.directory(meeting_id) / 'transcript.json').exists():
                 raise ValueError('Transcribe or import a meeting before running analytics')
-            # Capture the key for this job; it is never persisted in metadata.
+            # Capture the keys for this job; they are never persisted in metadata.
             key = self.api_key
             elevenlabs_key = self.elevenlabs_api_key
+            local_key = self.local_ai_api_key
+            from .local_ai import is_remote
+            uses_local = (action in {'all', 'summarize', 'correct_summarize'} and settings['summarizer'] == 'local'
+                          or action in {'correct', 'correct_summarize'} and settings['transcript_correction'] == 'local')
+            if uses_local and is_remote(settings.get('local_ai_base_url')) and not local_key:
+                raise ValueError('Add the API key of the configured API in Settings first. Your recording is saved.')
             if action in {'all', 'transcribe'} and settings['transcription'] == 'elevenlabs' and not elevenlabs_key:
                 raise ValueError('Add an ElevenLabs API key in Settings first. Your recording is saved.')
             if (action in {'all', 'transcribe'} and settings['transcription'] == 'openai' or
@@ -728,7 +786,7 @@ class MeetingService:
                                 processing_timings={}, processing_elapsed=0)
             if self.active and self.active in self.live_sessions:
                 self.live_sessions[self.active].request_stop('Live captions paused to process a saved meeting. Audio recording continues.')
-            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key, elevenlabs_key, imported_all), daemon=True)
+            thread = threading.Thread(target=self._process, args=(meeting_id, action, settings, key, elevenlabs_key, imported_all, local_key), daemon=True)
             self.processing_threads[meeting_id] = thread
             thread.start()
             return {'id': meeting_id, 'status': 'processing'}
@@ -758,7 +816,9 @@ class MeetingService:
         from .worker import execute
         return execute(action, directory, settings, progress, key, speakers, trackers)
 
-    def _process(self, meeting_id, action, settings, key, elevenlabs_key='', auto_correct=False):
+    def _process(self, meeting_id, action, settings, key, elevenlabs_key='', auto_correct=False, local_key=''):
+        # Each AI step gets the key of its own provider: OpenAI or the configured API.
+        step_key = lambda provider: key if provider == 'openai' else local_key if provider == 'local' else ''
         cancel = self.cancel_events.setdefault(meeting_id, threading.Event())
         job = Job(cancel, lambda **changes: self.library.update(meeting_id, **changes))
         acquired = False
@@ -791,7 +851,7 @@ class MeetingService:
                 try:
                     with job.step('Transcript correction'):
                         before_correction=(directory/'transcript.json').read_bytes()
-                        self._execute('correct', directory, settings, progress, key, self.library.speakers())
+                        self._execute('correct', directory, settings, progress, step_key(settings.get('transcript_correction')), self.library.speakers())
                         if (directory/'transcript.json').read_bytes()!=before_correction:
                             processing.archive(directory,['minutes.proposed.json'])
                             (directory/'minutes.proposed.json').unlink(missing_ok=True)
@@ -802,11 +862,11 @@ class MeetingService:
                 except Exception as exc:
                     if action in {'correct','correct_summarize'} and not auto_correct:
                         raise
-                    message = str(exc).replace(key, '[redacted]') if key else str(exc)
+                    message = self.redact(str(exc))
                     self.library.update(meeting_id, correction_error=message)
             if action in {'summarize','correct_summarize'} or action == 'all' and settings['summarizer'] != 'none':
                 with job.step('Meeting notes'):
-                    self._execute('summarize', directory, settings, progress, key, self.library.speakers())
+                    self._execute('summarize', directory, settings, progress, step_key(settings.get('summarizer')), self.library.speakers())
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
             if action != 'recover' and (directory / 'transcript.json').exists():
                 with job.step('Analytics'):
@@ -819,9 +879,7 @@ class MeetingService:
             self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
                 error=None, progress='Processing cancelled — saved audio and completed checkpoints are preserved', processing_stage='Cancelled')
         except Exception as exc:
-            message = str(exc).replace(key, '[redacted]') if key else str(exc)
-            if elevenlabs_key:
-                message = message.replace(elevenlabs_key, '[redacted]')
+            message = self.redact(str(exc))
             self.library.update(meeting_id, status='error', error=message, processing_stage='Failed',
                                 progress='Processing failed — recording preserved')
         finally:
@@ -949,7 +1007,7 @@ class MeetingService:
     def _run_analytics(self, meeting_id, settings, progress=lambda message: None):
         try:
             progress('Building conversation analytics')
-            result = self._execute('analytics', self.library.directory(meeting_id), settings, progress, trackers=self.library.trackers())
+            result = self._execute('analytics', self.library.directory(meeting_id), settings, progress, self.ai_key('local'), trackers=self.library.trackers())
             self.library.update(meeting_id, analytics_error=result.get('semantic_error'),analytics_need_refresh=bool(result.get('semantic_error')))
             return result
         except JobCancelled:
@@ -1623,10 +1681,10 @@ class MeetingService:
                       provider=self.settings.get('summarizer', 'none'))
         if sources and ai:
             try:
-                result['ai'] = search.ai_answer(dict(self.settings,_prompt_snapshot=self.prompts.snapshot()), self.api_key, question.strip(), sources)
+                result['ai'] = search.ai_answer(dict(self.settings,_prompt_snapshot=self.prompts.snapshot()), self.ai_key(self.settings.get('summarizer')), question.strip(), sources)
             except Exception as exc:
                 message = str(exc)
-                result['ai_error'] = message.replace(self.api_key, '[redacted]') if self.api_key else message
+                result['ai_error'] = self.redact(message)
         return result
 
     def metadata_stores(self):

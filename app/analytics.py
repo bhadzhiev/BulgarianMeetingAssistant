@@ -176,7 +176,7 @@ def literal_topic_matches(segments, tracker) -> list[dict]:
     return matches
 
 
-def semantic_topic_matches(segments, tracker, settings) -> list[dict]:
+def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict]:
     from .local_ai import complete_json
     schema = {
         'type': 'object',
@@ -189,7 +189,7 @@ def semantic_topic_matches(segments, tracker, settings) -> list[dict]:
         {'role': 'system', 'content': 'Match transcript segments to a discussion topic. Return only relevant segment IDs; do not infer IDs that are absent.'},
         {'role': 'user', 'content': f'Topic: {tracker["name"]}\nPhrases: {json.dumps(tracker.get("phrases", []), ensure_ascii=False)}\nTranscript:\n{transcript}'},
     ]
-    response = complete_json(settings, messages, schema, 'topic_matches', timeout=300)
+    response = complete_json(settings, messages, schema, 'topic_matches', timeout=300, api_key=api_key)
     ids = response.get('matches')
     if not isinstance(ids, list) or any(type(index) is not int or not 0 <= index < len(segments) for index in ids):
         raise ValueError('Local AI returned invalid transcript segment IDs for a topic')
@@ -207,14 +207,14 @@ def semantic_topic_matches(segments, tracker, settings) -> list[dict]:
     return matches
 
 
-def build_topics(segments, trackers, settings=None, progress=lambda message: None) -> tuple[list[dict], str | None]:
+def build_topics(segments, trackers, settings=None, progress=lambda message: None, api_key='') -> tuple[list[dict], str | None]:
     topics, errors = [], []
     for tracker in trackers:
         matches = literal_topic_matches(segments, tracker)
         if tracker.get('semantic_matching'):
             progress(f'Checking topic · {tracker["name"]}')
             try:
-                semantic = semantic_topic_matches(segments, tracker, settings or {})
+                semantic = semantic_topic_matches(segments, tracker, settings or {}, api_key)
                 known = {match['segment_index'] for match in matches}
                 matches.extend(match for match in semantic if match['segment_index'] not in known)
                 matches.sort(key=lambda match: match['segment_index'])
@@ -224,10 +224,10 @@ def build_topics(segments, trackers, settings=None, progress=lambda message: Non
     return topics, '; '.join(errors) or None
 
 
-def build_analytics(segments, intervals, trackers, settings=None, previous=None, progress=lambda message: None) -> dict:
+def build_analytics(segments, intervals, trackers, settings=None, previous=None, progress=lambda message: None, api_key='') -> dict:
     questions = detect_questions(segments, previous)
     speakers, total = speaker_statistics(intervals, questions)
-    topics, semantic_error = build_topics(segments, trackers, settings, progress)
+    topics, semantic_error = build_topics(segments, trackers, settings, progress, api_key)
     result = {
         'version': VERSION,
         'speakers': speakers,
@@ -241,13 +241,13 @@ def build_analytics(segments, intervals, trackers, settings=None, previous=None,
     return result
 
 
-def analyze(directory: Path, settings: dict, trackers, progress=lambda message: None) -> dict:
+def analyze(directory: Path, settings: dict, trackers, progress=lambda message: None, api_key: str = '') -> dict:
     transcript_path = directory / 'transcript.json'
     segments = json.loads(transcript_path.read_text())
     timeline_path = directory / 'speaker-timeline.json'
     intervals = json.loads(timeline_path.read_text()) if timeline_path.exists() else []
     analytics_path = directory / 'analytics.json'
     previous = json.loads(analytics_path.read_text()) if analytics_path.exists() else None
-    result = build_analytics(segments, intervals, trackers, settings, previous, progress)
+    result = build_analytics(segments, intervals, trackers, settings, previous, progress, api_key)
     atomic_json(analytics_path, result)
     return result

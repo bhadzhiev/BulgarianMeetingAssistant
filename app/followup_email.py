@@ -158,7 +158,7 @@ def generate(service, body, complete=None):
             from .local_ai import complete_json as complete
         messages = [dict(role='system', content=SYSTEM), dict(role='user', content=canonical(dict(reviewed_meeting_notes=data)))]
         result = complete(target, messages, SCHEMA, 'followup_email', timeout=180,
-                          api_key=service.api_key if target['provider'] == 'openai' else '')
+                          api_key=service.ai_key(target['provider']))
     finally:
         service.processing_slot.release()
     return dict(clean(result), ai=True, note='Written by ' + target['local_ai_model'] + '. Check it before you save the draft.',

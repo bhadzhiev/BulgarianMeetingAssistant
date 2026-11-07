@@ -40,6 +40,9 @@ def validate(service,keys,action):
     providers.append(('Analytics','local' if semantic else 'on_device'))
     if any(provider=='openai' for _,provider in providers) and not service.api_key:raise ValueError('Add an OpenAI key before starting cloud processing')
     if any(provider=='elevenlabs' for _,provider in providers) and not service.elevenlabs_api_key:raise ValueError('Add an ElevenLabs key before starting cloud processing')
+    from .local_ai import is_remote
+    if any(provider=='local' for _,provider in providers) and is_remote(settings.get('local_ai_base_url')) and not service.local_ai_api_key:
+        raise ValueError('Add the API key of the configured API before starting cloud processing')
     for key in keys:
         meeting=service.library.get(key);directory=service.library.directory(key)
         if key==service.active or key in service.busy or meeting.get('title_status')=='generating':raise ValueError('A selected meeting is busy. Try later.')

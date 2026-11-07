@@ -136,7 +136,7 @@ def draft(service, body, runner=None, cancel_event=None):
         with tempfile.TemporaryDirectory(prefix='.task-draft-',dir=service.library.root) as tmp:
             result=(runner or ProcessingWorker(service.project)).run('task_draft',Path(tmp),
                 dict(current['target'],task_draft_source=source),lambda _:None,
-                service.api_key if current['target']['provider']=='openai' else '',cancel=cancel)
+                service.ai_key(current['target']['provider']),cancel=cancel)
         if cancel.is_set():raise JobCancelled()
         if preview(service,body)['preview_token'] != current['preview_token']:
             raise WorkItemConflict('The source or AI settings changed. Generate the draft again.')
@@ -259,7 +259,7 @@ class DraftJobs:
             with self.lock:self.job.update(status='Cancelled',error=None)
         except Exception as exc:
             message=str(exc)
-            if self.service.api_key:message=message.replace(self.service.api_key,'[redacted]')
+            message=self.service.redact(message)
             with self.lock:self.job.update(status='Failed',error=message)
         finally:
             with self.lock:self.job.update(running=False)

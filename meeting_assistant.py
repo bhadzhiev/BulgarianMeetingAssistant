@@ -560,7 +560,7 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
             schema["properties"][field]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
     if args.summarizer in {"local", "ollama"}:
         from app.local_ai import complete_json
-        return complete_json(vars(args), [{"role": "user", "content": prompt}], schema, "meeting_minutes")
+        return complete_json(vars(args), [{"role": "user", "content": prompt}], schema, "meeting_minutes", api_key=getattr(args, "api_key", "") or "")
     if args.summarizer == "openai":
         key = getattr(args, "api_key", None) or os.environ.get("OPENAI_API_KEY")
         if not key:

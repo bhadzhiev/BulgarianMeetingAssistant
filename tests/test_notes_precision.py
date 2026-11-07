@@ -40,7 +40,16 @@ class PartSizeTests(unittest.TestCase):
     def test_parts_hold_about_ten_thousand_characters(self):
         # 4,000 characters split a 22-minute meeting into five partial summaries.
         self.assertEqual(processing.NOTES_PART_CHARS, 10000)
-        self.assertIn('NOTES_PART_CHARS, overhead=15', inspect.getsource(processing.summarize))
+        self.assertIn('notes_part_chars(settings), overhead=15', inspect.getsource(processing.summarize))
+
+    def test_a_large_context_takes_a_long_meeting_in_one_part(self):
+        local = dict(DEFAULTS, summarizer='local')
+        self.assertEqual(processing.notes_part_chars(local), 10000)
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=8192)), 10000)
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=262144, local_ai_max_tokens=16384)), 400000)
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 108688)
+        # OpenAI keeps the measured part size until it is measured with a larger one.
+        self.assertEqual(processing.notes_part_chars(dict(DEFAULTS, summarizer='openai', local_ai_context=262144)), 10000)
 
 
 class VocabularySpellingTests(unittest.TestCase):
@@ -112,7 +121,7 @@ class ConsolidationRepairTests(unittest.TestCase):
         self.assertEqual(len(nc.validate_plan(value, facts, summary=True, maximum=len(facts))), 2)
 
     def test_a_full_summary_that_skips_a_source_still_completes(self):
-        def full_but_skips(settings, messages, schema, stage):
+        def full_but_skips(settings, messages, schema, stage, **_):
             import json
             ids = [f['id'] for f in json.loads(messages[1]['content'])['untrusted_candidates']]
             if 'text' in schema['properties']['groups']['items']['properties']:
@@ -132,7 +141,7 @@ class ConsolidationRepairTests(unittest.TestCase):
         self.assertEqual(sorted(o for sources in audit['summary_sources'] for o in sources), sorted(audit_ids(audit)))
 
     def test_consolidation_repairs_a_fresh_answer_and_records_it(self):
-        def skips_one(settings, messages, schema, stage):
+        def skips_one(settings, messages, schema, stage, **_):
             import json
             ids = [f['id'] for f in json.loads(messages[1]['content'])['untrusted_candidates']]
             if 'text' in schema['properties']['groups']['items']['properties']:

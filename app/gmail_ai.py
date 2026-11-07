@@ -51,12 +51,12 @@ def validate_result(result, message):
     return suggestions
 
 
-def extract(message, settings, progress=lambda message:None):
+def extract(message, settings, progress=lambda message:None, api_key=''):
     if not isinstance(message,dict) or set(message) != {'message_id','sender','subject','body'} or len(canonical(message)) > MAX_INPUT:
         raise ValueError('Selected message exceeds the AI input limit')
     progress('Analyzing the approved email message')
     result = complete_json(settings,[dict(role='system',content=SYSTEM),dict(role='user',content=canonical(dict(untrusted_email=message)))],
-                           SCHEMA,'email_commitments',timeout=120)
+                           SCHEMA,'email_commitments',timeout=120,api_key=api_key)
     validate_result(result,message)
     return result
 
@@ -174,7 +174,7 @@ class GmailAI:
                 with tempfile.TemporaryDirectory(prefix='.gmail-ai-',dir=self.service.library.root) as directory:
                     settings=dict(run['target'],gmail_ai_input=run['message'])
                     result=(self.runner or ProcessingWorker(self.service.project)).run('gmail_extract',Path(directory),settings,
-                        self._publish,cancel=flag)
+                        self._publish,self.service.ai_key('local'),cancel=flag)
             finally:
                 self.service.processing_slot.release()
             if flag.is_set(): raise JobCancelled()

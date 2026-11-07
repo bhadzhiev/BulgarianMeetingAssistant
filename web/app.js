@@ -427,7 +427,9 @@ async function applyRoute(){
  const q=new URLSearchParams(location.search),target=q.get('view'),meeting=q.get('meeting');
  routing=true;
  try{
-  if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){await openMeeting(meeting);const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','analytics'].includes(tab))switchTab(tab);}
+  if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){
+   try{await openMeeting(meeting);}catch(e){if(e.status!==404)throw e;await openConversations();error('This meeting is no longer on this Mac. It may have been deleted.');return;}
+   const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','analytics'].includes(tab))switchTab(tab);}
   else if(target==='work'){if(WORK_PANELS[q.get('tab')])workTab=q.get('tab');await $('open-tasks').onclick();const source=q.get('source');if(workTab==='gmail'&&source)await openMail(source);else if(workTab==='chat'&&source){chatSpace=source;await loadChat();}else if(workTab==='github'){if(q.get('section')==='reports'){showGitHubSection('reports');if(q.get('report'))await openRepoReport(q.get('report'));}else if(source&&/^\d+$/.test(source))await openGitHubItem(Number(source));}}
   else if(target==='projects'){
    const project=q.get('project')||'',select=$('workspace-project');
@@ -490,7 +492,7 @@ function renderLibrary() {
  $('library').replaceChildren();
  $('library').classList.toggle('empty',!rows.length);if(!rows.length) $('library').append(el('p','empty-library',query||filter?'No matching meetings.':'No recent meetings.'));
  for(const m of rows.slice(0,5)) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',(m.title.includes(date(m.created))?'':date(m.created)+' · ')+(statusNames[m.status]||m.status))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
- const all=btn('quiet','All meetings in the Library →');all.onclick=()=>perform(openConversations);if(meetings.length)$('library').append(all);
+ const all=btn('quiet library-all','All meetings →');all.title='Open every meeting in the Library';all.onclick=()=>perform(openConversations);if(meetings.length)$('library').append(all);
 }
 async function openMeeting(id,force=false) {
  const sequence=++meetingLoadSequence;
@@ -2439,8 +2441,10 @@ $('delete-meeting').onclick=()=>perform(async()=>{
  $('audio').pause();$('audio').removeAttribute('src');
  dirtyTranscript=dirtyNotes=false;detail=null;selected=null;
  if(window.searchResults) window.searchResults=window.searchResults.filter(m=>m.id!==id);
- show(state?.active?'recording':'setup');window.scrollTo(0,0);if(state?.active)selected=state.active.id;
- state=await api('/api/state');lastLibrary='';renderState();toast('Meeting deleted');
+ state=await api('/api/state');lastLibrary='';
+ // Back to the list the meeting came from, not to a new recording. An active recording stays in front.
+ if(state.active){selected=state.active.id;show('recording');renderState();}else{renderState();await openConversations();}
+ window.scrollTo(0,0);toast('Meeting deleted');
 });
 $('sync-all-meetings').onclick=()=>perform(async()=>{const result=await api('/api/calendar/sync-all',{});toast(result.queued+' saved meetings queued for calendar sync');});
 $('auto-title').onchange=$('calendar-enabled').onchange=settingsFields;

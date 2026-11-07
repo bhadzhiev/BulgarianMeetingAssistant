@@ -108,6 +108,11 @@ while the new-meeting form is open.
 - **Action feedback:** an action that takes longer than a quarter of a second shows a spinner on its
   button and a thin bar at the top of the window. A second press of the same button waits for the first
   action. A button that saved or started something shows a ✓ for a moment. An error shows in red.
+- **Instant changes and Undo:** a checkbox or a list that saves at once shows what changed and an
+  **Undo** button for 8 seconds. This applies to an answered question, the quick task fields (state,
+  owner, due date, next follow-up), the project and destination in Review, and the series type and
+  project color in Settings. A meeting with notes asks before its type changes: **Change type only**,
+  **Change and make new notes**, or **Cancel**.
 
 ## Record an in-person meeting
 

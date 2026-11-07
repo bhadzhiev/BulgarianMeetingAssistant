@@ -265,12 +265,14 @@ async function perform(fn) {
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
 let askQueue=Promise.resolve();
-function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null}={}) {
+// With extra, a third button answers 'extra'.
+function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null,extra=null}={}) {
  const open=()=>new Promise(resolve=>{
   const dialog=$('ask-dialog'), input=$('ask-input');
   $('ask-message').textContent=message; $('ask-ok').textContent=ok; $('ask-cancel').textContent=cancel; $('ask-ok').className=danger?'danger':'primary';
+  $('ask-extra').hidden=!extra; $('ask-extra').textContent=extra||'';
   input.hidden=value===null; input.value=value??''; dialog.returnValue='';
-  dialog.onclose=()=>{ const yes=dialog.returnValue==='ok'; resolve(value===null?yes:yes?input.value:null); };
+  dialog.onclose=()=>{ if(extra&&dialog.returnValue==='extra'){resolve('extra');return;} const yes=dialog.returnValue==='ok'; resolve(value===null?yes:yes?input.value:null); };
   dialog.showModal(); if(value===null) $(danger?'ask-cancel':'ask-ok').focus(); else { input.focus(); input.select(); }
  });
  const answer=askQueue.then(open,open);askQueue=answer.then(()=>{},()=>{});return answer;
@@ -1049,7 +1051,11 @@ function renderMeetingAnalytics(busy=false) {
  if(all.length&&!shown.length)questions.append(emptyNote('No questions match this filter.'));
  for(const question of shown.slice(0,questionLimit)) {
   const row=el('div','question-row'+(question.answered?' answered':'')),toggle=el('input');toggle.type='checkbox';toggle.checked=question.answered;toggle.disabled=busy;toggle.setAttribute('aria-label','Mark question as answered');
-  toggle.onchange=()=>perform(async()=>{const updated=await api('/api/meetings/'+detail.id+'/question',{id:question.id,text:question.text,answered:toggle.checked});detail.analytics=updated;lastFingerprint=JSON.stringify(detail);renderMeetingAnalytics(false);});
+  toggle.onchange=()=>perform(async()=>{
+   const meetingId=detail.id,answered=toggle.checked;
+   const set=async value=>{const updated=await api('/api/meetings/'+meetingId+'/question',{id:question.id,text:question.text,answered:value});if(detail?.id!==meetingId)return;detail.analytics=updated;lastFingerprint=JSON.stringify(detail);renderMeetingAnalytics(false);};
+   try{await set(answered);}catch(e){toggle.checked=!answered;throw e;}
+   undoToast(answered?'Question marked as answered':'Question marked as open',()=>perform(async()=>{await set(!answered);toast('Undone');}));});
   const main=el('div'),text=el('p','',question.text),meta=el('div','tracked-meta'),seek=listenButton(detail.id,question.timestamp||0,{className:'quiet tracked-source'});meta.append(el('span','',question.speaker||'Unknown speaker'),seek);main.append(text,meta);row.append(toggle,main);questions.append(row);
  }
  if(shown.length>questionLimit){const more=btn('secondary','Show all '+shown.length+' questions');more.onclick=()=>{questionLimit=Infinity;renderMeetingAnalytics(busy);};questions.append(more);}
@@ -1430,8 +1436,13 @@ function globalTaskRow(item,today) {
   if(!oldOwner&&item.owner){owner.append(option(item.owner+' · current name','__current__'));oldOwner='__current__';}owner.value=oldOwner;
   const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date for '+item.text);
   const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up for '+item.text);
-  const commit=(input,previous,changes)=>perform(async()=>{if(!validDates(row)){input.value=previous;return;}try{await withEditorSave(row,()=>changeItem(item,changes));}catch(e){input.value=previous;throw e;}});
-  stateSelect.onchange=()=>commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value});owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,oldOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null});};due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null});follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null});
+  const commit=(input,previous,changes,message,undo)=>perform(async()=>{if(!validDates(row)){input.value=previous;return;}try{await withEditorSave(row,()=>changeWithUndo(item,changes,message,undo));}catch(e){input.value=previous;throw e;}});
+  const ownerUndo=oldOwner==='__current__'?{owner_person_id:null,owner:item.owner}:oldOwner?{owner_person_id:oldOwner}:{owner_person_id:null,owner:null};
+  const dayText=(name,value)=>value?name+': '+date(value):name+' removed';
+  stateSelect.onchange=()=>commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value},'State: '+AtlantaTasks.STATES[stateSelect.value],{workflow_state:AtlantaTasks.workflow(item)});
+  owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,oldOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null},owner.value?'Owner: '+owner.selectedOptions[0].textContent:'Owner removed',ownerUndo);};
+  due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null},dayText('Due date',due.value),{due_date:item.due_date||null});
+  follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null},dayText('Next follow-up',follow.value),{follow_up_date:item.follow_up_date||null});
   const addUpdate=actionBtn('secondary small-action','Add update',()=>openTaskPanel(item.id,{focusUpdate:true}));
   const timeline=actionBtn('secondary small-action','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow));const rowActions=el('div','task-row-actions');rowActions.append(doneButton(item),addUpdate,timeline);quick.append(rowActions);main.append(quick);
  }
@@ -2031,11 +2042,21 @@ function renderScope(d) {
  const box=$('detail-scope'), project=projectList().find(p=>p.id===d.project_id), series=seriesOf(d.project_id).find(s=>s.id===d.series_id); box.replaceChildren();
  const edit=el('button','quiet scope-chip'); if(project?.color)edit.append(projectDot(project)); if(project)edit.append(document.createTextNode('Project: '+project.name+(series?' · '+series.name:'')+' '),icon('edit'));else edit.append(document.createTextNode('＋ Add to a project')); edit.type='button'; edit.title='Project and series of this meeting'; edit.onclick=()=>openScopeDialog(d); box.append(edit);
  const type=el('select','scope-chip scope-type'); type.setAttribute('aria-label','Meeting type'); type.title='Meeting type · changes the notes sections and Prepare me'; fillTypes(type,d.meeting_type||'general',d.meeting_template&&!typeList().some(t=>t.id===d.meeting_type)?[option(d.meeting_template.label+' · deleted template',d.meeting_type)]:[]);
- type.onchange=()=>perform(async()=>{const value=type.value;detail=await api('/api/meetings/'+d.id+'/type',{meeting_type:value});lastFingerprint=JSON.stringify(detail);renderDetail();
-  // Saved notes stay; new notes for the type become a proposal that the person reviews.
-  if(detail.minutes&&!['starting','recording','paused','stopping','processing'].includes(detail.status)&&await ask('Make new notes for the type "'+typeOf(value).label+'"?\n\nYour saved notes stay as they are. You review each change before it is applied.',{ok:'Make new notes'})){
-   if(state.settings.summarizer==='none'){openSettings('notes');return;} await api('/api/meetings/'+d.id+'/process',{action:'summarize'}); await openMeeting(d.id,true);
-  } else toast('Meeting type saved');});
+ type.onchange=()=>perform(async()=>{
+  const value=type.value,previous=d.meeting_type||'general',label=typeOf(value).label;
+  const setType=async kind=>{const saved=await api('/api/meetings/'+d.id+'/type',{meeting_type:kind});if(detail?.id!==d.id)return;detail=saved;lastFingerprint=JSON.stringify(detail);renderDetail();};
+  // Saved notes stay; new notes for the type become a proposal that the person reviews. The question comes before the change.
+  let notes=false;
+  if(d.minutes&&!['starting','recording','paused','stopping','processing'].includes(d.status)){
+   const answer=await ask('Change the meeting type to "'+label+'"?\n\nYour saved notes stay as they are. New notes for this type are a proposal: you review each change before it is applied.',{ok:'Change and make new notes',extra:'Change type only'});
+   if(!answer){type.value=previous;return;}
+   notes=answer===true;
+  }
+  try{await setType(value);}catch(e){type.value=previous;throw e;}
+  if(notes){
+   if(state.settings.summarizer==='none'){toast('Meeting type saved. Choose a notes provider to make new notes.');openSettings('notes');return;}
+   await api('/api/meetings/'+d.id+'/process',{action:'summarize'});await openMeeting(d.id,true);toast('Meeting type saved · new notes are being made');
+  } else undoToast('Meeting type: '+label,()=>perform(async()=>{await setType(previous);toast('Undone');}));});
  const typeLabel=el('label','scope-type-label','Type');typeLabel.append(type);box.append(typeLabel);
  const instructions=btn('quiet scope-chip','AI instructions');instructions.onclick=()=>{promptRequestedScope='meeting:'+d.id;openSettings('prompts');};$('detail-secondary-actions').replaceChildren(instructions);
  if(project){const prepare=actionBtn('quiet','Prepare the next meeting',()=>openPrepare(d.project_id,d.series_id||''));$('detail-secondary-actions').append(prepare);}
@@ -2093,8 +2114,8 @@ function renderProjectSettings() {
   line.append(el(kind==='projects'?'strong':'span','',entry.name),rename,remove);
   const change=async body=>{state.projects=(await api('/api/projects/change',Object.assign({kind,id:entry.id},body))).projects;lastProjects='';syncProjects();renderProjectSettings();};
   if(kind==='series'){const type=el('select');type.setAttribute('aria-label','Default meeting type of '+entry.name);type.title='New meetings of this series start with this type';fillTypes(type,entry.type||'general');
-   type.onchange=()=>perform(async()=>{await change({action:'type',name:type.value});toast('New meetings of "'+entry.name+'" start as '+typeOf(type.value).label);});line.insertBefore(type,rename);}
-  if(kind==='projects'){const color=el('input');color.type='color';color.className='project-color';color.value=entry.color||PROJECT_PALETTE[0];color.setAttribute('aria-label','Color of '+entry.name);color.title='Project color, shown on cards and headings';color.onchange=()=>perform(async()=>{await change({action:'color',value:color.value});toast('Color of "'+entry.name+'" saved');});line.insertBefore(color,rename);}
+   type.onchange=()=>perform(async()=>{const previous=entry.type||'general';await change({action:'type',name:type.value});undoToast('New meetings of "'+entry.name+'" start as '+typeOf(type.value).label,()=>perform(async()=>{await change({action:'type',name:previous});toast('Undone');}));});line.insertBefore(type,rename);}
+  if(kind==='projects'){const color=el('input');color.type='color';color.className='project-color';color.value=entry.color||PROJECT_PALETTE[0];color.setAttribute('aria-label','Color of '+entry.name);color.title='Project color, shown on cards and headings';color.onchange=()=>perform(async()=>{const previous=entry.color||PROJECT_PALETTE[0];await change({action:'color',value:color.value});undoToast('Color of "'+entry.name+'" saved',()=>perform(async()=>{await change({action:'color',value:previous});toast('Undone');}));});line.insertBefore(color,rename);}
   rename.onclick=()=>perform(async()=>{const name=await ask('New name',{value:entry.name,ok:'Rename'});if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
   remove.onclick=()=>perform(async()=>{if(await ask('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.',{ok:'Delete',danger:true}))await change({action:'delete'});});
   return line;};
@@ -3101,7 +3122,10 @@ function reviewRouting(item){
  project.append(option(item.project_ids===null?'Meeting project'+(item.effective_project_ids.length?' · '+names(item.effective_project_ids):' · none'):'Use the meeting project','inherit'),...projectList().map(p=>option(p.name,p.id)));
  if(item.project_ids&&item.project_ids.length>1){const several=option('Several · '+names(item.project_ids),'several');several.disabled=true;project.append(several);}
  project.value=item.project_ids===null?'inherit':item.project_ids.length===1?item.project_ids[0]:'several';
- project.onchange=()=>perform(async()=>{project.disabled=true;try{await api('/api/work/project',{id:item.id,revision:item.revision,project_ids:project.value==='inherit'?null:[project.value]});}finally{await openMeetingReview();}});
+ project.onchange=()=>perform(async()=>{
+  const previous=item.project_ids,label=project.selectedOptions[0].textContent;let saved;project.disabled=true;
+  try{saved=await api('/api/work/project',{id:item.id,revision:item.revision,project_ids:project.value==='inherit'?null:[project.value]});}finally{await openMeetingReview();}
+  undoToast('Project: '+label,()=>perform(async()=>{try{await api('/api/work/project',{id:saved.id,revision:saved.revision,project_ids:previous});toast('Undone');}finally{await openMeetingReview();}}));});
  const projectLabel=el('label','review-route','Project');projectLabel.append(project);box.append(projectLabel);
  if(item.kind!=='task')return box;
  const destination=el('select');destination.setAttribute('aria-label','Destination');
@@ -3109,7 +3133,10 @@ function reviewRouting(item){
  const current=item.destination_repository;
  if(current&&!item.repositories.includes(current))destination.append(option(current+' · not in the project',current));
  destination.value=current||'';
- destination.onchange=()=>perform(async()=>{destination.disabled=true;try{await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{destination_repository:destination.value||null}});}finally{await openMeetingReview();}});
+ destination.onchange=()=>perform(async()=>{
+  const label=destination.selectedOptions[0].textContent;let saved;destination.disabled=true;
+  try{saved=await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{destination_repository:destination.value||null}});}finally{await openMeetingReview();}
+  undoToast('Destination: '+label,()=>perform(async()=>{try{await api('/api/items/'+saved.id,{text:saved.text,revision:saved.revision,changes:{destination_repository:current||null}});toast('Undone');}finally{await openMeetingReview();}}));});
  const destinationLabel=el('label','review-route','Destination');destinationLabel.append(destination);box.append(destinationLabel);
  if(!item.repositories.length)box.append(el('span','hint','No repository in the project. Draft in GitHub lets you link one.'));
  {const draft=actionBtn('secondary small-action','Draft in GitHub…',()=>openDraft({kind:'item',id:item.id},'issue'));box.append(draft);}

@@ -67,11 +67,16 @@ function fixture(){
  await assert.rejects(vm.runInContext("withDialogAction($('person-dialog'),action)",failed.c),/network failed/);
  assert(failed.e('person-dialog').open);assert(!failed.e('person-dialog').inert);assert(!failed.c.editorDirty.has());
  // Exercise real ask(): two concurrent callers must receive their own independent answer.
- const nodes={};for(const id of ['ask-dialog','ask-input','ask-message','ask-ok','ask-cancel'])nodes[id]={value:'',focus(){},select(){}};
+ const nodes={};for(const id of ['ask-dialog','ask-input','ask-message','ask-ok','ask-cancel','ask-extra'])nodes[id]={value:'',focus(){},select(){}};
  let shown=0;nodes['ask-dialog'].showModal=function(){assert(!this.open);this.open=true;shown++;};nodes['ask-dialog'].close=function(value){this.returnValue=value;this.open=false;this.onclose();};
  const q=vm.createContext({$:id=>nodes[id]});vm.runInContext(extract('let askQueue=','$(\'ask-input\').onkeydown'),q);
  const one=vm.runInContext("ask('First')",q),two=vm.runInContext("ask('Second',{value:'name'})",q);await tick();assert.equal(shown,1);assert.equal(nodes['ask-message'].textContent,'First');
  nodes['ask-dialog'].close('cancel');assert.equal(await one,false);await tick();assert.equal(shown,2);assert.equal(nodes['ask-message'].textContent,'Second');
  nodes['ask-input'].value='edited';nodes['ask-dialog'].close('ok');assert.equal(await two,'edited');
+ // A third choice answers 'extra'; the button hides again for an ordinary question.
+ const three=vm.runInContext("ask('Type',{ok:'Change and make new notes',extra:'Change type only'})",q);await tick();
+ assert.equal(nodes['ask-extra'].hidden,false);assert.equal(nodes['ask-extra'].textContent,'Change type only');
+ nodes['ask-dialog'].close('extra');assert.equal(await three,'extra');
+ const four=vm.runInContext("ask('Plain')",q);await tick();assert.equal(nodes['ask-extra'].hidden,true);nodes['ask-dialog'].close('extra');assert.equal(await four,false);
  console.log('Dialogs PASS: all 17 policies, close/Escape parity, queued confirmations, save exclusion, error recovery and dirty cleanup.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

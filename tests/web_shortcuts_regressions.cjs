@@ -16,13 +16,15 @@ const extract=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.inde
   openSettings:()=>calls.push('settings'),
   openFind:()=>calls.push('find'),
   view:'setup',
+  navigator:{userAgent:'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko)'},
  });
  vm.runInContext(extract('function appKeys(','// Move the existing heading'),c);
  assert.equal(typeof c.__key,'function','appKeys must register a keydown listener');
- assert.equal(elements['new-meeting'].title,'New meeting (⌥⌘N)');
+ assert.equal(elements['new-meeting'].title,'New meeting (⌘N)','the desktop app shows the plain shortcut');
  assert.equal(elements['settings-open'].title,'Settings (⌘,)');
  assert.equal(elements['open-find'].title,'Search (⌘F)');
- const press=(key,opts={})=>c.__key({key,metaKey:true,ctrlKey:false,shiftKey:false,altKey:false,preventDefault:()=>calls.push('prevent'),...opts});
+ const CODES={n:'KeyN',',':'Comma',f:'KeyF',x:'KeyX'};
+ const press=(key,opts={})=>c.__key({key,code:CODES[key],metaKey:true,ctrlKey:false,shiftKey:false,altKey:false,preventDefault:()=>calls.push('prevent'),...opts});
  press('n');await new Promise(setImmediate);
  assert.deepEqual(calls,['prevent','new'],'⌘N starts a new meeting');
  calls.length=0;press(',');assert.deepEqual(calls,['prevent','settings'],'⌘, opens settings');
@@ -32,6 +34,10 @@ const extract=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.inde
  assert.deepEqual(calls,['prevent','focus','select'],'⌘F on the find view refocuses the query');
  calls.length=0;press('x');assert.deepEqual(calls,[],'unrelated keys pass through');
  calls.length=0;press('f',{metaKey:false});assert.deepEqual(calls,[],'plain typing is untouched');
+ // Option changes event.key on macOS: Option+N is a dead key, the physical key stays KeyN.
+ calls.length=0;c.__key({key:'Dead',code:'KeyN',metaKey:true,altKey:true,ctrlKey:false,shiftKey:false,preventDefault:()=>calls.push('prevent')});await new Promise(setImmediate);
+ assert.deepEqual(calls,['prevent','new'],'⌥⌘N starts a new meeting');
+ calls.length=0;press('f',{altKey:true});assert.deepEqual(calls,[],'⌥⌘F is not Find');
  calls.length=0;dialogOpen=true;press('n');assert.deepEqual(calls,[],'modal dialogs keep their focus');
  console.log('Shortcuts regression PASS: ⌘N new meeting, ⌘, settings, ⌘F find, dialogs and typing untouched.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

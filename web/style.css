@@ -1084,3 +1084,6 @@ button.primary.is-done::after{color:inherit}
 .row-menu .menu-items{right:0;left:auto;min-width:170px}
 .workspace-show-all{margin:6px 0 18px}
 .row-menu .menu-items>button.danger-text:first-child{border-top:0;margin-top:0;border-radius:7px}
+
+/* An empty search result keeps the card padding. */
+.find-empty{padding:20px 24px}

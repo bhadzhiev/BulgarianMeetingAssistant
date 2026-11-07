@@ -8,6 +8,7 @@ function setup(){
  const c=vm.createContext({el:node,$:()=>toastBox,document:{createTextNode:t=>({text:t})},AtlantaTasks:Tasks,validDates:()=>true,
   setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout(){},refreshAfterItemChange:async()=>{},
   perform:async fn=>fn(),api:async(path,body)=>{requests.push({path,body});return {id:'t1',text:'Restore backup',revision:body.revision+1};}});
+ vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
  vm.runInContext(slice('let toastTimer=null;','function knownSpeaker(')+slice('async function changeWithUndo(','async function changeItem(')+slice('async function changeItem(','// A new mention'),c);
  return {c,toastBox,requests,undo:()=>toastBox.children.find(n=>n.text==='Undo')};
 }

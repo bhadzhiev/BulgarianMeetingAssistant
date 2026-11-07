@@ -20,9 +20,9 @@ function fixture(){
 (async()=>{
  const f=fixture(),policies=JSON.parse(vm.runInContext('JSON.stringify(dialogPolicies)',f.c));
  const ids=[...html.matchAll(/<dialog id="([^"]+)"/g)].map(m=>m[1]);
- assert.deepEqual(Object.keys(policies).sort(),ids.sort(),'Every actual modal needs an explicit policy');assert.equal(ids.length,17);
+ assert.deepEqual(Object.keys(policies).sort(),ids.sort(),'Every actual modal needs an explicit policy');assert.equal(ids.length,18);
  const htmlIds=new Set([...html.matchAll(/id="([^"]+)"/g)].map(m=>m[1]));
- for(const p of Object.values(policies))for(const id of [p.close,p.form,...(p.actions||[]),...(p.otherClose||[])].filter(Boolean))assert(htmlIds.has(id),'Missing dialog control '+id);
+ for(const p of Object.values(policies))for(const id of [p.close,p.cancel,p.form,...(p.actions||[]),...(p.otherClose||[])].filter(Boolean))assert(htmlIds.has(id),'Missing dialog control '+id);
  for(const [id,p] of Object.entries(policies)){
   if(!p.close)continue;
   const d=f.e(id),close=f.e(p.close);d.open=true;
@@ -37,6 +37,9 @@ function fixture(){
   f.listeners.cancel[0](event);await tick();assert.equal(d.open,false,id+' Escape closes through the same policy');
   assert.equal(event.prevented,true);assert(!f.c.editorDirty.keys().includes('dialog:'+id));
   d.open=true;await close.onclick();assert.equal(d.open,false,id+' close button uses the same policy');
+  if(p.cancel){d.open=true;await f.e(p.cancel).onclick();assert.equal(d.open,false,id+' footer Cancel uses the same dismissal policy');
+   if(!p.custom&&!p.transient){d.open=true;f.c.editorDirty.set('dialog:'+id,true);f.answers.push(false);await f.e(p.cancel).onclick();assert(d.open,id+' footer preserves edits after Keep editing');f.answers.push(true);await f.e(p.cancel).onclick();assert(!d.open,id+' footer closes after explicit discard');}
+  }
  }
  // Only one discard question, even on repeated close gestures.
  const pending=fixture();let answer;pending.c.ask=()=>new Promise(r=>answer=r);pending.c.editorDirty.set('dialog:person-dialog',true);
@@ -48,6 +51,9 @@ function fixture(){
  const escapeManual={target:manual.e('manual-task-dialog'),preventDefault(){},stopImmediatePropagation(){}};
  manual.listeners.cancel[0](escapeManual);await tick();assert(manual.e('manual-task-dialog').open);
  manual.answers.push(true);manual.listeners.cancel[0](escapeManual);await tick();assert(!manual.e('manual-task-dialog').open);
+ // The new-project prompt must also close with Escape without a missing callback.
+ const project=fixture();const escapeProject={target:project.e('project-dialog'),preventDefault(){this.prevented=true;},stopImmediatePropagation(){}};
+ project.listeners.cancel[0](escapeProject);await tick();assert(escapeProject.prevented);assert(!project.e('project-dialog').open);
  // An in-flight save owns the modal. Double submit/close/Escape cannot bypass it.
  for(const id of ids.filter(id=>policies[id].form||policies[id].actions?.length)){
   const x=fixture();let finish,calls=0;x.c.action=()=>{calls++;return new Promise(r=>finish=r);};

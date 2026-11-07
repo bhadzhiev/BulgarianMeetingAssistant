@@ -1,9 +1,10 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('web/app.js','utf8'),start=source.indexOf('function renderVoiceStatus(){'),end=source.indexOf('function renderSpeakerSettings()',start);
-const nodes={},node=id=>nodes[id]||(nodes[id]={value:'',options:[],selectedOptions:[],classList:{toggle(){}},replaceChildren(...options){this.options=options;}});
+const nodes={},node=id=>nodes[id]||(nodes[id]={dataset:{},setAttribute(k,v){this[k]=v;},value:'',options:[],selectedOptions:[],classList:{toggle(){}},replaceChildren(...options){this.options=options;}});
 node('settings-dialog').open=true;
 const state={speakers:['Same unchanged names'],diarization:{available:true},devices:[],settings:{},active:null};
 const noop=()=>{},context=vm.createContext({state,$:node,AtlantaUX:require('../web/ux.js'),syncSpeakers:noop,syncProjects:noop,desktopStatus:'',lastDevices:JSON.stringify([]),option:(text,value)=>({textContent:text,value}),pending:false,renderReadiness:noop,renderRecordMore:noop,privacy:()=>'',renderTranscriptionTiming:noop,renderGoogleStatus:noop,calendarConnected:()=>false,lastGoogleConnected:false,view:'setup',renderRecordingBar:noop,renderLibrary:noop,renderCaptureSetup:noop});
+vm.runInContext(source.slice(source.indexOf('function setConnection('),source.indexOf('function show(which)')),context);
 vm.runInContext(source.slice(start,end),context);
 const renderStart=source.indexOf('function renderState() {'),renderEnd=source.indexOf('const MARKER_LABELS=',renderStart);vm.runInContext(source.slice(renderStart,renderEnd),context);
 // Drive the real state renderer, with unchanged speaker names and an open settings panel.

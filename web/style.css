@@ -118,7 +118,7 @@ select:disabled{opacity:.55;cursor:default}input::placeholder,textarea::placehol
 .review-change{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line-soft);margin:0;font-size:13px;font-weight:400;cursor:pointer}.review-change input{margin-top:3px}
 .change-kind{display:block;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:4px}.review-change.added .change-kind{color:var(--green)}.review-change.removed .change-kind{color:var(--red)}
 .review-change del{display:block;color:var(--muted);text-decoration:line-through;margin-bottom:3px}.review-change ins{display:block;text-decoration:none;background:var(--ok-soft);border-radius:4px;padding:1px 4px;margin-bottom:4px}.review-change p{margin:0 0 4px}
-.review-footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
+.review-footer{display:flex;justify-content:flex-end;align-items:center;border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
 .marker-panel{margin-top:24px;border-top:1px solid var(--line);padding-top:18px;text-align:left}.marker-panel .hint{margin:8px 0 10px}
 .marker-bar{display:flex;gap:8px;flex-wrap:wrap}.marker-bar input{flex:1;min-width:180px}.marker-bar button{font-size:12px;padding:9px 13px;white-space:nowrap}
 .marker-list{display:flex;flex-direction:column;gap:4px}.marker-row{display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 10px;border-radius:8px;background:var(--surface);border-left:3px solid var(--muted)}
@@ -428,10 +428,11 @@ a.small-action{padding:7px 12px;font-size:12px}
 .transcript-refresh-choice{display:flex;align-items:center;gap:7px;margin:0 auto 0 0;font-size:13px;font-weight:400}.transcript-refresh-choice input{width:auto}.transcript-view-actions{align-items:center;gap:14px;flex-wrap:wrap}
 
 .github-sections{padding:14px 20px;border-bottom:1px solid var(--line)}
-.repo-reports{padding:16px 20px 0}.report-form{display:grid;grid-template-columns:2fr 1.4fr 1fr 1fr;gap:12px;align-items:end}.report-form label{margin:0;font-size:12px}.report-form input{margin-top:6px}.report-form button{grid-column:1/-1;justify-self:start}
+.repo-reports{padding:16px 20px 0}.report-form{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:16px 12px;align-items:start}.report-form label{margin:0;min-width:0;font-size:12px;line-height:20px}.report-form input{margin-top:6px}.report-form>.period-field{grid-column:span 2}.report-form>button{grid-column:1/-1;justify-self:end}
 .report-detail{margin-top:24px;border-top:1px solid var(--line);padding-top:20px}.report-detail .work-actions{margin:16px 0;flex-wrap:wrap}.report-detail select{max-width:460px}.report-coverage,.report-sources{margin:18px 0;padding:12px;border:1px solid var(--line);border-radius:10px}.report-coverage summary,.report-sources summary{cursor:pointer;font-size:13px;font-weight:600}
 .report-findings h4{margin:24px 0 8px}.report-finding{padding:14px 0;border-bottom:1px solid var(--line)}.report-finding>p{font-size:15px;line-height:1.7;margin:0 0 5px}.report-finding blockquote{margin:10px 0;padding:8px 12px;border-left:3px solid var(--green);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.report-finding a{display:block;font-size:12px;margin-bottom:10px}.report-source{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;font-size:12px;line-height:1.6;background:var(--surface);padding:12px;border-radius:8px}.report-sources>details{margin-top:12px}
-@media(max-width:850px){.report-form{grid-template-columns:1fr 1fr}.report-form label:first-child{grid-column:1/-1}}
+@media(max-width:1100px){.report-form{grid-template-columns:repeat(2,minmax(0,1fr))}.report-form>.period-field{grid-column:1/-1}}
+@media(max-width:600px){.report-form{grid-template-columns:minmax(0,1fr)}.report-form>button{width:100%;justify-self:stretch}.report-form .period-dates{grid-template-columns:minmax(0,1fr)}}
 
 .project-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:20px 0}.project-card{text-align:left;display:flex;flex-direction:column;gap:8px;padding:18px;border:1px solid var(--line);border-radius:12px}.project-card.selected{outline:2px solid var(--green)}.workspace-item{padding:16px 0;border-bottom:1px solid var(--line)}.project-assignment{max-width:340px;margin:10px 0;text-align:left}.project-assignment summary{cursor:pointer;color:var(--green)}.project-choice{display:flex;align-items:center;gap:8px;margin:8px 0}.project-choice input{width:auto}
 .project-card-head{display:flex;align-items:center;gap:8px;min-width:0}.project-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;background:var(--line-strong)}h2 .project-dot{display:inline-block;margin-right:8px;vertical-align:middle}.scope-chip .project-dot,.project-assignment summary .project-dot,.hint .project-dot{display:inline-block;margin-right:5px;vertical-align:middle}input[type=color].project-color{width:30px;height:26px;padding:2px;border:1px solid var(--line);border-radius:6px;background:transparent;cursor:pointer}#project-form input[type=color]{width:100%;height:40px;padding:4px;border:1px solid var(--line);border-radius:8px;background:transparent;cursor:pointer}
@@ -900,3 +901,81 @@ button{font-size:14px}
 .input-row{gap:8px}
 @media(max-width:720px){.work-tabs,.settings-tabs{gap:14px}}
 @media(max-width:640px){.heading h1,#conversations h1,#tasks h1,#projects h1{font-size:26px}}
+
+/* Editors keep dismissal beside confirmation, in reading and keyboard order.
+   Operational cancellation (sync/recording/task state) keeps its own context. */
+.editor-actions,.task-card-footer,.tracked-edit-bar{justify-content:flex-end;gap:10px;margin-top:16px;width:100%;min-width:0}
+.review-footer{justify-content:flex-end;gap:10px}
+.editor-actions>button,.tracked-edit-bar>button{max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:40px}
+#task-panel .task-card-footer>button,.turn-speaker-editor .editor-actions>button{margin:0}
+.task-card-footer>.danger-action,.review-footer>.danger,.review-footer>.danger-text{margin-inline-end:auto}
+.tracked-edit-bar>select{flex:1 1 180px;min-width:0}
+@media(max-width:480px){
+ .editor-actions,.task-card-footer,.tracked-edit-bar,.review-footer{flex-direction:column;align-items:stretch;gap:10px}
+ .editor-actions>button,.task-card-footer>button,.tracked-edit-bar>button,.review-footer>button{width:100%;margin:0}
+ .task-card-footer>.danger-action,.review-footer>.danger,.review-footer>.danger-text{margin-inline-end:0}
+ .tracked-edit-bar>select{flex:none;width:100%}
+ .review-footer>span{width:100%;display:flex;flex-wrap:wrap;gap:10px}
+}
+
+#task-panel .task-card-footer{position:sticky;bottom:0;background:var(--card);padding:14px 0;border-top:1px solid var(--line);z-index:2}
+#task-panel .task-card-footer>.danger-action{margin-inline-end:auto}
+@media(max-width:480px){#task-panel .task-card-footer>.danger-action{margin-inline-end:0}}
+
+/* A compact workspace header shares the history row; navigation stays flat. */
+.primary-navigation{display:flex;flex-direction:column;gap:6px;margin:18px 0 12px}
+.sidebar .primary-navigation .sidebar-link{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:42px;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;text-decoration:none;color:var(--side-muted);font-weight:500;line-height:1.4}
+.sidebar .primary-navigation .sidebar-link:hover{background:var(--side-hover);color:var(--side-ink)}
+.sidebar .primary-navigation .sidebar-link.current{background:var(--side-hover);color:var(--side-ink);box-shadow:inset 2px 0 0 var(--green)}
+.sidebar .brand strong{font-size:18px;letter-spacing:1.5px}
+.sidebar .brand{margin-bottom:22px}
+.sidebar .search-label{margin-top:20px;margin-bottom:6px}
+.sidebar #library.empty{flex:0;margin-top:0}
+.sidebar .empty-library{padding:8px 10px;margin:0;font-size:12px}
+.page-header{flex:1;min-width:0}
+.compact-header .topbar{height:auto;min-height:68px;gap:14px;margin-bottom:18px;padding:12px 0}
+.compact-header .topbar-left{flex:none}
+.page-header>.heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:18px;row-gap:2px;margin:0!important}
+.page-header>.heading h1{grid-column:1;grid-row:1;font-size:22px;line-height:1.3;margin:0;letter-spacing:-.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-header>.heading .subheading{grid-column:1;grid-row:2;font-size:12px;line-height:1.4;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-header>.heading .eyebrow{display:none}
+.page-header>.heading>button{grid-column:2;grid-row:1/3;min-height:38px;white-space:nowrap;font-size:13px;padding:9px 14px}
+.compact-header #connection{position:relative;flex:none;width:26px;height:26px;padding:0;font-size:0;background:none;border:0;box-shadow:none;overflow:visible}
+.compact-header #connection:before{content:'';position:absolute;inset:8px;border-radius:50%;background:var(--green)}
+.compact-header #connection[data-status=error]:before{background:var(--danger-ink)}
+.compact-header #connection[data-status=pending]:before{background:var(--muted)}
+.compact-header #connection[data-status=recording]:before{background:var(--danger-ink)}
+.compact-header #connection:hover:after,.compact-header #connection:focus-visible:after{content:attr(aria-label);position:absolute;right:0;top:30px;width:max-content;max-width:260px;font-size:12px;line-height:1.4;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;z-index:30;white-space:normal}
+@media(max-width:1000px){.primary-navigation{gap:8px;margin:14px 0}.sidebar .primary-navigation .sidebar-link{width:48px;height:44px;padding:10px;justify-content:center}.sidebar .primary-navigation .nav-label{display:none}}
+@media(max-width:640px){.primary-navigation{flex-direction:row;gap:4px;margin:0}.sidebar .primary-navigation .sidebar-link{width:44px;padding:10px}.compact-header .topbar{gap:8px;min-height:62px;padding:10px 0;margin-bottom:12px}.page-header>.heading{column-gap:8px}.page-header>.heading h1{font-size:17px}.page-header>.heading .subheading{display:none}.page-header>.heading>button{grid-row:1;font-size:12px;padding:8px 10px;min-height:36px}.compact-header #connection{width:18px}.compact-header #connection:before{inset:8px 4px}.compact-header .history-buttons button{width:23px}}
+
+.dismissible-error{display:flex;align-items:flex-start;gap:12px}
+.error-message{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.dismiss-error{flex:none;min-width:28px;min-height:28px;padding:0!important;margin:0!important;border:0;background:transparent;color:inherit;box-shadow:none;font-size:22px;line-height:28px}
+.dismiss-error:hover{background:var(--danger-soft)}
+
+/* Dismissal controls share one appearance; destructive operations keep their own role. */
+.dismiss-action{min-height:40px;padding:9px 14px!important;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface-2)!important;color:var(--ink)!important;box-shadow:none!important;font-size:13px;font-weight:600;line-height:1.4;text-decoration:none}
+.dismiss-action:hover:not(:disabled){background:var(--surface)!important;border-color:var(--muted)}
+.dialog-close,.dismiss-error{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;min-width:32px;min-height:32px;padding:0!important;border:0;border-radius:8px;background:transparent;color:var(--muted);box-shadow:none!important;font-size:22px;line-height:1}
+.dialog-close:hover:not(:disabled),.dismiss-error:hover:not(:disabled){background:var(--surface-2);color:var(--ink)}
+.dialog-dismiss-row{display:flex;justify-content:flex-end;margin-bottom:8px}
+.note-actions,.transcript-view-actions{display:flex;align-items:center;gap:10px}
+.settings-footer .review-footer{margin-top:12px}
+@media(max-width:480px){
+ .note-actions,.transcript-view-actions{flex-wrap:wrap;justify-content:flex-end}
+ .review-footer>span{flex-direction:column;align-items:stretch}
+ .review-footer>span>button{width:100%}
+ .editor-actions .dismiss-action,.task-card-footer .dismiss-action,.tracked-edit-bar .dismiss-action,.review-footer .dismiss-action{min-height:40px}
+}
+@media(pointer:coarse){.dialog-close,.dismiss-error{width:44px;height:44px;min-width:44px;min-height:44px}}
+
+.editor-actions>button,.tracked-edit-bar>button,.review-footer>button,.review-footer>span>button,.task-card-footer>button,.note-actions>button,.transcript-view-actions>button{min-height:40px;padding:9px 14px;line-height:20px;font-size:13px;border:1px solid transparent}
+.editor-actions>.dismiss-action,.tracked-edit-bar>.dismiss-action,.review-footer>.dismiss-action,.task-card-footer>.dismiss-action,.note-actions>.dismiss-action,.transcript-view-actions>.dismiss-action{border-color:var(--line-strong)}
+#ask-dialog #ask-ok{margin-inline-end:0}
+
+/* The same overflow trigger in navigation, sources, meetings and task rows. */
+.menu>summary.overflow-trigger,.task-more>summary.overflow-trigger{display:inline-flex;align-items:center;justify-content:center;list-style:none;min-width:40px;min-height:40px;padding:0 10px;font-size:20px;font-weight:600;line-height:1;letter-spacing:1px;border-radius:9px;text-align:center}
+.overflow-trigger::-webkit-details-marker{display:none}
+.overflow-trigger::marker{content:''}
+.menu>summary.overflow-trigger.selected{color:var(--green);background:var(--accent-soft-2)}

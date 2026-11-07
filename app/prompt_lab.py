@@ -65,7 +65,7 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
         from .notes_consolidation import messages, schema
         fact=dict(id='preview',field='summary',value=dict(text=snippet,evidence_timestamp='00:00:00'),evidence=[dict(index=0,start=0,end=1,speaker=None,text=snippet)])
         return messages([fact]),schema([fact])
-    if stage=='meeting_minutes':return [dict(role='user',content=llm_prompt('[00:00:00] '+snippet,meeting_type=kind))],minutes_schema(meeting_types.sections(kind))
+    if stage=='meeting_minutes':return [dict(role='user',content=llm_prompt('[00:00:00] '+snippet,meeting_type=kind,vocabulary=(settings or {}).get('whisper_vocabulary','')))],minutes_schema(meeting_types.sections(kind))
     if stage=='transcript_correction':return [dict(role='system',content=correction.system_prompt(settings or {},speakers)),dict(role='user',content=canonical([dict(id=0,text=snippet)]))],correction.schema(1)
     if stage=='meeting_title':
         from .meeting_automation import TITLE_SYSTEM
@@ -93,7 +93,8 @@ def preview(service,body):
     # It is shown before approval; production stages retain their own providers.
     target=service.repo_reports.target();target['_prompt_snapshot']=snapshot
     messages,schema=messages_for(stage,snippet,kind,service.settings,service.library.speakers())
-    target['prompt_test']=dict(stage=stage,messages=messages,schema=schema,snippet=snippet)
+    target['whisper_vocabulary']=service.settings.get('whisper_vocabulary','')
+    target['prompt_test']=dict(stage=stage,messages=messages,schema=schema,snippet=snippet,speakers=service.library.speakers())
     token=digest(dict(target=target,nonce=service.prompts.nonce))
     full=apply(target,messages,stage)+[dict(role='user',content='Return only one JSON object matching this schema: '+json.dumps(schema,ensure_ascii=False))]
     return dict(preview_token=token,revision=snapshot['revision'],target=target,messages=full,schema=schema,effective=snapshot['stages'][stage])
@@ -105,7 +106,9 @@ def generate(settings,key=''):
     # Apply the same semantic checks where a single test source makes them meaningful.
     if stage=='transcript_correction':
         from .correction import accept
-        if set(result)!={'segments'} or len(result['segments'])!=1 or result['segments'][0].get('id')!=0 or not accept(snippet,result['segments'][0].get('text')):raise ValueError('Correction failed the production preservation checks')
+        from .vocabulary import entries, terms
+        protected=[*data.get('speakers',[]),*[term for term in terms(settings.get('whisper_vocabulary','')) if term.casefold() in snippet.casefold()]]
+        if set(result)!={'segments'} or len(result['segments'])!=1 or result['segments'][0].get('id')!=0 or not accept(snippet,result['segments'][0].get('text'), protected, spellings=entries(settings.get('whisper_vocabulary',''))):raise ValueError('Correction failed the production preservation checks')
     elif stage=='meeting_consolidation':
         from .notes_consolidation import validate_plan
         validate_plan(result,[dict(id='preview')])

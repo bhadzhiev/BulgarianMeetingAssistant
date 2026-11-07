@@ -67,7 +67,8 @@ def remove_hallucinations(text: str) -> str:
 def build_prompt(vocabulary: str, speakers=()) -> str:
     """A short list of terms and names. Whisper uses it to spell rare words correctly."""
     items, seen = [], set()
-    for item in re.split(r'[,;\n]', vocabulary or '') + list(speakers):
+    from .vocabulary import terms
+    for item in terms(vocabulary or '') + list(speakers):
         item = ' '.join(str(item).split())
         if item and item.casefold() not in seen:
             seen.add(item.casefold())

@@ -20,7 +20,8 @@ class KeyStore(CredentialStore):
 
 
 def keyterms(vocabulary):
-    terms = list(dict.fromkeys(term.strip() for term in re.split(r'[,\n]', vocabulary) if term.strip()))
+    from .vocabulary import terms as preferred_terms
+    terms = preferred_terms(vocabulary)
     if len(terms) > 1000 or any(len(t) > 50 or len(t.split()) > 5 or any(c in t for c in '<>{}[]\\') for t in terms):
         raise ValueError('Scribe vocabulary: use up to 1000 terms, each at most 50 characters and 5 words; avoid < > { } [ ] and backslash.')
     return terms

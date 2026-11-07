@@ -431,9 +431,10 @@ scores, and does not perform sentiment analysis.
   separated before this feature. The prints stay on this Mac and are deleted with the meeting.
 - **Topic trackers.** Manage shared trackers in **Settings → Topic trackers**. Literal
   phrases match locally and case-insensitively, with timestamped transcript evidence.
-  Optional semantic matching uses only the configured Local AI endpoint and validates every
-  returned segment ID. There is no cloud fallback. If semantic matching fails, literal hits
-  remain available and the meeting shows a separate analytics warning.
+  Optional matching by meaning uses the Configured API (on this Mac or a cloud API) and validates every
+  returned segment ID. A match must be about the topic in its own words; a reply of one or two words
+  never matches. If this matching fails, literal hits remain available and the meeting shows a separate
+  analytics warning. A speaker rename reuses the earlier matches.
 - **Question detection.** Deterministic Bulgarian and English cues and question punctuation
   identify questions, including Bulgarian questions without `?`. Answers are never inferred;
   mark questions answered manually. Reanalysis preserves answered state where the stable

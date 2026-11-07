@@ -177,6 +177,16 @@ def literal_topic_matches(segments, tracker) -> list[dict]:
     return matches
 
 
+# A match is evidence: the words of the segment itself are about the topic. Without this rule, a model
+# with a fixed temperature returned 2 or 29 matches for the same meeting, most of them nearby replies.
+TOPIC_RULES = ('Match transcript segments to a discussion topic. A segment matches only when its own words are about the topic: '
+               'they name the topic, a synonym, one of the phrases, a product or a part of it, or they state a fact, a request, '
+               'a problem or a decision about it. Do not match a segment only because the segments near it are about the topic. '
+               'Do not match short replies (yes, no, ok, agreed), fillers, greetings or unfinished fragments. '
+               'Return only segment IDs that appear in the transcript.')
+MIN_SEMANTIC_WORDS = 3
+
+
 def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict]:
     from .local_ai import complete_json
     schema = {
@@ -187,7 +197,7 @@ def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict
     }
     transcript = '\n'.join(f'[{index}] {segment.get("text", "")}' for index, segment in enumerate(segments))
     messages = [
-        {'role': 'system', 'content': 'Match transcript segments to a discussion topic. Return only relevant segment IDs; do not infer IDs that are absent.'},
+        {'role': 'system', 'content': TOPIC_RULES},
         {'role': 'user', 'content': f'Topic: {tracker["name"]}\nPhrases: {json.dumps(tracker.get("phrases", []), ensure_ascii=False)}\nTranscript:\n{transcript}'},
     ]
     response = complete_json(settings, messages, schema, 'topic_matches', timeout=300, api_key=api_key)
@@ -197,6 +207,9 @@ def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict
     matches = []
     for index in sorted(set(ids)):
         segment = segments[index]
+        # A reply of one or two words is not evidence of a topic, whatever the model says.
+        if len(str(segment.get('text', '')).split()) < MIN_SEMANTIC_WORDS:
+            continue
         matches.append({
             'segment_index': index,
             'timestamp': float(segment['start']),

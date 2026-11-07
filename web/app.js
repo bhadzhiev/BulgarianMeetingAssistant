@@ -859,6 +859,7 @@ async function reviewNotes(action,accept) {
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
 }
 function consolidationProof(audit){
+ if(audit.status==='failed'){const note=el('p','notice warning consolidation-failed','Repeated statements from '+AtlantaUX.count(audit.parts||0,'part')+' of this long meeting were not merged, so some may appear twice. '+(audit.error?'Reason: '+audit.error+'. ':'')+'Choose Generate new AI notes to try again; finished parts are reused.');return note;}
  const box=el('details','consolidation-proof'),groups=Object.values(audit.groups||{}).filter(group=>(group.members||[]).length>1);
  box.append(el('summary','','Consolidation evidence · '+(audit.merged||0)+((audit.merged||0)===1?' repeated statement grouped':' repeated statements grouped')));
  box.append(el('p','hint','AI grouped extracted statements. Review the original wording and moments below; grouping does not confirm a task or decision.'));

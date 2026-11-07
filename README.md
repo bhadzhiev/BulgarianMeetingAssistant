@@ -92,7 +92,8 @@ while the new-meeting form is open.
 
 - **Sidebar:** New meeting, My Work, Library and Projects. **Library** holds Conversations, Search & ask
   and Analytics as tabs. **Prepare me** opens from a project (**Projects → Prepare me**) or from the
-  project chip of a meeting.
+  project chip of a meeting. Without a chosen project, it starts with the project of the newest meeting
+  that has one, or asks you to choose.
 - **Back and Forward:** every view and tab has its own address. Use the ‹ › buttons in the top bar,
   ⌘[ and ⌘], or Alt+← and Alt+→. A reload keeps the view, the tab and the selected project.
 - **Recording bar:** while a meeting records, a bar stays at the top of every other view. It shows the

@@ -901,7 +901,9 @@ async function reviewNotes(action,accept) {
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
 }
 function consolidationProof(audit){
- if(audit.status==='failed'){const note=el('p','notice warning consolidation-failed','Repeated statements from '+AtlantaUX.count(audit.parts||0,'part')+' of this long meeting were not merged, so some may appear twice. '+(audit.error?'Reason: '+audit.error+'. ':'')+'Choose Generate new AI notes to try again; finished parts are reused.');return note;}
+ if(audit.status==='failed'){const note=el('p','notice warning consolidation-failed','Some statements may appear twice. The AI could not merge the repeated statements of '+AtlantaUX.count(audit.parts||0,'part')+' of this long meeting. Choose Generate new AI notes to try again; finished parts are reused.');
+  // The technical reason helps support, not the reader of the notes.
+  if(audit.error)note.title='Technical reason: '+audit.error;return note;}
  const box=el('details','consolidation-proof'),groups=Object.values(audit.groups||{}).filter(group=>(group.members||[]).length>1);
  box.append(el('summary','','Consolidation evidence · '+(audit.merged||0)+((audit.merged||0)===1?' repeated statement grouped':' repeated statements grouped')));
  box.append(el('p','hint','AI grouped extracted statements. Review the original wording and moments below; grouping does not confirm a task or decision.'));
@@ -2177,9 +2179,14 @@ function sourceChip(source) {
  chip.onclick=()=>perform(async()=>{await openMeeting(source.meeting_id);if(source.timestamp&&detail.transcript.length)showMoment(source.timestamp);else switchTab('outcomes');});
  return chip;
 }
+// The project of the newest meeting that has one. Without such a meeting, the person chooses.
+function latestMeetingProject(){
+ const known=new Set(projectList().map(p=>p.id));
+ return [...(state?.meetings||[])].filter(m=>known.has(m.project_id)).sort((a,b)=>String(b.started_at||b.created).localeCompare(String(a.started_at||a.created)))[0]?.project_id||'';
+}
 async function openPrepare(projectId,seriesId,kind) {
  if(!(await leaveEdits())) return; dirtyTranscript=dirtyNotes=false; selected=null; show('prepare');
- prepareScope={project:projectId||prepareScope.project||projectList()[0]?.id||'',series:projectId?seriesId||'':prepareScope.series,type:kind||''};
+ prepareScope={project:projectId||prepareScope.project||latestMeetingProject(),series:projectId?seriesId||'':prepareScope.series,type:kind||''};
  renderLibrary(); await loadPrepare();
 }
 async function loadPrepare() {
@@ -2255,7 +2262,7 @@ async function runFind() {
  const results=await api('/api/find?'+new URLSearchParams({q:query,kind:findKind,project:$('find-project').value}));
  // A slower answer to an earlier search must not replace the newer results.
  if(sequence!==findSequence)return;
- if(!results.length){$('find-results').append(el('p','empty-content card','Nothing matches. Try fewer or other words.'));return;}
+ if(!results.length){$('find-results').append(el('p','empty-content card find-empty','Nothing matches. Try fewer or other words.'));return;}
  for(const [title,kinds] of RESULT_GROUPS) { const rows=results.filter(r=>kinds.includes(r.kind)); if(!rows.length) continue;
   const card=el('div','card result-group'); card.append(el('h2','',title+' · '+rows.length),...rows.map(resultRow)); $('find-results').append(card); }
 }
@@ -3370,7 +3377,7 @@ function openTurnSpeakerEditor(d,turn,row,button,busy){
  };
 }
 
-$('open-vocabulary-settings').onclick=()=>{showSettingsTab('vocabulary');$('whisper-vocabulary').focus();};
+
 
 let reprocessToken=null,reprocessSequence=0;
 function invalidateReprocess(){++reprocessSequence;reprocessToken=null;$('reprocess-run').disabled=true;$('reprocess-status').hidden=true;}

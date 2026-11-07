@@ -624,18 +624,14 @@ A local model can take several minutes; the answer shows the time and a **Stop w
 model server may still finish a request after you stop waiting, before it starts the next one.
 With "Local · Configured API" notes, the question and passages stay on this Mac.
 
-### Known speakers
+### People and meeting participants
 
-The app keeps one list of known speakers for all meetings in `meetings/speakers.json`.
-
-- Manage the list in **Settings → Known speakers**. Add or remove names there.
-- When you save transcript corrections, new speaker labels are added to the list.
-- Speaker and task-owner fields suggest the known names.
-- A known speaker gets a coloured badge with initials. The colour is the same in all meetings.
-  A label that is not yet known shows **NEW**. The transcript header shows each speaker and
-  the number of segments.
-- Notes generation receives the list. The model uses these exact spellings for task owners
-  when the transcript names the person. The list alone does not make a person a participant.
+Manage everyone in **Settings → People & sources → People**. The same profile supplies
+participant names, task owners, aliases and confirmed channel identities. New names you save
+in a transcript are added to People; anonymous diarization labels remain meeting-local.
+Choosing another person in a meeting changes that meeting, without adding a global alias.
+Edit aliases explicitly in People. Notes receive preferred names as spelling context, never
+as evidence that someone attended or accepted a task.
 
 ### Delete a meeting
 
@@ -1516,3 +1512,20 @@ account limits at https://elevenlabs.io/pricing/api before processing long recor
 AI transcript correction does not run automatically after Scribe. To run it on a Scribe
 transcript, choose **AI text correction** explicitly. Notes and title generation keep their
 separately chosen providers.
+
+### One People directory for meeting participants
+
+People is the shared directory for meeting participants, task owners and confirmed channel
+identities. Naming a new participant creates a People profile; choosing an existing person
+changes the participant in this meeting, without adding a global alias. Edit global aliases
+explicitly in the person's profile. Person renames retain the old name as an alias, preserving
+older meetings, task ownership and voice matching.
+
+Legacy `speakers.json` names import once into `people.json`. Exact unique names/aliases reuse
+existing profiles and IDs. Original legacy bytes remain in `speakers.migrated-*.json`; the old
+list is no longer a live registry. Ambiguous matches require review in People. Corrupt source
+files are retained and reported. Unidentified `SPEAKER_00` labels stay meeting-local.
+
+Optional voice matching uses profiles already present in People and only proposes a name.
+The person's detail shows current local voice samples. Deleting a person stops future voice
+suggestions for that profile; original meetings, audio and saved task text remain available.

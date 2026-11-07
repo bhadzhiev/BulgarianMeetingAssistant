@@ -115,6 +115,7 @@ class ServiceVoiceTests(unittest.TestCase):
         return key
 
     def test_detail_suggests_and_the_applied_name_renames_the_prints(self):
+        self.s.save_person(dict(name='Мария'))
         detail = self.s.detail(self.new)
         self.assertEqual(detail['voice_suggestions']['SPEAKER_00']['name'], 'Мария')
         self.s.edit(self.new, dict(speaker_name=dict(speaker='SPEAKER_00', name='Мария', revision=detail['transcript_revision'])))
@@ -125,6 +126,19 @@ class ServiceVoiceTests(unittest.TestCase):
     def test_a_person_alias_suggests_the_person_name(self):
         self.s.save_person(dict(name='Мария Петрова', aliases=['Мария']))
         self.assertEqual(self.s.detail(self.new)['voice_suggestions']['SPEAKER_00']['name'], 'Мария Петрова')
+
+    def test_only_existing_people_are_suggested_and_deletion_stops_matching(self):
+        self.assertEqual(self.s.detail(self.new)['voice_suggestions'], {})
+        person = self.s.save_person(dict(name='Мария'))['person']
+        self.assertEqual(self.s.detail(self.new)['voice_suggestions']['SPEAKER_00']['name'], 'Мария')
+        self.s.delete_person(person['id'], person['revision'])
+        self.assertEqual(self.s.detail(self.new)['voice_suggestions'], {})
+        self.assertTrue(voices.current(self.s.library.directory(self.known)))
+
+    def test_local_voice_samples_are_shown_in_the_person_profile(self):
+        person = self.s.save_person(dict(name='Мария Петрова', aliases=['Мария']))['person']
+        samples = self.s.person_profile(person['id'])['voice_samples']
+        self.assertEqual(samples, [dict(meeting_id=self.known, seconds=20)])
 
     def test_learning_runs_only_for_stale_prints(self):
         directory = self.s.library.directory(self.known)

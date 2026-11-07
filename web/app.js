@@ -44,18 +44,19 @@ function undoToast(message,undo){
  box.replaceChildren(document.createTextNode(message+' · '),button);box.hidden=false;
  button.onclick=()=>{clearTimeout(toastTimer);box.hidden=true;undo();};toastTimer=setTimeout(()=>box.hidden=true,8000);
 }
-function knownSpeaker(name) { const key=(name||'').trim().toLocaleLowerCase();if(/^speaker[ _-]?\d+$/i.test(key))return null; return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
+function participantLabel(name){if(!name)return 'Unidentified participant';const match=/^SPEAKER[ _-]?(\d+)$/i.exec(name);return match?'Participant '+(Number(match[1])+1):knownSpeaker(name)||name;}
+function knownSpeaker(name) { const person=personFor(name);if(person)return person.name;if(Array.isArray(state?.people))return null;const key=(name||'').trim().toLocaleLowerCase();if(/^speaker[ _-]?\d+$/i.test(key))return null; return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
 function speakerTone(name) { let hash=0; for(const c of name.toLocaleLowerCase()) hash=(hash*31+c.codePointAt(0))>>>0; return 'tone-'+(hash%8); }
 function initials(name) { return name.split(/\s+/).filter(Boolean).slice(0,2).map(word=>[...word][0].toLocaleUpperCase()).join(''); }
 function speakerBadge(target,name) {
- const known=knownSpeaker(name); name=(name||'').trim();
+ const known=knownSpeaker(name); name=(name||'').trim();if(/^SPEAKER[ _-]?\d+$/i.test(name))name='';
  target.className='speaker-badge'+(known?' '+speakerTone(known):name?' new':' empty');
  target.textContent=known?initials(known):name?'NEW':'?';
- target.title=known?'Known speaker · '+known:name?'New speaker · added to known speakers when you save corrections':'No speaker label';
+ target.title=known?'Person · '+known:name?'Participant · added to People when you save a name':'Unidentified participant';
  return target;
 }
 function syncSpeakers() {
- const signature=JSON.stringify(state.speakers||[]); if(signature===lastSpeakers) return; lastSpeakers=signature;
+ const signature=JSON.stringify([state.speakers||[],state.people||[]]); if(signature===lastSpeakers) return; lastSpeakers=signature;
  $('known-speakers').replaceChildren(...(state.speakers||[]).map(name=>{const option=document.createElement('option');option.value=name;return option;}));
  if($('settings-dialog').open){ renderSpeakerSettings(); renderPeople(); }
  // Re-annotate the open meeting unless that would discard typing.
@@ -65,7 +66,7 @@ function renderSpeakerLegend() {
  const target=$('speaker-legend'), counts=new Map(); target.replaceChildren();
  for(const s of detail.transcript) { if(!s.speaker) continue; const name=knownSpeaker(s.speaker)||s.speaker.trim(); counts.set(name,(counts.get(name)||0)+1); }
  target.hidden=!counts.size;
- for(const [name,count] of counts) { const chip=el('span','speaker-chip'); chip.append(speakerBadge(el('span'),name),el('span','',name+' · '+count)); target.append(chip); }
+ for(const [name,count] of counts) { const chip=el('span','speaker-chip'); chip.append(speakerBadge(el('span'),name),el('span','',participantLabel(name)+' · '+count)); target.append(chip); }
 }
 // After the meeting: one list of what still needs a person, each with the step that resolves it.
 function renderAttention(busy){
@@ -98,10 +99,10 @@ function renderAttention(busy){
  box.append(head,...items);box.classList.toggle('done',!items.length);
 }
 function renderSpeakerReview(busy) {
- const target=$('speaker-review');target.replaceChildren();$('speaker-review-count').textContent=AtlantaUX.count(new Set(detail.transcript.map(s=>s.speaker).filter(Boolean)).size,'speaker');
+ const target=$('speaker-review');target.replaceChildren();$('speaker-review-count').textContent=AtlantaUX.count(new Set(detail.transcript.map(s=>s.speaker).filter(Boolean)).size,'participant');
  const hasAudio=detail.files.includes('recording.wav'), names=[...new Set(detail.transcript.map(s=>s.speaker).filter(Boolean))];
  if(!detail.transcript.length)return;
- target.append(el('h3','','Speakers · after recording'));
+ target.append(el('h3','','Participants · after recording'));
  const runtime=state.diarization||{}, meta=detail.transcript_metadata?.speaker_alignment;
  const description=el('p','hint',detail.diarization_error?'Speaker separation could not finish · '+detail.diarization_error:
   meta?'Aligned using '+meta.method+'. Speaker boundaries are estimates; listen and confirm names.':
@@ -113,12 +114,10 @@ function renderSpeakerReview(busy) {
   identify.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+detail.id+'/process',{action:'speakers'});await openMeeting(detail.id,true);});target.append(identify);}
  if(!names.length){target.append(el('p','hint',hasAudio?'No speaker labels yet. The transcript remains available.':'Speaker separation needs recorded audio. You can add labels manually.'));return;}
  for(const name of names){
-  const sample=detail.transcript.find(s=>s.speaker===name), row=el('div','input-row speaker-review-row'), label=el('strong','',name), listen=listenButton(detail.id,sample.start,{label:'Listen from '+time(sample.start),className:'quiet'});
-  const input=el('input');input.placeholder='Participant name';input.value=/^SPEAKER[ _-]?\d+$/i.test(name)?'':name;input.maxLength=120;input.setAttribute('list','known-speakers');input.setAttribute('aria-label','Participant name for '+name);input.disabled=busy;input.oninput=()=>{speakerNaming=true;};
+  const sample=detail.transcript.find(s=>s.speaker===name), row=el('div','input-row speaker-review-row'), label=el('strong','',participantLabel(name)), listen=listenButton(detail.id,sample.start,{label:'Listen from '+time(sample.start),className:'quiet'});
   const apply=async value=>{if(dirtyTranscript||dirtyNotes||itemEditing){error('Save other corrections before naming speakers.');return false;}
    detail=await api('/api/meetings/'+detail.id+'/edit',{speaker_name:{speaker:name,name:value,revision:detail.transcript_revision}});speakerNaming=false;lastFingerprint=JSON.stringify(detail);state=await api('/api/state');renderState();renderDetail();return true;};
-  const save=btn('secondary','Apply name');save.disabled=busy;save.onclick=()=>perform(async()=>{if(!input.value.trim()){error('Enter a participant name.');return;}if(await apply(input.value.trim()))toast('Speaker name applied to this meeting');});
-  row.append(label,listen,input,save,thisIs(name,busy,apply));target.append(row);
+  row.append(label,listen,thisIs(name,busy,apply));target.append(row);
   // A voice suggestion is only a hint: listen first, and nothing changes until a person applies it.
   const voice=detail.voice_suggestions?.[name];
   if(voice){const hint=el('p','hint voice-hint','Sounds like '+voice.name+' from '+AtlantaUX.count(voice.meetings,'earlier meeting')+' · similarity '+voice.similarity.toFixed(2)+' '),use=el('button','secondary small-action','Use '+voice.name);
@@ -126,21 +125,19 @@ function renderSpeakerReview(busy) {
  }
 }
 // The person that a speaker name belongs to: the same name or one of the person's other names.
-function personFor(name) { const key=(name||'').trim().toLocaleLowerCase(); return key?(state.people||[]).find(p=>[p.name,...p.aliases].some(n=>n.toLocaleLowerCase()===key))||null:null; }
+function personFor(name) { const key=(name||'').trim().toLocaleLowerCase();if(!key||/^SPEAKER[ _-]?\d+$/i.test(key))return null;const matches=(state.people||[]).filter(p=>[p.name,...p.aliases].some(n=>n.toLocaleLowerCase()===key));return matches.length===1?matches[0]:null; }
 // "This is …" links a speaker of this meeting to a person. A numbered speaker takes the person's name;
-// a name already given here stays and becomes one of the person's other names, so later meetings link too.
+// changing a participant affects this meeting only. Global aliases are edited in People.
 let pendingSpeaker=null;
 function thisIs(name,busy,apply) {
  const linked=personFor(name), generic=/^SPEAKER[ _-]?\d+$/i.test(name), select=el('select','this-is');
- select.setAttribute('aria-label','Link '+name+' to a person'); select.disabled=busy; select.title=linked?'Linked to '+linked.name+'. Choose another person to change it.':'Choose the person who speaks here';
+ select.setAttribute('aria-label','Link '+participantLabel(name)+' to a person'); select.disabled=busy; select.title=linked?'Linked to '+linked.name+'. Choose another person to change it.':'Choose the person who speaks here';
  select.append(option(linked?'✓ '+linked.name:'This is…',''),...(state.people||[]).filter(p=>p!==linked).map(p=>option(p.name,p.id)),option('＋ New person…','__new__'));
  select.onchange=()=>perform(async()=>{
   const value=select.value; select.value='';
   if(value==='__new__'){await openPerson(null);if(!generic)$('person-name').value=name;$('person-name').focus();pendingSpeaker={meeting:detail.id,name,generic,apply};return;}
   const person=(state.people||[]).find(p=>p.id===value); if(!person) return;
-  if(generic||personFor(name)){if(await apply(person.name))toast(name+' is '+person.name+' in this meeting');return;}
-  const result=await api('/api/people/save',Object.assign({},person,{aliases:[...person.aliases,name]}));
-  state.people=result.people; renderPeople(); renderDetail(); toast('"'+name+'" is now one of the names of '+person.name);
+  if(await apply(person.name))toast('Participant linked to '+person.name+' in this meeting');
  });
  return select;
 }
@@ -150,10 +147,10 @@ function renderVoiceStatus(){
  $('learn-voices').disabled=!available||voice.running;
 }
 function renderSpeakerSettings() {
- const list=$('speaker-list'), names=state.speakers||[]; list.replaceChildren();
  renderVoiceStatus();
- if(!names.length) list.append(el('p','hint','No known speakers yet.'));
- for(const name of names) { const chip=el('span','speaker-chip'); const remove=btn('quiet');remove.append(icon('close'));remove.setAttribute('aria-label','Remove '+name); remove.onclick=()=>perform(()=>saveSpeakers(names.filter(n=>n!==name))); chip.append(speakerBadge(el('span'),name),el('span','',name),remove); list.append(chip); }
+ const notice=$('people-migration'),report=state.people_migration||{};
+ notice.hidden=!report.error&&!report.unresolved?.length;
+ notice.textContent=report.error||((report.unresolved||[]).length?'These old participant names need review: '+report.unresolved.join(', ')+'. Review their People profiles and choose the person in each meeting.':'');
 }
 // People: one real person behind names, task owners and a GitHub account. Confirmed by a person only.
 function renderPeople(){
@@ -163,7 +160,7 @@ function renderPeople(){
    el('span','hint',[person.aliases.length?'Also: '+person.aliases.join(', '):'',person.github?'@'+person.github.login+(person.github.id?'':' · not checked'):''].filter(Boolean).join(' · ')));
   row.onclick=()=>perform(()=>openPerson(person.id));list.append(row);
  }
- if(!(state.people||[]).length)list.append(el('p','hint','No people yet. Add the people you meet often; their known names can stay as speakers above.'));
+ if(!(state.people||[]).length)list.append(el('p','hint','No people yet. Add a person here or name a participant in a meeting. The same profile is used for tasks and connected sources.'));
 }
 let personEditing=null,personGitHub=null,personSequence=0;
 const splitList=value=>value.split(',').map(x=>x.trim()).filter(Boolean);
@@ -181,6 +178,7 @@ async function openPerson(id){
 }
 function renderProfile(profile){
  const box=$('person-profile');box.replaceChildren(el('h3','','What '+profile.person.name+' said and took on'));
+ if(profile.voice_samples?.length)box.append(el('p','hint','Voice profile · samples from '+AtlantaUX.count(profile.voice_samples.length,'meeting')+' on this Mac. Matching only suggests a person; you confirm it.'));
  box.append(el('p','hint',profile.statements+(profile.statements===1?' statement':' statements')+' in '+profile.meetings+(profile.meetings===1?' meeting':' meetings')+', from transcripts where a speaker has one of the names above.'));
  const list=(title,rows,render,empty)=>{const section=el('section','profile-section');section.append(el('h4','',title));if(!rows.length)section.append(el('p','hint',empty));for(const row of rows)section.append(render(row));box.append(section);};
  renderChannelProfile(profile);
@@ -206,12 +204,12 @@ $('person-form').onsubmit=event=>{event.preventDefault();return perform(async()=
  try{const result=await api('/api/people/save',{id:personEditing?.id,revision:personEditing?.revision,name:$('person-name').value,aliases:splitList($('person-aliases').value),emails:splitList($('person-emails').value),github,notes:$('person-notes').value});
   // A person created from "This is …" is linked to that speaker at once.
   const link=pendingSpeaker;pendingSpeaker=null;
-  state.people=result.people;renderPeople();$('person-dialog').close();toast('Saved '+result.person.name);
+  state.people=result.people;state.speakers=result.speakers||state.speakers;renderPeople();syncSpeakers();$('person-dialog').close();toast('Saved '+result.person.name);
   if(link&&!personEditing&&detail?.id===link.meeting){if(link.generic||!personFor(link.name)){if(await link.apply(result.person.name))toast(link.name+' is '+result.person.name+' in this meeting');}else renderDetail();}}
  catch(e){showError($('person-error'),e.message);}});};
 $('person-delete').onclick=()=>perform(async()=>{if(!personEditing||!(await ask('Delete '+personEditing.name+'? Meetings, tasks and speaker names stay as they are.',{ok:'Delete',danger:true})))return;
- const result=await api('/api/people/delete',{id:personEditing.id,revision:personEditing.revision});state.people=result.people;renderPeople();$('person-dialog').close();});
-async function saveSpeakers(names) { const result=await api('/api/speakers',{speakers:names}); state.speakers=result.speakers; renderSpeakerSettings(); syncSpeakers(); }
+ const result=await api('/api/people/delete',{id:personEditing.id,revision:personEditing.revision});state.people=result.people;state.speakers=result.speakers||state.speakers;renderPeople();syncSpeakers();$('person-dialog').close();});
+
 async function readApiResponse(response){
  const text=await response.text();let data;
  const sessionMessage='Your Atlanta session is no longer valid. Open Atlanta again using its launcher. Your saved work is kept.';
@@ -621,7 +619,7 @@ function transcriptElement(index) { return $('transcript').querySelector('[data-
 function renderTranscript(d,busy) {
  const target=$('transcript');target.replaceChildren();if(transcriptEditing&&!dirtyTranscript)transcriptBaseline=structuredClone(d.transcript);
  $('edit-transcript').disabled=busy||!d.transcript.length;$('save-transcript').hidden=!transcriptEditing;$('save-transcript').disabled=!dirtyTranscript||busy;$('save-excerpt').hidden=true;
- $('transcript-heading').textContent='Transcript · '+AtlantaUX.count(d.transcript.length,'segment')+' · '+AtlantaUX.count(new Set(d.transcript.map(v=>v.speaker).filter(Boolean)).size,'speaker');
+ $('transcript-heading').textContent='Transcript · '+AtlantaUX.count(d.transcript.length,'segment')+' · '+AtlantaUX.count(new Set(d.transcript.map(v=>v.speaker).filter(Boolean)).size,'participant');
  if(!d.transcript.length){target.append(emptyNote(d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));return;}
  $('edit-transcript').disabled=busy||!d.transcript.length;$('edit-transcript').textContent=transcriptEditing?'Cancel editing':'Edit transcript';$('edit-transcript').setAttribute('aria-pressed',String(transcriptEditing));$('save-transcript').hidden=!transcriptEditing;
  const toolbar=el('div','transcript-view-actions');if(transcriptEditing)target.append(toolbar);
@@ -633,7 +631,7 @@ function renderTranscript(d,busy) {
  for(const turn of transcriptTurns(d.transcript)) {
   const row=el('article','dialogue-turn'+(!turn.speaker||/^SPEAKER[ _-]?\d+$/i.test(turn.speaker)?' uncertain':'')),header=el('div','dialogue-heading'),first=turn.segments[0].segment;
   const seek=listenButton(d.id,first.start,{className:'quiet dialogue-time'});
-  const speakerChoice=btn('quiet dialogue-speaker',turn.speaker||'Unidentified speaker');speakerChoice.disabled=busy;speakerChoice.title='Change speaker for this turn only';speakerChoice.setAttribute('aria-label','Change speaker at '+time(first.start));
+  const speakerChoice=btn('quiet dialogue-speaker',participantLabel(turn.speaker));speakerChoice.disabled=busy;speakerChoice.title='Change speaker for this turn only';speakerChoice.setAttribute('aria-label','Change speaker at '+time(first.start));
   speakerChoice.onclick=()=>openTurnSpeakerEditor(d,turn,row,speakerChoice,busy);
   header.append(speakerBadge(el('span'),turn.speaker),speakerChoice,seek);
   const text=el('p','dialogue-text');
@@ -1138,7 +1136,7 @@ async function closeSettings(){
  if(settingsValues()!==settingsOpened&&!(await ask('Discard the changes in Settings? They are not saved.',{ok:'Discard changes',cancel:'Keep editing',danger:true})))return;
  editorDirty.clear('ai-prompts');$('settings-dialog').close();
 }
-function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('diarization-runtime').textContent=state.diarization?.message||'Speaker separation is checked after recording.';$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('elevenlabs-api-key').value='';$('forget-elevenlabs-key').disabled=!state.elevenlabs_api_key_configured;$('elevenlabs-key-state').textContent=state.elevenlabs_key_error?'· '+state.elevenlabs_key_error:state.elevenlabs_api_key_configured?'· configured':'';$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();$('new-speaker').value='';showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();markProfile();renderPeople();settingsOpened=settingsValues();
+function openSettings(tab) { if(!state)return; clearError(); const s=state.settings;$('local-ai-base-url').value=s.local_ai_base_url;$('local-ai-model').value=s.local_ai_model;$('local-ai-format').value=s.local_ai_format;$('local-ai-reasoning').value=s.local_ai_reasoning;$('local-ai-max-tokens').value=s.local_ai_max_tokens;$('local-ai-status').textContent='';localModels=[];renderLocalModels();$('provider').value=s.transcription;$('local-model').value=s.local_model;$('audio-preparation').value=s.audio_preparation||'off';$('whisper-vad').checked=s.whisper_vad!==false;$('whisper-vocabulary').value=s.whisper_vocabulary||'';$('cloud-model').value=s.cloud_model;$('summarizer').value=s.summarizer;$('transcript-correction').value=s.transcript_correction||'none';$('llm-model').value=s.llm_model;$('auto-process').checked=s.auto_process;$('live-enabled').checked=s.live_transcription!==false;$('diarization-enabled').checked=s.diarization_enabled!==false;$('diarization-runtime').textContent=state.diarization?.message||'Speaker separation is checked after recording.';$('auto-title').checked=s.auto_title!==false;$('title-provider').value=s.title_provider||'local';$('title-model').value=s.title_model||'gpt-4.1-mini';$('calendar-enabled').checked=!!s.calendar_enabled;$('calendar-id').replaceChildren();const initialCalendar=el('option','',s.calendar_name||'Choose a calendar…');initialCalendar.value=s.calendar_id||'';$('calendar-id').append(initialCalendar);$('elevenlabs-api-key').value='';$('forget-elevenlabs-key').disabled=!state.elevenlabs_api_key_configured;$('elevenlabs-key-state').textContent=state.elevenlabs_key_error?'· '+state.elevenlabs_key_error:state.elevenlabs_api_key_configured?'· configured':'';$('api-key').value='';$('forget-key').disabled=!state.api_key_configured;$('key-state').textContent=state.api_key_configured?'· configured':'';settingsFields();renderGoogleStatus();renderSpeakerSettings();trackersData=JSON.parse(JSON.stringify(state.trackers||[]));renderTrackers();showSettingsTab(typeof tab==='string'?tab:settingsTab);$('settings-dialog').showModal();markProfile();renderPeople();settingsOpened=settingsValues();
  // Loading the calendar list can change the calendar field; that is not an edit by the person.
  if(calendarConnected())perform(async()=>{const untouched=settingsValues()===settingsOpened;await loadCalendars();if(untouched)settingsOpened=settingsValues();}); }
 function daysBetween(from,to) { return Math.round((Date.parse(to)-Date.parse(from))/86400000); }
@@ -2363,8 +2361,7 @@ $('google-client-file').onchange=()=>perform(async()=>{const file=$('google-clie
 $('google-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{});$('google-auth-link').href=result.authorization_url;$('google-auth-link').hidden=false;toast('Continue Google sign-in in your browser');});
 $('google-disconnect').onclick=()=>perform(async()=>{await api('/api/calendar/disconnect',{});state=await api('/api/state');renderGoogleStatus();$('google-auth-link').hidden=true;toast('Signed out of Google');});
 $('refresh-calendars').onclick=()=>perform(loadCalendars);
-$('add-speaker').onclick=()=>perform(async()=>{const name=$('new-speaker').value.trim();if(!name)return;await saveSpeakers([...(state.speakers||[]),name]);$('new-speaker').value='';$('new-speaker').focus();});
-$('new-speaker').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('add-speaker').click();}};
+
 $('add-tracker').onclick=()=>{trackersData.push({id:'',name:'',phrases:[],semantic_matching:false});renderTrackers();$('tracker-list').lastElementChild.querySelector('input').focus();};
 $('save-trackers').onclick=()=>perform(saveTrackers);
 $('delete-meeting').onclick=()=>perform(async()=>{
@@ -3238,7 +3235,7 @@ function openTurnSpeakerEditor(d,turn,row,button,busy){
  if(hasEdits()){toast('Save or cancel other edits before changing this speaker');return;}
  button.disabled=true;editorDirty.set('turn-speaker',true);editorHeartbeat();
  const box=el('div','turn-speaker-editor'),label=el('label','','Speaker for this turn only'),choice=el('select'),name=el('input'),save=el('button','primary','Save speaker'),cancel=el('button','secondary','Cancel'),status=el('p','hint');
- choice.setAttribute('aria-label','Speaker for this turn');choice.append(option('Unidentified speaker',''),...[...new Set([...(state.speakers||[]),...d.transcript.map(s=>s.speaker).filter(Boolean)])].map(value=>option(value,value)),option('New participant…','__new__'));choice.value=turn.speaker||'';
+ choice.setAttribute('aria-label','Speaker for this turn');choice.append(option('Unidentified speaker',''),...[...new Set([...(state.speakers||[]),...d.transcript.map(s=>s.speaker).filter(Boolean)])].map(value=>option(participantLabel(value),value)),option('New person…','__new__'));choice.value=turn.speaker||'';
  name.placeholder='Participant name';name.maxLength=120;name.setAttribute('aria-label','New participant name');name.hidden=true;
  choice.onchange=()=>{name.hidden=choice.value!=='__new__';if(!name.hidden)name.focus();};
  save.type=cancel.type='button';label.append(choice);const actions=el('div','editor-actions');actions.append(cancel,save);box.append(label,name,el('p','hint','Only this turn changes. Other turns keep their current speaker.'),status,actions);row.append(box);

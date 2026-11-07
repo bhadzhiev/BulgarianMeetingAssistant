@@ -124,7 +124,7 @@ class MeetingService:
         from .commit_journal import CommitJournal
         CommitJournal(self.items.store.path).recover()
         self.projects = Projects(root / 'projects.json')
-        self.people = People(root / 'people.json')
+        self.people = self.library.people
         self.github_links = GitHubLinks(root / 'github-links.json')
         self.templates = Templates(root / 'meeting-templates.json')
         from .capture_setup import CaptureSetup
@@ -289,7 +289,7 @@ class MeetingService:
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
                 capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
-                speakers=self.library.speakers(), voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
+                speakers=self.library.speakers(), people_migration=self.library.people_migration, voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, api_key_configured=bool(self.api_key), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
                 preview_active=self.preview is not None,
@@ -883,6 +883,7 @@ class MeetingService:
             return {}
         present = {self._voice_identity(s['speaker'])[0] for s in transcript if s.get('speaker') and not voices.GENERIC.match(s['speaker'])}
         groups = voices.bank(self.library, meeting_id, self._voice_identity, prints.get('model'))
+        groups = {key: group for key, group in groups.items() if key[0] == 'person'}
         return {label: row for label, row in voices.suggest(prints, groups, present).items() if label in labels}
 
     def learn_voices(self):
@@ -1074,7 +1075,8 @@ class MeetingService:
                     (directory / 'minutes.proposed.json').unlink(missing_ok=True)
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.json').exists(), notes_refresh_error=None)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
-                self.library.add_speakers(s.speaker for s in segments if s.speaker and not conversation.is_generic_speaker(s.speaker))
+                old_names = {s.speaker for s in old_segments}
+                self.library.add_speakers(s.speaker for s in segments if s.speaker and s.speaker not in old_names and not conversation.is_generic_speaker(s.speaker))
                 analytics_settings = dict(self.settings, models_dir=str(self.models_dir))
             if 'minutes' in body or 'minutes_fields' in body:
                 self._refresh_items()
@@ -1302,11 +1304,11 @@ class MeetingService:
 
     # People ------------------------------------------------------------------------------------------
     def save_person(self, body):
-        return dict(person=self.people.save(body), people=self.people.list())
+        return dict(person=self.people.save(body), people=self.people.list(), speakers=self.library.speakers())
 
     def delete_person(self, person_id, revision):
         self.people.delete(person_id, revision)
-        return dict(people=self.people.list())
+        return dict(people=self.people.list(), speakers=self.library.speakers())
 
     def github_user(self, login):
         """The stable GitHub ID of a username, so a later rename keeps the same person."""
@@ -1330,10 +1332,15 @@ class MeetingService:
         person = self.people.get(person_id)
         if not person:
             raise ValueError('This person no longer exists. Reload and try again.')
-        names = self._person_names(person)
-        said, meetings = [], {}
+        names = {name for name in self._person_names(person) if len(self.people.matching(name)) == 1}
+        said, meetings, voice_samples = [], {}, []
         for meeting in self.library.list():
-            path = self.library.directory(meeting['id']) / 'transcript.json'
+            directory = self.library.directory(meeting['id'])
+            prints = voices.read(directory) if voices.current(directory) else None
+            if prints:
+                seconds = sum(row['seconds'] for name, row in prints['speakers'].items() if name.casefold() in names)
+                if seconds: voice_samples.append(dict(meeting_id=meeting['id'], seconds=seconds))
+            path = directory / 'transcript.json'
             rows = read_json(path, []) if path.exists() else []
             mine = [row for row in rows if isinstance(row, dict) and isinstance(row.get('speaker'), str) and row['speaker'].casefold() in names]
             if mine:
@@ -1353,7 +1360,7 @@ class MeetingService:
                 github = self.github.assigned_to(person['github']['id'])
             except (ValueError, GitHubError):
                 github = []
-        return dict(person=person, statements=len(said), meetings=len(meetings), said=said[:50],
+        return dict(person=person, voice_samples=voice_samples, statements=len(said), meetings=len(meetings), said=said[:50],
                     commitments=confirmed, suggested=suggested, github=github, channels=identity_channels.profile(self,person))
 
     # GitHub drafts and local links -------------------------------------------------------------------

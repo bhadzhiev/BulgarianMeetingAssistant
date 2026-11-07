@@ -37,7 +37,8 @@ def cached(models_dir):
 def vocabulary_terms(vocabulary, speakers=()):
     # Commas, semicolons and newlines separate phrases; spaces inside names are retained.
     terms = []
-    for value in [*re.split(r'[,;\n]', vocabulary), *speakers]:
+    from .vocabulary import terms as preferred_terms
+    for value in [*preferred_terms(vocabulary), *speakers]:
         term = ' '.join(value.split())
         if term and term not in terms:
             # These characters control Sherpa's phrase/score parser, not literal text.

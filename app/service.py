@@ -169,6 +169,8 @@ class MeetingService:
         vocabulary = values['whisper_vocabulary']
         if not isinstance(vocabulary, str) or len(vocabulary) > 2000 or any(ord(c) < 32 and c != '\n' for c in vocabulary):
             raise ValueError('The transcription vocabulary must be text of at most 2000 characters')
+        from .vocabulary import entries
+        entries(vocabulary)
         if values['transcription'] == 'elevenlabs':
             from .scribe import keyterms
             keyterms(vocabulary)

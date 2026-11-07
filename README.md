@@ -1488,7 +1488,25 @@ speaker model separates the speakers, and the Scribe word timestamps assign each
 a speaker. Live captions continue using local Whisper. Scribe Realtime and importing a transcript from an
 ElevenLabs editor URL are not part of this integration.
 
-**Vocabulary & names** supplies comma- or newline-separated keyterms. Each term must
+**Vocabulary & names** is the single dictionary shared by speech recognition, transcript
+correction and meeting notes. Existing comma-, semicolon- or newline-separated lists still work.
+Optionally enter a preferred spelling with phonetic variants, one entry per line:
+
+```text
+Kubernetes | кубернетис, кубернетес
+GitHub | гитхъб
+Terraform, Keycloak, Иван Петров
+```
+
+ASR receives only the preferred spellings, never the alias syntax. AI correction and notes
+also receive the explicit variants as spelling context, not proof that a word was said.
+Only literal whole-phrase aliases relax the correction similarity check; numbers, negations,
+confirmations and known participant names stay protected. Ambiguous aliases are rejected
+when saving settings. No extra AI pass or separate dictionary is added; original ASR text
+and source timestamps remain available. Changing the vocabulary uses the existing explicit
+reprocessing flow for old meetings.
+
+For Scribe, preferred spellings are sent as keyterms. Each term must
 have at most 50 characters and 5 words; brackets, braces, angle brackets and backslash
 are unsupported. ElevenLabs charges extra for keyterms. Review current prices and
 account limits at https://elevenlabs.io/pricing/api before processing long recordings.

@@ -299,6 +299,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     args.api_key = api_key
     if settings.get('_prompt_snapshot'):args._prompt_snapshot=settings['_prompt_snapshot']
     args.speakers = list(speakers)
+    args.whisper_vocabulary = settings.get('whisper_vocabulary', '')
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
     from datetime import date
     args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or date.today().isoformat()

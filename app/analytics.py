@@ -1,6 +1,7 @@
 """Deterministic conversation analytics and optional local semantic topic matching."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -207,11 +208,36 @@ def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict
     return matches
 
 
-def build_topics(segments, trackers, settings=None, progress=lambda message: None, api_key='') -> tuple[list[dict], str | None]:
+def semantic_key(segments, tracker) -> str:
+    """The input of one AI topic check: the transcript text and the tracker. Speaker names are not part of it."""
+    source = [[segment.get('text', ''), segment.get('start')] for segment in segments]
+    return hashlib.sha256(json.dumps([source, tracker.get('name'), tracker.get('phrases', [])], ensure_ascii=False).encode()).hexdigest()
+
+
+def reused_matches(previous, tracker, key, segments):
+    """The AI matches of the previous analysis when its input is the same, with the current speaker names."""
+    for topic in (previous or {}).get('topics', []):
+        if topic.get('id') == tracker.get('id') and topic.get('semantic_key') == key:
+            return [dict(match, speaker=segments[match['segment_index']].get('speaker') or None)
+                    for match in topic.get('matches', []) if match.get('semantic')]
+    return None
+
+
+def build_topics(segments, trackers, settings=None, progress=lambda message: None, api_key='', previous=None) -> tuple[list[dict], str | None]:
     topics, errors = [], []
     for tracker in trackers:
         matches = literal_topic_matches(segments, tracker)
+        key = None
         if tracker.get('semantic_matching'):
+            key = semantic_key(segments, tracker)
+            # A speaker rename keeps the text, so the earlier AI answer still applies.
+            semantic = reused_matches(previous, tracker, key, segments)
+            if semantic is not None:
+                known = {match['segment_index'] for match in matches}
+                matches.extend(match for match in semantic if match['segment_index'] not in known)
+                matches.sort(key=lambda match: match['segment_index'])
+                topics.append({'id': tracker['id'], 'name': tracker['name'], 'matches': matches, 'match_count': len(matches), 'semantic_key': key})
+                continue
             progress(f'Checking topic · {tracker["name"]}')
             try:
                 semantic = semantic_topic_matches(segments, tracker, settings or {}, api_key)
@@ -220,14 +246,20 @@ def build_topics(segments, trackers, settings=None, progress=lambda message: Non
                 matches.sort(key=lambda match: match['segment_index'])
             except Exception as exc:
                 errors.append(f'{tracker["name"]}: {exc}')
-        topics.append({'id': tracker['id'], 'name': tracker['name'], 'matches': matches, 'match_count': len(matches)})
+                key = None
+        topic = {'id': tracker['id'], 'name': tracker['name'], 'matches': matches, 'match_count': len(matches)}
+        if key:
+            topic['semantic_key'] = key
+        topics.append(topic)
     return topics, '; '.join(errors) or None
 
 
 def build_analytics(segments, intervals, trackers, settings=None, previous=None, progress=lambda message: None, api_key='') -> dict:
     questions = detect_questions(segments, previous)
     speakers, total = speaker_statistics(intervals, questions)
-    topics, semantic_error = build_topics(segments, trackers, settings, progress, api_key)
+    # Only an edit reuses AI topic matches; a requested analysis always asks the AI again.
+    reuse = previous if (settings or {}).get('reuse_semantic_topics') else None
+    topics, semantic_error = build_topics(segments, trackers, settings, progress, api_key, reuse)
     result = {
         'version': VERSION,
         'speakers': speakers,

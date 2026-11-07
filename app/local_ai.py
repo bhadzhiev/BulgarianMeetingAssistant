@@ -133,8 +133,11 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # Apply this task policy before requesting, not after a slow, empty response.
     # Email extraction keeps its separately approved target settings unchanged.
     # A cloud API (Kimi K3) also spent a 16,384-token budget on thinking and returned no notes.
-    if (reasoning == 'default' and name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title'}
-            and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))):
+    # Topic matching is a short classification; on a cloud API, thinking only makes a speaker rename slow.
+    if reasoning == 'default' and (
+            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title'}
+            and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
+            or name == 'topic_matches' and is_remote(base_url)):
         reasoning = 'none'
     payload = dict(model=model, messages=messages, stream=False, max_tokens=max_tokens)
     # Some cloud models accept only their own temperature (Kimi K3: only 1). "server" leaves it to them.

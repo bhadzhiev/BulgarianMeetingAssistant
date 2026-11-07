@@ -25,6 +25,10 @@ class ProcessingReliabilityTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.settings = dict(DEFAULTS, summarizer='local')
+        # These tests resume and invalidate parts; they keep the small part size they were written for.
+        size = patch.object(processing, 'NOTES_PART_CHARS', 4000)
+        size.start()
+        self.addCleanup(size.stop)
         self.segments = [dict(start=i * 10, end=i * 10 + 9, text=('Test ' * 260).strip(), speaker=None) for i in range(4)]
         atomic_json(self.root / 'transcript.json', self.segments)
 

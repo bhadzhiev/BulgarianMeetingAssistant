@@ -322,14 +322,24 @@ If recording stops while captions are far behind, final processing covers the re
 The worker has up to 15 seconds to finish before the app ends it to release model memory. Live and final processing share one model slot so model jobs do not compete for memory.
 Capture uses a separate disk-writing thread and does not wait for transcription.
 Long audio is processed in bounded chunks, preferring a quiet boundary near each split.
-Long transcripts are extracted in parts, then consolidated with the same selected AI provider.
-The global summary has at most six points; tasks and decisions have no fixed count limit.
+Long transcripts are extracted in parts of about 10,000 characters, then consolidated with the same
+selected AI provider. A part fits a 16k-token local model context with its answer.
+The global summary has at most six points; tasks and decisions have no fixed count limit. If the
+model keeps skipping one source, that source stays as its own point instead of failing the merge.
+Each statement goes into one section only, in this order: decisions, tasks, the sections of the
+meeting type, needs decision, open questions, next steps, observations, summary. Observations are
+at most three work risks; they never judge a person. Known participant names keep their exact
+spelling in every statement. Vocabulary variants (`PacketFence | PacketFancy`) become the preferred
+spelling in the generated notes; the transcript keeps the recognized text.
 Consolidation selects an existing task or decision instead of rewriting its owner or deadline.
 Different owners, dates, negations, numbers and environments veto a proposed merge. Similarity
 is only a candidate search, never an automatic deletion rule. Expand **Consolidation evidence**
 in Review or Notes to see the original statements and transcript moments; AI grouping still
 requires human review and is not a guarantee of semantic equivalence.
 
+A small model can skip, repeat or invent one ID in its answer. Consolidation repairs that before
+its strict check: a skipped ID stays its own group, a repeated ID counts once and an unknown ID is
+dropped. Nothing new is merged by the repair, and the audit counts the repairs.
 Inputs and requests are bounded. If consolidation fails, the notes keep every part as extracted,
 so some statements may appear twice, and a warning names the reason. Saved notes remain unchanged:
 the unmerged notes wait for review like any new run. **Generate new AI notes** retries and reuses the

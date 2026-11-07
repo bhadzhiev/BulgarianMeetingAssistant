@@ -134,6 +134,48 @@ def messages(facts, summary=False, maximum=6):
             dict(role='user', content=canonical(dict(untrusted_candidates=payload)))]
 
 
+def repair_plan(value, facts, summary=False, maximum=6):
+    """Repair the small slips of a small model before the strict check.
+
+    One skipped, repeated or invented ID used to fail the whole consolidation, so a long meeting
+    kept every repeated statement. The repair never merges anything new: a skipped ID stays its own
+    group, a repeated ID counts in its first group only, and an unknown ID is dropped. It returns the
+    plan and the number of repairs. A skipped summary source becomes its own point, also beyond the
+    maximum: the summary loop then reduces the points again, so no source is lost or misattributed.
+    """
+    if not isinstance(value, dict) or not isinstance(value.get('groups'), list):
+        return value, 0
+    known = [f['id'] for f in facts]
+    seen, groups, fixed = set(), [], 0
+    for group in value['groups']:
+        if not isinstance(group, dict) or not isinstance(group.get('members'), list):
+            return value, 0
+        members = []
+        for key in group['members']:
+            if key not in known or key in seen:
+                fixed += 1
+                continue
+            seen.add(key)
+            members.append(key)
+        if not members:
+            continue
+        group = dict(group, members=members)
+        if not summary and group.get('representative') not in members:
+            group['representative'] = members[0]
+            fixed += 1
+        groups.append(group)
+    by_id = {f['id']: f for f in facts}
+    for key in known:
+        if key in seen:
+            continue
+        if summary:
+            groups.append(dict(members=[key], text=by_id[key]['value']['text']))
+        else:
+            groups.append(dict(members=[key], representative=key))
+        fixed += 1
+    return dict(value, groups=groups), fixed
+
+
 def validate_plan(value, facts, summary=False, maximum=6):
     if not isinstance(value, dict) or set(value) != {'groups'} or not isinstance(value['groups'], list):
         raise ValueError('Invalid consolidation response')
@@ -198,9 +240,11 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
         nonlocal calls
         key = digest(dict(summary=summary, facts=batch))
         value = cache.get(key)
+        # One summary level may keep more points than the final maximum; the loop reduces them again.
+        limit = len(batch) if summary else 6
         if value is not None:
             try:
-                return validate_plan(value, batch, summary)
+                return validate_plan(value, batch, summary, limit)
             except (ValueError, TypeError, KeyError):
                 cache.pop(key, None)
         if calls >= MAX_REQUESTS:
@@ -215,7 +259,10 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
         else:
             from .local_ai import complete_json
             value = complete_json(target, messages(batch, summary), schema(batch, summary), 'meeting_consolidation')
-        groups = validate_plan(value, batch, summary)
+        # Only a fresh answer is repaired; a cached answer was saved after its repair.
+        value, fixed = repair_plan(value, batch, summary)
+        audit['repaired'] = audit.get('repaired', 0) + fixed
+        groups = validate_plan(value, batch, summary, limit)
         cache[key] = value
         atomic_json(path, dict(signature=identity, responses=cache))
         return groups
@@ -248,7 +295,11 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
                     nodes = reduced
                     break
                 if len(reduced) >= len(nodes):
-                    raise ValueError('Summary consolidation did not reduce its input. Completed work was kept for retry.')
+                    # The model keeps skipping a source. Its own point stays: a slightly longer summary
+                    # beats losing every merge of the meeting. The audit records the extra points.
+                    audit['summary_over_limit'] = len(reduced)
+                    nodes = reduced
+                    break
                 nodes = reduced
         else:
             # Similarity is used only to retrieve possible duplicates, never to delete.

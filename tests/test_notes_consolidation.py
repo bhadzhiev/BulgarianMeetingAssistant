@@ -160,7 +160,7 @@ class ConsolidationTests(unittest.TestCase):
         self.assertTrue((self.root/'minutes.consolidation.proposed.json').exists())
 
     def test_reducer_failure_saves_unmerged_notes_then_retry_reuses_extraction(self):
-        transcript=[dict(start=i*10,end=i*10+9,text='Text '*600,speaker='Иван') for i in range(2)]
+        transcript=[dict(start=i*10,end=i*10+9,text='Text '*1500,speaker='Иван') for i in range(2)]
         atomic_json(self.root/'transcript.json',transcript)
         saved=minutes(tasks=[task('Ръчно')]); atomic_json(self.root/'minutes.json',saved)
         fake=lambda args,group:minutes(tasks=[task(stamp=timestamp(group[0].start))])
@@ -187,7 +187,7 @@ class ConsolidationTests(unittest.TestCase):
 
     def test_cancelled_consolidation_is_not_saved_as_notes(self):
         from app.jobs import JobCancelled
-        atomic_json(self.root/'transcript.json',[dict(start=i*10,end=i*10+9,text='Text '*600,speaker='Иван') for i in range(2)])
+        atomic_json(self.root/'transcript.json',[dict(start=i*10,end=i*10+9,text='Text '*1500,speaker='Иван') for i in range(2)])
         fake=lambda args,group:minutes(tasks=[task(stamp=timestamp(group[0].start))])
         with patch('meeting_assistant.generate_minutes',side_effect=fake), patch('app.local_ai.complete_json',side_effect=JobCancelled()):
             with self.assertRaises(JobCancelled):processing.summarize(self.root,self.settings,lambda _:None)
@@ -206,7 +206,7 @@ class ConsolidationTests(unittest.TestCase):
     def test_only_consolidation_prompt_edit_reuses_extraction(self):
         from app.prompts import Prompts
         prompts = Prompts(self.root/'prompts.json')
-        atomic_json(self.root/'transcript.json',[dict(start=i*10,end=i*10+9,text='Text '*600,speaker='Иван') for i in range(2)])
+        atomic_json(self.root/'transcript.json',[dict(start=i*10,end=i*10+9,text='Text '*1500,speaker='Иван') for i in range(2)])
         settings=dict(self.settings,_prompt_snapshot=prompts.snapshot())
         fake=lambda args,group:minutes(tasks=[task(stamp=timestamp(group[0].start))])
         with patch('meeting_assistant.generate_minutes',side_effect=fake), patch('app.local_ai.complete_json',side_effect=ValueError('offline')):

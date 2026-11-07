@@ -298,6 +298,12 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
     return result, audit
 
 
+def failed_audit(parts, segments, error):
+    """The record of a consolidation that did not finish: the notes keep every part as extracted."""
+    message = ' '.join(str(error).split())[:300] or type(error).__name__
+    return dict(version=VERSION, source=transcript_signature(segments), status='failed', parts=len(parts), error=message)
+
+
 def audit_for(directory, minutes, transcript, proposed=False):
     """Only expose provenance that still matches current transcript and statement."""
     from .live import read_json
@@ -305,6 +311,10 @@ def audit_for(directory, minutes, transcript, proposed=False):
     audit = read_json(Path(directory) / name, None)
     if not isinstance(audit, dict) or audit.get('version') != VERSION or audit.get('source') != transcript_signature(transcript):
         return None
+    if audit.get('status') == 'failed':
+        error = audit.get('error') if isinstance(audit.get('error'), str) else ''
+        parts = audit.get('parts') if type(audit.get('parts')) is int else 0
+        return dict(status='failed', error=error[:300], parts=parts, merged=0, rejected=[], groups={}, candidates=[])
     if (audit.get('status') != 'completed' or not isinstance(audit.get('groups'), dict)
             or not isinstance(audit.get('candidates'), list) or len(audit['candidates']) > MAX_FACTS
             or not isinstance(audit.get('rejected', []), list)):
@@ -336,11 +346,17 @@ def promote_audit(directory, minutes, transcript):
     if not incoming.exists():
         return
     proposed = read_json(incoming, None)
-    if audit_for(directory, minutes, transcript, proposed=True) is None:
+    incoming_audit = audit_for(directory, minutes, transcript, proposed=True)
+    if incoming_audit is None:
+        return
+    if incoming_audit['status'] == 'failed':
+        # The accepted notes were not merged; keep that warning with them.
+        atomic_json(directory / 'minutes.consolidation.json', proposed)
         return
     merged = copy.deepcopy(proposed)
     previous = read_json(directory / 'minutes.consolidation.json', {})
-    if audit_for(directory, minutes, transcript) is not None:
+    saved = audit_for(directory, minutes, transcript)
+    if saved is not None and saved['status'] == 'completed':
         groups = copy.deepcopy(previous['groups'])
         for key, group in merged['groups'].items():
             if key in groups:

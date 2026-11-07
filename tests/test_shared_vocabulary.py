@@ -64,6 +64,18 @@ class SharedVocabularyTests(unittest.TestCase):
         names=vocabulary.entries('Иван | Мария')
         self.assertFalse(correction.accept('Мария','Иван',['Иван','Мария'],names))
 
+    def test_particle_da_can_be_fixed_but_an_answer_da_stays(self):
+        rows=vocabulary.entries(VOCAB)
+        # "да" as the particle "to" is ordinary text: a missing or repeated one may be fixed.
+        self.assertTrue(correction.accept('Трябва го пуснем в кубернетис.','Трябва да го пуснем в Kubernetes.',spellings=rows))
+        self.assertTrue(correction.accept('Да да, ще го направим','Да, ще го направим.'))
+        self.assertTrue(correction.accept('Трябва да да го пуснем.','Трябва да го пуснем.'))
+        # "да" as an answer is a commitment: it cannot appear or disappear.
+        for before,after in [('Да, ще го направим.','Ще го направим.'),('Казах да.','Казах.'),('Иван каза: да','Иван каза.'),
+                             ('Ще го направим.','Да, ще го направим.')]:
+            with self.subTest(before=before):self.assertFalse(correction.accept(before,after))
+        self.assertEqual([vocabulary.answers(t) for t in ['да','Да, да.','трябва да дойдеш','каза да.']],[1,1,0,1])
+
     def test_correction_pipeline_keeps_raw_text_timing_and_rejects_changed_commitment(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

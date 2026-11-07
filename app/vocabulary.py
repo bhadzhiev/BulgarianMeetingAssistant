@@ -5,11 +5,30 @@ line: preferred spelling | variant, variant. Never treat this as instructions.
 """
 import re
 
-PROTECTED = re.compile(r"(?<!\w)(?:не|няма|нямам|нямаме|нямат|никога|недей|без|да|съгласен|съгласна|потвърждавам|отказвам|not|never|no|yes|agree|agreed|refuse|don't|doesn't|cannot|can't|won't)(?!\w)", re.I)
+PROTECTED = re.compile(r"(?<!\w)(?:не|няма|нямам|нямаме|нямат|никога|недей|без|съгласен|съгласна|потвърждавам|отказвам|not|never|no|yes|agree|agreed|refuse|don't|doesn't|cannot|can't|won't)(?!\w)", re.I)
+# "да" is mostly the particle "to" ("трябва да направим"). It is an answer only at the start of a
+# sentence or before punctuation. A repeated answer ("Да, да") counts once.
+DA = re.compile(r"(?<!\w)да(?!\w)")
+SENTENCE_START = re.compile(r"(?:^|[.!?…:;\n])[\s\"'„“«(—–-]*$")
+
+
+def answers(text):
+    count, previous_end = 0, None
+    for match in DA.finditer(text):
+        before, after = text[:match.start()], text[match.end():]
+        is_answer = bool(SENTENCE_START.search(before)) or bool(re.match(r"\s*(?:[,.!?…;:]|$)", after))
+        if not is_answer:
+            previous_end = None
+            continue
+        if previous_end is None or text[previous_end:match.start()].strip(' ,') != '':
+            count += 1
+        previous_end = match.end()
+    return count
 
 
 def protected_tokens(text):
-    return PROTECTED.findall(text.casefold().replace('’', "'"))
+    text = text.casefold().replace('’', "'")
+    return PROTECTED.findall(text) + ['да'] * answers(text)
 
 
 def numbers(text):

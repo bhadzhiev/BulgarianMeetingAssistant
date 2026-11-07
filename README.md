@@ -314,8 +314,10 @@ is only a candidate search, never an automatic deletion rule. Expand **Consolida
 in Review or Notes to see the original statements and transcript moments; AI grouping still
 requires human review and is not a guarantee of semantic equivalence.
 
-Inputs and requests are bounded. If consolidation fails, completed extraction parts are kept
-for retry and saved notes remain unchanged. Editing only the consolidation prompt reuses
+Inputs and requests are bounded. If consolidation fails, the notes keep every part as extracted,
+so some statements may appear twice, and a warning names the reason. Saved notes remain unchanged:
+the unmerged notes wait for review like any new run. **Generate new AI notes** retries and reuses the
+completed parts. Cancelling still saves nothing. Editing only the consolidation prompt reuses
 completed extraction. The new **Meeting notes consolidation** prompt is editable in Settings
 and participates in prompt snapshots and reprocessing previews. Rerunning existing notes
 creates a review proposal and preserves manual edits until accepted. Original recordings and
@@ -1501,7 +1503,8 @@ Terraform, Keycloak, Иван Петров
 ASR receives only the preferred spellings, never the alias syntax. AI correction and notes
 also receive the explicit variants as spelling context, not proof that a word was said.
 Only literal whole-phrase aliases relax the correction similarity check; numbers, negations,
-confirmations and known participant names stay protected. Ambiguous aliases are rejected
+confirmations and known participant names stay protected. "Да" counts as a confirmation only
+as an answer (at the start of a sentence or before punctuation); the particle in "трябва да" can be fixed. Ambiguous aliases are rejected
 when saving settings. No extra AI pass or separate dictionary is added; original ASR text
 and source timestamps remain available. Changing the vocabulary uses the existing explicit
 reprocessing flow for old meetings.

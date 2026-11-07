@@ -140,7 +140,7 @@ class LiveMeeting:
     def __init__(self, args: argparse.Namespace, output_dir: Path):
         self.args = args
         self.output_dir = output_dir
-        self.audio_queue: queue.Queue = queue.Queue(maxsize=200)
+        self.audio_queue: queue.Queue = queue.Queue(maxsize=1500)
         self.segments: list[TranscriptSegment] = []
         self.stop_requested = False
         self.total_samples = 0
@@ -408,7 +408,12 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None 
         return json.loads(response.read().decode("utf-8"))
 
 
+# Reasoning models may prepend a thinking block even when JSON was requested.
+_THINK = re.compile(r"<think>.*?</think>", flags=re.S)
+
+
 def extract_json(text: str) -> dict[str, Any]:
+    text = _THINK.sub("", text).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:

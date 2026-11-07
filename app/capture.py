@@ -66,10 +66,13 @@ class Clock:
 
 
 class PCMWriter:
-    """Bounded callback queue; fsync every second; raw PCM survives process failure."""
+    """Bounded callback queue; fsync every second; raw PCM survives process failure.
+
+    1500 callbacks of 30 ms each absorb about 45 seconds of disk spikes (backups,
+    encryption, heavy model work) before a recording would have to stop."""
     def __init__(self, path: Path, rate: int):
         self.path, self.rate = path, rate
-        self.queue = queue.Queue(maxsize=200)
+        self.queue = queue.Queue(maxsize=1500)
         self.error = None
         self.samples = 0
         self.done = threading.Event()

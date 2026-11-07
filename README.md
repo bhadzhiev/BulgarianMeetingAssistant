@@ -102,6 +102,10 @@ while the new-meeting form is open.
   step that resolves it: a processing error, speakers to name, new AI notes to review, notes to update
   after transcript edits, mentions that look like existing work, AI-proposed decisions to confirm, and
   tasks without an owner or a due date. When nothing is left, it offers **Prepare the next meeting**.
+- **One decision state:** a decision shows one badge. **Proposed** waits for **Accept decision**.
+  **Accepted** needs nothing. **Accepted · check again** means that the notes or the transcript changed
+  after it was accepted; **Confirm decision** checks it again. **Hidden in My Work** asks for nothing.
+  Needs attention counts the same states.
 - **A confirmation holds:** an owner, a due date or a status that you set keeps the confirmation of
   that task. A new task in the meeting keeps the confirmations of the other items. New wording, new
   details, changed notes text or a changed transcript still ask for a new review.

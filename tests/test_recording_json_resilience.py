@@ -1,4 +1,5 @@
 """Recording buffer depth and reasoning-model JSON extraction resilience."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +28,12 @@ class ThinkStripTests(unittest.TestCase):
 
     def test_plain_json_unchanged(self):
         self.assertEqual(extract_json('{"a": 1}'), {'a': 1})
+
+    def test_tags_inside_json_strings_are_kept(self):
+        # Repository reports quote code exactly; such a quote can contain the tags.
+        quote = "if tag == '<think>': skip()  # closes at </think> later"
+        self.assertEqual(extract_json(json.dumps({'quote': quote}))['quote'], quote)
+        self.assertEqual(extract_json('<think>plan</think>' + json.dumps({'quote': quote}))['quote'], quote)
 
     def test_thinking_without_json_still_fails(self):
         with self.assertRaises(ValueError):

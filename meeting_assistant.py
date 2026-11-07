@@ -409,11 +409,12 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None 
 
 
 # Reasoning models may prepend a thinking block even when JSON was requested.
-_THINK = re.compile(r"<think>.*?</think>", flags=re.S)
+# Only a leading block is removed: the same tags inside a JSON string (quoted code) are content.
+_THINK = re.compile(r"\A\s*<think>.*?</think>", flags=re.S)
 
 
 def extract_json(text: str) -> dict[str, Any]:
-    text = _THINK.sub("", text).strip()
+    text = _THINK.sub("", text, count=1).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:

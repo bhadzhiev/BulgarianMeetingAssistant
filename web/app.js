@@ -2041,7 +2041,7 @@ $('template-delete').onclick=()=>perform(async()=>{if(!templateEditing||!(await 
  const result=await api('/api/templates/delete',{id:templateEditing.id,revision:templateEditing.revision});state.meeting_types=result.meeting_types;state.projects=result.projects;lastProjects='';registerTypes();syncProjects();renderTypeSettings();$('template-dialog').close();toast('Template deleted');});
 function renderProjectSettings() {
  const list=$('project-list'); list.replaceChildren();
- if(!projectList().length) list.append(emptyNote('No projects yet. Open a saved meeting and choose ＋ Add to a project.'));
+ if(!projectList().length) list.append(emptyNote('No projects yet. Choose ＋ New project.'));
  const row=(kind,entry)=>{const line=el('div','scope-entry '+kind),rename=el('button','quiet','Rename'),remove=el('button','quiet danger-text','Delete');rename.type=remove.type='button';
   line.append(el(kind==='projects'?'strong':'span','',entry.name),rename,remove);
   const change=async body=>{state.projects=(await api('/api/projects/change',Object.assign({kind,id:entry.id},body))).projects;lastProjects='';syncProjects();renderProjectSettings();};
@@ -2597,7 +2597,10 @@ $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
 $('workspace-refresh').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;itemsData=await api('/api/items');await loadWorkspace();});
 function askProject(){return new Promise(resolve=>{const dialog=$('project-dialog');$('project-name').value='';$('project-color').value=PROJECT_PALETTE[projectList().length%PROJECT_PALETTE.length];dialog.returnValue='';dialog.onclose=()=>{resolve(dialog.returnValue==='ok'&&$('project-name').value.trim()?{name:$('project-name').value.trim(),color:$('project-color').value}:null);};dialog.showModal();$('project-name').focus();});}
-$('workspace-new').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;const spec=await askProject();if(!spec)return;const created=await api('/api/projects/create',spec);state.projects=created.projects;lastProjects='';syncProjects();fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
+// One way to create a project, from Projects and from Settings → Projects.
+async function createProject(){const spec=await askProject();if(!spec)return null;const created=await api('/api/projects/create',spec);state.projects=created.projects;lastProjects='';syncProjects();return created;}
+$('workspace-new').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;const created=await createProject();if(!created)return;fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});
+$('settings-new-project').onclick=()=>perform(async()=>{if(await createProject())renderProjectSettings();});
 for(const b of $('workspace-tabs').querySelectorAll('button'))b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;workspaceSection=b.dataset.section;renderWorkspace();syncRoute(true);});
 
 const CONVERSATION_LABELS={meeting:'Meeting',excerpt:'Transcript excerpt',gmail:'Gmail',google_chat:'Google Chat',attached:'Saved snapshot'};

@@ -97,6 +97,8 @@ class People(SafeJSON):
             if account is not None and (type(account) is not int or account <= 0):
                 raise ValueError('Invalid GitHub user ID')
             person['github'] = dict(login=login, id=account)
+        if not keep and re.fullmatch(r'SPEAKER[ _-]?\d+', person['name'], re.I):
+            raise ValueError('Unidentified speakers belong to one meeting. Choose a real person name.')
         return person
 
     def save_file(self, people=None):
@@ -150,13 +152,43 @@ class People(SafeJSON):
                 raise Conflict('This person changed. Reload and try again.')
             self.save_file([p for p in self.people if p['id'] != person_id])
 
-    def match(self, name):
-        """The person who has this exact name or confirmed other name, ignoring case."""
-        if not isinstance(name, str) or not name.strip():
-            return None
+    def matching(self, name):
+        if not isinstance(name, str) or not name.strip(): return []
         key = ' '.join(name.split()).casefold()
-        if re.fullmatch(r'SPEAKER[ _-]?\d+',key,re.I):return None
-        return next((copy.deepcopy(p) for p in self.people if key in {n.casefold() for n in _names(p)}), None)
+        if re.fullmatch(r'SPEAKER[ _-]?\d+', key, re.I): return []
+        with self.lock:
+            return [copy.deepcopy(p) for p in self.people if key in {n.casefold() for n in _names(p)}]
+
+    def match(self, name):
+        """Only one exact, confirmed name/alias match can identify a person."""
+        matches = self.matching(name)
+        return matches[0] if len(matches) == 1 else None
+
+    def import_names(self, names):
+        """Add legacy or human-saved names once; never guess an identity or delete a contact."""
+        if not isinstance(names, list) or len(names) > MAX_PEOPLE:
+            raise ValueError('Invalid speaker list')
+        clean = []
+        for name in names:
+            if not isinstance(name, str): raise ValueError('Speaker names must be text')
+            name = ' '.join(name.split())
+            if not name: continue
+            name = _text(name, 'Speaker name', required=True)
+            if re.fullmatch(r'SPEAKER[ _-]?\d+', name, re.I): continue
+            if name.casefold() not in {n.casefold() for n in clean}: clean.append(name)
+        with self.lock:
+            self.guard_write()
+            candidate = copy.deepcopy(self.people)
+            unresolved = []
+            for name in clean:
+                matches = [p for p in candidate if name.casefold() in {n.casefold() for n in _names(p)}]
+                if len(matches) > 1:
+                    unresolved.append(name)
+                elif not matches:
+                    candidate.append(self._valid(dict(id=uuid.uuid4().hex[:12], name=name, revision=1), keep=True))
+            if len(candidate) > MAX_PEOPLE: raise ValueError(f'At most {MAX_PEOPLE} people; review the legacy names before importing')
+            if candidate != self.people: self.save_file(candidate)
+            return unresolved
 
     def owner_of(self, item):
         """The person behind a task owner, and how Atlanta knows: 'linked' (a person chose them),

@@ -271,7 +271,7 @@
   <div class="card-heading"><div><p class="eyebrow">PERSON</p><h2 id="person-title">New person</h2></div><button id="person-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <p id="person-error" class="error" role="alert" hidden></p>
   <label for="person-name">Name</label><input id="person-name" maxlength="80" required>
-  <label for="person-aliases">Also appears as</label><input id="person-aliases" maxlength="2000" placeholder="Иван, Ivan, SPEAKER_02 after you name it"><p class="hint">Names in transcripts and task owners, separated by commas.</p>
+  <label for="person-aliases">Also appears as</label><input id="person-aliases" maxlength="2000" placeholder="Мария, Maria Petrova"><p class="hint">Confirmed alternative names in transcripts and task owners, separated by commas. Numbered participants belong to their meeting.</p>
   <label for="person-emails">Emails</label><input id="person-emails" maxlength="2600" placeholder="name@company.com"><p class="hint">Kept on this Mac. Never added to GitHub text.</p>
   <label for="person-github">GitHub username</label><div class="input-row"><input id="person-github" maxlength="40" placeholder="octocat"><button id="person-github-check" class="secondary" type="button">Check on GitHub</button></div><p id="person-github-status" class="hint"></p>
   <label for="person-notes">Notes</label><textarea id="person-notes" rows="2" maxlength="1000"></textarea>
@@ -402,19 +402,17 @@
 </fieldset>
 </div>
 <div class="settings-panel" data-tab="speakers" role="tabpanel" hidden>
-<p class="hint">Shared by all meetings. Names are suggested for speaker labels and task owners, and known speakers are marked in transcripts. Notes use these exact spellings for task owners. Labels that you save in a transcript are added automatically.</p>
-<div id="speaker-list" class="speaker-list"></div>
-<div class="input-row"><input id="new-speaker" maxlength="80" placeholder="Add a name, for example Мария Петрова" autocomplete="off" aria-label="New known speaker"><button id="add-speaker" class="secondary" type="button">Add speaker</button></div>
+<div id="people-migration" class="notice" role="status" hidden></div>
 <fieldset class="settings-section"><legend>People</legend>
-<p class="hint">A person joins the names, emails and GitHub account of one real person. Atlanta uses it for task owners and GitHub assignee suggestions. A voice can suggest a name, but only you apply it, and emails stay on this Mac.</p>
+<p class="hint">One profile for meeting participants, task owners, email, Chat and GitHub identities. Add or edit people here; choose the same person from the transcript. A voice can suggest a name, but only you apply it, and emails stay on this Mac.</p>
 <div id="people-list" class="people-list"></div>
 <button id="add-person" class="secondary" type="button">＋ Add person</button>
 </fieldset>
-<fieldset class="settings-section"><legend>Voices</legend>
+<details class="settings-section"><summary>Optional voice matching</summary>
 <p class="hint">Atlanta learns the voice of each named speaker on this Mac. A new meeting then suggests a name for an unnamed speaker. A suggestion changes nothing until you apply it. Voice prints stay in each meeting folder and are deleted with the meeting.</p>
 <p id="voice-status" class="hint" role="status"></p>
-<button id="learn-voices" class="secondary" type="button">Learn voices from saved meetings</button>
-</fieldset>
+<button id="learn-voices" class="secondary" type="button">Learn voice profiles from saved meetings</button>
+</details>
 </div>
 <div class="settings-panel" data-tab="trackers" role="tabpanel" hidden>
 <p class="hint">Track topics in every meeting. Phrases use local, case-insensitive matching. Optional semantic matching uses only your configured Local AI endpoint; it never falls back to cloud AI.</p>

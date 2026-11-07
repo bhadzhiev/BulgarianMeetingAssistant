@@ -196,10 +196,6 @@ def restore(archive_file: Path, library, merge=None, guard=None, validate=None) 
                     os.replace(staging / meeting_id, library.root / meeting_id)
                     restored.append(meeting_id)
             try:
-                library.add_speakers(json.loads((staging / 'speakers.json').read_text()))
-            except (OSError, ValueError):
-                pass
-            try:
                 known = {tracker['id'] for tracker in library.trackers()}
                 extra = [tracker for tracker in json.loads((staging / 'trackers.json').read_text()) if tracker.get('id') not in known]
                 if extra:
@@ -208,6 +204,10 @@ def restore(archive_file: Path, library, merge=None, guard=None, validate=None) 
                 pass
             if merge:
                 merge(staging, set(restored))  # data that the service owns: projects and the task registry
+            try:
+                library.add_speakers(json.loads((staging / 'speakers.json').read_text()))
+            except (OSError, ValueError):
+                pass
         return dict(restored=restored, skipped=skipped)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

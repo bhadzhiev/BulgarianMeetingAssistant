@@ -41,6 +41,9 @@ class Library:
         self._finish_scope_batch()
         self.speakers_path = self.root / 'speakers.json'
         self.trackers_path = self.root / 'trackers.json'
+        from .people import People
+        self.people = People(self.root / 'people.json')
+        self.people_migration = self._migrate_speakers()
         # Finish deletions that a crash interrupted after the meeting left the library.
         # Uploads that a crash interrupted never became meetings.
         for leftover in [*self.root.glob('.deleted-*'), *self.root.glob('.upload-*'), *self.root.glob('.restore-*'), *self.root.glob('.snapshot-*'), *self.root.glob('.gmail-ai-*')]:
@@ -135,43 +138,41 @@ class Library:
             if cached:self.metadata_cache_bytes-=cached[2]
         shutil.rmtree(trash, ignore_errors=True)
 
-    def speakers(self) -> list[str]:
+    def _migrate_speakers(self):
+        """Keep the original legacy bytes, but never read them as a live registry again."""
+        report_path = self.root / 'people-import-review.json'
+        if not self.speakers_path.exists():
+            try:
+                report = json.loads(report_path.read_text())
+                return report if isinstance(report, dict) else dict(error='People import report is unreadable; original data was kept.')
+            except FileNotFoundError: return {}
+            except (OSError, ValueError): return dict(error='People import report is unreadable; original data was kept.')
         try:
             names = json.loads(self.speakers_path.read_text())
-        except (OSError, ValueError):
-            return []
-        return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+            unresolved = self.people.import_names(names)
+            preserved = self.root / ('speakers.migrated-' + uuid.uuid4().hex[:12] + '.json')
+            report = dict(unresolved=unresolved, source=preserved.name)
+            atomic_json(report_path, report)
+            os.replace(self.speakers_path, preserved)
+            return report
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            return dict(error='Legacy names could not be imported into People. Original files were kept. ' + str(error))
+
+    def speakers(self) -> list[str]:
+        # Compatibility view only. People owns all shared names and identities.
+        with self.people.lock:
+            return [p['name'] for p in self.people.people if not re.fullmatch(r'SPEAKER[ _-]?\d+', p['name'], re.I)]
 
     def save_speakers(self, names) -> list[str]:
-        if not isinstance(names, list) or len(names) > 500:
-            raise ValueError('Invalid speaker list')
-        result, seen = [], set()
-        for name in names:
-            if not isinstance(name, str):
-                raise ValueError('Speaker names must be text')
-            name = ' '.join(name.split())
-            if not name:
-                continue
-            if len(name) > 80 or any(ord(c) < 32 for c in name):
-                raise ValueError('Speaker names must be one line of at most 80 characters')
-            if name.casefold() not in seen:
-                seen.add(name.casefold())
-                result.append(name)
-        with self.lock:
-            atomic_json(self.speakers_path, result)
-        return result
+        # Old clients can add names, but removing a suggestion must never delete a person.
+        self.people.import_names(names)
+        return self.speakers()
 
     def add_speakers(self, names) -> list[str]:
-        # Learned labels are best effort; invalid ones stay in the transcript only.
         valid = [' '.join(n.split()) for n in names if isinstance(n, str)]
         valid = [n for n in valid if n and len(n) <= 80 and not any(ord(c) < 32 for c in n)]
-        with self.lock:
-            known = self.speakers()
-            folded = {n.casefold() for n in known}
-            new = [n for n in dict.fromkeys(valid) if n.casefold() not in folded]
-            if not new:
-                return known
-            return self.save_speakers((known + new)[:500])
+        if valid: self.people.import_names(list(dict.fromkeys(valid))[:500])
+        return self.speakers()
 
     def trackers(self) -> list[dict]:
         try:

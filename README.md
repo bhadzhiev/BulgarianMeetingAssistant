@@ -146,6 +146,11 @@ the file (iPhone Voice Memos write it), else from the file's modification time.
 The file name is the meeting name until an AI title replaces it. The meeting appears only after
 the conversion succeeds; an interrupted upload leaves nothing behind.
 
+A transcript file (.md, .txt, .srt) skips the audio steps: transcription and speaker identification.
+With **Process automatically** on, it then runs the same text steps as a recording: AI correction
+(when it is on in Settings), then notes, tasks and decisions. A failed correction keeps the original
+text and still makes the notes. The corrected segments can be restored, as after a recording.
+
 ## Настройки на Olympus WS-852 за най-добра транскрипция
 
 Когато записваш с Olympus WS-852 и после импортираш файла, използвай тези настройки

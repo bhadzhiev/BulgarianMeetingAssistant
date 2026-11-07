@@ -594,9 +594,10 @@ ask you to choose:
   **Duplicate** (link only), or **new task**.
 - Decisions: **Same decision**, **Replaces it** (the older decision becomes *Replaced*), or **new decision**.
 
-**Transcribe again** replaces the notes of a meeting, but not its tasks and decisions. They keep their
-identity, status, manual edits and history, and wait for the new notes of the meeting: the same text links
-again by itself, and similar text shows a review card, also for a task that is done.
+**Processing a meeting again** (a new transcript or new notes) replaces its notes, tasks and decisions.
+A task or decision with the same text keeps its identity, status and history. The new notes replace the
+other items of the earlier notes, so you review each task once. A task that you added to the meeting stays.
+An item that another meeting also discusses stays, without the link to this meeting.
 
 The state of a task or decision is one value: a change in any meeting's notes, in this view or in Prepare me
 reaches the notes of every meeting that mentions it. A decision whose text the AI changes is proposed again

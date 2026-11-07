@@ -76,17 +76,29 @@ class ConsistencyTests(unittest.TestCase):
         self.assertEqual(self.minutes(meeting_id)['tasks'][0]['status'], 'done')
         self.assertEqual(self.service.item_list()['pending'], [])
 
-    def test_a_reworded_task_after_transcribing_again_waits_for_review_even_when_done(self):
-        meeting_id = self.meeting(notes([task('Провери VPN failover на офиса', 'Иван')]))
-        [item] = self.service.tasks()
-        self.service.update_item(item['id'], item['text'], {'status': 'done'})
+    def test_new_notes_replace_a_reworded_task_of_the_earlier_notes(self):
+        # A person reviews each task once: the new notes do not ask to link the old wording.
+        meeting_id = self.meeting(notes([task('Провери VPN failover на офиса', 'Иван')], [decision('Сървърите остават в офиса')]))
+        [old] = self.service.tasks()
+        self.service.update_item(old['id'], old['text'], {'status': 'done'})
         self.transcribe_again(meeting_id)
         self.new_notes(meeting_id, notes([task('Провери failover на VPN в офиса', 'Иван')]))
-        [pending] = self.service.item_list()['pending']
-        self.assertEqual(pending['candidates'][0]['item_id'], item['id'])
-        self.service.resolve_link(meeting_id, 'tasks', 0, pending['text'], 'same', item['id'])
-        [item] = self.service.tasks()
-        self.assertEqual((item['status'], self.minutes(meeting_id)['tasks'][0]['status']), ('done', 'done'))
+        self.assertEqual(self.service.item_list()['pending'], [])
+        items = self.service.item_list()['items']
+        self.assertEqual([(i['kind'], i['text']) for i in items], [('task', 'Провери failover на VPN в офиса')])
+        self.assertNotIn(old['id'], self.service.items.items)
+        self.assertEqual(self.minutes(meeting_id)['tasks'][0]['item_id'], items[0]['id'])
+
+    def test_new_notes_keep_an_item_of_another_meeting_and_a_task_that_a_person_added(self):
+        first = self.meeting(notes([task('Купи UPS за сървърното')]))
+        second = self.meeting(notes([task('Купи UPS за сървърното')]), '2026-10-23T10:00:00+03:00')
+        shared = self.service.tasks()[0]['id']
+        self.service.resolve_link(second, 'tasks', 0, 'Купи UPS за сървърното', 'same', shared)
+        self.transcribe_again(second)
+        self.new_notes(second, notes([task('Обнови фърмуера на рутера')]))
+        item = self.service.items.items[shared]
+        self.assertEqual([link['meeting_id'] for link in item['links']], [first])
+        self.assertEqual(self.service.item_list()['pending'], [])
 
     def test_a_changed_ai_decision_is_proposed_again(self):
         meeting_id = self.meeting(notes(decisions=[decision('Резервният интернет е LTE рутер', 'verified')]))

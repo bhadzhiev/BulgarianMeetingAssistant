@@ -2024,7 +2024,7 @@ class MeetingService:
                 if self.items.sync(meeting_id, minutes):
                     save_minutes(directory, minutes)
             else:
-                # Transcribing again removes the notes; the items wait for the new notes, they are not deleted.
+                # Processing again removes the notes; the items wait for the new notes, which replace them.
                 self.items.detach(meeting_id)
             changed = set(self.items.status_changed)
             self.items.save()

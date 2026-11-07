@@ -125,14 +125,11 @@ class Registry:
         text = mention.get(MENTION[kind]['text']) or ''
         found = []
         for item in self.items.values():
-            # An item from the earlier notes of this meeting waits for the new notes, whatever its status.
-            detached = self._detached(item, meeting_id)
-            if item['kind'] != kind or item['status'] in {'done', 'superseded'} and not detached:
+            # An item from the earlier notes of this meeting goes away with them; it is never offered as a match.
+            if item['kind'] != kind or item['status'] in {'done', 'superseded'} or self._detached(item, meeting_id):
                 continue
             score = similarity(text, item['text'] or '')
             if kind == 'task' and mention.get('owner') and mention.get('owner') == item.get('owner'):
-                score += 0.05
-            if detached:
                 score += 0.05
             if score >= MATCH:
                 found.append(dict(item_id=item['id'], score=round(min(score, 1.0), 2)))
@@ -187,8 +184,8 @@ class Registry:
         return changed
 
     def detach(self, meeting_id: str) -> None:
-        """The notes of a meeting are gone because it was transcribed again. Its items keep their identity
-        and history, and wait for the new notes of the meeting."""
+        """The notes of a meeting are gone because it is processed again. Its items wait only until the new
+        notes arrive: an item with the same text keeps its identity, and the new notes replace the others."""
         for item in self.items.values():
             for link in item['links']:
                 if link['meeting_id'] == meeting_id and not link.get('detached') and not link.get('manual_task'):
@@ -290,11 +287,12 @@ class Registry:
                     present.add(mention['item_id'])
                 changed = True
         for item in list(self.items.values()):
-            # Detached links wait for a person to link the new notes; only a removed mention ends a link.
-            if item['id'] in present or minutes is not None and any(l['meeting_id'] == meeting_id and l.get('manual_task') for l in item['links']) or not any(link['meeting_id'] == meeting_id and (minutes is None or not link.get('detached'))
+            # New notes replace the items of the earlier notes of this meeting (detached links included),
+            # so a person reviews each task once. Tasks that a person added to the meeting stay.
+            if item['id'] in present or minutes is not None and any(l['meeting_id'] == meeting_id and l.get('manual_task') for l in item['links']) or not any(link['meeting_id'] == meeting_id
                                                 for link in item['links']):
                 continue
-            item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id or minutes is not None and link.get('detached')]
+            item['links'] = [link for link in item['links'] if link['meeting_id'] != meeting_id]
             if item['links'] or item.get('created_by') == 'user' or self.has_graph_links(item['id']):
                 self._event(item, 'removed', meeting_id, by='user')
             else:

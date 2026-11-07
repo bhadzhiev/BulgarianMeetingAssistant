@@ -863,7 +863,7 @@ function noteButtons(items,index,textNode,busy,title){
  // A person wrote the new wording, so it counts as checked.
  edit.onclick=()=>inlineEdit(textNode,item.text,value=>commit(()=>{item.text=value;item.review='verified';}),'Edit '+title);
  remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this statement from '+title+'?\n\n'+item.text,{ok:'Delete',danger:true})))return;await commit(()=>items.splice(index,1));toast('Deleted');});
- return [edit,remove];
+ return [edit,rowMenu('More actions for this statement',remove)];
 }
 function noteSection(minutes,field,title,busy,hint) {
  const section=el('section','note-section'+(field==='observations'?' private-notes':''));
@@ -873,7 +873,7 @@ function noteSection(minutes,field,title,busy,hint) {
   if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
   else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&detail.items?.[item.item_id];
    if(decision) meta.append(decisionBadge(decision));
-   const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions)action.disabled=busy;meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
+   const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions){action.disabled=busy;for(const inner of action.querySelectorAll?.('button')||[])inner.disabled=busy||inner.disabled;}meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
    if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText,meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
    if(field==='decisions'&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
@@ -972,7 +972,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions){const citation=el('div','meeting-task-citation');citation.append(el('p','',mention.task),sourceBlock(mention.evidence_timestamp));evidence.append(citation);}main.append(evidence);}
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
- if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));if(item.acceptance_state!=='proposed'){const actions=el('div','action-group task-item-actions');actions.append(doneButton(item,busy),edit,remove);main.append(actions);}else main.append(edit);}
+ if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));if(item.acceptance_state!=='proposed'){const actions=el('div','action-group task-item-actions');actions.append(doneButton(item,busy),edit,rowMenu('More actions for this task',remove));main.append(actions);}else main.append(edit);}
  if(item?.acceptance_state==='proposed'){const accept=el('button','primary small-action','Accept task'),skip=el('button','secondary small-action','Skip proposal');accept.type=skip.type='button';accept.disabled=skip.disabled=busy;accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));const link=btn('secondary small-action','Link to existing task');link.disabled=busy;link.onclick=()=>perform(async()=>{const at=stampSeconds(task.evidence_timestamp||'00:00:00'),first=detail.transcript.findIndex(s=>s.start<=at&&s.end>=at);if(first<0)throw new Error('Select the supporting transcript passage to link this action.');await suggestTask(link,{provider:'meeting',id:detail.id,revision:detail.transcript_revision,first,last:first,link_only:true,proposal_item_id:item.id,proposal_item_revision:item.revision});});const actions=el('div','action-group proposal-actions');actions.append(accept,link,skip);main.append(actions);}
  if(item&&item.acceptance_state!=='proposed') main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  row.append(el('span'),main); return row;
@@ -1308,10 +1308,20 @@ function inlineEdit(node,text,save,label='Text'){
  ok.onclick=()=>perform(async()=>{const value=area.value.trim();if(!value){area.focus();return;}if(value===text){close();return;}ok.disabled=cancel.disabled=true;try{await save(value);editorDirty.clear('inline-edit');}finally{ok.disabled=cancel.disabled=false;}});
  editorDirty.set('inline-edit',true);node.replaceWith(form);area.focus();
 }
+// Rare and destructive actions wait in a small menu; the row keeps its main action in view.
+function rowMenu(label,...buttons){
+ const menu=el('details','menu row-menu'),summary=el('summary','overflow-trigger','...'),items=el('div','menu-items');
+ summary.setAttribute('aria-label',label);summary.title=label;
+ for(const button of buttons){button.classList.remove('quiet','small-action','secondary');items.append(button);}
+ items.addEventListener('click',()=>{menu.open=false;});menu.append(summary,items);
+ // A click elsewhere closes an open row menu. One listener serves every menu.
+ if(!rowMenu.watching){rowMenu.watching=true;document.addEventListener('click',event=>{for(const open of document.querySelectorAll('details.row-menu[open]'))if(!open.contains(event.target))open.open=false;});}
+ return menu;
+}
 function editDeleteButtons(item,textNode){
  const edit=el('button','quiet','Edit'),remove=el('button','quiet danger-text','Delete');edit.type=remove.type='button';
  edit.onclick=()=>inlineEdit(textNode,item.text,async value=>{await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{text:value}});await refreshAfterItemChange();toast('Saved');},'Edit '+item.kind);
- remove.onclick=()=>perform(()=>deleteItem(item));return [edit,remove];
+ remove.onclick=()=>perform(()=>deleteItem(item));return [edit,rowMenu('More actions for this '+item.kind,remove)];
 }
 function itemActions(item,row) {
  const actions=el('div','tracked-actions'); actions.append(projectAssignment(item)); const edit=el('button','quiet','Edit'), merge=el('button','quiet','Merge…'), remove=el('button','quiet danger-text','Delete');
@@ -1443,7 +1453,7 @@ $('github-link-form').onsubmit=event=>{event.preventDefault();return perform(asy
 function statusBadge(status,detail){return el('span','status-badge status-'+status.tone,status.label+(detail?' · '+detail:''));}
 function workReviewBadge(state){return ['needs_review','edited'].includes(state)?statusBadge(AtlantaStatus.status('review',state)):'';}
 const openTaskFields=new Set();
-function globalTaskRow(item,today) {
+function globalTaskRow(item,today,{select=true}={}) {
  const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(avatar(item.owner||''),el('span','',item.owner||'No owner'));
  if(item.owner&&!item.manual?.includes('owner')){
@@ -1484,7 +1494,7 @@ function globalTaskRow(item,today) {
   const rowActions=el('div','task-row-actions');rowActions.append(doneButton(item),toggle);main.append(rowActions,quick);
  }
  if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(restore);}else{const accept=el('button','primary small-action','Accept task'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));actions.append(accept,skip);}main.append(actions);}
- const marks=el('div','task-row-marks');if(item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','','Select'));marks.append(pick);}row.append(marks,main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';more.append(trigger,itemActions(item,row));row.append(more);}return row;
+ const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','','Select'));marks.append(pick);}row.append(marks,main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';more.append(trigger,itemActions(item,row));row.append(more);}return row;
 }
 function decisionRow(item,byId) {
  const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
@@ -1496,7 +1506,8 @@ function decisionRow(item,byId) {
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
  const change=actionBtn(item.status==='proposed'?'primary small-action':'secondary small-action',next[1],()=>changeItem(item,{status:next[0]}));meta.append(change);
  main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
- row.append(el('span'),main); row.append(itemActions(item,row)); return row;
+ row.append(el('span'),main);
+ const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';more.append(trigger,itemActions(item,row));row.append(more); return row;
 }
 async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
@@ -2672,6 +2683,9 @@ function renderWorkspace(){
  const today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
  const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today));
  const kinds={task:'Tasks',decision:'Decisions',question:'Questions'};
+ // A task or a decision looks and works the same as in My Work.
+ const byId=Object.fromEntries((itemsData?.items||[]).map(i=>[i.id,i]));
+ function workCard(item){const full=byId[item.id]||item;if(full.kind==='task')return globalTaskRow(full,today,{select:false});if(full.kind==='decision')return decisionRow(full,byId);return itemCard(item);}
  function itemCard(item){
   const card=el('article','workspace-item'),cardText=el('strong','',item.text);card.append(cardText,el('p','hint',item.kind+' · '+item.status+(item.owner?' · '+item.owner:'')),projectAssignment(item));
   if(item.answer)card.append(el('p','',item.answer));card.append(sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),relationLinks(item),evidenceBlock(item,itemsData.meetings));
@@ -2683,7 +2697,9 @@ function renderWorkspace(){
   if(current&&current.id!=='__none__')box.append(repositoryEditor(current));else{const repositories=el('section','project-repos');repositories.append(el('h3','','Repositories'),el('p','hint','Choose a project above to view and link its repositories.'));box.append(repositories);}
   for(const [kind,title] of Object.entries(kinds)){
    const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
-   if(rows.length){box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(itemCard(item));}
+   if(rows.length){box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(workCard(item));
+    // The heading counts the open items; Work lists every item of the kind, also closed ones.
+    if(rows.length>5)box.append(actionBtn('secondary small-action workspace-show-all','All '+title.toLowerCase()+' in Work →',async()=>{workspaceSection='work';workspaceWorkKind=kind;renderWorkspace();syncRoute(true);}));}
   }
  }else if(workspaceSection==='meetings'){
   box.append(el('h2','',AtlantaUX.count(data.meetings.length,'meeting')));
@@ -2699,7 +2715,7 @@ function renderWorkspace(){
   const evs=new Set(data.items.flatMap(i=>i.source_evidence||[])),ids=new Set((data.graph.source_evidence||[]).filter(e=>evs.has(e.id)).map(e=>e.source_id));
   box.append(el('h2','','Sources linked through project work'),el('p','hint','Accept or link a proposal in My Work, then assign its item to a project. This view keeps the original source and its evidence.'));
   for(const source of data.graph.sources||[])if(ids.has(source.id)){const row=el('article','workspace-item');row.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)),el('p','hint',source.available?'Available':'Saved evidence · source unavailable'));box.append(row);}
- }else if(['work','task','decision','question'].includes(workspaceSection)){if(data.project_id&&data.project_id!=='__none__'){const add=actionBtn('primary','New task in this project',()=>openManualTask());box.append(add);}const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;renderWorkspace();syncRoute(true);};box.append(filter);const rows=visible.filter(i=>!filter.value||i.kind===filter.value);for(const item of rows)box.append(itemCard(item));}
+ }else if(['work','task','decision','question'].includes(workspaceSection)){if(data.project_id&&data.project_id!=='__none__'){const add=actionBtn('primary','New task in this project',()=>openManualTask());box.append(add);}const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;renderWorkspace();syncRoute(true);};box.append(filter);const rows=visible.filter(i=>!filter.value||i.kind===filter.value);for(const item of rows)box.append(workCard(item));}
  if(!visible.length&&['overview','work','task','decision','question'].includes(workspaceSection)){const empty=el('div','empty-work');empty.append(el('h3','','A place for your next conversation'),el('p','','Record a meeting or attach a conversation to bring this project to life.'));const next=el('button','primary','New meeting');next.onclick=()=>$('new-meeting').click();empty.append(next);box.append(empty);}
  if(box.children.length<2)box.append(el('p','hint','Nothing assigned here yet.'));
 }

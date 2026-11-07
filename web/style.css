@@ -668,7 +668,7 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 .recent-filter-label{font-size:11px;color:var(--side-muted);font-weight:400;margin:0 0 5px}
 .sidebar .tasks-link,.sidebar #new-meeting{display:flex;align-items:center;gap:8px;min-height:44px}
 .sidebar .nav-label{font-size:13px}.sidebar footer{font-size:0;display:flex}.sidebar footer .dot{display:none}
-.sidebar footer button{display:flex;align-items:center;gap:8px;font-size:13px;margin:0}.settings-glyph{font-size:20px}
+.sidebar footer button{display:flex;align-items:center;gap:8px;font-size:13px;margin:0}.settings-glyph{width:17px;height:17px}
 .setup-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.setup-heading button{white-space:nowrap}
 #setup{padding-bottom:110px}.setup-card{padding:24px}
 .record-identity-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:16px;align-items:start}.record-identity-grid>div{min-width:0}.record-identity-grid label{margin:0 0 6px}
@@ -1032,3 +1032,8 @@ dialog{border-radius:10px}
 #workspace-content>h2{font-size:17px}
 @media(max-width:640px){.heading h1,#conversations h1,#tasks h1,#projects h1{font-size:22px}}
 @media(pointer:coarse){.dialog-close,.dismiss-error{width:44px;height:44px;min-width:44px;min-height:44px}}
+
+/* Inline SVG icons: one 24px grid, 2px stroke, currentColor — the same look as the nav icons. */
+.icon{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px}
+button:has(.icon),a:has(.icon){display:inline-flex;align-items:center;gap:6px}
+.mode-icon .icon,.small-icon .icon{width:22px;height:22px;display:block}

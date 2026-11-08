@@ -317,6 +317,14 @@
   <p class="hint">The AI writes observations and questions with record IDs. The app rejects unknown IDs and adds every number and date itself. The facts of the review do not change.</p>
   <div class="review-footer"><button id="team-ai-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-ai-start" class="primary" type="submit" disabled>Prepare with AI</button></div>
 </form></dialog>
+<dialog id="team-github-dialog" aria-labelledby="team-github-title"><form id="team-github-form" method="dialog">
+  <div class="card-heading"><div><p class="eyebrow">GITHUB CONTRIBUTION</p><h2 id="team-github-title">Collect GitHub contribution</h2></div><button id="team-github-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <p id="team-github-error" class="error" role="alert" hidden></p>
+  <p id="team-github-hint" class="hint">Finding the repositories with activity in the period…</p>
+  <div id="team-github-repos" class="team-github-repos" role="group" aria-label="Repositories"></div>
+  <p class="hint">Pull requests count for their author and reviews for their reviewer. Merging is not authorship. Release and back-merge pull requests count once. GitHub never adds to the task counts. No AI runs.</p>
+  <div class="review-footer"><button id="team-github-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-github-start" class="primary" type="submit" disabled>Collect</button></div>
+</form></dialog>
 <dialog id="template-dialog" aria-labelledby="template-title"><form id="template-form" method="dialog">
   <div class="card-heading"><div><p class="eyebrow">MEETING TYPE</p><h2 id="template-title">New template</h2></div><button id="template-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <p id="template-error" class="error" role="alert" hidden></p>

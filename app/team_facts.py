@@ -317,7 +317,7 @@ class Collector:
         if any(i['provider'] == 'google_chat' for i in identities): sources.append('google_chat')
         limitations = ['Only confirmed facts count. Talk time and counts of messages or tasks do not measure productivity.',
                        'Work that nobody recorded in Atlanta is not missing work.',
-                       'GitHub contribution comes in a later step.']
+                       'GitHub contribution needs its own step: Collect GitHub contribution on the draft.']
         if len(transcribed) < len(meetings):
             limitations.append(f'{len(meetings) - len(transcribed)} of {len(meetings)} meetings in the period have no transcript.')
         if not any(i['provider'] in {'gmail', 'google_chat'} for i in identities):
@@ -436,7 +436,7 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts):
     lines = [f"- {person} waits{(' for ' + w['on']) if w['on'] else ''}: {w['text']} [{w['ref']}]" for w in waits['waits']]
     lines += [f"- {w['by']} waits for {person}: {w['text']} [{w['ref']}]" for w in waits['waited_on']]
     out += lines or ['_No recorded waiting in this period._']
-    out += ['', '## GitHub contribution', '', '_GitHub comes in a later step._', '']
+    out += ['', '## GitHub contribution', '', '_Not collected yet. Choose Collect GitHub contribution… on the draft._', '']
     out += ['## Previous agreements and goals', '']
     if c.previous is None:
         out.append('_This is the first review. There are no earlier agreements yet._')

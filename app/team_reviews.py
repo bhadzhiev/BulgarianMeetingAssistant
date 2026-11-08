@@ -236,6 +236,32 @@ class TeamReviews:
             self._write_meta(directory, dict(meta, generator=generator, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
+    def apply_github(self, review_id, revision, result, records, section, replace_section):
+        """Save the GitHub part of a draft. New records replace the old GitHub records; the other records keep their IDs.
+
+        The AI part goes away, because it may cite the old records. A person runs the AI again.
+        """
+        with self.lock:
+            try:
+                directory, meta = self._current(review_id, revision)
+            except Conflict:
+                raise Conflict('The draft changed during the GitHub collection. Run it again; the read parts are kept.') from None
+            if meta['status'] != 'draft':
+                raise ValueError('Only a draft collects GitHub contribution')
+            evidence = [r for r in json.loads((directory / 'evidence.json').read_text(encoding='utf-8')) if (r.get('source_ref') or {}).get('provider') != 'github']
+            first = max((int(r['id'][1:]) for r in evidence), default=0) + 1
+            evidence += records(result, meta['person_id'], first)
+            text = (directory / 'review.md').read_text(encoding='utf-8')
+            text = re.sub(r'\n## AI observations\n.*?(?=\n## Questions for the conversation\n)', '\n', text, flags=re.S)
+            text = replace_section(text, section(result))
+            coverage = dict(meta.get('coverage') or {})
+            coverage['sources'] = sorted(set(coverage.get('sources', [])) | {'github'})
+            coverage['github'] = dict(included=result['included'], limitations=result['limitations'], calls=result['calls'])
+            atomic_text(directory / 'review.md', text)
+            atomic_json(directory / 'evidence.json', evidence)
+            self._write_meta(directory, dict(meta, coverage=coverage, generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
+            return self.get(review_id)
+
     def save_review(self, review_id, revision, text):
         """Edit the text of a Draft. A finalized review is fixed."""
         with self.lock:

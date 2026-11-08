@@ -158,6 +158,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.team_reviews_list(parse_qs(url.query).get('person', [''])[0]))
         if url.path == '/api/team/review':
             return self.respond(200, self.server.service.team_reviews.get(parse_qs(url.query).get('id', [''])[0]))
+        if url.path == '/api/team/review/github/discover':
+            return self.respond(200, self.server.service.team_github.discover(parse_qs(url.query).get('id', [''])[0]))
+        if url.path == '/api/team/review/github/status':
+            return self.respond(200, self.server.service.team_github.status(parse_qs(url.query).get('job', [''])[0]))
         if url.path == '/api/team/review/ai/preview':
             return self.respond(200, self.server.service.team_ai.preview(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/team/review/ai/status':
@@ -490,6 +494,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.save_person(body)
             elif path.startswith('/api/team/review/') and path.rsplit('/', 1)[1] in {'create', 'version', 'collect', 'save', 'notes', 'finalize', 'discard'}:
                 result = service.team_review_action(path.rsplit('/', 1)[1], body)
+            elif path == '/api/team/review/github/start':
+                result = service.team_github.start(body)
+            elif path == '/api/team/review/github/stop':
+                result = service.team_github.stop(body.get('job'))
             elif path == '/api/team/review/ai/start':
                 result = service.team_ai.start(body)
             elif path == '/api/team/review/ai/stop':

@@ -2991,14 +2991,19 @@ function renderTeamReview(){
  const aiJob=teamAIJob&&teamAIJob.review_id===r.id?teamAIJob:null;
  if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});renderTeamReview();}));head.append(line);}
  else if(aiJob?.error)head.append(el('p','error',aiJob.error));
+ const ghJob=teamGitHubJob&&teamGitHubJob.review_id===r.id?teamGitHubJob:null;
+ if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});renderTeamReview();}));head.append(line);}
+ else if(ghJob?.error)head.append(el('p','error',ghJob.error));
+ for(const text of r.coverage?.github?.limitations||[])head.append(el('p','hint','GitHub · '+text));
  const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
  const text=el('textarea','team-review-text');text.value=r.review_md;text.rows=22;text.setAttribute('aria-label','Review text');text.oninput=()=>editorDirty.set('team-review',text.value!==r.review_md);
  const saveText=async()=>{if(text.value!==teamReview.review_md){teamReview=await api('/api/team/review/save',{id:r.id,revision:teamReview.revision,review_md:text.value});}editorDirty.clear('team-review');};
  if(draft){
   actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision});toast('Review finalized');renderTeamReview();}),
    actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
+   actionBtn('secondary','Collect GitHub contribution…',()=>openTeamGitHub(r)),
    actionBtn('secondary','Prepare with AI…',()=>openTeamAI(r)),
-   ...(r.supersedes?[]:[actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
+   ...(r.supersedes?[]:[actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits, the GitHub part and the AI part. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
    actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');toast('Draft discarded');await openTeam('reviews');}));
  }else{
   if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));
@@ -3020,7 +3025,7 @@ function renderTeamReview(){
  box.replaceChildren(back,head,body,notesCard);
 }
 // The evidence records that the review cites: what, when, why it counts, and the quote. Each opens its source.
-const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result confirmed',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for'};
+const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result confirmed',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
 function evidenceList(r){
  const box=el('details','team-evidence'),rows=r.evidence||[];box.append(el('summary','','Evidence · '+rows.length));
  if(!rows.length){box.append(el('p','hint','No evidence records in this review.'));return box;}
@@ -3030,6 +3035,7 @@ function evidenceList(r){
   row.append(head,el('p','',e.facts?.text||''));if(e.quote)row.append(el('blockquote','',e.quote));
   const ref=e.source_ref||{},links=el('div','action-group');row.append(links);
   if(ref.meeting_id&&ref.timestamp)links.append(listenButton(ref.meeting_id,stampSeconds(ref.timestamp),{label:'',className:'chip-listen',title:'Play from '+ref.timestamp}));
+  if(ref.url&&/^https:\/\/github\.com\//.test(ref.url)){const open=el('a','quiet small-action button-link','Open on GitHub ');open.append(icon('external'));open.href=ref.url;open.target='_blank';open.rel='noopener noreferrer';links.append(open);}
   if(ref.item_id)links.append(actionBtn('quiet small-action','Open the work item',async()=>{const item=(await api('/api/items')).items.find(i=>i.id===ref.item_id);if(!item){toast('This work item no longer exists');return;}if(item.kind==='task')return openTaskPanel(item.id);show('tasks');lastTasks='';await loadTasks();showWorkTab(item.kind==='question'?'questions':item.kind);}));
   box.append(row);
  }
@@ -3065,6 +3071,35 @@ function pollTeamAI(){
   else if(teamAIJob.error)toast('AI preparation stopped: '+teamAIJob.error);
   if(here){teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();}
  }),1500);
+}
+// GitHub: find the repositories with activity, let the person exclude some, then collect in the background.
+let teamGitHubFound=null,teamGitHubJob=null,teamGitHubTimer=null;
+async function openTeamGitHub(r){
+ if(editorDirty.keys().includes('team-review')){toast('Save the draft first');return;}
+ if(r.generator&&!(await ask('Collecting GitHub removes the AI part, because it may cite old records. Run the AI again after it. Continue?',{ok:'Continue'})))return;
+ const box=$('team-github-repos');box.replaceChildren();$('team-github-error').hidden=true;$('team-github-start').disabled=true;$('team-github-hint').textContent='Finding the repositories with activity in the period…';$('team-github-dialog').showModal();
+ try{teamGitHubFound=await api('/api/team/review/github/discover?id='+encodeURIComponent(r.id));}
+ catch(exc){$('team-github-error').textContent=exc.message;$('team-github-error').hidden=false;$('team-github-hint').textContent='';return;}
+ const f=teamGitHubFound;$('team-github-hint').textContent=f.repositories.length?'@'+f.login+' · '+AtlantaUX.count(f.repositories.length,'repository','repositories')+' with pull requests or reviews in the period. Clear a repository to leave it out.':'@'+f.login+' has no pull requests or reviews in the period that this token can see.';
+ for(const repo of f.repositories){const label=el('label','project-choice'),check=el('input');check.type='checkbox';check.value=repo.name;check.checked=true;check.onchange=syncGitHubStart;label.append(check,document.createTextNode(repo.name+' · '+[repo.authored&&AtlantaUX.count(repo.authored,'pull request'),repo.reviewed&&AtlantaUX.count(repo.reviewed,'review')].filter(Boolean).join(' · ')));box.append(label);}
+ for(const text of f.limitations)box.append(el('p','notice',text));
+ syncGitHubStart();
+}
+function syncGitHubStart(){const n=$('team-github-repos').querySelectorAll('input:checked').length;$('team-github-start').disabled=!n;$('team-github-start').textContent=n?'Collect from '+AtlantaUX.count(n,'repository','repositories'):'Collect';}
+$('team-github-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
+ try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
+ catch(exc){$('team-github-error').textContent=exc.message;$('team-github-error').hidden=false;}
+});};
+$('team-github-close').onclick=()=>$('team-github-dialog').close();
+function pollTeamGitHub(){
+ clearTimeout(teamGitHubTimer);if(!teamGitHubJob)return;
+ teamGitHubTimer=setTimeout(()=>perform(async()=>{
+  teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);
+  const here=view==='team'&&teamReview?.id===teamGitHubJob.review_id;
+  if(teamGitHubJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamGitHub();return;}
+  if(teamGitHubJob.status==='Ready to review')toast('GitHub contribution collected');else if(teamGitHubJob.error)toast(teamGitHubJob.error);
+  if(here){teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();}
+ }),1200);
 }
 // Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
 function exportTeamReview(r){
@@ -3485,6 +3520,7 @@ const dialogPolicies={
  'team-review-dialog':{close:'team-review-close',cancel:'team-review-cancel',form:'team-review-form'},
  // The approval box is not an edit: closing the AI preview never asks to discard it.
  'team-ai-dialog':{close:'team-ai-close',cancel:'team-ai-cancel',form:'team-ai-form',transient:true},
+ 'team-github-dialog':{close:'team-github-close',cancel:'team-github-cancel',form:'team-github-form',transient:true},
  'template-dialog':{close:'template-close',cancel:'template-cancel',form:'template-form',actions:['template-delete']},
  'github-link-dialog':{close:'github-link-close',cancel:'github-link-cancel',form:'github-link-form'},
  'scope-dialog':{close:'scope-close',cancel:'scope-cancel',form:'scope-form'},

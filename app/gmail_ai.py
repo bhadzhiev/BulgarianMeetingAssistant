@@ -201,7 +201,7 @@ class GmailAI:
             code, error = 'analysis_failed', 'Email AI analysis failed. Check the endpoint/model or use a shorter message. No automatic task acceptance occurred.'
             if message.startswith('The model output was truncated.'):
                 code, error = 'output_limit', 'Email AI reached its output limit. Use Reasoning Off or increase the output limit in Settings, then preview and approve again.'
-            elif message.startswith('Local AI request failed.'):
+            elif message.startswith(('Configured API request failed.', 'Local AI request failed.')):
                 code, error = 'endpoint_failed', 'The AI endpoint did not complete the request. Check that the selected model is loaded, the server is reachable and the response format is supported, then preview and approve again.'
             elif message.startswith(('AI quote does not occur', 'Invalid extracted', 'Invalid email extraction', 'Invalid extracted task', 'Extracted ', 'due_date', 'Owner', 'Deadline')):
                 code, error = 'invalid_evidence', 'The AI result did not pass source-quote or task validation. No suggestions were saved. Try a different model or make a manual suggestion.'

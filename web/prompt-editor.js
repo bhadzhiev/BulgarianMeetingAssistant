@@ -7,7 +7,7 @@ async function leavePromptEditor(confirmed=false){
  if(!confirmed&&(promptJob||promptPending)&&!(await ask('Cancel the running prompt test and close settings?',{ok:'Cancel test'})))return false;
  if(!confirmed&&promptDirty()&&!(await ask('Discard the unsaved AI instructions?',{ok:'Discard changes',cancel:'Keep editing'})))return false;
  if(promptJob)await api('/api/prompts/test/cancel',{id:promptJob});
- ++promptLaunch;promptPending=false;promptJob=null;promptBusy(false);invalidatePromptTest();clearTimeout(promptTimer);$('prompt-text').value=promptOriginal;editorDirty.clear('ai-prompts');return true;
+ ++promptLaunch;promptPending=false;promptJob=null;trackJob('prompt-test',null);promptBusy(false);invalidatePromptTest();clearTimeout(promptTimer);$('prompt-text').value=promptOriginal;editorDirty.clear('ai-prompts');return true;
 }
 function invalidatePromptTest(){promptSequence++;promptPreview=null;$('prompt-test').disabled=true;$('prompt-request').hidden=true;$('prompt-target').textContent='';}
 function fillPromptScopes(wanted){
@@ -68,8 +68,10 @@ async function pollPromptTest(id){
  if(promptJob!==id)return;
  try{const result=await api('/api/prompts/test/status?id='+encodeURIComponent(id));if(promptJob!==id)return;
   $('prompt-result').textContent=result.error||result.status+(result.result?'\n\n'+JSON.stringify(result.result,null,2):'');
+  // The test shows in the status line, also in another settings tab; a click returns to the AI instructions.
+  trackJob('prompt-test',result.running&&{text:'Testing AI instructions'+(result.status?' · '+result.status:''),open:async()=>{if(!$('settings-dialog').open)openSettings('prompts');showSettingsTab('prompts');}});
   if(result.running)promptTimer=setTimeout(()=>pollPromptTest(id),800);else{promptJob=null;promptBusy(false);invalidatePromptTest();}
- }catch(error){promptError(error);promptJob=null;promptBusy(false);}
+ }catch(error){promptError(error);promptJob=null;trackJob('prompt-test',null);promptBusy(false);}
 }
 $('prompt-test').onclick=()=>perform(async()=>{
  if(!promptPreview||promptPending||promptJob)return;const preview=promptPreview,launch=++promptLaunch;

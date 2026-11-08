@@ -12,7 +12,7 @@ const base={transcription:'elevenlabs',summarizer:'local',transcript_correction:
 assert.match(privacy({...base,local_ai_base_url:'https://api.moonshot.ai/v1'}),/Transcript text is sent to api\.moonshot\.ai for notes, titles\./);
 assert.doesNotMatch(privacy({...base,local_ai_base_url:'http://127.0.0.1:1234/v1'}),/is sent to 127/);
 assert.match(privacy({...base,transcription:'local',local_ai_base_url:'https://api.moonshot.ai/v1'}),/for notes, AI correction, titles\./);
-assert.doesNotMatch(privacy({...base,transcription:'local',local_ai_base_url:'https://api.moonshot.ai/v1'}),/Local text AI uses the configured API endpoint/);
+assert.doesNotMatch(privacy({...base,transcription:'local',local_ai_base_url:'https://api.moonshot.ai/v1'}),/Notes use the configured API\./);
 // The key field, its Forget button and the context field exist and reach the request.
 for(const id of ['local-ai-api-key','forget-local-ai-key','local-ai-cloud-note','local-ai-context'])assert.match(html,new RegExp('id="'+id+'"'));
 assert.match(app,/if\(\$\('local-ai-api-key'\)\.value\.trim\(\)\)body\.local_ai_api_key=\$\('local-ai-api-key'\)\.value\.trim\(\)/);

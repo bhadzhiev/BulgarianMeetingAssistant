@@ -46,11 +46,13 @@
  function enhance(input){
   if(input.dataset.dateControl)return;input.dataset.dateControl='true';
   let committed=input.value;const original=input.value,labels=[...(input.labels||[])],wrap=make('span','date-control'),display=make('input','date-display'),trigger=make('button','date-trigger','▦'),note=make('small','date-error');
-  const label=input.getAttribute('aria-label')||labels[0]?.textContent.trim()||'Date';
-  display.type='text';display.placeholder='dd.mm.yyyy';display.inputMode='numeric';display.autocomplete='off';display.maxLength=10;display.setAttribute('aria-label',label);display.dataset.dateDisplay='true';
+  display.type='text';display.placeholder='dd.mm.yyyy';display.inputMode='numeric';display.autocomplete='off';display.maxLength=10;display.dataset.dateDisplay='true';
   display.id=(input.id||'date-'+Math.random().toString(36).slice(2))+'-display';note.id=display.id+'-error';note.hidden=true;display.setAttribute('aria-describedby',note.id);
   for(const label of labels)if(label.htmlFor===input.id)label.htmlFor=display.id;
-  trigger.textContent='';const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('fill','none');icon.setAttribute('stroke','currentColor');icon.setAttribute('stroke-width','1.6');icon.setAttribute('aria-hidden','true');const shape=document.createElementNS('http://www.w3.org/2000/svg','path');shape.setAttribute('d','M5 5h14v15H5zM8 2v6M16 2v6M5 10h14M8 13h2M14 13h2M8 17h2');icon.append(shape);trigger.append(icon);trigger.type='button';trigger.setAttribute('aria-label','Open calendar for '+label);trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-haspopup','dialog');
+  trigger.textContent='';const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('fill','none');icon.setAttribute('stroke','currentColor');icon.setAttribute('stroke-width','1.6');icon.setAttribute('aria-hidden','true');const shape=document.createElementNS('http://www.w3.org/2000/svg','path');shape.setAttribute('d','M5 5h14v15H5zM8 2v6M16 2v6M5 10h14M8 13h2M14 13h2M8 17h2');icon.append(shape);trigger.append(icon);trigger.type='button';trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-haspopup','dialog');
+  // The field and its calendar button follow the current label: a dialog can change it (In the team from → Left the team on).
+  const naming=()=>{const label=input.getAttribute('aria-label')||labels[0]?.textContent.trim()||'Date';display.setAttribute('aria-label',label);trigger.setAttribute('aria-label','Open calendar for '+label);};
+  naming();if(typeof MutationObserver==='function'){const watch=new MutationObserver(naming);for(const node of labels)watch.observe(node,{childList:true,characterData:true,subtree:true});watch.observe(input,{attributes:true,attributeFilter:['aria-label']});}
   input.before(wrap);wrap.append(input,display,trigger);wrap.after(note);input.type='hidden';
   const descriptor=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
   const update=()=>{display.value=AtlantaUX.display(descriptor.get.call(input));display.disabled=input.disabled;display.readOnly=input.readOnly;display.required=input.required;trigger.disabled=input.disabled||input.readOnly;};

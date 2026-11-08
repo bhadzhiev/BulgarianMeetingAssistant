@@ -49,7 +49,7 @@ class AudioImportTests(unittest.TestCase):
     def test_failed_uploads_leave_no_meeting_and_no_partial_files(self):
         data = phone_recording(self.root / 'x.m4a')
         for stream, size, name, message in [(io.BytesIO(data[:100]), len(data), 'x.m4a', 'stopped'),
-                                            (io.BytesIO(b'not audio' * 100), 900, 'x.mp3', 'no audio'),
+                                            (io.BytesIO(b'not audio' * 100), 900, 'x.mp3', 'could not be read'),
                                             (io.BytesIO(data), len(data), 'notes.pdf', 'Choose an audio file')]:
             with self.assertRaisesRegex(ValueError, message):
                 self.service.import_audio(stream, size, name)

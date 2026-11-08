@@ -135,17 +135,17 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     model = settings.get('local_ai_model', DEFAULT_MODEL)
     mode = settings.get('local_ai_format', 'json_schema')
     if mode not in {'json_schema', 'json_object', 'text'}:
-        raise ValueError('Invalid local AI response format')
+        raise ValueError('Invalid API response format')
     # Include the schema in the prompt even when the server cannot constrain output.
     from .prompts import apply
     messages = apply(settings,messages,name)
     messages.append({'role': 'user', 'content': 'Return only one JSON object matching this schema: ' + json.dumps(schema_hint(schema), ensure_ascii=False)})
     max_tokens = settings.get('local_ai_max_tokens', 4096)
     if type(max_tokens) is not int or not 128 <= max_tokens <= 32768:
-        raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
+        raise ValueError('API output limit must be between 128 and 32768 tokens')
     reasoning = settings.get('local_ai_reasoning', 'default')
     if reasoning not in {'default', 'server', 'none', 'low', 'medium', 'high'}:
-        raise ValueError('Invalid local AI reasoning effort')
+        raise ValueError('Invalid API reasoning effort')
     # Qwen3.5 can consume the entire budget on thinking without returning JSON.
     # Apply this task policy before requesting, not after a slow, empty response.
     # Email extraction keeps its separately approved target settings unchanged.
@@ -170,7 +170,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
         response = post_json(base_url + '/chat/completions', payload, timeout=timeout,
             **({'headers': {'Authorization': 'Bearer ' + api_key}} if api_key else {}))
     except Exception as exc:
-        raise ValueError('Local AI request failed. Check the API URL, model and response format in Settings. No cloud fallback was used.' + server_reason(exc)) from exc
+        raise ValueError('Configured API request failed. Check the API URL, model and response format in Settings. No cloud fallback was used.' + server_reason(exc)) from exc
     try:
         choice = response['choices'][0]
         if choice.get('finish_reason') == 'length':

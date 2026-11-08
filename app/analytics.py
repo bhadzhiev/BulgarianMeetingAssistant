@@ -203,7 +203,7 @@ def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict
     response = complete_json(settings, messages, schema, 'topic_matches', timeout=300, api_key=api_key)
     ids = response.get('matches')
     if not isinstance(ids, list) or any(type(index) is not int or not 0 <= index < len(segments) for index in ids):
-        raise ValueError('Local AI returned invalid transcript segment IDs for a topic')
+        raise ValueError('The configured API returned invalid transcript segment IDs for a topic')
     matches = []
     for index in sorted(set(ids)):
         segment = segments[index]

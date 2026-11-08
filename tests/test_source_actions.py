@@ -44,7 +44,7 @@ class EmailActionTests(unittest.TestCase):
 
     def test_worker_errors_are_actionable_without_echoing_message_content(self):
         for prefix, code in [('AI quote does not occur in the selected message','invalid_evidence'),
-                             ('Local AI request failed.','endpoint_failed'),
+                             ('Configured API request failed.','endpoint_failed'),
                              ('The model output was truncated.','output_limit')]:
             with self.subTest(code=code):
                 self.service.gmail_ai.runner=Mock()

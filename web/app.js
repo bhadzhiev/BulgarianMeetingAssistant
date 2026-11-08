@@ -231,13 +231,15 @@ async function readApiResponse(response){
  return data;
 }
 async function api(path,body) {
- if(body!==undefined)actionWrites++;
  // A save outside perform() (a select, a checkbox) also shows that it runs.
  if(body!==undefined)beginActivity('Saving');
+ // Only a save that the server accepted counts for the check mark. A refused save counts as a failure,
+ // also when the caller catches the error and shows it in a form.
+ let ok=false;
  try{
   const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  return await readApiResponse(response);
- }finally{if(body!==undefined)endActivity();}
+  const data=await readApiResponse(response);ok=true;return data;
+ }finally{if(body!==undefined){if(ok)actionWrites++;else actionFailures++;endActivity();}}
 }
 // The desktop window (WKWebView) ignores target=_blank links. The backend opens them in the default browser.
 document.addEventListener('click',event=>{
@@ -247,7 +249,7 @@ document.addEventListener('click',event=>{
 });
 // A pressed control shows that its action runs, and a saved change shows a check mark.
 // The capture listener runs before the control's own handler, so perform() sees the control.
-let actionTrigger=null,actionWrites=0,runningActions=0,activityTimer=null;
+let actionTrigger=null,actionWrites=0,actionFailures=0,runningActions=0,activityTimer=null;
 const busyTriggers=new WeakSet(),BUSY_DELAY=250,DONE_TIME=1500;
 for(const type of ['click','change','submit'])document.addEventListener(type,event=>{
  const node=type==='submit'?event.submitter||event.target.querySelector?.('[type=submit]'):event.target.closest?.('button,select,input');
@@ -265,9 +267,11 @@ let foregroundShown=false,backgroundJob=null;
 function paintActivity(){
  const status=$('activity-status'),text=foregroundShown?(activityLabel||'Working')+' · in progress…':backgroundJob?backgroundJob.text:'';
  status.textContent=text;status.hidden=!text;status.classList?.toggle('background',!foregroundShown&&!!backgroundJob);
- status.title=!foregroundShown&&backgroundJob?'Open the meeting':'';
+ status.title=!foregroundShown&&backgroundJob?'Open it':'';
  try{if(text){if(status.showPopover&&!status.matches(':popover-open'))status.showPopover();}else if(status.hidePopover&&status.matches(':popover-open'))status.hidePopover();}catch{}
 }
+// A dialog that opens later covers the status line in the top layer. Showing the popover again puts it above the dialog.
+function raiseActivity(){const status=$('activity-status');try{if(status.matches(':popover-open')){status.hidePopover();status.showPopover();}}catch{}}
 function showActivity(){activityTimer=null;if(!runningActions)return;$('activity').hidden=false;foregroundShown=true;paintActivity();}
 function beginActivity(label){
  if(!runningActions)activityLabel=label||'';else if(label&&!activityLabel)activityLabel=label;
@@ -280,10 +284,30 @@ function endActivity(){
 // A long step inside an action names itself, for example "Importing transcript".
 function activityStep(label){activityLabel=label;if(foregroundShown)paintActivity();}
 // Processing after a recording or an import runs on the server: its current step and the meeting show here.
-if(typeof document.getElementById==='function'&&document.getElementById('activity-status'))document.getElementById('activity-status').addEventListener('click',()=>{if(!foregroundShown&&backgroundJob)perform(()=>openMeeting(backgroundJob.id));});
+if(typeof document.getElementById==='function'&&document.getElementById('activity-status'))document.getElementById('activity-status').addEventListener('click',()=>{if(!foregroundShown&&backgroundJob)perform(backgroundJob.open);});
+// The other background jobs: a 1:1 AI run, a GitHub collection, an AI instructions test, email AI, a repository report.
+// The start request ends at once; the job stays in the status line until its own status says that it ended.
+// A job with poll() is checked here also when its page is closed; poll() gives the new text, or null at the end.
+const activityJobs=new Map();let activityJobsTimer=null;
+function trackJob(key,job){
+ if(key!==null){if(job)activityJobs.set(key,job);else activityJobs.delete(key);}
+ renderBackgroundActivity();
+ if(!activityJobsTimer&&[...activityJobs.values()].some(j=>j.poll))activityJobsTimer=setTimeout(pollActivityJobs,2000);
+}
+async function pollActivityJobs(){
+ activityJobsTimer=null;
+ for(const [key,job] of [...activityJobs]){
+  if(!job.poll)continue;
+  // A failed check keeps the job: the server can be busy. After five failed checks in a row the line goes.
+  try{const text=await job.poll();if(activityJobs.get(key)!==job)continue;if(text)activityJobs.set(key,{...job,text,failures:0});else activityJobs.delete(key);}
+  catch{if(activityJobs.get(key)!==job)continue;const failures=(job.failures||0)+1;if(failures>=5)activityJobs.delete(key);else activityJobs.set(key,{...job,failures});}
+ }
+ trackJob(null);
+}
 function renderBackgroundActivity(){
- const jobs=(state?.meetings||[]).filter(m=>m.status==='processing'||m.title_status==='generating'),first=jobs[0];
- backgroundJob=first?{id:first.id,text:(first.status==='processing'?(first.progress||'Processing'):'Generating AI title')+' · '+(first.title||'Untitled meeting')+(jobs.length>1?' · +'+(jobs.length-1)+' more':'')}:null;
+ const meetings=(state?.meetings||[]).filter(m=>m.status==='processing'||m.title_status==='generating');
+ const jobs=[...meetings.map(m=>({text:(m.status==='processing'?(m.progress||'Processing'):'Generating AI title')+' · '+(m.title||'Untitled meeting'),open:()=>openMeeting(m.id)})),...activityJobs.values()],first=jobs[0];
+ backgroundJob=first?{text:first.text+(jobs.length>1?' · +'+(jobs.length-1)+' more':''),open:first.open}:null;
  paintActivity();
 }
 async function perform(fn) {
@@ -293,7 +317,7 @@ async function perform(fn) {
  // A second press of the same button waits for the first action. Selects and checkboxes always apply.
  if(button&&busyTriggers.has(button))return;
  if(trigger)busyTriggers.add(trigger);
- const writes=actionWrites;let failed=false;
+ const writes=actionWrites,failures=actionFailures;let failed=false;
  beginActivity(actionLabel(trigger));
  const busy=trigger&&setTimeout(()=>{trigger.classList.add('is-busy');trigger.setAttribute('aria-busy','true');},BUSY_DELAY);
  clearError();
@@ -302,7 +326,7 @@ async function perform(fn) {
   endActivity();
   if(trigger){clearTimeout(busy);busyTriggers.delete(trigger);trigger.classList.remove('is-busy');trigger.removeAttribute('aria-busy');}
   // A button that saved or started something confirms it in place, also when the action was fast.
-  if(button&&!failed&&actionWrites!==writes&&button.isConnected&&button.getClientRects().length){
+  if(button&&!failed&&actionFailures===failures&&actionWrites!==writes&&button.isConnected&&button.getClientRects().length){
    button.classList.add('is-done');setTimeout(()=>button.classList.remove('is-done'),DONE_TIME);
   }
  }
@@ -310,7 +334,7 @@ async function perform(fn) {
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // What a person would lose, in their words, so the question says what it is about.
 const EDITOR_NAMES={'task-draft':'task draft','task-panel':'task changes','meeting-review':'review edit','inline-edit':'note edit',
- 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','team-agreements':'actions and goals','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
+ 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','team-agreements':'actions and goals','team-previous':'states of the last 1:1','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
 function unsavedNames(){
  const names=[dirtyTranscript&&'transcript corrections',dirtyNotes&&'notes changes',itemEditing&&'task changes',speakerNaming&&'speaker name',
   ...editorDirty.keys().map(key=>key.startsWith('dialog:')?'changes in the open window':EDITOR_NAMES[key]||'changes')];
@@ -409,6 +433,7 @@ async function leaveEdits() {
  dirtyTranscript=dirtyNotes=false;transcriptEditing=notesEditing=false;
  transcriptBaseline=notesBase=null;speakerNaming=false;
  for(const key of editorDirty.keys())editorDirty.clear(key);
+ teamDrafts={};
  if(itemEditing){setItemEditing(false);lastTasks='';}
  if(edited&&view==='detail'&&detail)renderDetail();
  editorHeartbeat();return true;
@@ -580,7 +605,7 @@ function renderState() {
  renderReadiness();renderRecordMore();
  const s=state.settings;
  $('meeting-title').placeholder=s.auto_title!==false?'Leave blank for an AI-generated title':'Meeting name (optional)';
- $('processing-name').textContent=(s.transcription==='parakeet_sherpa'?'Local Parakeet + vocabulary':s.transcription==='parakeet'?'Local Parakeet v3':s.transcription==='local'?'Local Whisper':s.transcription==='elevenlabs'?'ElevenLabs Scribe v2':'OpenAI cloud')+' · '+(s.summarizer==='none'?'transcript only':s.summarizer==='local'?'local notes':'cloud notes');
+ $('processing-name').textContent=(s.transcription==='parakeet_sherpa'?'Local Parakeet + vocabulary':s.transcription==='parakeet'?'Local Parakeet v3':s.transcription==='local'?'Local Whisper':s.transcription==='elevenlabs'?'ElevenLabs Scribe v2':'OpenAI cloud')+' · '+(s.summarizer==='none'?'transcript only':s.summarizer==='local'?'notes via configured API':'cloud notes');
  $('privacy-copy').textContent=privacy(s);
  renderTranscriptionTiming();
  if($('settings-dialog').open){renderGoogleStatus();if(calendarConnected()&&!lastGoogleConnected)perform(loadCalendars);}
@@ -691,7 +716,7 @@ function remoteAPI(url){let host='';try{host=new URL(url).hostname.toLowerCase()
  const v4=host.split('.').map(Number);if(v4.length===4&&v4.every(n=>Number.isInteger(n)&&n>=0&&n<=255))return !(v4[0]===127||v4[0]===10||v4[0]===192&&v4[1]===168||v4[0]===172&&v4[1]>=16&&v4[1]<=31||v4[0]===169&&v4[1]===254);
  return !/^(fc|fd|fe80)/.test(host);}
 function apiHost(url){try{return new URL(url).host;}catch{return url;}}
-function privacy(s) { let text=s.transcription==='elevenlabs'?'Audio and vocabulary terms are sent to ElevenLabs for Scribe v2 transcription.'+(s.summarizer==='openai'?' Transcript text is sent to OpenAI for notes.':''):s.transcription==='openai'?'Audio is sent to OpenAI for transcription.'+(s.summarizer==='openai'?' Transcript text is also sent for notes.':''):s.summarizer==='openai'?'Transcription stays local. Transcript text is sent to OpenAI for notes.':'Transcription stays on this Mac. Local text AI uses the configured API endpoint.';if(s.transcript_correction==='openai')text+=s.transcription==='elevenlabs'?' Transcript text is sent to OpenAI only when you run AI correction.':' Transcript text is sent to OpenAI for AI correction.';if(s.auto_title&&s.title_provider==='openai')text+=' Transcript excerpts are sent to OpenAI for titles.';if(remoteAPI(s.local_ai_base_url)){const host=apiHost(s.local_ai_base_url),uses=[s.summarizer==='local'&&'notes',s.transcript_correction==='local'&&s.transcription!=='elevenlabs'&&'AI correction',s.auto_title&&s.title_provider==='local'&&'titles'].filter(Boolean);if(uses.length)text+=' Transcript text is sent to '+host+' for '+uses.join(', ')+'.';text=text.replace(' Local text AI uses the configured API endpoint.','');}
+function privacy(s) { let text=s.transcription==='elevenlabs'?'Audio and vocabulary terms are sent to ElevenLabs for Scribe v2 transcription.'+(s.summarizer==='openai'?' Transcript text is sent to OpenAI for notes.':''):s.transcription==='openai'?'Audio is sent to OpenAI for transcription.'+(s.summarizer==='openai'?' Transcript text is also sent for notes.':''):s.summarizer==='openai'?'Transcription stays local. Transcript text is sent to OpenAI for notes.':'Transcription stays on this Mac. Notes use the configured API.';if(s.transcript_correction==='openai')text+=s.transcription==='elevenlabs'?' Transcript text is sent to OpenAI only when you run AI correction.':' Transcript text is sent to OpenAI for AI correction.';if(s.auto_title&&s.title_provider==='openai')text+=' Transcript excerpts are sent to OpenAI for titles.';if(remoteAPI(s.local_ai_base_url)){const host=apiHost(s.local_ai_base_url),uses=[s.summarizer==='local'&&'notes',s.transcript_correction==='local'&&s.transcription!=='elevenlabs'&&'AI correction',s.auto_title&&s.title_provider==='local'&&'titles'].filter(Boolean);if(uses.length)text+=' Transcript text is sent to '+host+' for '+uses.join(', ')+'.';text=text.replace(' Notes use the configured API.','');}
  if(s.calendar_enabled)text+=' Meeting titles, times and local links are saved in Google Calendar.';return text; }
 function switchTab(name) {
  for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
@@ -1158,7 +1183,7 @@ async function saveTrackers() {
  for(const tracker of trackersData)if(!tracker.name.trim()||!tracker.phrases.length)throw new Error('Every topic needs a name and at least one phrase.');
  const result=await api('/api/trackers',{trackers:trackersData});trackersData=result.trackers;state.trackers=result.trackers;renderTrackers();toast('Topic trackers saved · reanalyze meetings to refresh them');
 }
-function settingsFields() { const parakeet=$('provider').value.startsWith('parakeet');$('parakeet-runtime').hidden=!parakeet;$('parakeet-runtime').textContent=(state[$('provider').value]?.message)||'Parakeet v3 requires an Apple Silicon build with Parakeet support.'; $('local-model-field').hidden=false;$('cloud-model-field').hidden=$('provider').value!=='openai';$('notes-model-field').hidden=$('summarizer').value!=='openai'&&$('transcript-correction').value!=='openai';$('title-model-field').hidden=$('title-provider').value!=='openai';$('settings-privacy').textContent=privacy({transcription:$('provider').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,local_ai_base_url:$('local-ai-base-url').value,calendar_enabled:$('calendar-enabled').checked});$('title-privacy').textContent=$('title-provider').value==='openai'?'Transcript excerpts are sent to OpenAI for title generation.':'Uses the shared Local AI endpoint and model above.'; }
+function settingsFields() { const parakeet=$('provider').value.startsWith('parakeet');$('parakeet-runtime').hidden=!parakeet;$('parakeet-runtime').textContent=(state[$('provider').value]?.message)||'Parakeet v3 requires an Apple Silicon build with Parakeet support.'; $('local-model-field').hidden=false;$('cloud-model-field').hidden=$('provider').value!=='openai';$('notes-model-field').hidden=$('summarizer').value!=='openai'&&$('transcript-correction').value!=='openai';$('title-model-field').hidden=$('title-provider').value!=='openai';$('settings-privacy').textContent=privacy({transcription:$('provider').value,summarizer:$('summarizer').value,transcript_correction:$('transcript-correction').value,auto_title:$('auto-title').checked,title_provider:$('title-provider').value,local_ai_base_url:$('local-ai-base-url').value,calendar_enabled:$('calendar-enabled').checked});$('title-privacy').textContent=$('title-provider').value==='openai'?'Transcript excerpts are sent to OpenAI for title generation.':'Uses the configured API and its model above.'; }
 function fileSize(bytes) { return bytes>=1e9?(bytes/1e9).toFixed(1)+' GB':bytes>=1e6?Math.round(bytes/1e6)+' MB':Math.max(1,Math.round(bytes/1e3))+' KB'; }
 function renderBackups(data) {
  $('backup-folder').textContent=data.folder; const list=$('backup-list'); list.replaceChildren();
@@ -1649,6 +1674,9 @@ async function loadMail(){
  const aiText=ai.running?'Email AI is reading the approved message'+(ai.model?' with '+ai.model:'')+'…':ai.error?'Email AI: '+ai.error:['complete','reused'].includes(ai.status)?mailAIResultText(ai):'';
  sourceState('gmail',status.connected,[status.account,AtlantaUX.count(status.count,'thread'),jobText(status.job),status.sync.last_sync&&'updated '+relTime(status.sync.last_sync*1000),status.sync.limited&&'first 200 threads'],status.job.error||aiText);
  $('gmail-ai-cancel').hidden=!ai.running;
+ // Email AI keeps its line in the status after the Gmail tab closes.
+ const mailJob=ai=>ai.running?'Email AI is reading a message'+(ai.model?' · '+ai.model:''):null;
+ trackJob('gmail-ai',ai.running&&{text:mailJob(ai),open:async()=>{workTab='gmail';await $('open-tasks').onclick();},poll:async()=>mailJob(await api('/api/gmail/ai'))});
  if(!ai.running&&(mailAIWasRunning||(['complete','reused'].includes(ai.status)&&ai.job_id!==mailAISeenJob))){lastTasks='';await loadTasks();if(['complete','reused'].includes(ai.status)){mailAISeenJob=ai.job_id;toast(mailAIResultText(ai));}}
  mailAIWasRunning=ai.running;
  $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-sync').textContent=status.job.running?'Syncing…':status.job.status==='continue'?'Continue sync':'Sync';
@@ -1874,6 +1902,9 @@ async function loadRepoReports(){
  if(!data.reports.some(r=>r.id===repoReportId))repoReportId=data.reports[0]?.id||'';
  $('report-list').replaceChildren(option('Choose a saved report',''),...data.reports.map(r=>option(r.repository+' · '+r.branch+' · '+date(r.period.start)+' → '+date(r.period.end)+' · '+r.status,r.id)));$('report-list').value=repoReportId;
  $('report-collect').disabled=!!data.job.running;$('report-cancel').hidden=!data.job.running;
+ // A repository report keeps its line in the status after the reports page closes.
+ const reportJob=job=>job.running?'Repository report'+(job.status?' · '+job.status:' · in progress'):null;
+ trackJob('repo-report',data.job.running&&{text:reportJob(data.job),open:async()=>{workTab='github';await $('open-tasks').onclick();showGitHubSection('reports');perform(loadRepoReports);},poll:async()=>reportJob((await api('/api/github/reports')).job)});
  $('report-job-status').textContent=data.error||data.job.error||data.job.status||'';
  if(repoReportId){const selectedId=repoReportId,meta=data.reports.find(r=>r.id===selectedId);if(repoReport?.id===selectedId&&repoReport.revision===meta?.revision){if(data.job.running&&view==='tasks'&&workTab==='github'&&ghSection==='reports')repoTimer=setTimeout(()=>perform(loadRepoReports),1500);return;}const detail=await api('/api/github/reports/detail?id='+encodeURIComponent(selectedId));if(sequence!==repoLoadSequence||selectedId!==repoReportId)return;repoReport=detail;renderRepoReport();syncRoute(true);}
  else $('repo-report-detail').replaceChildren(emptyNote('Choose a repository and period to collect its changes. Collection does not send code to AI.'));
@@ -2875,6 +2906,8 @@ function sourceCard(source){
 let workspaceWorkKind='';
 // Team: the people in my team and their 1:1 reviews. Membership records periods only; it starts no analysis.
 let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null,teamReviewId='',teamReview=null,teamReviewRows=null,teamReviewPerson=null;
+// The unsaved edits of the open 1:1 review. A save of one part re-renders the panel; the other parts keep their edits.
+let teamDrafts={};
 async function openTeam(tab){
  if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;teamReviewId='';teamReview=null;show('team');renderLibrary();await loadTeam();
 }
@@ -2980,7 +3013,9 @@ async function openTeamReview(id,{saved=false}={}){
 function renderTeamReview(){
  const r=teamReview,box=$('team-review-panel');$('team-members-panel').hidden=$('team-reviews-panel').hidden=true;box.hidden=false;
  for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab==='reviews';b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
- editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');syncRoute(true);
+ editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');syncRoute(true);
+ if(teamDrafts.id!==r.id)teamDrafts={id:r.id};
+ const drafts=teamDrafts;
  const back=actionBtn('quiet team-back','← All reviews',()=>openTeam('reviews'));
  const head=el('div','card team-review-head'),title=el('h2','',reviewPersonName(r)+' · 1:1 review'),meta=el('div','entity-meta');
  meta.append(statusBadge(REVIEW_STATUS[r.status]||{tone:'muted',label:r.status}),el('span','',reviewPeriod(r.period)),el('span','','Version '+r.version),el('span','',reviewCoverage(r)));
@@ -2994,42 +3029,47 @@ function renderTeamReview(){
  // The AI run of this review: what wrote it, or that it is incomplete and blocks Finalize.
  const gen=r.generator;if(gen)head.append(el('p',gen.complete?'hint':'notice',gen.complete?'AI preparation · '+gen.model+' · '+(gen.at?dateTime(gen.at):'')+(gen.rejected?' · '+AtlantaUX.count(gen.rejected,'statement')+' rejected by the check':''):'The AI preparation is incomplete. Run it again before you finalize; the finished parts are kept.'));
  const aiJob=teamAIJob&&teamAIJob.review_id===r.id?teamAIJob:null;
- if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});renderTeamReview();}));head.append(line);}
+ if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');renderTeamReview();}));head.append(line);}
  else if(aiJob?.error)head.append(el('p','error',aiJob.error));
  const ghJob=teamGitHubJob&&teamGitHubJob.review_id===r.id?teamGitHubJob:null;
- if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});renderTeamReview();}));head.append(line);}
+ if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');renderTeamReview();}));head.append(line);}
  else if(ghJob?.error)head.append(el('p','error',ghJob.error));
  for(const text of r.coverage?.github?.limitations||[])head.append(el('p','hint','GitHub · '+text));
  const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
- const text=el('textarea','team-review-text');text.value=r.review_md;text.rows=22;text.setAttribute('aria-label','Review text');text.oninput=()=>editorDirty.set('team-review',text.value!==r.review_md);
- const saveText=async()=>{if(text.value!==teamReview.review_md){teamReview=await api('/api/team/review/save',{id:r.id,revision:teamReview.revision,review_md:text.value});}editorDirty.clear('team-review');};
+ const text=el('textarea','team-review-text');text.rows=22;text.setAttribute('aria-label','Review text');
+ text.oninput=()=>{const edited=text.value!==teamReview.review_md;if(edited)drafts.review_md=text.value;else delete drafts.review_md;editorDirty.set('team-review',edited);};
+ if(drafts.review_md!==undefined&&draft&&drafts.review_md!==r.review_md){text.value=drafts.review_md;editorDirty.set('team-review',true);}else{delete drafts.review_md;text.value=r.review_md;}
+ const saveText=async()=>{if(text.value!==teamReview.review_md){teamReview=await api('/api/team/review/save',{id:r.id,revision:teamReview.revision,review_md:text.value});}delete drafts.review_md;editorDirty.clear('team-review');};
  if(draft){
   actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision});toast('Review finalized');renderTeamReview();}),
    actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
    actionBtn('secondary','Collect GitHub contribution…',()=>openTeamGitHub(r)),
    actionBtn('secondary','Prepare with AI…',()=>openTeamAI(r)),
-   ...([actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits, the GitHub part and the AI part. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
-   actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');toast('Draft discarded');await openTeam('reviews');}));
+   ...([actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits, the GitHub part and the AI part. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});delete drafts.review_md;editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
+   actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');teamDrafts={};toast('Draft discarded');await openTeam('reviews');}));
  }else{
   if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));
  }
  actions.append(actionBtn('secondary','Export Markdown',()=>exportTeamReview(teamReview)));
  // Delete is explicit and removes the review, its notes, actions, goals and evidence from this Mac.
- if(r.status!=='draft')actions.append(actionBtn('quiet danger-text','Delete review…',async()=>{if(!(await ask('Delete this 1:1 review of '+reviewPersonName(r)+' with its notes, actions, goals and evidence from this Mac? This cannot be undone. Earlier backup archives keep their copies until you delete them.',{ok:'Delete review',danger:true})))return;await api('/api/team/review/delete',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-notes');editorDirty.clear('team-agreements');toast('Review deleted');await openTeam('reviews');}));
+ if(r.status!=='draft')actions.append(actionBtn('quiet danger-text','Delete review…',async()=>{if(!(await ask('Delete this 1:1 review of '+reviewPersonName(r)+' with its notes, actions, goals and evidence from this Mac? This cannot be undone. Earlier backup archives keep their copies until you delete them.',{ok:'Delete review',danger:true})))return;await api('/api/team/review/delete',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');teamDrafts={};toast('Review deleted');await openTeam('reviews');}));
  // The version links: to the newer review, and to the one that this version replaces.
  if(r.status==='superseded'&&r.superseded_by)actions.prepend(actionBtn('primary','Open the newer version',()=>openTeamReview(r.superseded_by)));
  if(r.supersedes)actions.append(actionBtn('quiet','Open the version it replaces',()=>openTeamReview(r.supersedes)));
  head.append(actions);
  const body=el('section','card team-review-body');body.append(el('h3','','Review'));
  // A draft reads like the final review; Edit text opens the Markdown.
- if(draft){const view=markdownBlock(r.review_md),edit=btn('secondary small-action team-edit-text','Edit text');text.hidden=true;edit.onclick=()=>{const open=text.hidden;text.hidden=!open;view.hidden=open;edit.textContent=open?'Show the review':'Edit text';if(open)text.focus();};body.querySelector('h3').after(edit);body.append(view,text);}
+ if(draft){const view=markdownBlock(r.review_md),edit=btn('secondary small-action team-edit-text','Edit text');text.hidden=true;
+  // Unsaved edits of the text stay open in the editor, so they are in view.
+  if(drafts.review_md!==undefined)queueMicrotask(()=>edit.click());edit.onclick=()=>{const open=text.hidden;text.hidden=!open;view.hidden=open;edit.textContent=open?'Show the review':'Edit text';if(open)text.focus();};body.querySelector('h3').after(edit);body.append(view,text);}
  else body.append(markdownBlock(r.review_md));
  body.append(evidenceList(r));
- const notesCard=el('section','card team-review-notes'),notes=el('textarea','team-notes-text');notes.value=r.notes_md;notes.rows=8;notes.placeholder='Notes, agreed actions and goals of the conversation';notes.setAttribute('aria-label','Conversation notes');
- notes.oninput=()=>editorDirty.set('team-notes',notes.value!==r.notes_md);
- const saveNotes=actionBtn('secondary small-action','Save notes',async()=>{teamReview=await api('/api/team/review/notes',{id:r.id,revision:teamReview.revision,notes_md:notes.value});editorDirty.clear('team-notes');toast('Notes saved');});
+ const notesCard=el('section','card team-review-notes'),notes=el('textarea','team-notes-text');notes.rows=8;notes.placeholder='Notes, agreed actions and goals of the conversation';notes.setAttribute('aria-label','Conversation notes');
+ if(drafts.notes_md!==undefined&&drafts.notes_md!==r.notes_md){notes.value=drafts.notes_md;editorDirty.set('team-notes',true);}else{delete drafts.notes_md;notes.value=r.notes_md;}
+ notes.oninput=()=>{const edited=notes.value!==teamReview.notes_md;if(edited)drafts.notes_md=notes.value;else delete drafts.notes_md;editorDirty.set('team-notes',edited);};
+ const saveNotes=actionBtn('secondary small-action','Save notes',async()=>{const value=notes.value;teamReview=await api('/api/team/review/notes',{id:r.id,revision:teamReview.revision,notes_md:value});if(notes.value===value){delete drafts.notes_md;editorDirty.clear('team-notes');}toast('Notes saved');});
  notesCard.append(el('h3','','Conversation notes'),el('p','hint','Separate from the review. Edit them before and after the conversation; they never change the review.'),notes,saveNotes);
- box.replaceChildren(back,head,...(r.previous_agreements?.agreements?.length?[previousAgreementsCard(r.previous_agreements)]:[]),body,notesCard,agreementsCard(r));
+ box.replaceChildren(back,head,...(r.previous_agreements?.agreements?.length?[previousAgreementsCard(r.previous_agreements,drafts)]:[]),body,notesCard,agreementsCard(r,drafts));
 }
 // The evidence records that the review cites: what, when, why it counts, and the quote. Each opens its source.
 const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result confirmed',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
@@ -3063,15 +3103,23 @@ async function openTeamAI(r){
 }
 $('team-ai-approve').onchange=()=>{$('team-ai-start').disabled=!$('team-ai-approve').checked||!teamAIPreview?.ai_available;};
 $('team-ai-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
- try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
+ try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});teamJobName=reviewPersonName(teamReview);trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
  catch(exc){$('team-ai-error').textContent=exc.message;$('team-ai-error').hidden=false;}
 });};
 $('team-ai-close').onclick=()=>$('team-ai-dialog').close();
 // The job runs in the background; the page follows it and reloads the draft when it ends.
+// A 1:1 job shows in the status line on every page, with the person; a click opens its review.
+let teamJobName='';
+function trackTeamJob(key,job,label){
+ if(!job?.running){trackJob(key,null);return;}
+ const id=job.review_id,name=teamJobName;
+ trackJob(key,{text:label+(name?' · '+name:'')+(job.status?' · '+job.status:''),open:()=>openTeamReview(id)});
+}
 function pollTeamAI(){
  clearTimeout(teamAITimer);if(!teamAIJob)return;
  teamAITimer=setTimeout(()=>perform(async()=>{
-  teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);
+  try{teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);}catch(exc){trackJob('team-ai',null);throw exc;}
+  trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');
   const here=view==='team'&&teamReview?.id===teamAIJob.review_id;
   if(teamAIJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamAI();return;}
   if(teamAIJob.status==='Ready to review')toast('AI preparation ready · check it against the evidence');
@@ -3094,14 +3142,15 @@ async function openTeamGitHub(r){
 }
 function syncGitHubStart(){const n=$('team-github-repos').querySelectorAll('input:checked').length;$('team-github-start').disabled=!n;$('team-github-start').textContent=n?'Collect from '+AtlantaUX.count(n,'repository','repositories'):'Collect';}
 $('team-github-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
- try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
+ try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});teamJobName=reviewPersonName(teamReview);trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
  catch(exc){$('team-github-error').textContent=exc.message;$('team-github-error').hidden=false;}
 });};
 $('team-github-close').onclick=()=>$('team-github-dialog').close();
 function pollTeamGitHub(){
  clearTimeout(teamGitHubTimer);if(!teamGitHubJob)return;
  teamGitHubTimer=setTimeout(()=>perform(async()=>{
-  teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);
+  try{teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);}catch(exc){trackJob('team-github',null);throw exc;}
+  trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');
   const here=view==='team'&&teamReview?.id===teamGitHubJob.review_id;
   if(teamGitHubJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamGitHub();return;}
   if(teamGitHubJob.status==='Ready to review')toast('GitHub contribution collected');else if(teamGitHubJob.error)toast(teamGitHubJob.error);
@@ -3124,21 +3173,26 @@ function agreementRow(row,onchange,{full=true,person=''}={}){
  line.append(actionBtn('quiet small-action','Remove',()=>{line.dispatchEvent(new CustomEvent('remove-agreement',{bubbles:true}));}));
  return line;
 }
-function agreementsCard(r){
- const card=el('section','card team-agreements'),list=el('div','team-agreement-list'),rows=structuredClone(r.agreements||[]);
- const dirty=()=>editorDirty.set('team-agreements',JSON.stringify(rows)!==JSON.stringify(r.agreements||[]));
+function agreementsCard(r,drafts={}){
+ const saved=JSON.stringify(r.agreements||[]);if(drafts.agreements&&JSON.stringify(drafts.agreements)===saved)delete drafts.agreements;
+ const card=el('section','card team-agreements'),list=el('div','team-agreement-list'),rows=structuredClone(drafts.agreements||r.agreements||[]);
+ const dirty=()=>{const edited=JSON.stringify(rows)!==saved;if(edited)drafts.agreements=structuredClone(rows);else delete drafts.agreements;editorDirty.set('team-agreements',edited);};
+ if(drafts.agreements)editorDirty.set('team-agreements',true);
  const draw=()=>{list.replaceChildren(...rows.map(row=>agreementRow(row,dirty,{person:reviewPersonName(r).replace(/ \(then .*\)$/,'')})));if(!rows.length)list.append(emptyNote('No actions or goals yet. Add what you agreed in the conversation.'));};
  list.addEventListener('remove-agreement',event=>{const index=[...list.children].indexOf(event.target);if(index>=0){rows.splice(index,1);draw();dirty();}});
  const add=kind=>()=>{rows.push({kind,text:'',owner:'person',due_date:null,status:'open'});draw();dirty();list.lastElementChild?.querySelector('input')?.focus();};
- const save=actionBtn('secondary small-action','Save actions and goals',async()=>{teamReview=await api('/api/team/review/agreements',{id:r.id,revision:teamReview.revision,agreements:rows.filter(x=>x.text.trim())});editorDirty.clear('team-agreements');toast('Actions and goals saved');renderTeamReview();});
+ const save=actionBtn('secondary small-action','Save actions and goals',async()=>{teamReview=await api('/api/team/review/agreements',{id:r.id,revision:teamReview.revision,agreements:rows.filter(x=>x.text.trim())});delete drafts.agreements;editorDirty.clear('team-agreements');toast('Actions and goals saved');renderTeamReview();});
  const buttons=el('div','action-group');buttons.append(actionBtn('quiet small-action','＋ Action',add('action')),actionBtn('quiet small-action','＋ Goal',add('goal')),save);
  card.append(el('h3','','Agreed actions and goals'),el('p','hint','Only what you save here counts. The next review shows each one with its state. A task starts only when you create it.'),list,buttons);draw();return card;
 }
 // The actions and goals of the last 1:1, with their state. A change saves to that review; its text stays fixed.
-function previousAgreementsCard(previous){
- const card=el('section','card team-agreements previous'),rows=structuredClone(previous.agreements),list=el('div','team-agreement-list');
- let changed=false;list.append(...rows.map(row=>agreementRow(row,()=>{changed=true;editorDirty.set('team-agreements',true);},{full:false})));
- const save=actionBtn('secondary small-action','Save states',async()=>{await api('/api/team/review/agreements',{id:previous.review_id,revision:previous.revision,agreements:rows});editorDirty.clear('team-agreements');toast('States saved · collect the facts again to update this draft');teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();});
+function previousAgreementsCard(previous,drafts={}){
+ const saved=JSON.stringify(previous.agreements),kept=drafts.previous?.revision===previous.revision&&JSON.stringify(drafts.previous.rows)!==saved;if(!kept)delete drafts.previous;
+ const card=el('section','card team-agreements previous'),rows=structuredClone(kept?drafts.previous.rows:previous.agreements),list=el('div','team-agreement-list');
+ if(kept)editorDirty.set('team-previous',true);
+ const dirty=()=>{const edited=JSON.stringify(rows)!==saved;if(edited)drafts.previous={revision:previous.revision,rows:structuredClone(rows)};else delete drafts.previous;editorDirty.set('team-previous',edited);};
+ list.append(...rows.map(row=>agreementRow(row,dirty,{full:false})));
+ const save=actionBtn('secondary small-action','Save states',async()=>{await api('/api/team/review/agreements',{id:previous.review_id,revision:previous.revision,agreements:rows});delete drafts.previous;editorDirty.clear('team-previous');toast('States saved · collect the facts again to update this draft');teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();});
  card.append(el('h3','','From the last 1:1 · '+date(previous.period.start)+' – '+date(previous.period.end)),el('p','hint','Mark each one done or dropped. Collect the facts again to show the new states in this draft.'),list,save);return card;
 }
 // Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
@@ -3387,7 +3441,7 @@ function renderChannelProfile(profile){
 async function openManualTask(meetingId=null,{text:startText='',owner:startOwner='',due:startDue=''}={}){
  if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
  if(!(await leaveEdits()))return;
- const dialog=$('manual-task-dialog'),box=$('manual-task-body');box.replaceChildren(el('h3','','New task'),el('p','hint','Saved on this Mac. Publishing to GitHub uses a separate preview and approval.'));
+ const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle,el('p','hint','Saved on this Mac. Publishing to GitHub uses a separate preview and approval.'));
  const text=el('textarea');text.maxLength=1000;text.rows=5;text.setAttribute('aria-label','Task text');text.placeholder='What needs to be done?';
  const owner=el('input');owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.placeholder='Owner (optional)';owner.setAttribute('list','known-speakers');
  const due=el('input');due.type='date';due.setAttribute('aria-label','Due date');
@@ -3447,7 +3501,7 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
  const dialog=$('task-panel'),box=$('task-panel-body'),projectHint=el('p','hint');projectHint.append(document.createTextNode('Projects: '));(item.effective_project_ids||[]).forEach((key,i)=>{const project=projectList().find(p=>p.id===key);if(i)projectHint.append(document.createTextNode(', '));if(project?.color)projectHint.append(projectDot(project));projectHint.append(document.createTextNode(project?.name||'Removed project'));});
- const panelHead=el('div','task-panel-head');panelHead.append(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),el('h2','task-card-title',item.text));
+ const panelHead=el('div','task-panel-head');const panelTitle=el('h2','task-card-title',item.text);panelTitle.id='task-panel-title';panelHead.append(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),panelTitle);
  box.replaceChildren(panelHead,projectHint);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
  const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=3;area.setAttribute('aria-label','Task title');
@@ -3577,7 +3631,8 @@ const dialogPolicies={
  'conversation-reader':{close:'conversation-reader-close',transient:true},
  'draft-review-dialog':{close:'draft-review-cancel',transient:true},
  'followup-dialog':{close:'followup-close',cancel:'followup-cancel'},
- 'ask-dialog':{transient:true},'project-dialog':{transient:true,dismiss:()=>$('project-dialog').close()}
+ 'ask-dialog':{transient:true},// A typed project name is an edit: Cancel and Escape ask before they discard it.
+ 'project-dialog':{cancel:'project-cancel',dismiss:()=>$('project-dialog').close()}
 };
 // The values before the first edit. pointerdown and keydown come before the change they cause.
 const dialogBaselines=new WeakMap();
@@ -3650,6 +3705,7 @@ function revealInDialog(dialog,node){
 if(typeof MutationObserver==='function'&&typeof document.querySelectorAll==='function')for(const dialog of document.querySelectorAll('dialog')){
  let queued=false;const changed=new Set();
  new MutationObserver(records=>{
+  if(dialog.open&&records.some(r=>r.target===dialog&&r.attributeName==='open'))raiseActivity();
   for(const record of records){const node=record.target.nodeType===1?record.target:record.target.parentElement;const message=node?.closest('[role=status],[role=alert]');if(message&&dialog.contains(message))changed.add(message);}
   if(queued)return;queued=true;
   requestAnimationFrame(()=>{queued=false;frameDialog(dialog);if(dialog.open)for(const message of changed)revealInDialog(dialog,message);changed.clear();});

@@ -157,7 +157,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/team/reviews':
             return self.respond(200, self.server.service.team_reviews_list(parse_qs(url.query).get('person', [''])[0]))
         if url.path == '/api/team/review':
-            return self.respond(200, self.server.service.team_reviews.get(parse_qs(url.query).get('id', [''])[0]))
+            return self.respond(200, self.server.service.team_review(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/team/review/github/discover':
             return self.respond(200, self.server.service.team_github.discover(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/team/review/github/status':

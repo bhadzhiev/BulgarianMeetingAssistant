@@ -162,7 +162,7 @@ class TeamReviews:
             coverage = dict(sources=[], limitations=[])
             if collect is not None and supersedes is None:
                 # The facts of the period, collected without AI. They replace the empty template.
-                facts = collect(_iso(start), _iso(end), self.previous(person['id']))
+                facts = collect(_iso(start), _iso(end), self.previous(person['id'], _iso(start)))
                 review_md, evidence, coverage = facts['review_md'], facts['evidence'], dict(facts['coverage'], excluded_items=facts['excluded'])
             if supersedes is not None:
                 old_dir = self._directory(supersedes)
@@ -195,21 +195,26 @@ class TeamReviews:
                     shutil.rmtree(partial)
             return self.get(review_id)
 
-    def previous(self, person_id):
-        """The last finalized review of a person with its evidence, for the carried-over commitments."""
-        done = [r for r in self._all(person_id) if r['status'] == 'finalized']
+    def previous(self, person_id, before=None, replaces=None):
+        """The last finalized review of a person with its evidence, for the carried-over commitments and the comparison.
+
+        A new version compares with the review before the one it corrects, never with that review itself.
+        """
+        done = [r for r in self._all(person_id) if r['status'] == 'finalized' and r['id'] != replaces
+                and (before is None or _moment(r['period']['end'], 'End') <= _moment(before, 'Start'))]
         if not done:
             return None
         directory = self._directory(done[0]['id'])
-        return dict(id=done[0]['id'], period=done[0]['period'], evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')))
+        return dict(id=done[0]['id'], period=done[0]['period'], coverage=done[0].get('coverage') or {},
+                    evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')))
 
     def recollect(self, review_id, revision, collect):
         """Collect the facts of a draft again. The new text replaces the old one; the notes stay."""
         with self.lock:
             directory, meta = self._current(review_id, revision)
-            if meta['status'] != 'draft' or meta.get('supersedes'):
-                raise ValueError('Only a first draft collects facts again. A new version keeps the text of the review it corrects.')
-            facts = collect(meta['period']['start'], meta['period']['end'], self.previous(meta['person_id']))
+            if meta['status'] != 'draft':
+                raise ValueError('Only a draft collects facts again')
+            facts = collect(meta['period']['start'], meta['period']['end'], self.previous(meta['person_id'], meta['period']['start'], meta.get('supersedes')))
             atomic_text(directory / 'review.md', facts['review_md'])
             atomic_json(directory / 'evidence.json', facts['evidence'])
             self._write_meta(directory, dict(meta, coverage=dict(facts['coverage'], excluded_items=facts['excluded']), generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
@@ -253,10 +258,12 @@ class TeamReviews:
             evidence += records(result, meta['person_id'], first)
             text = (directory / 'review.md').read_text(encoding='utf-8')
             text = re.sub(r'\n## AI observations\n.*?(?=\n## Questions for the conversation\n)', '\n', text, flags=re.S)
-            text = replace_section(text, section(result))
+            last = self.previous(meta['person_id'])
+            text = replace_section(text, section(result, ((last or {}).get('coverage') or {}).get('github', {}).get('counts')))
             coverage = dict(meta.get('coverage') or {})
             coverage['sources'] = sorted(set(coverage.get('sources', [])) | {'github'})
-            coverage['github'] = dict(included=result['included'], limitations=result['limitations'], calls=result['calls'])
+            coverage['github'] = dict(included=result['included'], limitations=result['limitations'], calls=result['calls'],
+                                      counts=dict(authored=len(result['authored']), reviews=len(result['reviews']), commits=len(result['commits'])))
             atomic_text(directory / 'review.md', text)
             atomic_json(directory / 'evidence.json', evidence)
             self._write_meta(directory, dict(meta, coverage=coverage, generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))

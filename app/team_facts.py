@@ -117,7 +117,9 @@ class Collector:
     def add(self, kind, item, occurred_at, basis, facts, quote='', meeting_id=None, timestamp=None):
         record = dict(id='e' + str(len(self.evidence) + 1), kind=kind, person_id=self.person['id'],
                       source_ref=dict(item_id=item['id'] if item else None, meeting_id=meeting_id, timestamp=timestamp,
-                                      provider=self.provider(item) if item else 'meeting'),
+                                      provider=self.provider(item) if item else 'meeting',
+                                      # The item revision at collection time shows a later change of the source.
+                                      revision=item.get('revision') if item else None),
                       occurred_at=occurred_at.isoformat() if isinstance(occurred_at, dt.datetime) else occurred_at,
                       confirmation_basis=basis, facts=facts, quote=_quote(quote))
         self.evidence.append(record)
@@ -401,6 +403,50 @@ def blockers(c, items, tasks):
     return rows
 
 
+def comparable(previous, start, end, coverage):
+    """Whether two periods compare: a similar length and the same sources. The reason when they do not."""
+    before = previous.get('period') or {}
+    try:
+        old = _time(before['end']) - _time(before['start'])
+    except (KeyError, TypeError):
+        return False, 'The last review has no readable period.'
+    new = end - start
+    if not old.total_seconds() or not 0.75 <= new / old <= 1.33:
+        return False, f'The periods differ in length ({old.days} and {new.days} days).'
+    old_sources = set((previous.get('coverage') or {}).get('sources') or []) - {'github'}
+    new_sources = set(coverage['sources']) - {'github'}
+    if old_sources != new_sources:
+        return False, 'The two reviews have different sources.'
+    return True, ''
+
+
+def change_section(c, coverage, counts):
+    """The change since the last finalized review. The code makes every number; non-comparable periods say why."""
+    out = ['', '## Change since the last review', '']
+    previous = c.previous
+    if not previous:
+        return out + ['_This is the first review. There is nothing to compare yet._']
+    before = previous.get('period') or {}
+    if before.get('start') and before.get('end'):
+        out.append(f"- Last review: {_fmt_day(before['start'])} – {_fmt_day(before['end'])} · this review: {_fmt_time(c.start)} – {_fmt_time(c.end)}")
+    old_counts = (previous.get('coverage') or {}).get('counts')
+    if not old_counts:
+        return out + ['- The last review has no counts to compare.']
+    ok, reason = comparable(previous, c.start, c.end, coverage)
+    if not ok:
+        out.append(f'- Not comparable: {reason} The numbers are shown, without a change.')
+    old_cov = previous.get('coverage') or {}
+    out.append(f"- Coverage: meetings {old_cov.get('meetings', '—')} → {coverage['meetings']} · with the person speaking {old_cov.get('speaking', '—')} → {coverage['speaking']}")
+    out += ['', '| Fact | Last review | This review |' + (' Change |' if ok else ''), '|---|---|---|' + ('---|' if ok else '')]
+    for key, label in COUNTS:
+        old, new = old_counts.get(key, 0), counts[key]
+        change = new - old
+        out.append(f'| {label} | {old} | {new} |' + (f" {'+' if change > 0 else ''}{change} |" if ok else ''))
+    out.append('')
+    out.append('_A change in a count is not a measure of performance. Read it with the coverage._')
+    return out
+
+
 def markdown(c, tasks, decisions, waits, carried, coverage, counts):
     person = c.person['name']
     period = f"{c.start.astimezone(TZ).strftime('%d.%m.%Y %H:%M')} – {c.end.astimezone(TZ).strftime('%d.%m.%Y %H:%M')} (Europe/Sofia)"
@@ -414,6 +460,7 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts):
     if c.excluded:
         out += ['', '### Excluded from the analysis · needs confirmation', '']
         out += [f"- {row['text']} · {row['reason']}" for row in c.excluded]
+    out += change_section(c, coverage, counts)
     out += ['', '## Commitments', '']
     mine = [t for t in tasks if t['role'] == 'accountable']
     if not mine:

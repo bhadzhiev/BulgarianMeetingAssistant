@@ -19,7 +19,7 @@ assert.match(page,/'Discard this draft\? The next period does not change\.'/);
 // Unsaved review text and notes block navigation.
 assert.match(app,/'team-review':'1:1 review edit','team-notes':'conversation notes'/);
 // Reviews: search by person and filter by status; a route opens one review.
-assert.match(slice('function renderTeamReviews(){'),/\(!status\|\|r\.status===status\)&&\(!query\|\|r\.person_name\.toLocaleLowerCase\(\)\.includes\(query\)\)/);
+assert.match(slice('function renderTeamReviews(){'),/\(!status\|\|r\.status===status\)&&\(!query\|\|reviewPersonName\(r\)\.toLocaleLowerCase\(\)\.includes\(query\)\)/);
 assert.match(app,/if\(teamReviewId\)q\.set\('review',teamReviewId\)/);
 // Export is a local Markdown file.
 assert.match(slice('function exportTeamReview(r){'),/new Blob\(\[text\],\{type:'text\/markdown'\}\)/);

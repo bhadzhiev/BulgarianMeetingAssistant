@@ -5,7 +5,7 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 assert.match(html,/Atlanta collects the confirmed facts of the period from meetings, tasks and decisions\. No AI runs and nothing is sent anywhere\./);
 const page=slice('function renderTeamReview(){');
 // A first draft collects again after a question; a new version keeps its text.
-assert.match(page,/\.\.\.\(r\.supersedes\?\[\]:\[actionBtn\('secondary','Collect facts again'/);
+assert.match(page,/\.\.\.\(\[actionBtn\('secondary','Collect facts again'/);
 assert.match(page,/api\('\/api\/team\/review\/collect',\{id:r\.id,revision:teamReview\.revision\}\)/);
 // A draft reads like the review; Edit text opens the Markdown. The evidence follows the review.
 assert.match(page,/btn\('secondary small-action team-edit-text','Edit text'\)/);

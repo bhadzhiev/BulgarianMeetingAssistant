@@ -217,7 +217,11 @@ def records(result, person_id, first_id):
     return rows
 
 
-def section(result):
+def counts(result):
+    return dict(authored=len(result['authored']), reviews=len(result['reviews']), commits=len(result['commits']))
+
+
+def section(result, previous=None):
     """The GitHub section of the review. Counts stay apart from the task counts."""
     refs = lambda ids: ' ' + ' '.join(f'[{i}]' for i in ids)
     out = ['## GitHub contribution', '']
@@ -225,6 +229,9 @@ def section(result):
     out.append(f"- Repositories: {len(result['included'])} included" + (f" · excluded by you: {', '.join(excluded)}" if excluded else ''))
     out += [f'- {text}' for text in result['limitations']]
     out.append('- GitHub contribution is not added to the task counts.')
+    if previous:
+        now = counts(result)
+        out.append(f"- Last review: {previous.get('authored', 0)} pull requests · {previous.get('reviews', 0)} reviews · {previous.get('commits', 0)} commits without a pull request. This review: {now['authored']} · {now['reviews']} · {now['commits']}. The repositories can differ.")
     out += ['', f"### Pull requests by the person · {len(result['authored'])}", '']
     for pull in result['authored']:
         notes = [', '.join(e for e, _ in pull['events'])] + (['hotfix'] if pull['hotfix'] else []) + ([f"{pull['commits']} commits"] if pull['commits'] else []) + ([] if pull['linked'] else ['unlinked work'])

@@ -253,22 +253,32 @@ function actionLabel(trigger){
  const text=String((trigger.matches('button,[type=submit]')&&trigger.textContent)||'').replace(/\s+/g,' ').replace(/[✓…]/g,'').trim();
  return (text||trigger.getAttribute?.('aria-label')||trigger.title||'').slice(0,60);
 }
-function showActivity(){
- activityTimer=null;if(!runningActions)return;$('activity').hidden=false;
- const status=$('activity-status');status.textContent=(activityLabel||'Working')+' · in progress…';status.hidden=false;
- try{if(status.showPopover&&!status.matches(':popover-open'))status.showPopover();}catch{}
+// One status line: an action that a person started wins; otherwise a background job of a meeting shows.
+let foregroundShown=false,backgroundJob=null;
+function paintActivity(){
+ const status=$('activity-status'),text=foregroundShown?(activityLabel||'Working')+' · in progress…':backgroundJob?backgroundJob.text:'';
+ status.textContent=text;status.hidden=!text;status.classList?.toggle('background',!foregroundShown&&!!backgroundJob);
+ status.title=!foregroundShown&&backgroundJob?'Open the meeting':'';
+ try{if(text){if(status.showPopover&&!status.matches(':popover-open'))status.showPopover();}else if(status.hidePopover&&status.matches(':popover-open'))status.hidePopover();}catch{}
 }
+function showActivity(){activityTimer=null;if(!runningActions)return;$('activity').hidden=false;foregroundShown=true;paintActivity();}
 function beginActivity(label){
  if(!runningActions)activityLabel=label||'';else if(label&&!activityLabel)activityLabel=label;
  runningActions++;if(!activityTimer&&$('activity').hidden)activityTimer=setTimeout(showActivity,BUSY_DELAY);
 }
 function endActivity(){
  runningActions--;if(runningActions)return;
- clearTimeout(activityTimer);activityTimer=null;$('activity').hidden=true;activityLabel='';
- const status=$('activity-status');try{if(status.hidePopover&&status.matches(':popover-open'))status.hidePopover();}catch{}status.hidden=true;
+ clearTimeout(activityTimer);activityTimer=null;$('activity').hidden=true;activityLabel='';foregroundShown=false;paintActivity();
 }
 // A long step inside an action names itself, for example "Importing transcript".
-function activityStep(label){activityLabel=label;if(!$('activity-status').hidden)$('activity-status').textContent=label+' · in progress…';}
+function activityStep(label){activityLabel=label;if(foregroundShown)paintActivity();}
+// Processing after a recording or an import runs on the server: its current step and the meeting show here.
+if(typeof document.getElementById==='function'&&document.getElementById('activity-status'))document.getElementById('activity-status').addEventListener('click',()=>{if(!foregroundShown&&backgroundJob)perform(()=>openMeeting(backgroundJob.id));});
+function renderBackgroundActivity(){
+ const jobs=(state?.meetings||[]).filter(m=>m.status==='processing'||m.title_status==='generating'),first=jobs[0];
+ backgroundJob=first?{id:first.id,text:(first.status==='processing'?(first.progress||'Processing'):'Generating AI title')+' · '+(first.title||'Untitled meeting')+(jobs.length>1?' · +'+(jobs.length-1)+' more':'')}:null;
+ paintActivity();
+}
 async function perform(fn) {
  // Nested and later calls do not take the control of the first press.
  const trigger=actionTrigger;actionTrigger=null;
@@ -538,6 +548,7 @@ async function openMeeting(id,force=false) {
  lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');switchTab(meetingTab);renderLibrary();return true;
 }
 function renderState() {
+ if(typeof renderBackgroundActivity==='function')renderBackgroundActivity();
  const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
  syncSpeakers();
  if($('settings-dialog').open)renderVoiceStatus();

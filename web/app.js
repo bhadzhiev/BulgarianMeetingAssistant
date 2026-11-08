@@ -1356,7 +1356,9 @@ function decisionState(item){
 }
 function decisionBadge(item){const s=decisionState(item),badge=el('span','decision-status '+s.cls,s.label);if(s.title)badge.title=s.title;return badge;}
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of'};
+const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update'};
+// An event without a label reads as words, never as its code name.
+const eventLabel=name=>EVENT_LABELS[name]||String(name||'Event').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
@@ -1373,12 +1375,16 @@ function itemProviders(item){return new Set([...(item.created_by==='user'?['manu
 function sourceChips(item,meetings){const box=meetingChips(item,meetings);if(item.created_by==='user')box.append(el('span','badge','Manually added'));for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
- for(const event of [...item.history].reverse()) {
-  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>{if(name==='project_ids'){const label=ids=>ids===null?'Meeting projects':ids.map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')||'Unassigned';return 'Projects: '+label(from)+' → '+label(to);}const labelValue=value=>name==='assignee_person_ids'?(value||[]).map(id=>(state.people||[]).find(p=>p.id===id)?.name||'Removed person').join(', ')||'—':name.endsWith('_person_id')?(state.people||[]).find(p=>p.id===value)?.name||(value?'Removed person':'—'):name==='workflow_state'?AtlantaTasks.STATES[value]||value:['due_date','follow_up_date'].includes(name)&&value?date(value):value??'—';return ({workflow_state:'State',requester_person_id:'Received from',assigned_by_person_id:'Assigned by',follower_person_id:'Followed by',owner_person_id:'Owner',follow_up_date:'Follow-up',acceptance_state:'Acceptance',details:'Details',completion_criteria:'Expected result'}[name]||FIELD_LABELS[name]||name)+': '+labelValue(from)+' → '+labelValue(to);}).join(' · ');
+ // The same event right after itself (for example a confirmation that was repeated) shows once, with how many times.
+ const events=[];for(const event of [...item.history].reverse()){const last=events.at(-1);
+  if(last&&last.event===event.event&&last.meeting_id===event.meeting_id&&last.by===event.by&&!Object.keys(event.changes||{}).length&&!Object.keys(last.changes||{}).length&&!event.text&&!last.text){last.times=(last.times||1)+1;continue;}
+  events.push({...event});}
+ for(const event of events) {
+  const changes=Object.entries(event.changes||{}).map(([name,[from,to]])=>{if(name==='project_ids'){const label=ids=>ids===null?'Meeting projects':ids.map(id=>projectList().find(p=>p.id===id)?.name||'Removed project').join(', ')||'Unassigned';return 'Projects: '+label(from)+' → '+label(to);}const labelValue=value=>name==='assignee_person_ids'?(value||[]).map(id=>(state.people||[]).find(p=>p.id===id)?.name||'Removed person').join(', ')||'—':name.endsWith('_person_id')?(state.people||[]).find(p=>p.id===value)?.name||(value?'Removed person':'—'):name==='status'?({...DECISION_LABELS,open:'Open',done:'Done'})[value]||value:name==='workflow_state'?AtlantaTasks.STATES[value]||value:['due_date','follow_up_date'].includes(name)&&value?date(value):value??'—';return ({workflow_state:'State',status:'Status',requester_person_id:'Received from',assigned_by_person_id:'Assigned by',follower_person_id:'Followed by',owner_person_id:'Owner',follow_up_date:'Follow-up',acceptance_state:'Acceptance',details:'Details',completion_criteria:'Expected result'}[name]||FIELD_LABELS[name]||name)+': '+labelValue(from)+' → '+labelValue(to);}).join(' · ');
   // Date the action itself; the meeting remains its evidence reference.
   const when=event.at;
   const entry=el('li'); entry.append(el('span','history-date',dateTime(when)),
-   el('span','',(event.event==='progress_update'?'Update':event.event==='created'&&!event.meeting_id?'Created locally':EVENT_LABELS[event.event]||event.event)+(event.meeting_id?' '+meetingLabel(event.meeting_id,meetings):'')+(changes?' · '+changes:'')+(event.text?' · '+event.text:'')+(event.by==='user'?' · by you':' · AI')));
+   el('span','',(event.event==='created'&&!event.meeting_id?'Created locally':eventLabel(event.event))+(event.meeting_id?' '+meetingLabel(event.meeting_id,meetings):'')+(changes?' · '+changes:'')+(event.text?' · '+event.text:'')+(event.by==='user'?' · by you':' · AI')+(event.times?' · '+event.times+' times':'')));
   list.append(entry);
  }
  box.append(list); return box;

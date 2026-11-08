@@ -1,4 +1,4 @@
-# Optional experimental Parakeet v3 with decoder-time hotwords. Includes upstream #4084.
+    # Optional experimental Parakeet v3 with decoder-time hotwords. Includes upstream #4084.
 sherpa-onnx==2.0.1
 sherpa-onnx-core==2.0.1
 huggingface-hub>=1.0,<3

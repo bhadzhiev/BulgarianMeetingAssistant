@@ -192,13 +192,15 @@ class Registry:
                     link['detached'] = True
                     self._event(item, 'detached', meeting_id)
 
-    def link(self, item_id: str, kind: str, mention: dict, meeting_id: str, ai_updates: bool, duplicate=False) -> None:
-        """Connect a mention to an existing item. With ai_updates, new details from the AI fill the item,
-        except fields that a person edited."""
+    def link(self, item_id: str, kind: str, mention: dict, meeting_id: str, fields=(), duplicate=False) -> None:
+        """Connect a mention to an existing item: the meeting becomes evidence of the item.
+        Only the fields that a person chose take the meeting's value, and never a field that a person edited."""
         item = self.items[item_id]
         applied = {}
-        if ai_updates and kind == 'task':
+        if kind == 'task':
             for name in AI_UPDATES:
+                if name not in fields:
+                    continue
                 value = mention.get(MENTION[kind][name])
                 if value is not None and value != item.get(name) and name not in item['manual']:
                     applied[name] = [item.get(name), value]
@@ -274,7 +276,7 @@ class Registry:
                              and ' '.join(text.casefold().split()) == ' '.join((item['text'] or '').casefold().split())), None)
                 if same:
                     # The new notes of the meeting say the same thing again: it is the same item.
-                    self.link(same['id'], kind, mention, meeting_id, ai_updates=False)
+                    self.link(same['id'], kind, mention, meeting_id)
                     mention['item_id'] = same['id']
                     present.add(same['id'])
                     changed = True

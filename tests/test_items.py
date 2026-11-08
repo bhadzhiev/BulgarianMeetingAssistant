@@ -48,9 +48,9 @@ class RegistryTests(unittest.TestCase):
     def minutes(self, meeting_id):
         return json.loads((self.service.library.directory(meeting_id) / 'minutes.json').read_text())
 
-    def resolve(self, meeting_id, field, action, item_id=None, index=0):
+    def resolve(self, meeting_id, field, action, item_id=None, index=0, fields=None, revision=None):
         mention = self.minutes(meeting_id)[field][index]
-        return self.service.resolve_link(meeting_id, field, index, mention['task' if field == 'tasks' else 'text'], action, item_id)
+        return self.service.resolve_link(meeting_id, field, index, mention['task' if field == 'tasks' else 'text'], action, item_id, fields, revision)
 
     def test_a_task_keeps_its_identity_history_and_status_across_meetings(self):
         first = self.meeting('2026-10-19T10:00:00+03:00', notes([task('Иван да провери VPN failover', 'Иван')]), 'DevOps')
@@ -58,7 +58,7 @@ class RegistryTests(unittest.TestCase):
         second = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Провери VPN failover до петък', 'Иван', 'петък', '2026-10-30')]), 'Weekly')
         [pending] = self.service.item_list()['pending']
         self.assertEqual((pending['meeting_id'], pending['candidates'][0]['item_id']), (second, item['id']))
-        self.resolve(second, 'tasks', 'same', item['id'])
+        self.resolve(second, 'tasks', 'same', item['id'], fields=['deadline', 'due_date'])
         [item] = self.service.tasks()
         self.assertEqual({link['meeting_id'] for link in item['links']}, {first, second})
         self.assertEqual((item['text'], item['deadline'], item['due_date'], item['status']),
@@ -76,9 +76,37 @@ class RegistryTests(unittest.TestCase):
         self.service.update_item(item['id'], item['text'], {'owner': 'Мария', 'status': 'done'})
         self.service.update_item(item['id'], item['text'], {'status': 'open'})
         later = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Обнови сертификатите на принтерите', 'Иван', None, '2026-11-01')]))
-        self.resolve(later, 'tasks', 'same', item['id'])
+        # A field that a person edited never takes a meeting's value, also when it is chosen.
+        with self.assertRaisesRegex(ValueError, 'You edited the owner'):
+            self.resolve(later, 'tasks', 'same', item['id'], fields=['owner', 'due_date'])
+        self.resolve(later, 'tasks', 'same', item['id'], fields=['due_date'])
         [item] = self.service.tasks()
         self.assertEqual((item['owner'], item['due_date'], item['status']), ('Мария', '2026-11-01', 'open'))
+
+    def test_same_task_links_only_and_changes_only_the_chosen_fields(self):
+        self.meeting('2026-10-19T10:00:00+03:00', notes([task('Подмени батериите на UPS', 'Иван', None, '2026-10-25')]))
+        [item] = self.service.tasks()
+        later = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Подмени батериите на UPS', 'Мария', 'другата седмица', '2026-11-03')]))
+        # Without a choice, Same only links: the meeting is evidence; owner and dates stay.
+        self.resolve(later, 'tasks', 'same', item['id'], revision=item['revision'])
+        [item] = self.service.tasks()
+        self.assertEqual((item['owner'], item['deadline'], item['due_date']), ('Иван', None, '2026-10-25'))
+        self.assertEqual(item['history'][-1]['changes'], {})
+        self.assertEqual(len(item['links']), 2)
+
+    def test_a_changed_item_is_a_conflict(self):
+        from app.work_items import WorkItemConflict
+        self.meeting('2026-10-19T10:00:00+03:00', notes([task('Обнови документацията за VPN', 'Иван')]))
+        [item] = self.service.tasks()
+        later = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Обнови документацията за VPN', 'Иван', None, '2026-11-01')]))
+        seen = item['revision']
+        self.service.update_item(item['id'], item['text'], {'status': 'done'})
+        with self.assertRaisesRegex(WorkItemConflict, 'changed after you opened'):
+            self.resolve(later, 'tasks', 'same', item['id'], fields=['due_date'], revision=seen)
+        # The review stays: nothing was linked.
+        self.assertEqual(len(self.service.item_list()['pending']), 1)
+        with self.assertRaisesRegex(ValueError, 'Only the owner, deadline and due date'):
+            self.resolve(later, 'tasks', 'same', item['id'], fields=['status'])
 
     def test_duplicate_and_new_choices(self):
         self.meeting('2026-10-19T10:00:00+03:00', notes([task('Подготви оферта за Клиент X')]))

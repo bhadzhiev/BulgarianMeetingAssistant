@@ -48,8 +48,13 @@ class NoteItemTests(unittest.TestCase):
 
     def test_ai_schema_asks_for_a_source_on_every_statement(self):
         schema = minutes_schema()
-        for field in ['summary', 'decisions', 'next_steps', 'needs_decision', 'open_questions', 'observations']:
+        for field in ['summary', 'next_steps', 'needs_decision', 'open_questions', 'observations']:
             self.assertEqual(schema['properties'][field]['items']['required'], ['text', 'evidence_timestamp'])
+        # Decisions, updates and tasks also keep the words that were said.
+        for field in ['decisions', 'updates']:
+            self.assertEqual(schema['properties'][field]['items']['required'], ['text', 'evidence_timestamp', 'quote'])
+        self.assertIn('quote', schema['properties']['tasks']['items']['required'])
+        self.assertIn('updates', schema['required'])
 
 
 class ChangeTests(unittest.TestCase):

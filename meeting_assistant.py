@@ -330,8 +330,9 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
             "deadline": {"type": ["string", "null"]},
             "due_date": {"type": ["string", "null"]},
             "evidence_timestamp": {"type": "string"},
+            "quote": {"type": ["string", "null"]},
         },
-        "required": ["task", "owner", "deadline", "due_date", "evidence_timestamp"],
+        "required": ["task", "owner", "deadline", "due_date", "evidence_timestamp", "quote"],
         "additionalProperties": False,
     }
     item = {
@@ -340,11 +341,19 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
         "required": ["text", "evidence_timestamp"],
         "additionalProperties": False,
     }
+    # Decisions and updates also keep the words that were said: a later step matches them to existing work.
+    quoted = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}, "evidence_timestamp": {"type": ["string", "null"]}, "quote": {"type": ["string", "null"]}},
+        "required": ["text", "evidence_timestamp", "quote"],
+        "additionalProperties": False,
+    }
     return {
         "type": "object",
         "properties": {
             "summary": {"type": "array", "items": item},
-            "decisions": {"type": "array", "items": item},
+            "decisions": {"type": "array", "items": quoted},
+            "updates": {"type": "array", "items": quoted},
             "next_steps": {"type": "array", "items": item},
             "needs_decision": {"type": "array", "items": item},
             "tasks": {"type": "array", "items": task},
@@ -352,7 +361,7 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
             "observations": {"type": "array", "items": item},
             **{name: {"type": "array", "items": item} for name in sections},
         },
-        "required": ["summary", "decisions", "next_steps", "needs_decision", "tasks", "open_questions", "observations", *sections],
+        "required": ["summary", "decisions", "updates", "next_steps", "needs_decision", "tasks", "open_questions", "observations", *sections],
         "additionalProperties": False,
     }
 
@@ -399,6 +408,11 @@ text е твърдението, evidence_timestamp е timestamp на сегме�
 За решение посочи момента, в който решението е прието, а не момента, в който е предложено.
 Обсъждана възможност не е решение. Върни null за evidence_timestamp само ако няма един конкретен момент.
 Разграничавай решения, задачи и отворени въпроси. Върни само JSON по дадената схема.
+quote: за всяка задача, решение и актуализация копирай дословно от транскрипта краткия откъс (до 2 изречения),
+който доказва твърдението. Не поправяй и не преразказвай думите в quote. Ако няма такъв откъс, върни null.
+updates: напредък, пречка или уточнение по работа, която вече е започната или възложена преди срещата
+(например „миграцията е готова наполовина“, „чакаме достъп от клиента“). Нова работа е задача, не актуализация.
+Не измисляй към коя съществуваща задача се отнася актуализацията.
 Всяко нещо записвай само в една секция — в първата подходяща по този ред: decisions, tasks, секциите на типа
 срещата, needs_decision, open_questions, next_steps, observations, summary. Не повтаряй едно и също в две секции
 с други думи. Един въпрос е или в needs_decision, или в open_questions, не и в двете.
@@ -449,11 +463,13 @@ def extract_json(text: str) -> dict[str, Any]:
         return json.loads(match.group(0))
 
 
-MINUTES_OPTIONAL = ("next_steps", "needs_decision", "observations")
+MINUTES_OPTIONAL = ("next_steps", "needs_decision", "observations", "updates")
+# The words that were said, kept for a statement: at most this many characters.
+QUOTE_LIMIT = 500
 # Sections of a meeting type. Notes have only the sections of their type, so they are never filled in.
 SECTION_FIELDS = meeting_types.SECTION_FIELDS
 # Every statement in these fields has a source moment and a review state, like a task.
-ITEM_FIELDS = ("summary", "decisions", "next_steps", "needs_decision", "open_questions", "observations", *SECTION_FIELDS)
+ITEM_FIELDS = ("summary", "decisions", "updates", "next_steps", "needs_decision", "open_questions", "observations", *SECTION_FIELDS)
 REVIEW_STATES = ("ai", "verified")
 _CITED = re.compile(r"\s*[(\[](\d{2,}:\d{2}:\d{2})[)\]]")
 _STAMP = re.compile(r"\b(\d{2,}:\d{2}:\d{2})\b")
@@ -468,6 +484,45 @@ def _check_registry_keys(mention: dict[str, Any]) -> None:
         raise ValueError("Invalid item ID")
     if "link" in mention and (not isinstance(mention["link"], dict) or not isinstance(mention["link"].get("candidates"), list)):
         raise ValueError("Invalid item link")
+
+
+def _check_quote(mention: dict[str, Any]) -> None:
+    """A quote is optional: notes saved before quotes existed have none."""
+    quote = mention.get("quote")
+    if quote is not None and (not isinstance(quote, str) or len(quote) > QUOTE_LIMIT):
+        raise ValueError("A quote must be text of at most %d characters" % QUOTE_LIMIT)
+
+
+def _plain(text: str) -> str:
+    """Text for a quote check: lower case, letters and digits only, one space between words."""
+    return " ".join(re.findall(r"\w+", text.casefold()))
+
+
+def verify_quotes(minutes: dict[str, Any], segments: list) -> int:
+    """Keep a quote only when its words are in the transcript. A quote that the model rewrote is not evidence.
+
+    The statement stays; only the quote goes. A long quote is cut at a word boundary. Returns how many quotes went."""
+    source = _plain(" ".join(getattr(s, "text", "") if not isinstance(s, dict) else s.get("text", "") for s in segments))
+    removed = 0
+    for field in ("tasks", *ITEM_FIELDS):
+        for mention in minutes.get(field, []) if isinstance(minutes, dict) else []:
+            if not isinstance(mention, dict) or mention.get("quote") is None:
+                continue
+            quote = mention["quote"]
+            if not isinstance(quote, str) or not quote.strip():
+                mention["quote"] = None
+                removed += 1
+                continue
+            quote = " ".join(quote.split())
+            if len(quote) > QUOTE_LIMIT:
+                quote = quote[:QUOTE_LIMIT].rsplit(" ", 1)[0]
+            words = _plain(quote)
+            if not words or f" {words} " not in f" {source} ":
+                mention["quote"] = None
+                removed += 1
+            else:
+                mention["quote"] = quote
+    return removed
 
 
 def note_item(value: Any) -> Any:
@@ -498,8 +553,9 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
             continue
         minutes[field] = [note_item(item) for item in minutes[field]]
         for item in minutes[field]:
-            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review", *REGISTRY_KEYS}:
+            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review", "quote", *REGISTRY_KEYS}:
                 raise ValueError(f"{field} items need text and a source timestamp field")
+            _check_quote(item)
             item.setdefault("review", "ai")
             if not isinstance(item["text"], str) or not item["text"].strip():
                 raise ValueError(f"{field} items need text")
@@ -513,8 +569,9 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
                 raise ValueError(f"Timestamp {stamp} does not reference a transcript segment")
     for task in minutes["tasks"]:
         core = {"task", "owner", "deadline", "evidence_timestamp"}
-        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status", "review", *REGISTRY_KEYS}:
+        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status", "review", "quote", *REGISTRY_KEYS}:
             raise ValueError("Invalid task fields")
+        _check_quote(task)
         task.setdefault("due_date", None)
         task.setdefault("status", "open")
         task.setdefault("review", "ai")
@@ -591,7 +648,7 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
     lines.extend(["", "## Взети решения"])
     decisions = minutes.get("decisions", [])
     lines.extend(line(item) for item in decisions) if decisions else lines.append("- Няма извлечени решения.")
-    for field, heading in [("next_steps", "Следващи стъпки"), ("needs_decision", "Въпроси, изискващи решение")]:
+    for field, heading in [("updates", "Актуализации по започната работа"), ("next_steps", "Следващи стъпки"), ("needs_decision", "Въпроси, изискващи решение")]:
         if minutes.get(field):
             lines.extend(["", f"## {heading}"])
             lines.extend(line(item) for item in minutes[field])

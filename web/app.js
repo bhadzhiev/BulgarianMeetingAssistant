@@ -950,7 +950,7 @@ function stampButton(stamp) {
 }
 // AI notes cite moments as (00:29:46); make them links to the transcript.
 function linkedText(target,text) { text.split(/\(?\b(\d{2}:\d{2}:\d{2})\b\)?/).forEach((part,i)=>target.append(i%2?stampButton(part):document.createTextNode(part))); return target; }
-const FIELD_TITLES={summary:'Summary',decisions:'Decisions',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations'};
+const FIELD_TITLES={summary:'Summary',decisions:'Decisions',updates:'Updates on work in progress',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations'};
 const ITEM_FIELDS=Object.keys(FIELD_TITLES).filter(field=>field!=='tasks');
 // Notes cite a segment's start in whole seconds, and the previous segment often still runs then.
 // So a segment that starts in that second wins; more of them form one span.
@@ -973,7 +973,7 @@ function sourceBlock(stamp) {
  return box;
 }
 let notesBase=null;
-const NOTE_FIELDS=['summary','decisions','next_steps','needs_decision','tasks','open_questions','observations'];
+const NOTE_FIELDS=['summary','decisions','updates','next_steps','needs_decision','tasks','open_questions','observations'];
 // Send only the sections that changed, with how they looked before. The server refuses a section that
 // someone else changed meanwhile, so an older copy never undoes newer changes.
 async function saveMinutes(base) {
@@ -1126,6 +1126,8 @@ function renderNotes(busy=false) {
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
+ // Updates on work that started before the meeting. Older notes have none, so the section shows only when it has content.
+ if(minutes.updates?.length||notesEditing)$('outcomes').append(noteSection(minutes,'updates','Updates on work in progress',busy,'Progress, blockers and clarifications about work that started before this meeting. A later step suggests the task each one belongs to.'));
  const section=el('section','note-section');section.append(el('h3','',meetingType(detail).task_title));
  const taskList=el('div');section.append(taskList);
  function drawTasks() { taskList.replaceChildren(); AtlantaTasks.meetingGroups(minutes.tasks).forEach(({task,index,mentions})=>{

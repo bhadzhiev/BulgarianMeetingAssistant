@@ -75,7 +75,8 @@ def candidates(parts, segments):
             for index, item in enumerate(rows):
                 value = core(field, item)
                 key = digest([part_index, field, index, value])[:24]
-                facts.append(dict(id=key, field=field, value=value,
+                # The quote rides with the fact; it is not part of its identity and does not go to the AI.
+                facts.append(dict(id=key, field=field, value=value, quote=item.get('quote'),
                     evidence=copy.deepcopy(source.get(value.get('evidence_timestamp'), []))))
     if len(facts) > MAX_FACTS:
         raise ValueError('Too many extracted statements to consolidate in one run. Completed parts were kept.')
@@ -332,6 +333,8 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
             nodes = reduced
         for node in nodes:
             item = copy.deepcopy(node['value'])
+            if field != 'summary' and node.get('quote'):
+                item['quote'] = node['quote']
             key = fact_key(field, item)
             if key in audit['groups']:
                 previous = audit['groups'][key]

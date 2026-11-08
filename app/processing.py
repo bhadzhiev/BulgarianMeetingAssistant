@@ -359,7 +359,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     saved_splits = saved.get('splits', []) if isinstance(saved, dict) and saved.get('signature') == signature else []
     splits = {key for key in saved_splits if isinstance(key, str)} if isinstance(saved_splits, list) else set()
     split_attempts = 0
-    result = dict(summary=[], decisions=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[],
+    result = dict(summary=[], decisions=[], updates=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[],
                   **{field: [] for field in meeting_types.sections(args.meeting_type)})
 
     def generate_part(group, label, depth=0):
@@ -400,6 +400,9 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
             for item in minutes.get(field, []) if isinstance(minutes, dict) else []:
                 if isinstance(item, dict) and item.get('evidence_timestamp') not in stamps:
                     item['evidence_timestamp'] = None
+        # A quote must be the words of this part of the transcript; a rewritten quote goes, the statement stays.
+        from meeting_assistant import verify_quotes
+        verify_quotes(minutes, group)
         validate_minutes(minutes, group)
         parts[key] = minutes
         atomic_json(checkpoint, dict(signature=signature, parts=parts, splits=sorted(splits)))

@@ -1399,15 +1399,27 @@ function linkCard(entry,meetings,itemsById) {
  head.append(el('span','change-kind','Is this an existing '+kind+'?'),el('span','hint','From '+meetingLabel(entry.meeting_id,meetings)));
  const details=kind==='task'?[mention.owner,mention.deadline&&'said: '+mention.deadline,mention.due_date&&date(mention.due_date)].filter(Boolean):[];
  card.append(head,el('p','link-text',entry.text+(details.length?' · '+details.join(' · '):'')));
- const resolve=(action,itemId)=>perform(async()=>{await api('/api/meetings/'+entry.meeting_id+'/link',{field:entry.field,index:entry.index,text:entry.text,action,item_id:itemId});await refreshAfterItemChange();toast(action==='new'?'Added as a new '+kind:'Linked · the history shows this meeting');});
+ const resolve=(action,itemId,extra={})=>perform(async()=>{await api('/api/meetings/'+entry.meeting_id+'/link',{field:entry.field,index:entry.index,text:entry.text,action,item_id:itemId,...extra});await refreshAfterItemChange();toast(action==='new'?'Added as a new '+kind:extra.fields?.length?'Linked · '+AtlantaUX.count(extra.fields.length,'field')+' changed':'Linked · the history shows this meeting');});
  for(const candidate of entry.candidates) {
   const item=itemsById[candidate.item_id]; if(!item) continue;
   const row=el('div','link-candidate'), main=el('div'), actions=el('div','link-actions');
   const facts=kind==='task'?[item.status==='done'?'Done':'Open',item.owner,item.due_date&&'due '+date(item.due_date)]:[DECISION_LABELS[item.status]];
   main.append(el('p','',item.text),el('span','hint',facts.filter(Boolean).join(' · ')+' · '+Math.round(candidate.score*100)+'% similar'),meetingChips(item,meetings));
-  const choices=kind==='task'?[['same','Same task · update','primary','Links this meeting. Owner, deadline and due date from the AI fill fields that you did not edit. The status stays.'],['duplicate','Duplicate','secondary','Links this meeting and changes nothing.']]
+  // A task: what the meeting said differently. Nothing changes unless you check it; a field that you edited stays.
+  const changes=el('div','link-changes'),checks=[];
+  if(kind==='task')for(const [name,label] of [['owner','Owner'],['deadline','Deadline as said'],['due_date','Due date']]){
+   const said=mention[name],now=item[name];if(said==null||said===now)continue;
+   const show=value=>value==null||value===''?'none':name==='due_date'?date(value):value;
+   if((item.manual||[]).includes(name)){changes.append(el('p','hint',label+' stays '+show(now)+' · you edited it'));continue;}
+   const line=el('label','checkbox link-change'),box=el('input');box.type='checkbox';box.value=name;
+   line.append(box,document.createTextNode(label+': '+show(now)+' → '+show(said)));changes.append(line);checks.push(box);
+  }
+  if(checks.length)changes.prepend(el('p','hint','The meeting said something different. Check only what should change:'));
+  const choices=kind==='task'?[['same','Same task','primary','Links this meeting as evidence. Only the checked fields change. The status stays.'],['duplicate','Duplicate','secondary','Links this meeting and changes nothing.']]
    :[['same','Same decision','primary','Links this meeting to the decision.'],['replaces','Replaces it','secondary','Saves this as a new decision; the older one becomes replaced.']];
-  for(const [action,label,style,title] of choices){const button=btn(style,label);button.title=title;button.onclick=()=>resolve(action,item.id);actions.append(button);}
+  for(const [action,label,style,title] of choices){const button=btn(style,label);button.title=title;
+   button.onclick=()=>resolve(action,item.id,{revision:item.revision,...(action==='same'&&kind==='task'?{fields:checks.filter(c=>c.checked).map(c=>c.value)}:{})});actions.append(button);}
+  if(changes.childNodes.length)main.append(changes);
   row.append(main,actions); card.append(row);
  }
  const fresh=el('button','quiet','No, it is a new '+kind); fresh.type='button'; fresh.onclick=()=>resolve('new'); card.append(fresh);
@@ -2196,7 +2208,7 @@ function renderTasks() {
  if(itemKind==='task'&&managerView==='inbox'&&!noWork)taskSummary(AtlantaUX.count(tasks.length,'meeting action')+' · '+AtlantaUX.count((itemsData.graph?.proposals||[]).filter(p=>p.state==='pending').length,'source proposal'));
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
- if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
+ if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','These mentions have wording close to existing items (text similarity). Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
  const noKindItems=!itemsData.items.some(item=>item.kind===itemKind);
  $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').closest('.task-filters').hidden=noKindItems||inbox;document.querySelector('#items-panel .work-messages').hidden=noKindItems;
  const filter=itemKind==='task'&&managerView==='inbox'?'all':statusFilter[itemKind];

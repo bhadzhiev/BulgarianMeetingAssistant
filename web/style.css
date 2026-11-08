@@ -1396,3 +1396,7 @@ label.required-label:has(.date-part-label)::after{content:none}
 .form-error-summary p{margin:0 0 4px;font-weight:600}
 .form-error-summary ul{margin:0;padding-left:18px}
 .form-error-summary button{padding:2px 0;color:var(--danger-ink);text-decoration:underline;text-align:left}
+/* Link review: the fields that the meeting said differently, one per line, unchecked. */
+.link-changes{display:grid;gap:4px;margin-top:10px}
+.link-changes>p,.link-changes>label{margin:0!important}
+.link-changes>label{display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px}

@@ -582,7 +582,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif match[2] == 'scope': result = service.set_scope(match[1], body.get('project'), body.get('series'))
                 elif match[2] == 'type': result = service.set_meeting_type(match[1], body.get('meeting_type'))
                 elif match[2] == 'type-export': result = service.type_export(match[1])
-                elif match[2] == 'link': result = service.resolve_link(match[1], body['field'], body['index'], body['text'], body['action'], body.get('item_id'))
+                elif match[2] == 'link': result = service.resolve_link(match[1], body['field'], body['index'], body['text'], body['action'], body.get('item_id'), body.get('fields'), body.get('revision'))
                 elif match[2] == 'marker-delete': result = service.delete_marker(match[1], body['id'])
                 elif match[2] == 'notes-review': result = service.review_notes(match[1], body['action'], body.get('accept', []), body.get('revision', ''))
                 elif match[2] == 'title': result = service.generate_meeting_title(match[1])

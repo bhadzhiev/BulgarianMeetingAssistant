@@ -2753,12 +2753,19 @@ class MeetingService:
             self._sync_linked({into_id})
             return dict(into)
 
-    def resolve_link(self, meeting_id, field, index, text, action, item_id=None):
-        """A person's answer to the question: is this mention an existing task or decision?"""
+    def resolve_link(self, meeting_id, field, index, text, action, item_id=None, fields=None, revision=None):
+        """A person's answer to the question: is this mention an existing task or decision?
+
+        Same links the meeting as evidence. Of the owner, deadline and due date that the meeting said,
+        only the fields in `fields` change the task: a person chose them, after seeing both values.
+        `revision` is the item revision that the person saw; a changed item is a conflict."""
         from meeting_assistant import save_minutes, validate_minutes
         kind = {'tasks': 'task', 'decisions': 'decision'}.get(field)
         if not kind or action not in ({'same', 'duplicate', 'new'} if kind == 'task' else {'same', 'replaces', 'new'}):
             raise ValueError('Invalid choice')
+        fields = list(fields or [])
+        if any(name not in items.AI_UPDATES for name in fields) or (fields and (kind != 'task' or action != 'same')):
+            raise ValueError('Only the owner, deadline and due date of a task can change here')
         with self.lock, self.items.lock:
             if meeting_id == self.active or meeting_id in self.busy:
                 raise ValueError('Wait until processing finishes before changing the notes')
@@ -2774,12 +2781,17 @@ class MeetingService:
                 target = self.items.items.get(item_id)
                 if not target or target['kind'] != kind:
                     raise ValueError('That item no longer exists. Reload and try again.')
+                if revision is not None and target.get('revision') != revision:
+                    raise items.WorkItemConflict('This item changed after you opened the review. Check the current values and choose again.')
+                manual = [name for name in fields if name in target['manual']]
+                if manual:
+                    raise ValueError('You edited the ' + ', '.join(manual).replace('_', ' ') + ' of this task. It does not change from a meeting.')
             if action == 'new':
                 mention['item_id'] = self.items.create(kind, mention, meeting_id)
             elif action == 'replaces':
                 mention['item_id'] = self.items.replace(item_id, mention, meeting_id)
             else:
-                self.items.link(item_id, kind, mention, meeting_id, ai_updates=action == 'same', duplicate=action == 'duplicate')
+                self.items.link(item_id, kind, mention, meeting_id, fields=fields, duplicate=action == 'duplicate')
                 mention['item_id'] = item_id
                 if kind == 'task':
                     mention['status'] = target['status']

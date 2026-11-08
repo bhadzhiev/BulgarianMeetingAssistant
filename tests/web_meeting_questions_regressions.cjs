@@ -7,7 +7,7 @@ const panel=slice("const questions=$('work-questions');",'\n}');
 assert.match(panel,/renderMeetingQuestions\(questions\);[\s\S]*'Tracked questions'/);
 const rows=slice('function renderMeetingQuestions(','\n}\n');
 assert.match(rows,/itemsData\.meeting_questions/);
-assert.match(rows,/'Needs your decision':'Open question'/);
+assert.match(rows,/q\.kind==='decide'\?\{tone:'warn',label:'Needs your decision'\}:\{tone:'muted',label:'Open question'\}/);
 // Answer and Track keep the meeting and the moment of the question.
 assert.match(rows,/graphAction\('question',\{text:q\.text,source,answer\}\)/);
 assert.match(rows,/graphAction\('question',\{text:q\.text,source\}\)/);

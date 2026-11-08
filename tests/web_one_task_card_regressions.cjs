@@ -21,7 +21,7 @@ assert.match(slice('function noteButtons(','\nfunction '),/return \[edit,rowMenu
 assert.match(slice('function editDeleteButtons(','function itemActions('),/return \[edit,rowMenu\('More actions for this '\+item\.kind,remove\)\];/);
 assert.match(slice('function taskRow(','function renderNotes('),/actions\.append\(doneButton\(item,busy\),edit,rowMenu\('More actions for this task',remove\)\)/);
 // My Work decisions keep their actions in the same menu as tasks, so the text has the width.
-assert.match(slice('function decisionRow(','async function loadTasks('),/more\.append\(trigger,itemActions\(item,row\)\);row\.append\(more\)/);
+assert.match(slice('function decisionRow(','async function loadTasks('),/const menuActions=itemActions\(item,row\);if\(item\.status!=='proposed'\)menuActions\.prepend\(change\);more\.append\(trigger,menuActions\);row\.append\(more\)/);
 // Projects use the My Work rows for tasks and decisions, without the bulk selection box.
 const workspace=slice('function renderWorkspace(){','\nfunction ');
 assert.match(workspace,/if\(full\.kind==='task'\)return globalTaskRow\(full,today,\{select:false\}\)/);

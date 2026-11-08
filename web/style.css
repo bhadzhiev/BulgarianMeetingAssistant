@@ -1127,3 +1127,21 @@ dialog.dialog-scrolls .dialog-foot{border-top:1px solid var(--line);padding-top:
 .task-more>summary.overflow-trigger,.row-menu>summary.overflow-trigger,.tracked-task .menu>summary.overflow-trigger{min-width:30px!important;padding:0 6px!important;font-size:16px!important}
 /* A footer action that needs two lines (a long label in a narrow dialog) may grow. */
 @media(max-width:480px){.review-footer>button,.editor-actions>button,.task-card-footer>button{height:auto!important;white-space:normal;padding:7px 14px!important;line-height:1.3!important}}
+/* One field scale that matches the buttons (fields were 24px beside 32px buttons). Standard: 32px, 13px.
+   Compact, in task rows and editors beside small buttons: 28px, 12px. Text areas share the text and the
+   padding; their height stays free. The meeting Type chip keeps its chip size. */
+input:where(:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=hidden])),
+select:not(.scope-chip):not(.date-popup-head select){
+ box-sizing:border-box!important;height:32px!important;min-height:32px!important;font-size:13px!important;border-radius:8px!important}
+select:not(.scope-chip){line-height:30px!important;padding-top:0!important;padding-bottom:0!important}
+textarea{font-size:13px;border-radius:8px!important;padding:8px 12px}
+:is(.task-quick-fields,.tracked-meta,.task-editor,.task-bottom,.work-proposal,.tracked-edit-bar) :is(input:not([type=checkbox]):not([type=radio]),select),
+.segment .speaker,.tracked-owner-input{
+ height:28px!important;min-height:28px!important;font-size:12px!important;border-radius:7px!important}
+:is(.task-quick-fields,.tracked-meta,.task-editor,.task-bottom,.work-proposal,.tracked-edit-bar) select{line-height:26px!important}
+:is(.task-quick-fields,.tracked-meta,.task-editor) .date-trigger{padding:3px 6px}
+.date-popup-head select{height:28px!important;min-height:28px!important;line-height:26px!important}
+/* Mixed rows (a button or Filters beside a field) use the standard control height. GitHub in a row is small. */
+:root{--control-h:32px}
+.conversation-filters .advanced-filters>summary{font-size:13px;border-radius:9px;padding-inline:14px}
+details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;padding:0 10px;display:inline-flex;align-items:center;font-size:12px}

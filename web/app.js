@@ -1555,17 +1555,22 @@ function globalTaskRow(item,today,{select=true}={}) {
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','','Select'));marks.append(pick);}row.append(marks,main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';more.append(trigger,itemActions(item,row));row.append(more);}return row;
 }
 function decisionRow(item,byId) {
- const row=el('div','tracked-task decision '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
+ const row=el('div','tracked-task decision entity-card task-card '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
+ // The shared card: wording with its project, the state, only the action that waits for a person, the source.
+ const projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
+ if(projects.length===1&&projects[0].color){row.classList.add('has-project-line');row.style.setProperty('--project-color',projects[0].color);}
  meta.append(decisionBadge(item));
  // A decision that waits for a person has one clear button; the status change stays next to it.
  if(item.status==='accepted'&&decisionState(item).action)meta.append(actionBtn('primary small-action',decisionState(item).action,()=>changeItem(item,{status:'accepted'})));
  if(item.superseded_by&&byId[item.superseded_by]) meta.append(el('span','hint','Replaced by: '+byId[item.superseded_by].text));
  for(const id of item.supersedes||[]) if(byId[id]) meta.append(el('span','hint','Replaces: '+byId[id].text));
  const next={proposed:['accepted','Accept'],accepted:['proposed','Mark as proposed'],superseded:[item.superseded_previous_status==='accepted'?'accepted':'proposed',item.superseded_previous_status==='accepted'?'Restore as accepted':'Restore as proposed']}[item.status];
- const change=actionBtn(item.status==='proposed'?'primary small-action':'secondary small-action',next[1],()=>changeItem(item,{status:next[0]}));meta.append(change);
- main.append(el('p','tracked-text',item.text),meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
+ // Accept is the action that waits; Mark as proposed and Restore are rare and live in the … menu.
+ const change=actionBtn(item.status==='proposed'?'primary small-action':'quiet',next[1],()=>changeItem(item,{status:next[0]}));if(item.status==='proposed')meta.append(change);
+ const head=el('div','entity-top'),chips=el('div','entity-chips'),text=el('p','tracked-text',item.text);for(const project of projects)chips.append(projectChip(project));head.append(text,chips);
+ main.append(head,meta,sourceChips(item,itemsData.meetings),githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings));
  row.append(el('span'),main);
- const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';more.append(trigger,itemActions(item,row));row.append(more); return row;
+ const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';const menuActions=itemActions(item,row);if(item.status!=='proposed')menuActions.prepend(change);more.append(trigger,menuActions);row.append(more); return row;
 }
 async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
@@ -1953,9 +1958,16 @@ function renderWorkGraph(){
  const tracked=itemsData.items.filter(i=>i.kind==='question');
  if(tracked.length)questions.append(el('h3','','Tracked questions'));
  for(const q of tracked){
-  const row=el('div','work-proposal'),qText=el('strong','',q.text);row.append(qText,el('p','hint',(q.status==='answered'?'Answered':'Open')+questionOrigin(q.origin)));
-  if(q.answer)row.append(el('p','',q.answer));row.append(historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));
-  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Answer');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});row.append(b,...editDeleteButtons(q,qText),projectAssignment(q),githubActions({kind:'item',id:q.id}));questions.append(row);
+  const row=el('div','entity-card question-card'),main=el('div','entity-main'),top=el('div','entity-top'),meta=el('div','entity-meta'),chips=el('div','entity-chips'),qText=el('p','question-text',q.text);
+  const projects=(q.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);for(const project of projects)chips.append(projectChip(project));
+  if(projects.length===1&&projects[0].color){row.classList.add('has-project-line');row.style.setProperty('--project-color',projects[0].color);}
+  // Edit and Delete are rare; they share the … menu.
+  const [edit,menu]=editDeleteButtons(q,qText);edit.classList.remove('quiet');menu.querySelector('.menu-items')?.prepend(edit);
+  top.append(qText,chips,menu);
+  meta.append(statusBadge(q.status==='answered'?{tone:'ok',label:'Answered'}:{tone:'muted',label:'Open'}));const origin=questionOrigin(q.origin);if(origin)meta.append(el('span','',origin.replace(/^ · /,'')));
+  main.append(top,meta);if(q.answer)main.append(el('p','question-answer',q.answer));
+  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Mark answered…');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});
+  const actions=el('div','action-group');actions.append(b);main.append(actions,projectAssignment(q),githubActions({kind:'item',id:q.id}),historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));row.append(main);questions.append(row);
  }
  if(!questions.children.length)questions.append(el('p','hint','No questions yet. Questions from meeting notes appear here. You can also add one.'));
 }
@@ -1965,14 +1977,14 @@ function renderMeetingQuestions(target){
  const list=itemsData.meeting_questions||[];if(!list.length)return;
  target.append(el('h3','','From meeting notes'),el('p','hint','Questions that the notes of your meetings left open. Answer one, or track it to answer later.'));
  for(const q of list){
-  const meeting=itemsData.meetings?.[q.meeting_id],row=el('div','work-proposal meeting-question'),actions=el('div','action-group');
-  row.append(el('strong','',q.text),el('p','hint',(q.kind==='decide'?'Needs your decision':'Open question')+(meeting?' · '+withDate(meeting.title,meeting.date):'')));
+  const meeting=itemsData.meetings?.[q.meeting_id],row=el('div','entity-card question-card meeting-question'),main=el('div','entity-main'),top=el('div','entity-top'),meta=el('div','entity-meta'),actions=el('div','action-group');
   const source={meeting_id:q.meeting_id,evidence_timestamp:q.evidence_timestamp||null};
-  if(q.evidence_timestamp&&meeting?.has_audio)actions.append(listenButton(q.meeting_id,stampSeconds(q.evidence_timestamp),{label:'Listen from '+q.evidence_timestamp,className:'quiet'}));
-  actions.append(btn('quiet','Open meeting',()=>perform(()=>openMeeting(q.meeting_id))),
-   btn('secondary small-action','Answer',()=>perform(async()=>{const answer=await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(answer===null)return;await graphAction('question',{text:q.text,source,answer});toast('Answer saved');})),
+  top.append(el('p','question-text',q.text),rowMenu('More actions for this question',btn('quiet','Open meeting',()=>perform(()=>openMeeting(q.meeting_id)))));
+  meta.append(statusBadge(q.kind==='decide'?{tone:'warn',label:'Needs your decision'}:{tone:'muted',label:'Open question'}),el('span','',meeting?withDate(meeting.title,meeting.date):'Meeting'));
+  if(q.evidence_timestamp&&meeting?.has_audio)meta.append(listenButton(q.meeting_id,stampSeconds(q.evidence_timestamp),{label:q.evidence_timestamp,className:'quiet'}));
+  actions.append(btn('secondary small-action','Mark answered…',()=>perform(async()=>{const answer=await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(answer===null)return;await graphAction('question',{text:q.text,source,answer});toast('Answer saved');})),
    btn('secondary small-action','Track',()=>perform(async()=>{await graphAction('question',{text:q.text,source});toast('Question tracked in My Work');})));
-  row.append(actions);target.append(row);
+  main.append(top,meta,actions);row.append(main);target.append(row);
  }
 }
 $('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New question',{ok:'Add question',value:''});if(value!==null)await graphAction('question',{text:value});});

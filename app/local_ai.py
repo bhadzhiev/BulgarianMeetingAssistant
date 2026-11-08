@@ -112,6 +112,23 @@ def schema_hint(schema):
     return hint
 
 
+def server_reason(exc):
+    """The HTTP status and the short error message of the AI server, so a person sees why it refused."""
+    import urllib.error
+    if not isinstance(exc, urllib.error.HTTPError):
+        return ''
+    try:
+        body = exc.read(4000).decode('utf-8', 'replace')
+        data = json.loads(body)
+        error = data.get('error') if isinstance(data, dict) else None
+        message = error.get('message') if isinstance(error, dict) else error if isinstance(error, str) else data.get('message') if isinstance(data, dict) else None
+    except (OSError, ValueError, AttributeError):
+        message = None
+    message = ' '.join(str(message).split())[:300] if message else ''
+    message = re.sub(r'sk-[A-Za-z0-9_-]{8,}', 'sk-…', message)
+    return f' The server answered HTTP {exc.code}' + (f': {message}' if message else '.')
+
+
 def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     from meeting_assistant import post_json, extract_json
     base_url = validate_base_url(settings.get('local_ai_base_url', DEFAULT_BASE_URL))
@@ -135,7 +152,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # A cloud API (Kimi K3) also spent a 16,384-token budget on thinking and returned no notes.
     # Topic matching is a short classification; on a cloud API, thinking only makes a speaker rename slow.
     if reasoning == 'default' and (
-            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title'}
+            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review'}
             and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
             or name == 'topic_matches' and is_remote(base_url)):
         reasoning = 'none'
@@ -153,7 +170,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
         response = post_json(base_url + '/chat/completions', payload, timeout=timeout,
             **({'headers': {'Authorization': 'Bearer ' + api_key}} if api_key else {}))
     except Exception as exc:
-        raise ValueError('Local AI request failed. Check the API URL, model and response format in Settings. No cloud fallback was used.') from exc
+        raise ValueError('Local AI request failed. Check the API URL, model and response format in Settings. No cloud fallback was used.' + server_reason(exc)) from exc
     try:
         choice = response['choices'][0]
         if choice.get('finish_reason') == 'length':

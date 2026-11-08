@@ -310,7 +310,7 @@ async function perform(fn) {
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // What a person would lose, in their words, so the question says what it is about.
 const EDITOR_NAMES={'task-draft':'task draft','task-panel':'task changes','meeting-review':'review edit','inline-edit':'note edit',
- 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
+ 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','team-agreements':'actions and goals','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
 function unsavedNames(){
  const names=[dirtyTranscript&&'transcript corrections',dirtyNotes&&'notes changes',itemEditing&&'task changes',speakerNaming&&'speaker name',
   ...editorDirty.keys().map(key=>key.startsWith('dialog:')?'changes in the open window':EDITOR_NAMES[key]||'changes')];
@@ -2980,7 +2980,7 @@ async function openTeamReview(id,{saved=false}={}){
 function renderTeamReview(){
  const r=teamReview,box=$('team-review-panel');$('team-members-panel').hidden=$('team-reviews-panel').hidden=true;box.hidden=false;
  for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab==='reviews';b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
- editorDirty.clear('team-review');editorDirty.clear('team-notes');syncRoute(true);
+ editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');syncRoute(true);
  const back=actionBtn('quiet team-back','← All reviews',()=>openTeam('reviews'));
  const head=el('div','card team-review-head'),title=el('h2','',reviewPersonName(r)+' · 1:1 review'),meta=el('div','entity-meta');
  meta.append(statusBadge(REVIEW_STATUS[r.status]||{tone:'muted',label:r.status}),el('span','',reviewPeriod(r.period)),el('span','','Version '+r.version),el('span','',reviewCoverage(r)));
@@ -3014,6 +3014,8 @@ function renderTeamReview(){
   if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));
  }
  actions.append(actionBtn('secondary','Export Markdown',()=>exportTeamReview(teamReview)));
+ // Delete is explicit and removes the review, its notes, actions, goals and evidence from this Mac.
+ if(r.status!=='draft')actions.append(actionBtn('quiet danger-text','Delete review…',async()=>{if(!(await ask('Delete this 1:1 review of '+reviewPersonName(r)+' with its notes, actions, goals and evidence from this Mac? This cannot be undone. Earlier backup archives keep their copies until you delete them.',{ok:'Delete review',danger:true})))return;await api('/api/team/review/delete',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-notes');editorDirty.clear('team-agreements');toast('Review deleted');await openTeam('reviews');}));
  // The version links: to the newer review, and to the one that this version replaces.
  if(r.status==='superseded'&&r.superseded_by)actions.prepend(actionBtn('primary','Open the newer version',()=>openTeamReview(r.superseded_by)));
  if(r.supersedes)actions.append(actionBtn('quiet','Open the version it replaces',()=>openTeamReview(r.supersedes)));
@@ -3027,7 +3029,7 @@ function renderTeamReview(){
  notes.oninput=()=>editorDirty.set('team-notes',notes.value!==r.notes_md);
  const saveNotes=actionBtn('secondary small-action','Save notes',async()=>{teamReview=await api('/api/team/review/notes',{id:r.id,revision:teamReview.revision,notes_md:notes.value});editorDirty.clear('team-notes');toast('Notes saved');});
  notesCard.append(el('h3','','Conversation notes'),el('p','hint','Separate from the review. Edit them before and after the conversation; they never change the review.'),notes,saveNotes);
- box.replaceChildren(back,head,body,notesCard);
+ box.replaceChildren(back,head,...(r.previous_agreements?.agreements?.length?[previousAgreementsCard(r.previous_agreements)]:[]),body,notesCard,agreementsCard(r));
 }
 // The evidence records that the review cites: what, when, why it counts, and the quote. Each opens its source.
 const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result confirmed',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
@@ -3106,9 +3108,43 @@ function pollTeamGitHub(){
   if(here){teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();}
  }),1200);
 }
+// Actions and goals after the conversation: only what the manager saves counts. They stay editable, also after Finalize.
+const AGREEMENT_OWNERS=[['person','The person'],['manager','Me'],['both','Both']],AGREEMENT_STATES=[['open','Open'],['done','Done'],['dropped','Dropped']];
+function agreementRow(row,onchange,{full=true,person=''}={}){
+ const line=el('div','team-agreement'),kind=el('select'),text=el('input'),owner=el('select'),due=el('input'),status=el('select');
+ kind.append(option('Action','action'),option('Goal','goal'));kind.value=row.kind;text.value=row.text;text.maxLength=1000;text.placeholder=row.kind==='goal'?'What should change?':'What will happen?';
+ owner.append(...AGREEMENT_OWNERS.map(([v,l])=>option(l,v)));owner.value=row.owner;due.type='date';due.value=row.due_date||'';status.append(...AGREEMENT_STATES.map(([v,l])=>option(l,v)));status.value=row.status;
+ for(const [c,n] of [[kind,'Kind'],[text,'Action or goal'],[owner,'Owner'],[due,'Due date'],[status,'State']])c.setAttribute('aria-label',n);
+ const read=()=>Object.assign(row,{kind:kind.value,text:text.value,owner:owner.value,due_date:due.value||null,status:status.value});
+ for(const c of [kind,text,owner,due,status])c.oninput=c.onchange=()=>{read();onchange();};
+ if(!full){line.classList.add('compact');line.append(el('span','team-agreement-text',(row.kind==='goal'?'Goal · ':'Action · ')+row.text+(row.due_date?' · due '+date(row.due_date):'')),status);return line;}
+ line.append(kind,text,owner,due,status);
+ // A goal keeps the column of Make a task…, so the rows stay aligned.
+ line.append(row.kind==='action'?actionBtn('quiet small-action','Make a task…',()=>openManualTask(null,{text:row.text,owner:row.owner==='person'?person:'',due:row.due_date||''})):el('span'));
+ line.append(actionBtn('quiet small-action','Remove',()=>{line.dispatchEvent(new CustomEvent('remove-agreement',{bubbles:true}));}));
+ return line;
+}
+function agreementsCard(r){
+ const card=el('section','card team-agreements'),list=el('div','team-agreement-list'),rows=structuredClone(r.agreements||[]);
+ const dirty=()=>editorDirty.set('team-agreements',JSON.stringify(rows)!==JSON.stringify(r.agreements||[]));
+ const draw=()=>{list.replaceChildren(...rows.map(row=>agreementRow(row,dirty,{person:reviewPersonName(r).replace(/ \(then .*\)$/,'')})));if(!rows.length)list.append(emptyNote('No actions or goals yet. Add what you agreed in the conversation.'));};
+ list.addEventListener('remove-agreement',event=>{const index=[...list.children].indexOf(event.target);if(index>=0){rows.splice(index,1);draw();dirty();}});
+ const add=kind=>()=>{rows.push({kind,text:'',owner:'person',due_date:null,status:'open'});draw();dirty();list.lastElementChild?.querySelector('input')?.focus();};
+ const save=actionBtn('secondary small-action','Save actions and goals',async()=>{teamReview=await api('/api/team/review/agreements',{id:r.id,revision:teamReview.revision,agreements:rows.filter(x=>x.text.trim())});editorDirty.clear('team-agreements');toast('Actions and goals saved');renderTeamReview();});
+ const buttons=el('div','action-group');buttons.append(actionBtn('quiet small-action','＋ Action',add('action')),actionBtn('quiet small-action','＋ Goal',add('goal')),save);
+ card.append(el('h3','','Agreed actions and goals'),el('p','hint','Only what you save here counts. The next review shows each one with its state. A task starts only when you create it.'),list,buttons);draw();return card;
+}
+// The actions and goals of the last 1:1, with their state. A change saves to that review; its text stays fixed.
+function previousAgreementsCard(previous){
+ const card=el('section','card team-agreements previous'),rows=structuredClone(previous.agreements),list=el('div','team-agreement-list');
+ let changed=false;list.append(...rows.map(row=>agreementRow(row,()=>{changed=true;editorDirty.set('team-agreements',true);},{full:false})));
+ const save=actionBtn('secondary small-action','Save states',async()=>{await api('/api/team/review/agreements',{id:previous.review_id,revision:previous.revision,agreements:rows});editorDirty.clear('team-agreements');toast('States saved · collect the facts again to update this draft');teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();});
+ card.append(el('h3','','From the last 1:1 · '+date(previous.period.start)+' – '+date(previous.period.end)),el('p','hint','Mark each one done or dropped. Collect the facts again to show the new states in this draft.'),list,save);return card;
+}
 // Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
 function exportTeamReview(r){
- const text=r.review_md.trimEnd()+'\n\n---\n\n## Conversation notes\n\n'+(r.notes_md.trim()||'_No notes._')+'\n',link=document.createElement('a');
+ const agreements=(r.agreements||[]).map(a=>'- '+(a.kind==='goal'?'Goal':'Action')+' · '+a.text+' · '+a.status+(a.due_date?' · due '+date(a.due_date):'')).join('\n');
+ const text=r.review_md.trimEnd()+'\n\n---\n\n## Conversation notes\n\n'+(r.notes_md.trim()||'_No notes._')+'\n\n## Agreed actions and goals\n\n'+(agreements||'_None._')+'\n',link=document.createElement('a');
  link.href=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));link.download='1-1-review-'+r.person_name.replace(/[^\p{L}\p{N}]+/gu,'-').toLowerCase()+'-'+r.period.end.slice(0,10)+'-v'+r.version+'.md';
  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
 }
@@ -3348,7 +3384,7 @@ function renderChannelProfile(profile){
  for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-message'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+dateTime(message.date*1000)));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
 }
 
-async function openManualTask(meetingId=null){
+async function openManualTask(meetingId=null,{text:startText='',owner:startOwner='',due:startDue=''}={}){
  if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
  if(!(await leaveEdits()))return;
  const dialog=$('manual-task-dialog'),box=$('manual-task-body');box.replaceChildren(el('h3','','New task'),el('p','hint','Saved on this Mac. Publishing to GitHub uses a separate preview and approval.'));
@@ -3359,6 +3395,8 @@ async function openManualTask(meetingId=null){
  const project=el('select');project.setAttribute('aria-label','Project');const initial=(state.meetings||[]).find(m=>m.id===meetingId)?.project_id||(view==='projects'?contextProject():($('work-project').value!=='__none__'?$('work-project').value:''));fillProjects(project,initial||'','No project');
  let projectEdited=false;project.onchange=()=>{projectEdited=true;};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel');save.type=cancel.type='button';actions.append(cancel,save);
+ // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
+ text.value=startText;owner.value=startOwner;due.value=startDue||'';
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};box.append(label('Task',text),label('Owner',owner),label('Due date',due),label('Meeting',meeting),label('Project',project),actions);
  const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:owner.value,capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});actions.insertBefore(refine,save);
  const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;

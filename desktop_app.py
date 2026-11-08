@@ -492,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = remove(service,body)
             elif path == '/api/people/save':
                 result = service.save_person(body)
-            elif path.startswith('/api/team/review/') and path.rsplit('/', 1)[1] in {'create', 'version', 'collect', 'save', 'notes', 'finalize', 'discard'}:
+            elif path.startswith('/api/team/review/') and path.rsplit('/', 1)[1] in {'create', 'version', 'collect', 'save', 'notes', 'agreements', 'finalize', 'discard', 'delete'}:
                 result = service.team_review_action(path.rsplit('/', 1)[1], body)
             elif path == '/api/team/review/github/start':
                 result = service.team_github.start(body)

@@ -66,6 +66,8 @@ class SearchTests(unittest.TestCase):
         self.service.set_scope(second, {'name': 'Офис'})
         project = self.service.library.get(second)['project_id']
         self.assertEqual({r['meeting_id'] for r in self.service.find('принтери', project=project)}, {second})
+        # A result names the project of its meeting, so the card shows the project chip.
+        self.assertEqual({r['project_id'] for r in self.service.find('принтери', project=project)}, {project})
         self.assertEqual(self.service.find('LTE', project=project), [])
         minutes = json.loads((self.service.library.directory(second) / 'minutes.json').read_text())
         minutes['open_questions'] = [dict(text='Колко струва тонерът?', evidence_timestamp='00:00:00')]

@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import json
 import math
+import re
 import threading
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,20 @@ def iso(value):
 
 def scope_revision(meeting):
     return digest({k:meeting.get(k) for k in ('id','project_id','series_id')})
+
+
+def preview(kind, text, limit=220):
+    """One line of a saved text: the first spoken words of an excerpt, or the newest message of a thread or conversation."""
+    lines=text.splitlines()
+    if kind=='excerpt':lines=[re.sub(r'^\[[^\]]*\]\s*[^:]{0,80}:\s*','',line) for line in lines]
+    elif kind=='gmail':
+        starts=[i for i,line in enumerate(lines) if re.match(r'^Message \S+$',line)]
+        lines=[line for line in lines[starts[-1] if starts else 0:] if not re.match(r'^(Message \S+|From: |Date: |Subject: )',line)]
+    elif kind=='google_chat':
+        starts=[i for i,line in enumerate(lines) if re.match(r'^\d{4}-\d{2}-\d{2}T\S*\s·\s',line)]
+        lines=lines[starts[-1]+1 if starts else 0:]
+    words=' '.join(' '.join(lines).split())
+    return words if len(words)<=limit else words[:limit].rsplit(' ',1)[0]+'…'
 
 class Conversations:
     def __init__(self, service):
@@ -141,7 +156,10 @@ class Conversations:
                 and (not query or query in (row['title']+'\n'+row['text']).casefold()))
         found=sorted((r for r in rows if matches(r)),key=lambda r:(dt.datetime.fromisoformat(r['date']).timestamp(),r['id']),reverse=True)
         page=found[offset:offset+50]
-        for row in page:row.pop('text',None)
+        for row in page:
+            text=row.pop('text','')
+            # A one-line preview for a Gmail thread or a Chat conversation. A meeting card shows no transcript text.
+            if row['provider'] in {'gmail','google_chat'}:row['preview']=preview(row['provider'],text)
         return dict(rows=page,total=len(found),offset=offset,limit=50,participants=participants,notices=list(dict.fromkeys(notices))[:5])
     def bulk(self, body):
         s=self.service;entries=body.get('meetings');project=body.get('project_id');series=body.get('series_id')
@@ -204,6 +222,8 @@ class Conversations:
             rows=[]
             for saved in self.service.items.data.get('conversation_links',{}).values():
                 row=copy.deepcopy(saved);row['project_ids']=[p for p in row['project_ids'] if p in known]
+                revision=self.service.items.data.get('source_revisions',{}).get(row['source_revision'])
+                row['preview']=preview(row['kind'],revision['text']) if revision else ''
                 if not project or (not row['project_ids'] if project=='__none__' else project in row['project_ids']):rows.append(row)
             return rows
 

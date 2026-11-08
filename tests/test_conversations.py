@@ -8,7 +8,7 @@ from app.service import MeetingService
 from app.storage import atomic_json,Library
 from app.work_graph import WorkGraph
 from app.work_items import WorkItemConflict
-from app.conversations import scope_revision,transcript_revision
+from app.conversations import preview,scope_revision,transcript_revision
 from tests.test_calendar import FakeGoogle
 PROJECT=Path(__file__).resolve().parents[1]
 
@@ -30,6 +30,18 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.s.conversations.listing(dict(participant='Missing'))['total'],0)
         self.rows[0]['speaker']='Elena';atomic_json(self.s.library.directory(self.m['id'])/'transcript.json',self.rows)
         self.assertIn('Elena',self.s.conversations.listing({})['participants'])
+    def test_saved_excerpt_lists_a_preview_of_its_spoken_words(self):
+        self.excerpt()
+        row=self.s.conversations.listing(dict(source='attached'))['rows'][0]
+        self.assertEqual(row['preview'],'Review the VPN rollout. Use a staged rollout.')
+        self.assertEqual(self.s.conversations.attachments(self.p)[0]['preview'],row['preview'])
+    def test_preview_shows_the_newest_message_on_one_line(self):
+        mail='Message a1\nFrom: A <a@x>\nDate: 1\nSubject: Plan\nFirst body\n\nMessage a2\nFrom: B <b@x>\nDate: 2\nSubject: Re: Plan\nSecond  body\nnext line'
+        self.assertEqual(preview('gmail',mail),'Second body next line')
+        chat='2026-10-25T10:00:00+03:00 · Maria\nHello\n\n2026-10-25T11:00:00+03:00 · Ivan\nThe switch is back.'
+        self.assertEqual(preview('google_chat',chat),'The switch is back.')
+        long=preview('excerpt','[0.00–1.00] Maria: '+'word '*100)
+        self.assertLessEqual(len(long),221);self.assertTrue(long.endswith('…'))
     def test_bulk_is_prevalidated_and_protects_manual_item_projects(self):
         q=self.s.work_graph_action('question',dict(text='Who owns rollout?'))
         self.s.work_graph_action('project',dict(id=q['id'],revision=q['revision'],project_ids=[self.other]))

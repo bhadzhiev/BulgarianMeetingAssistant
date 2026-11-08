@@ -11,7 +11,7 @@ assert.match(html,/Until \(not included\)<input id="team-review-end" type="datet
 assert.match(html,/Times are in Europe\/Sofia\./);
 // The review page: a draft is editable; Finalize asks first; a finalized review only gets a new version; notes stay editable.
 const page=slice('function renderTeamReview(){');
-assert.match(page,/if\(draft\)body\.append\(text\);else body\.append\(markdownBlock\(r\.review_md\)\)/);
+assert.match(page,/body\.append\(view,text\);\}\n else body\.append\(markdownBlock\(r\.review_md\)\)/);
 assert.match(page,/'Finalize this review\? The review text is then fixed\./);
 assert.match(page,/if\(r\.status==='finalized'\)actions\.append\(actionBtn\('secondary','New version…'/);
 assert.match(page,/api\('\/api\/team\/review\/notes'/);

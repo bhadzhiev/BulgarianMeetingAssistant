@@ -37,12 +37,17 @@ class SharedTaskTests(unittest.TestCase):
         # One state for everybody.
         task = self.change(workflow_state='in_progress')
         self.assertEqual(task['assignee_person_ids'], [self.maria, self.ivan, self.elena])
-        # Choosing another owner keeps the others.
+        # Choosing another owner replaces the old owner and keeps the others.
         task = self.change(owner_person_id=self.ivan)
-        self.assertEqual((task['owner'], task['assignee_person_ids']), ('Ivan', [self.ivan, self.maria, self.elena]))
+        self.assertEqual((task['owner'], task['assignee_person_ids']), ('Ivan', [self.ivan, self.elena]))
         # The history keeps every change of the list.
         changes = [e['changes']['assignee_person_ids'] for e in task['history'] if 'assignee_person_ids' in e.get('changes', {})]
         self.assertEqual(changes[0], [[], [self.maria, self.ivan, self.elena]])
+
+    def test_a_new_owner_of_a_single_task_does_not_share_it(self):
+        self.change(owner_person_id=self.maria)
+        task = self.change(owner_person_id=self.ivan)
+        self.assertEqual(task['assignee_person_ids'], [self.ivan])
 
     def test_removing_the_owner_makes_the_next_one_accountable(self):
         self.change(assignee_person_ids=[self.maria, self.ivan])

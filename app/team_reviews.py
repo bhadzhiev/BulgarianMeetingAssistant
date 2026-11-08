@@ -82,7 +82,8 @@ class TeamReviews:
         meta = json.loads((directory / 'metadata.json').read_text(encoding='utf-8'))
         if text:
             meta = dict(meta, review_md=(directory / 'review.md').read_text(encoding='utf-8'),
-                        notes_md=(directory / 'conversation-notes.md').read_text(encoding='utf-8'))
+                        notes_md=(directory / 'conversation-notes.md').read_text(encoding='utf-8'),
+                        evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')))
         return meta
 
     def _all(self, person_id=None):
@@ -141,7 +142,7 @@ class TeamReviews:
                     draft=draft and dict(id=draft['id']))
 
     # Changes --------------------------------------------------------------------------------------
-    def create(self, person, start, end, supersedes=None):
+    def create(self, person, start, end, supersedes=None, collect=None):
         """A new Draft for a period [start, end). One draft per person at a time."""
         with self.lock:
             start, end = _moment(start, 'Start'), _moment(end, 'End')
@@ -155,6 +156,11 @@ class TeamReviews:
             if any(r['status'] == 'draft' for r in rows):
                 raise ValueError(f'{person["name"]} already has a draft review. Open it, or discard it first.')
             review_md, evidence, version = _template(person['name'], start, end), [], 1
+            coverage = dict(sources=[], limitations=[])
+            if collect is not None and supersedes is None:
+                # The facts of the period, collected without AI. They replace the empty template.
+                facts = collect(_iso(start), _iso(end), self.previous(person['id']))
+                review_md, evidence, coverage = facts['review_md'], facts['evidence'], dict(facts['coverage'], excluded_items=facts['excluded'])
             if supersedes is not None:
                 old_dir = self._directory(supersedes)
                 old = self._read(old_dir)
@@ -163,12 +169,13 @@ class TeamReviews:
                 review_md = (old_dir / 'review.md').read_text(encoding='utf-8')
                 evidence = json.loads((old_dir / 'evidence.json').read_text(encoding='utf-8'))
                 start, end, version = _moment(old['period']['start'], 'Start'), _moment(old['period']['end'], 'End'), old['version'] + 1
+                coverage = old.get('coverage') or coverage
             review_id = uuid.uuid4().hex[:12]
             now = _iso(dt.datetime.now(TZ))
             meta = dict(id=review_id, person_id=person['id'], person_name=person['name'],
                         period=dict(start=_iso(start), end=_iso(end), timezone=TIMEZONE), status='draft', version=version,
                         supersedes=supersedes, superseded_by=None, created=now, updated=now, finalized_at=None, revision=1,
-                        coverage=dict(sources=[], limitations=[]), generator=None)
+                        coverage=coverage, generator=None)
             # The files go to a hidden folder first; one rename makes the review appear complete.
             person_dir = self.root / person['id']
             person_dir.mkdir(parents=True, exist_ok=True)
@@ -183,6 +190,26 @@ class TeamReviews:
             finally:
                 if partial.exists():
                     shutil.rmtree(partial)
+            return self.get(review_id)
+
+    def previous(self, person_id):
+        """The last finalized review of a person with its evidence, for the carried-over commitments."""
+        done = [r for r in self._all(person_id) if r['status'] == 'finalized']
+        if not done:
+            return None
+        directory = self._directory(done[0]['id'])
+        return dict(id=done[0]['id'], period=done[0]['period'], evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')))
+
+    def recollect(self, review_id, revision, collect):
+        """Collect the facts of a draft again. The new text replaces the old one; the notes stay."""
+        with self.lock:
+            directory, meta = self._current(review_id, revision)
+            if meta['status'] != 'draft' or meta.get('supersedes'):
+                raise ValueError('Only a first draft collects facts again. A new version keeps the text of the review it corrects.')
+            facts = collect(meta['period']['start'], meta['period']['end'], self.previous(meta['person_id']))
+            atomic_text(directory / 'review.md', facts['review_md'])
+            atomic_json(directory / 'evidence.json', facts['evidence'])
+            self._write_meta(directory, dict(meta, coverage=dict(facts['coverage'], excluded_items=facts['excluded']), revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
     def save_review(self, review_id, revision, text):

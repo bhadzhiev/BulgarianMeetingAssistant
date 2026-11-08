@@ -2983,7 +2983,8 @@ function renderTeamReview(){
  const head=el('div','card team-review-head'),title=el('h2','',r.person_name+' · 1:1 review'),meta=el('div','entity-meta');
  meta.append(statusBadge(REVIEW_STATUS[r.status]||{tone:'muted',label:r.status}),el('span','',reviewPeriod(r.period)),el('span','','Version '+r.version),el('span','',reviewCoverage(r)));
  head.append(el('p','eyebrow','1:1 REVIEW'),title,meta);
- for(const text of r.coverage?.limitations||[])head.append(el('p','hint',text));
+ // The limitations are in the Coverage section of the review; the head names only what waits for a person.
+ if(r.coverage?.excluded)head.append(el('p','hint',AtlantaUX.count(r.coverage.excluded,'item')+' excluded from the analysis · '+(r.coverage.excluded===1?'it needs':'they need')+' confirmation. See Coverage.'));
  if(r.status==='superseded'&&r.superseded_by)head.append(el('p','notice','A newer version replaces this review.'));
  const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
  const text=el('textarea','team-review-text');text.value=r.review_md;text.rows=22;text.setAttribute('aria-label','Review text');text.oninput=()=>editorDirty.set('team-review',text.value!==r.review_md);
@@ -2991,6 +2992,7 @@ function renderTeamReview(){
  if(draft){
   actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision});toast('Review finalized');renderTeamReview();}),
    actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
+   ...(r.supersedes?[]:[actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
    actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');toast('Draft discarded');await openTeam('reviews');}));
  }else{
   if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));
@@ -3001,12 +3003,31 @@ function renderTeamReview(){
  if(r.supersedes)actions.append(actionBtn('quiet','Open the version it replaces',()=>openTeamReview(r.supersedes)));
  head.append(actions);
  const body=el('section','card team-review-body');body.append(el('h3','','Review'));
- if(draft)body.append(text);else body.append(markdownBlock(r.review_md));
+ // A draft reads like the final review; Edit text opens the Markdown.
+ if(draft){const view=markdownBlock(r.review_md),edit=btn('secondary small-action team-edit-text','Edit text');text.hidden=true;edit.onclick=()=>{const open=text.hidden;text.hidden=!open;view.hidden=open;edit.textContent=open?'Show the review':'Edit text';if(open)text.focus();};body.querySelector('h3').after(edit);body.append(view,text);}
+ else body.append(markdownBlock(r.review_md));
+ body.append(evidenceList(r));
  const notesCard=el('section','card team-review-notes'),notes=el('textarea','team-notes-text');notes.value=r.notes_md;notes.rows=8;notes.placeholder='Notes, agreed actions and goals of the conversation';notes.setAttribute('aria-label','Conversation notes');
  notes.oninput=()=>editorDirty.set('team-notes',notes.value!==r.notes_md);
  const saveNotes=actionBtn('secondary small-action','Save notes',async()=>{teamReview=await api('/api/team/review/notes',{id:r.id,revision:teamReview.revision,notes_md:notes.value});editorDirty.clear('team-notes');toast('Notes saved');});
  notesCard.append(el('h3','','Conversation notes'),el('p','hint','Separate from the review. Edit them before and after the conversation; they never change the review.'),notes,saveNotes);
  box.replaceChildren(back,head,body,notesCard);
+}
+// The evidence records that the review cites: what, when, why it counts, and the quote. Each opens its source.
+const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result confirmed',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for'};
+function evidenceList(r){
+ const box=el('details','team-evidence'),rows=r.evidence||[];box.append(el('summary','','Evidence · '+rows.length));
+ if(!rows.length){box.append(el('p','hint','No evidence records in this review.'));return box;}
+ for(const e of rows){
+  const row=el('div','team-evidence-row'),head=el('div','entity-meta');
+  head.append(el('strong','',e.id),el('span','',EVIDENCE_LABELS[e.kind]||e.kind),el('span','',e.occurred_at?date(e.occurred_at):''),el('span','',e.confirmation_basis));
+  row.append(head,el('p','',e.facts?.text||''));if(e.quote)row.append(el('blockquote','',e.quote));
+  const ref=e.source_ref||{},links=el('div','action-group');row.append(links);
+  if(ref.meeting_id&&ref.timestamp)links.append(listenButton(ref.meeting_id,stampSeconds(ref.timestamp),{label:'',className:'chip-listen',title:'Play from '+ref.timestamp}));
+  if(ref.item_id)links.append(actionBtn('quiet small-action','Open the work item',async()=>{const item=(await api('/api/items')).items.find(i=>i.id===ref.item_id);if(!item){toast('This work item no longer exists');return;}if(item.kind==='task')return openTaskPanel(item.id);show('tasks');lastTasks='';await loadTasks();showWorkTab(item.kind==='question'?'questions':item.kind);}));
+  box.append(row);
+ }
+ return box;
 }
 // Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
 function exportTeamReview(r){

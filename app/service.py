@@ -1423,13 +1423,20 @@ class MeetingService:
         person = self._team_person(person_id)
         return dict(person_id=person['id'], person_name=person['name'], **self.team_reviews.next_period(person['id']))
 
+    def _team_collector(self, person):
+        from .team_facts import collect
+        return lambda start, end, previous: collect(self, person, start, end, previous)
+
     def team_review_action(self, action, body):
         if not isinstance(body, dict):
             raise ValueError('Invalid review change')
         reviews = self.team_reviews
         if action == 'create':
             person = self._team_person(body.get('person_id'))
-            return reviews.create(person, body.get('start'), body.get('end'))
+            return reviews.create(person, body.get('start'), body.get('end'), collect=self._team_collector(person))
+        if action == 'collect':
+            old = reviews.get(body.get('id'))
+            return reviews.recollect(old['id'], body.get('revision'), self._team_collector(self._team_person(old['person_id'])))
         if action == 'version':
             old = reviews.get(body.get('id'))
             person = self._team_person(old['person_id'])
@@ -2568,7 +2575,8 @@ class MeetingService:
         elif 'owner_person_id' in clean:
             owner, others = clean['owner_person_id'], current[1:]
             if owner:
-                ids = [owner, *[i for i in current if i != owner]]
+                # The new owner replaces the old one; the other assignees stay.
+                ids = [owner, *[i for i in current[1:] if i != owner]]
             elif others and 'owner_person_id' in changes:
                 # Removing the accountable person makes the next assignee accountable.
                 ids, person = others, self.people.get(others[0])

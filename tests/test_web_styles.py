@@ -25,6 +25,8 @@ class SelectStyleTests(unittest.TestCase):
             '.task-editor select,.task-bottom select,.work-proposal select,.tracked-edit-bar select',
             '.scope-entry select', '.date-popup-head select',
             '.conversation-filters input,.conversation-filters select', '.conversation-filters select',
+            # The 28px field scale for task rows and editors, beside the 28px row buttons.
+            ':is(.task-quick-fields,.tracked-meta,.task-editor,.task-bottom,.work-proposal,.tracked-edit-bar) :is(input:not([type=checkbox]):not([type=radio]),select),\n.segment .speaker,.tracked-owner-input',
         }
         for rule, body in re.findall(r'([^{}]*\bselect\b[^{}]*)\{([^}]*)\}', CSS):
             rule = rule.strip()

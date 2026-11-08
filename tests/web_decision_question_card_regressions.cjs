@@ -9,7 +9,9 @@ assert.match(decision,/if\(item\.status!=='proposed'\)menuActions\.prepend\(chan
 // Questions: the shared card, a status badge, Mark answered… and Reopen; Edit and Delete share the … menu.
 const notes=slice('function renderMeetingQuestions(','\n}\n');
 assert.match(notes,/el\('div','entity-card question-card meeting-question'\)/);assert.match(notes,/'Mark answered…'/);
-const tracked=slice(" const tracked=itemsData.items.filter(i=>i.kind==='question');",'\n}\n');
+const tracked=slice('function trackedQuestionCard(q){','\n}\n');
+// A project shows a tracked question with the same card as My Work.
+assert.match(app,/if\(full\.kind==='question'&&byId\[item\.id\]\)return trackedQuestionCard\(full\)/);
 assert.match(tracked,/statusBadge\(q\.status==='answered'\?\{tone:'ok',label:'Answered'\}:\{tone:'muted',label:'Open'\}\)/);
 assert.match(tracked,/q\.status==='answered'\?'Reopen':'Mark answered…'/);
 assert.match(tracked,/menu\.querySelector\('\.menu-items'\)\?\.prepend\(edit\)/);

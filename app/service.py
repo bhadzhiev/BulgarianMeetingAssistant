@@ -1666,7 +1666,7 @@ class MeetingService:
         results = self.search_index.search(query, self.SEARCH_GROUPS.get(kind), scope, limit)
         for result in results:
             meeting = by_id.get(result['meeting_id'], {})
-            result.update(meeting_title=meeting.get('title', 'Deleted meeting'), meeting_date=meeting.get('started_at') or meeting.get('created', ''),
+            result.update(meeting_title=meeting.get('title', 'Deleted meeting'), meeting_date=meeting.get('started_at') or meeting.get('created', ''), project_id=meeting.get('project_id'),
                           timestamp=None if result['start'] is None else time_stamp(result['start']))
         return results
 

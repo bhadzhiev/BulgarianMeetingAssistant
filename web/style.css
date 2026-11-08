@@ -1227,3 +1227,22 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 .tracked-task.task-card:has(.task-pick)>:first-child{width:44px}
 .tracked-task.task-card>.tracked-main{flex:1 1 0;min-width:0}
 .tracked-task.task-card>.task-more{flex:none}
+/* Shared card, last step: Gmail and Chat threads, saved excerpts, sources, projects, search results, follow-up and report findings. */
+.entity-preview{margin:0;color:var(--muted);font-size:13px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.entity-preview.quote{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;padding-left:10px;border-left:3px solid var(--line-strong);color:var(--ink)}
+.entity-meta .source-chip{padding:1px 8px 1px 6px}
+.entity-meta .chip-listen{margin:0}
+.project-pick-body.multi{flex-direction:column;align-items:stretch;width:260px;max-width:calc(100vw - 48px)}
+.project-pick-body.multi .conversation-project-choices{flex-direction:column;flex-wrap:nowrap;gap:8px;margin:0;max-height:240px;overflow:auto}
+.project-card.has-project-line{border-left:3px solid var(--project-color)}
+.result-group h2{margin:0 0 10px}
+.result-card .result-text{margin:0;font-size:14px}
+.entity-text{flex:1 1 0;min-width:0;margin:0;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink);overflow-wrap:anywhere}
+.followup-card blockquote,.finding-card blockquote{margin:0;padding:6px 12px;border-left:3px solid var(--line-strong);color:var(--muted);font-size:13px}
+.followup-card .item-meetings{margin:0}
+.finding-card .finding-text>:first-child{margin-top:0}.finding-card .finding-text>:last-child{margin-bottom:0}
+.finding-card .finding-text{font-size:14px;line-height:1.6}
+.finding-evidence>summary{cursor:pointer;color:var(--muted);font-size:12px}
+.finding-evidence[open]{display:flex;flex-direction:column;gap:8px}
+.finding-evidence[open]>summary{margin-bottom:2px}
+.reader-head>.entity-meta{margin-top:6px}

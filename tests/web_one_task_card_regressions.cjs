@@ -27,7 +27,7 @@ const workspace=slice('function renderWorkspace(){','\nfunction ');
 assert.match(workspace,/if\(full\.kind==='task'\)return globalTaskRow\(full,today,\{select:false\}\)/);
 assert.match(workspace,/if\(full\.kind==='decision'\)return decisionRow\(full,byId\)/);
 assert.equal((workspace.match(/box\.append\(workCard\(item\)\)/g)||[]).length,2);
-assert.match(app,/function globalTaskRow\(item,today,\{select=true\}=\{\}\)/);
+assert.match(app,/function globalTaskRow\(item,today,\{select=true,compact=false,showProject=true\}=\{\}\)/);
 assert.match(app,/if\(select&&item\.acceptance_state!=='proposed'&&!item\.dismissed\)/);
 // The overview heading counts every item, and a button opens the rest.
 assert.match(workspace,/if\(rows\.length>5\)box\.append\(actionBtn\('secondary small-action workspace-show-all','All '\+title\.toLowerCase\(\)\+' in Work →'/);

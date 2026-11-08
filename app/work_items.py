@@ -28,6 +28,9 @@ def canonical(value):
 
 COLLECTIONS = ('sources', 'source_revisions', 'source_evidence', 'proposals', 'relationships', 'activity', 'conversation_links')
 
+MAX_ASSIGNEES = 10
+
+
 def normalize(item):
     states = {'task': {'open', 'done'}, 'decision': {'proposed', 'accepted', 'superseded'}, 'question': {'open', 'answered'}}
     if (item.get('kind') not in states or item.get('status') not in states[item['kind']]
@@ -55,6 +58,15 @@ def normalize(item):
             if item.get(name) is not None and not (isinstance(item[name],str) and re.fullmatch(r'[a-f0-9]{12}',item[name])):raise ValueError('Invalid task person')
         for name in ('details','completion_criteria'):
             if item.get(name) is not None and (not isinstance(item[name],str) or len(item[name])>5000):raise ValueError('Invalid task details')
+        # Shared tasks: the first assignee is accountable (the owner link); the others work on it too.
+        # Older tasks get the list from their owner link. A second load changes nothing.
+        ids=item.get('assignee_person_ids')
+        if ids is None:ids=[item['owner_person_id']] if item.get('owner_person_id') else []
+        if not isinstance(ids,list) or len(ids)>MAX_ASSIGNEES or len(set(ids))!=len(ids) or any(not isinstance(i,str) or not re.fullmatch(r'[a-f0-9]{12}',i) for i in ids):raise ValueError('Invalid task assignees')
+        owner=item.get('owner_person_id')
+        if owner and (not ids or ids[0]!=owner):ids=[owner,*[i for i in ids if i!=owner]]
+        elif not owner and ids:item['owner_person_id']=ids[0]
+        item['assignee_person_ids']=ids
         if item.get('follow_up_date') is not None and dt.date.fromisoformat(item['follow_up_date']).isoformat()!=item['follow_up_date']:raise ValueError('Invalid follow-up date')
     item.setdefault('dismissed', False)
     if item.get('owner_person_id') is not None and not (isinstance(item['owner_person_id'], str) and re.fullmatch(r'[a-f0-9]{12}', item['owner_person_id'])):

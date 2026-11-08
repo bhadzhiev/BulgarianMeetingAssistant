@@ -1264,3 +1264,16 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 .team-review-notes .action-group,.team-review-notes>button{margin-top:10px}
 .team-filters #team-review-search{flex:1 1 240px;max-width:360px}
 .team-filters #team-review-status{flex:0 1 200px;width:200px}
+/* Shared tasks: the owner and the others who work on it. */
+.tracked-owner.shared .speaker-badge+.speaker-badge{margin-left:-8px;box-shadow:0 0 0 2px var(--card)}
+.shared-badge{margin-left:2px}
+.assignee-field{grid-column:1/-1}
+.assignee-field>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--muted)}
+.assignee-field>.hint{margin:6px 0}
+.assignee-choices{display:flex;flex-wrap:wrap;gap:6px 16px;max-height:160px;overflow:auto}
+.assignee-choices .project-choice{display:inline-flex;align-items:center;gap:8px;margin:0;font-weight:500}
+.assignee-choices .project-choice[hidden]{display:none}
+.assignee-choices .project-choice input{margin:0}
+#task-panel .assignee-choices label.project-choice{display:inline-flex;flex-direction:row;align-items:center;gap:8px;margin:0}
+#task-panel .assignee-choices label.project-choice[hidden]{display:none}
+#task-panel .assignee-choices label.project-choice input{width:auto;margin:0}

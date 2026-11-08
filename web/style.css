@@ -783,7 +783,7 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 /* Compact task editor: the former single-text editor used a 160px minimum. */
 #task-panel textarea{min-height:64px;height:auto;margin:0;line-height:1.45}#task-panel select{margin-bottom:0}#task-panel label{margin:8px 0}.task-card-grid{gap:8px 12px}.task-more{align-self:start}.task-more>summary{cursor:pointer;color:var(--muted);padding:8px}.task-more[open]{padding:8px;border:1px solid var(--line);border-radius:10px}.task-more .tracked-actions{display:flex;flex-wrap:wrap;max-width:230px}
 
-#task-draft-dialog{max-height:90vh;width:min(850px,94vw)}#task-draft-dialog textarea{min-height:64px;margin:4px 0 12px}#task-draft-dialog .review-footer{position:sticky;bottom:0;background:var(--surface);padding:12px 0;z-index:2}
+#task-draft-dialog{max-height:90vh;width:min(850px,94vw)}#task-draft-dialog textarea{min-height:64px;margin:4px 0 12px}
 
 .task-quick-fields{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;margin-top:10px}.task-quick-fields label{display:grid;gap:4px}.task-quick-fields input,.task-quick-fields select{min-width:0;width:100%}.task-last-update{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:5em;overflow:auto}.task-responsibilities{font-size:12px}.task-row-marks{display:grid;gap:10px;align-content:start}.task-bulk-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:12px}.task-bulk-bar select{width:auto;max-width:240px}@media(max-width:900px){.task-quick-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
@@ -921,7 +921,7 @@ button{font-size:14px}
  .review-footer>span{width:100%;display:flex;flex-wrap:wrap;gap:10px}
 }
 
-#task-panel .task-card-footer{position:sticky;bottom:0;background:var(--card);padding:14px 0;border-top:1px solid var(--line);z-index:2}
+#task-panel .task-card-footer{position:sticky;bottom:0;background:var(--card);margin:8px 0 0;padding:14px 0;border-top:1px solid var(--line);z-index:4;box-shadow:0 var(--dialog-pad-bottom) 0 var(--card),0 -12px 18px -14px var(--shadow-strong)}
 #task-panel .task-card-footer>.danger-action{margin-inline-end:auto}
 @media(max-width:480px){#task-panel .task-card-footer>.danger-action{margin-inline-end:0}}
 
@@ -1093,3 +1093,12 @@ button.primary.is-done::after{color:inherit}
 #activity-status{position:fixed;inset:8px auto auto 50%;transform:translateX(-50%);margin:0;padding:7px 16px;border:0;border-radius:999px;background:var(--ink);color:var(--on-accent);font-size:13px;font-weight:600;box-shadow:0 5px 20px var(--shadow-strong);z-index:30;display:flex;align-items:center;gap:10px;max-width:min(520px,calc(100vw - 32px));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #activity-status[hidden]{display:none}
 #activity-status::before{content:'';flex:none;width:.9em;height:.9em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+/* Dialog frame: the title and the button bar stay in view while the content between them scrolls.
+   The shadow covers the dialog padding beside each bar, so no scrolled text shows through it. */
+dialog{--dialog-pad-top:30px;--dialog-pad-bottom:30px}
+#viewer-dialog,#review-dialog{--dialog-pad-top:24px;--dialog-pad-bottom:24px}
+dialog .dialog-head{position:sticky;top:0;z-index:4;background:var(--card);box-shadow:0 calc(-1 * var(--dialog-pad-top)) 0 var(--card)}
+dialog .dialog-foot{position:sticky;bottom:0;z-index:4;background:var(--card);box-shadow:0 var(--dialog-pad-bottom) 0 var(--card)}
+dialog.dialog-scrolls .dialog-head{border-bottom:1px solid var(--line);padding-bottom:12px}
+dialog.dialog-scrolls .dialog-foot{border-top:1px solid var(--line);padding-top:12px}
+.task-panel-head .eyebrow{margin-bottom:4px}

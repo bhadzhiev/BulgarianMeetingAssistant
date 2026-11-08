@@ -3003,7 +3003,8 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
  const dialog=$('task-panel'),box=$('task-panel-body'),projectHint=el('p','hint');projectHint.append(document.createTextNode('Projects: '));(item.effective_project_ids||[]).forEach((key,i)=>{const project=projectList().find(p=>p.id===key);if(i)projectHint.append(document.createTextNode(', '));if(project?.color)projectHint.append(projectDot(project));projectHint.append(document.createTextNode(project?.name||'Removed project'));});
- box.replaceChildren(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),el('h2','task-card-title',item.text),projectHint);
+ const panelHead=el('div','task-panel-head');panelHead.append(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),el('h2','task-card-title',item.text));
+ box.replaceChildren(panelHead,projectHint);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
  const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=3;area.setAttribute('aria-label','Task title');
  const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=3;details.setAttribute('aria-label','Details');
@@ -3158,6 +3159,41 @@ async function withDialogAction(dialog,action){
  try{return await action();}
  finally{dialog.inert=inert;dialog.removeAttribute('aria-busy');dialogJobs.delete(dialog);editorDirty.clear('dialog-save:'+dialog.id);editorHeartbeat();if(dialog.open&&focus?.isConnected)focus.focus();}
 }
+// Every dialog keeps its title and its button bar in view; only the content between them scrolls.
+// Settings has its own fixed layout. A status or an error that changes out of view scrolls into view.
+const DIALOG_HEAD='.card-heading,h2,h3,.dialog-dismiss-row,.task-panel-head',DIALOG_FOOT='.review-footer,.editor-actions,.task-card-footer';
+function dialogParts(dialog){
+ const visible=e=>e.getClientRects().length>0;
+ const top=[...dialog.children].filter(visible);
+ const root=top.length===1&&top[0].children.length?top[0]:dialog;
+ const kids=[...root.children].filter(visible);
+ const head=kids[0]?.matches(DIALOG_HEAD)?kids[0]:null,last=kids[kids.length-1];
+ return {head,foot:last&&last!==head&&last.matches(DIALOG_FOOT)?last:null};
+}
+function frameDialog(dialog){
+ if(dialog.id==='settings-dialog'||!dialog.open)return;
+ const {head,foot}=dialogParts(dialog);
+ for(const node of dialog.querySelectorAll('.dialog-head,.dialog-foot'))if(node!==head&&node!==foot)node.classList.remove('dialog-head','dialog-foot');
+ head?.classList.add('dialog-head');foot?.classList.add('dialog-foot');
+ dialog.classList.toggle('dialog-scrolls',dialog.scrollHeight>dialog.clientHeight+1);
+}
+function revealInDialog(dialog,node){
+ if(!node.isConnected||!node.getClientRects().length||!node.textContent.trim())return;
+ if(dialog.id==='settings-dialog'&&node.getAttribute('role')!=='alert')return;
+ const view=dialog.getBoundingClientRect(),head=dialog.querySelector('.dialog-head'),foot=dialog.querySelector('.dialog-foot'),box=node.getBoundingClientRect();
+ const top=head?head.getBoundingClientRect().bottom:view.top,bottom=foot?foot.getBoundingClientRect().top:view.bottom;
+ if(box.top<top)dialog.scrollTop-=top-box.top+8;else if(box.bottom>bottom)dialog.scrollTop+=Math.min(box.bottom-bottom,box.top-top)+8;
+}
+// Test contexts load this code without a DOM.
+if(typeof MutationObserver==='function'&&typeof document.querySelectorAll==='function')for(const dialog of document.querySelectorAll('dialog')){
+ let queued=false;const changed=new Set();
+ new MutationObserver(records=>{
+  for(const record of records){const node=record.target.nodeType===1?record.target:record.target.parentElement;const message=node?.closest('[role=status],[role=alert]');if(message&&dialog.contains(message))changed.add(message);}
+  if(queued)return;queued=true;
+  requestAnimationFrame(()=>{queued=false;frameDialog(dialog);if(dialog.open)for(const message of changed)revealInDialog(dialog,message);changed.clear();});
+ }).observe(dialog,{attributes:true,attributeFilter:['open','hidden'],childList:true,subtree:true,characterData:true});
+}
+if(typeof window!=='undefined'&&typeof document.querySelectorAll==='function')window.addEventListener('resize',()=>{for(const dialog of document.querySelectorAll('dialog[open]'))frameDialog(dialog);});
 document.addEventListener('input',markDialogDirty);document.addEventListener('change',markDialogDirty);
 document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG'){editorDirty.clear('dialog:'+event.target.id);dialogBaselines.delete(event.target);}},true);
 document.addEventListener('cancel',event=>{

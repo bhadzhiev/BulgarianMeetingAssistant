@@ -154,6 +154,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, build(self.server.service))
         if url.path == '/api/team':
             return self.respond(200, self.server.service.team_overview())
+        if url.path == '/api/team/reviews':
+            return self.respond(200, self.server.service.team_reviews_list(parse_qs(url.query).get('person', [''])[0]))
+        if url.path == '/api/team/review':
+            return self.respond(200, self.server.service.team_reviews.get(parse_qs(url.query).get('id', [''])[0]))
+        if url.path == '/api/team/review/prepare':
+            return self.respond(200, self.server.service.team_review_prepare(parse_qs(url.query).get('person', [''])[0]))
         if url.path == '/api/people/profile':
             return self.respond(200, self.server.service.person_profile(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/github/links':
@@ -478,6 +484,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = remove(service,body)
             elif path == '/api/people/save':
                 result = service.save_person(body)
+            elif path.startswith('/api/team/review/') and path.rsplit('/', 1)[1] in {'create', 'version', 'save', 'notes', 'finalize', 'discard'}:
+                result = service.team_review_action(path.rsplit('/', 1)[1], body)
             elif path == '/api/team/membership':
                 result = service.team_change(body)
             elif path == '/api/people/delete':

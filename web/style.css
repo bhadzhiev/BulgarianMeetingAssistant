@@ -1252,3 +1252,15 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 .team-filters #team-project{flex:0 1 240px;width:240px;max-width:100%}
 .team-filters #team-add{margin-left:auto}
 #team-reviews,#team-list{margin-top:4px}
+/* 1:1 reviews: the period dialog, the review page and the notes. */
+.team-period{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.team-period label{display:grid;gap:6px;margin:0}
+.team-back{margin:0 0 12px;padding-left:0}
+.team-review-head,.team-review-body,.team-review-notes{margin:0 0 16px}
+.team-review-head h2{margin:2px 0 10px}
+.team-review-head .entity-meta{margin-bottom:8px}
+.team-review-actions{margin-top:14px}
+.team-review-text,.team-notes-text{width:100%;box-sizing:border-box;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
+.team-review-notes .action-group,.team-review-notes>button{margin-top:10px}
+.team-filters #team-review-search{flex:1 1 240px;max-width:360px}
+.team-filters #team-review-status{flex:0 1 200px;width:200px}

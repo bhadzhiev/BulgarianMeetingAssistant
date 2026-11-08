@@ -3183,7 +3183,8 @@ async function withDialogAction(dialog,action){
 // Settings has its own fixed layout. A status or an error that changes out of view scrolls into view.
 const DIALOG_HEAD='.card-heading,h2,h3,.dialog-dismiss-row,.task-panel-head',DIALOG_FOOT='.review-footer,.editor-actions,.task-card-footer';
 function dialogParts(dialog){
- const visible=e=>e.getClientRects().length>0;
+ // The date calendar opens inside a dialog; it is neither its content nor its title or buttons.
+ const visible=e=>e.getClientRects().length>0&&!e.classList.contains('date-popup');
  const top=[...dialog.children].filter(visible);
  const root=top.length===1&&top[0].children.length?top[0]:dialog;
  const kids=[...root.children].filter(visible);

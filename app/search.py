@@ -208,7 +208,7 @@ def ai_answer(settings: dict, api_key: str, question: str, sources: list[dict]) 
         messages=apply(settings,messages,'meeting_answer')
         from meeting_assistant import extract_json, post_json
         if not api_key:
-            raise ValueError('Add an OpenAI API key in Settings, or choose local notes.')
+            raise ValueError('Add an OpenAI API key in Settings, or choose notes via the configured API.')
         response = post_json('https://api.openai.com/v1/chat/completions', dict(model=settings['llm_model'], messages=messages, temperature=0,
                              response_format={'type': 'json_schema', 'json_schema': {'name': 'meeting_answer', 'strict': True, 'schema': ANSWER_SCHEMA}}),
                              headers={'Authorization': 'Bearer ' + api_key}, timeout=300)

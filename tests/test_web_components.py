@@ -40,5 +40,5 @@ class WebComponentsTests(unittest.TestCase):
         parser = Buttons()
         parser.feed((Path(__file__).resolve().parents[1] / 'web/index.html').read_text())
         cancel = parser.buttons['project-cancel']
-        self.assertIn('formnovalidate', cancel)
-        self.assertEqual(cancel['value'], 'cancel')
+        # A plain button never submits the form, so the required name never blocks Cancel.
+        self.assertEqual(cancel['type'], 'button')

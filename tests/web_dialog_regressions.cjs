@@ -54,6 +54,12 @@ function fixture(){
  // The new-project prompt must also close with Escape without a missing callback.
  const project=fixture();const escapeProject={target:project.e('project-dialog'),preventDefault(){this.prevented=true;},stopImmediatePropagation(){}};
  project.listeners.cancel[0](escapeProject);await tick();assert(escapeProject.prevented);assert(!project.e('project-dialog').open);
+ // A typed project name is an edit: Escape and Cancel ask first, and Keep editing keeps it.
+ assert.equal(policies['project-dialog'].transient,undefined);assert.equal(policies['project-dialog'].cancel,'project-cancel');
+ const typed=fixture();typed.e('project-dialog').open=true;typed.c.editorDirty.set('dialog:project-dialog',true);typed.answers.push(false);
+ typed.listeners.cancel[0]({target:typed.e('project-dialog'),preventDefault(){},stopImmediatePropagation(){}});await tick();assert(typed.e('project-dialog').open,'Escape keeps the typed project name');
+ typed.answers.push(false);await typed.e('project-cancel').onclick();assert(typed.e('project-dialog').open,'Cancel keeps the typed project name');
+ typed.answers.push(true);await typed.e('project-cancel').onclick();assert(!typed.e('project-dialog').open);
  // An in-flight save owns the modal. Double submit/close/Escape cannot bypass it.
  for(const id of ids.filter(id=>policies[id].form||policies[id].actions?.length)){
   const x=fixture();let finish,calls=0;x.c.action=()=>{calls++;return new Promise(r=>finish=r);};

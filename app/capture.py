@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import datetime as dt
 import math
 from pathlib import Path
@@ -375,6 +376,10 @@ def audio_created(path: Path):
         return None
 
 
+UNREADABLE_AUDIO = ('This audio file could not be read. It can be damaged or in a format without audio. '
+                    'Choose another file, or convert it to WAV or MP3 and import it again.')
+
+
 def convert_audio(source: Path, destination: Path) -> float:
     """Any audio file to the 16 kHz mono WAV that recording produces. Returns the duration."""
     temp = destination.with_name('.' + destination.name)
@@ -382,7 +387,9 @@ def convert_audio(source: Path, destination: Path) -> float:
                              '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(temp)], capture_output=True, text=True, timeout=3600)
     if result.returncode:
         temp.unlink(missing_ok=True)
-        raise ValueError('This file has no audio that ffmpeg can read: ' + result.stderr[-500:].strip())
+        # The ffmpeg output names internal streams and the local file path. It goes to the log, not to the person.
+        logging.getLogger(__name__).warning('ffmpeg could not read an imported file: %s', result.stderr[-500:].strip())
+        raise ValueError(UNREADABLE_AUDIO)
     import wave
     with wave.open(str(temp), 'rb') as audio:
         duration = audio.getnframes() / audio.getframerate()

@@ -176,15 +176,15 @@ class MeetingService:
             raise ValueError('Audio preparation must be Off, Light or Strong')
         values['local_ai_base_url'] = validate_base_url(values['local_ai_base_url'])
         if type(values['local_ai_max_tokens']) is not int or not 128 <= values['local_ai_max_tokens'] <= 32768:
-            raise ValueError('Local AI output limit must be between 128 and 32768 tokens')
+            raise ValueError('API output limit must be between 128 and 32768 tokens')
         if values['local_ai_reasoning'] not in {'default', 'server', 'none', 'low', 'medium', 'high'}:
-            raise ValueError('Invalid local AI reasoning effort')
+            raise ValueError('Invalid API reasoning effort')
         if values['local_ai_temperature'] not in {'zero', 'server'}:
             raise ValueError('Invalid temperature setting')
         if type(values['local_ai_context']) is not int or not 4096 <= values['local_ai_context'] <= 2_000_000:
             raise ValueError('The model context must be between 4096 and 2000000 tokens')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
-            raise ValueError('Invalid local AI response format')
+            raise ValueError('Invalid API response format')
         if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai', 'elevenlabs'} or values['summarizer'] not in {'none', 'local', 'openai'}
                 or values['transcript_correction'] not in {'none', 'local', 'openai'}):
             raise ValueError('Invalid processing provider')

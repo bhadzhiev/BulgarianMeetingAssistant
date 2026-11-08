@@ -72,7 +72,16 @@ function context(){
   await press(submit,()=>vm.runInContext('perform',c)(async()=>write()),'submit');
   assert.equal(submit.classes.has('is-done'),true);
  }
- // api() counts each request with a body as a change.
- assert.match(extract('async function api(path,body)','}'),/if\(body!==undefined\)actionWrites\+\+/);
- console.log('Busy feedback PASS: delayed spinner and bar, double press ignored, selects always apply, nested calls run, check mark only after a saved change.');
+ // A save that the server refused, caught inside the action and shown in a form, gives no check mark.
+ {
+  const {c,press,write}=context(),perform=vm.runInContext('perform',c),caught=new Control('button','submit');
+  await press(caught,()=>perform(async()=>{try{vm.runInContext('actionFailures++',c);throw new Error('"bad" is not an email address');}catch{}}),'submit');
+  assert.equal(caught.classes.has('is-done'),false,'a refused save is no success');
+  const mixed=new Control('button');await press(mixed,()=>perform(async()=>{write();vm.runInContext('actionFailures++',c);}));
+  assert.equal(mixed.classes.has('is-done'),false,'one refused save in the action removes the mark');
+ }
+ // api() counts a request with a body as a change only after the server accepts it.
+ const apiSource=source.slice(source.indexOf('async function api(path,body)'),source.indexOf('\n}',source.indexOf('async function api(path,body)')));
+ assert.match(apiSource,/ok=true;return data;/);assert.match(apiSource,/if\(ok\)actionWrites\+\+;else actionFailures\+\+;/);
+ console.log('Busy feedback PASS: delayed spinner and bar, double press ignored, selects always apply, nested calls run, check mark only after a saved change, none after a refused save.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

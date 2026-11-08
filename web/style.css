@@ -1304,3 +1304,14 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 .team-agreement-text{font-size:14px;overflow-wrap:anywhere}
 @media(max-width:900px){.team-agreement{grid-template-columns:1fr 1fr}.team-agreement>input:not([type=date]){grid-column:1/-1;order:-1}}
 @media(max-width:900px){.team-agreement:not(.compact){padding-top:10px;border-top:1px solid var(--line)}.team-agreement:not(.compact):first-child{border-top:0;padding-top:0}}
+/* The hidden attribute always wins. The button scale above sets display with !important and an id selector,
+   so this rule needs a higher specificity (two ids) to hide a hidden button, link or menu. */
+[hidden]:not(#hidden-a):not(#hidden-b){display:none!important}
+/* A narrow window: the source and status groups wrap onto more lines, and the project and owner fields share
+   the row width, so no filter goes out of the card. */
+@media(max-width:600px){
+ .segmented{display:flex;flex-wrap:wrap;max-width:100%}
+ .segmented button{flex:1 1 auto}
+ #items-panel .task-filters .work-actions{flex:1 1 100%;flex-wrap:wrap;min-width:0}
+ #items-panel .task-filters select,.work-actions select{flex:1 1 140px;min-width:0;max-width:100%}
+}

@@ -518,7 +518,7 @@ class MeetingService:
             self.start_thread.start()
             return meeting
 
-    def import_transcript(self, text, filename=''):
+    def import_transcript(self, text, filename='', modified_ms=None):
         from meeting_assistant import TranscriptSegment, save_transcript
         from .transcripts import parse_transcript
         if not isinstance(text, str) or not text.strip() or len(text) > 5_000_000:
@@ -534,6 +534,11 @@ class MeetingService:
                 # Noon keeps the date the same in every time zone of the user.
                 when = dt.datetime.combine(parsed['date'], dt.time(12)).astimezone().isoformat()
                 changes.update(created=when, started_at=when)
+            elif type(modified_ms) is int and 0 < modified_ms < 4102444800000:
+                # Like imported audio: without a date in the text, the file's date is the meeting date.
+                start = dt.datetime.fromtimestamp(modified_ms / 1000).astimezone() - dt.timedelta(seconds=changes['duration'])
+                changes.update(created=start.isoformat(), started_at=start.isoformat(),
+                               ended_at=(start + dt.timedelta(seconds=changes['duration'])).isoformat())
             self.library.update(meeting['id'], **changes)
             save_transcript(self.library.directory(meeting['id']), segments)
             self.library.add_speakers(s.speaker for s in segments if s.speaker)

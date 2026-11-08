@@ -2427,9 +2427,9 @@ document.querySelector('input[name=mode]:checked')?.onchange?.();
 $('check-mic').onclick=()=>perform(async()=>{await api('/api/check-mic',{device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent});toast('Microphone test started · 10 seconds');});
 $('microphone').onchange=()=>{captureWantedMic=null;renderState();};
 $('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;store('record-mode',document.querySelector('input[name=mode]:checked').value);store('record-mic',$('microphone').selectedOptions[0]?.textContent||'');try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,transcription_timing:$('transcription-timing').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null,meeting_type:$('record-type').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
-async function importTranscript(text,filename) {
+async function importTranscript(text,filename,modified=null) {
  if(!(await approveImport(filename||'pasted transcript')))return;
- const d=await api('/api/import',{text,filename});
+ const d=await api('/api/import',{text,filename,modified});
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;
  toast('Transcript imported · '+d.transcript.length+' segments');state=await api('/api/state');renderState();await openMeeting(d.id,true);
 }
@@ -2450,7 +2450,7 @@ $('import-button').onclick=()=>perform(async()=>{const file=$('import-file').fil
  try{
   validateImportFile(file);if(AUDIO_FILE.test(file.name)){if(!(await approveImport(file.name)))return;const d=await uploadAudio(file);$('import-file').value='';toast('Audio imported · '+shortDuration(d.duration));state=await api('/api/state');renderState();await openMeeting(d.id,true);return;}
   if(file.size>5_000_000)throw new Error('Choose a transcript file of at most 5 MB');
-  await importTranscript(await file.text(),file.name);
+  await importTranscript(await file.text(),file.name,file.lastModified||null);
  }finally{$('import-button').textContent='Import file';$('import-button').disabled=!$('import-file').files.length;}});
 $('import-text').oninput=()=>{$('import-paste-button').disabled=!$('import-text').value.trim();};
 $('import-paste-button').onclick=()=>perform(async()=>{$('import-paste-button').disabled=true;try{await importTranscript($('import-text').value,'');}finally{$('import-paste-button').disabled=!$('import-text').value.trim();}});

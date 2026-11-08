@@ -71,6 +71,25 @@ class ImportTests(unittest.TestCase):
         self.assertIn('\n\n[00:01:07] Maria Georgieva: Добре, това е новият график.\n',text)
         self.assertIn('Maria Georgieva',self.service.library.speakers())
         with self.assertRaisesRegex(ValueError,'no audio'):self.service.process(d['id'],'transcribe')
+    def test_a_transcript_file_without_a_date_takes_the_date_of_the_file(self):
+        import datetime as dt
+        saved=dt.datetime(2026,10,21,15,30).astimezone()
+        srt='1\n00:00:00,000 --> 00:01:30,000\nИван: Започваме.\n'
+        d=self.service.import_transcript(srt,'standup.srt',int(saved.timestamp()*1000))
+        # The file is saved when the meeting ends; the meeting starts its duration earlier.
+        self.assertEqual(dt.datetime.fromisoformat(d['started_at']),saved-dt.timedelta(seconds=90))
+        self.assertEqual(dt.datetime.fromisoformat(d['ended_at']),saved)
+        # A date in the text wins over the file date.
+        self.assertTrue(self.service.import_transcript(EMAIL,'mail.txt',int(saved.timestamp()*1000))['created'].startswith('2026-10-19'))
+        # Pasted text and an invalid date keep today.
+        today=dt.date.today().isoformat()
+        for modified in (None,'1700000000000',-5):
+            self.assertTrue(self.service.import_transcript('[00:00:00] Иван: здравей\n','',modified)['created'].startswith(today))
+    def test_the_file_import_sends_the_file_date(self):
+        app=(PROJECT/'web'/'app.js').read_text()
+        self.assertIn("await importTranscript(await file.text(),file.name,file.lastModified||null);",app)
+        self.assertIn("api('/api/import',{text,filename,modified})",app)
+        self.assertIn("body.get('modified')",(PROJECT/'desktop_app.py').read_text())
     def test_rename_updates_markdown_heading(self):
         d=self.service.import_transcript('[00:00:00] Иван: здравей\n','среща.md')
         self.assertEqual(d['title'],'среща')

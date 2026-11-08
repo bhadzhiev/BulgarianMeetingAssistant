@@ -556,6 +556,8 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 .profile.selected{border-color:var(--green);box-shadow:0 0 0 1px var(--green);background:var(--accent-soft)}
 .advanced-toggle{display:flex;align-items:center;gap:8px;margin:12px 0 0;font-size:12px;font-weight:600;color:var(--muted)}
 #settings-form.simple .advanced-setting{display:none}
+/* A cloud API needs its temperature and context; they show without advanced settings. */
+#settings-form.simple.cloud-api .cloud-setting{display:block}
 @media(max-width:720px){.profile-picker{grid-template-columns:1fr 1fr}}
 
 .library-tabs{margin:0 0 18px;justify-content:flex-start}

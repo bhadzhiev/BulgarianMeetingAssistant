@@ -1145,3 +1145,6 @@ textarea{font-size:13px;border-radius:8px!important;padding:8px 12px}
 :root{--control-h:32px}
 .conversation-filters .advanced-filters>summary{font-size:13px;border-radius:9px;padding-inline:14px}
 details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;padding:0 10px;display:inline-flex;align-items:center;font-size:12px}
+/* The calendar and its field button live inside dialogs; dialog button rules (for example #task-panel button
+   margins) moved the day grid apart and pushed the field button out of the field. */
+.date-popup button,.date-control .date-trigger{margin:0!important}

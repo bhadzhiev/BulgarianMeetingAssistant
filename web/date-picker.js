@@ -8,7 +8,8 @@
  const today=()=>{const d=new Date();d.setHours(12,0,0,0);return d;};
  const move=(date,days)=>{const d=new Date(date);d.setDate(d.getDate()+days);return d;};
  const month=(date,delta)=>{const d=new Date(date);d.setDate(1);d.setMonth(d.getMonth()+delta);return d;};
- const monthName=m=>new Intl.DateTimeFormat(undefined,{month:'long'}).format(new Date(2000,m,1));
+ // The interface is English; the system locale gave Bulgarian months beside English weekdays.
+ const monthName=m=>new Intl.DateTimeFormat('en-GB',{month:'long'}).format(new Date(2000,m,1));
  let active=null,visible=today(),focused=today();
  const popup=make('div','date-popup');popup.hidden=true;popup.setAttribute('role','dialog');popup.setAttribute('aria-label','Choose a date');
  const top=make('div','date-popup-head'),previous=make('button','quiet','‹'),next=make('button','quiet','›'),months=make('select'),years=make('select');
@@ -26,7 +27,7 @@
   months.value=String(visible.getMonth());years.replaceChildren();const y=visible.getFullYear(),base=today().getFullYear();for(let year=Math.min(base-20,y);year<=Math.max(base+10,y);year++){if(year<1||year>9999)continue;const o=make('option','',String(year));o.value=String(year);years.append(o);}years.value=String(y);
   grid.replaceChildren();const first=new Date(visible);first.setDate(1);const start=move(first,-((first.getDay()+6)%7)),selected=active?.value,now=iso(today());
   let row;for(let n=0;n<42;n++){if(n%7===0){row=make('div');row.setAttribute('role','row');grid.append(row);}const date=move(start,n),value=iso(date),b=make('button','date-day'+(date.getMonth()!==visible.getMonth()?' outside':'')+(value===selected?' selected':'')+(value===now?' today':''),String(date.getDate()));b.type='button';b.dataset.date=value;b.setAttribute('role','gridcell');b.setAttribute('aria-label','Choose '+AtlantaUX.display(value));b.setAttribute('aria-selected',String(value===selected));if(value===now)b.setAttribute('aria-current','date');b.tabIndex=value===iso(focused)?0:-1;b.disabled=!allowed(date)||date.getFullYear()<1||date.getFullYear()>9999;b.onclick=()=>choose(date);row.append(b);}
-  clear.hidden=!!active?.required;place();if(focus)grid.querySelector(`[data-date="${iso(focused)}"]`)?.focus({preventScroll:true});
+  clear.hidden=!!active?.required;current.disabled=!allowed(today());current.title=current.disabled?'Today is outside the allowed dates':'';place();if(focus)grid.querySelector(`[data-date="${iso(focused)}"]`)?.focus({preventScroll:true});
  }
  function place(){if(!active)return;const rect=active.parentElement.getBoundingClientRect();popup.style.width=Math.min(340,innerWidth-24)+'px';popup.style.left=Math.max(12,Math.min(rect.left,innerWidth-popup.offsetWidth-12))+'px';popup.style.top=Math.max(12,rect.bottom+8+popup.offsetHeight<innerHeight?rect.bottom+8:rect.top-popup.offsetHeight-8)+'px';}
  function open(input){if(input.disabled||input.readOnly)return;if(active===input&&!popup.hidden){shut();return;}shut(false);active=input;(input.closest('dialog[open]')||document.body).append(popup);focused=parse(input.value)||today();if(input.max&&iso(focused)>input.max)focused=parse(input.max)||focused;if(input.min&&iso(focused)<input.min)focused=parse(input.min)||focused;visible=new Date(focused);popup.hidden=false;input.parentElement.querySelector('.date-trigger').setAttribute('aria-expanded','true');draw(true);}
@@ -37,7 +38,9 @@
  document.addEventListener('keydown',e=>{if(active&&e.key==='Escape'){e.preventDefault();e.stopPropagation();shut();}},true);
  document.addEventListener('pointerdown',e=>{if(active&&!popup.contains(e.target)&&!active.parentElement.contains(e.target))shut(false);});
  document.addEventListener('focusin',e=>{if(active&&!popup.contains(e.target)&&!active.parentElement.contains(e.target))shut(false);});
- addEventListener('resize',()=>shut(false));document.addEventListener('scroll',e=>{if(active&&!popup.contains(e.target))shut(false);},true);
+ // A scroll moves the calendar with its field. It closes only when the field leaves the window: a layout change
+ // in a dialog (for example its title bar) also fires scroll events, and closed the calendar at once.
+ addEventListener('resize',()=>shut(false));document.addEventListener('scroll',e=>{if(!active||popup.contains(e.target))return;const r=active.parentElement.getBoundingClientRect();if(r.bottom<0||r.top>innerHeight)shut(false);else place();},true);
  function emit(input){input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));validateRanges();}
  function validateRanges(){for(const [from,to] of ranges){const display=fields.get(to)?.display;if(display&&!display.dataset.invalidDate){display.setCustomValidity(from.value&&to.value&&from.value>to.value?'From must precede Through':'');display.setAttribute('aria-invalid',String(!display.checkValidity()));}}}
  function enhance(input){

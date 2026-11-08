@@ -1315,3 +1315,25 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
  #items-panel .task-filters .work-actions{flex:1 1 100%;flex-wrap:wrap;min-width:0}
  #items-panel .task-filters select,.work-actions select{flex:1 1 140px;min-width:0;max-width:100%}
 }
+/* Maximum privacy is a property of the settings, not the selected profile: a small mark, not the selected frame. */
+.profile.in-effect strong::after{content:'✓ In effect';margin-left:8px;padding:2px 7px;border-radius:999px;background:var(--accent-soft);color:var(--green);font-size:10px;font-weight:600;white-space:nowrap}
+/* Settings: the fixed title, tabs and footer take less height, so the current settings get the room.
+   The note on the footer sits beside the buttons; on a narrow window the groups scroll in one row. */
+#settings-dialog{max-height:calc(100dvh - 24px)}
+#settings-form{max-height:calc(100dvh - 24px);padding-top:20px}
+#settings-form>.card-heading{margin-bottom:6px!important}
+#settings-form>.tabs.settings-groups{margin:0 0 4px!important}
+#settings-form>.tabs.settings-tabs{margin:0 0 4px!important}
+#settings-form>.advanced-toggle{margin:6px 0 4px!important}
+#settings-form .settings-footer{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:10px 0 14px}
+#settings-form .settings-footer>.notice{flex:1 1 100%;margin:0;padding:8px 12px}
+#settings-form .settings-footer>.hint{flex:1 1 240px;margin:0;line-height:1.4}
+#settings-form .settings-footer>.review-footer{flex:none;margin:0!important;margin-left:auto!important;border-top:0!important;padding-top:0!important}
+@media(max-width:720px){
+ #settings-form>.tabs.settings-groups{display:flex!important;flex:none;flex-wrap:nowrap;overflow-x:auto;gap:14px}
+ #settings-form>.tabs.settings-groups button{white-space:nowrap}
+ #settings-form .settings-footer>.hint{display:none}
+}
+/* A long day: the month keeps the height of its grid and stays in view while the agenda scrolls. */
+.calendar-layout{align-items:start}
+.calendar-month-panel{position:sticky;top:12px}

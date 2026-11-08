@@ -834,9 +834,35 @@ function placeActions(d) {
  const primary=d.minutes_proposal?null:!$('recover').hidden&&!audio?'recover':!$('process').hidden&&!d.transcript.length?'process':d.transcript.length&&(d.notes_need_refresh||d.notes_refresh_error)?'summarize':d.transcript.length&&!d.minutes?'summarize':null;
  for(const id of ACTIONS) { const button=$(id); if(id===primary){button.className=action.hidden?'primary':'secondary';$('primary-action').append(button);} else {button.className=id==='delete-meeting'?'danger-text':'';$('more-actions').append(button);} }
 }
-function closeMenus(except) { for(const menu of document.querySelectorAll('details.menu[open]')) if(menu!==except) menu.open=false; }
-document.addEventListener('click',event=>{closeMenus(event.target.closest('details.menu'));if(event.target.closest('.menu-items button,.menu-items a'))closeMenus();});
-document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenus();});
+// Floating menus: the "…" menus of meetings, rows, sources, projects and tasks. One menu is open at a time.
+// A click outside, a choice or Escape closes it; Escape returns the focus to its trigger.
+// Accordions (Filters, Participants, Sources, Audio options) are other details elements and stay as they are.
+const FLOATING_MENUS='details.menu,details.task-more';
+function openMenus(){return [...document.querySelectorAll(FLOATING_MENUS)].filter(menu=>menu.open);}
+function closeMenus(except) { for(const menu of openMenus()) if(menu!==except&&!(except&&menu.contains(except))) menu.open=false; }
+document.addEventListener('click',event=>{closeMenus(event.target.closest?.(FLOATING_MENUS));if(event.target.closest?.('.menu-items button,.menu-items a,.task-more>.tracked-actions button'))closeMenus();});
+document.addEventListener('keydown',event=>{
+ if(event.key!=='Escape')return;const open=openMenus();if(!open.length)return;
+ // The menu closes first; the dialog around it stays open until the next Escape.
+ event.preventDefault();const last=open.at(-1);closeMenus();last.querySelector(':scope>summary')?.focus();
+});
+// A menu opens below its trigger. Without room below it opens above, and it moves left or right to stay in the window.
+function placeMenu(menu){
+ const pop=[...menu.children].find(node=>node.matches('.menu-items,.tracked-actions'));if(!pop)return;
+ pop.style.top=pop.style.bottom=pop.style.transform=pop.style.maxHeight=pop.style.overflowY='';
+ if(getComputedStyle(pop).position!=='absolute')return;
+ const edge=8,trigger=menu.querySelector(':scope>summary').getBoundingClientRect();let box=pop.getBoundingClientRect();
+ if(box.bottom>innerHeight-edge){
+  const above=trigger.top-edge-6,below=innerHeight-edge-trigger.bottom-6;
+  if(above>below){pop.style.top='auto';pop.style.bottom='calc(100% + 6px)';if(box.height>above){pop.style.maxHeight=Math.floor(above)+'px';pop.style.overflowY='auto';}}
+  else{pop.style.maxHeight=Math.floor(Math.max(below,120))+'px';pop.style.overflowY='auto';}
+ }
+ box=pop.getBoundingClientRect();
+ const shift=box.right>innerWidth-edge?innerWidth-edge-box.right:box.left<edge?edge-box.left:0;
+ if(shift)pop.style.transform='translateX('+Math.round(shift)+'px)';
+}
+document.addEventListener('toggle',event=>{const menu=event.target;if(!menu.matches?.(FLOATING_MENUS)||!menu.open)return;closeMenus(menu);placeMenu(menu);},true);
+if(typeof window!=='undefined'&&typeof window.addEventListener==='function')window.addEventListener('resize',()=>{for(const menu of openMenus())placeMenu(menu);});
 function stampSeconds(stamp) { const [h,m,sec]=stamp.split(':').map(Number); return h*3600+m*60+sec; }
 // One player for every listen button: the first click plays from the moment, the next click stops it.
 // Only one moment plays at a time. In the open meeting it drives the meeting's own player, so the
@@ -2491,9 +2517,15 @@ function applyProfile(name){
  if(name==='fast'&&/qwen3\.5/i.test($('local-ai-model').value))$('local-ai-reasoning').value='none';
  settingsFields();markProfile();toast('Profile filled in. Save settings to apply.');
 }
+// Fast, Balanced and Best quality are one choice: the first that fits the fields is selected, or none (custom settings).
+// Maximum privacy is a property of the settings, not a choice among them: it shows "In effect" when no step uses a cloud provider.
 function markProfile(){
  const fits=name=>name==='private'?CLOUD_FIELDS.every(id=>!['openai','elevenlabs'].includes($(id).value)):Object.entries(PROFILES[name]).every(([id,value])=>(typeof value==='boolean'?$(id).checked:$(id).value)===value);
- for(const b of document.querySelectorAll('.profile'))b.classList.toggle('selected',fits(b.dataset.profile));
+ const chosen=['fast','balanced','best'].find(fits);
+ for(const b of document.querySelectorAll('.profile')){
+  const privacy=b.dataset.profile==='private',on=privacy?fits('private'):b.dataset.profile===chosen;
+  b.classList.toggle('selected',!privacy&&on);b.classList.toggle('in-effect',privacy&&on);b.setAttribute('aria-pressed',String(!privacy&&on));
+ }
 }
 for(const b of document.querySelectorAll('.profile'))b.onclick=()=>applyProfile(b.dataset.profile);
 $('settings-form').addEventListener('change',markProfile);
@@ -3500,7 +3532,7 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
 }
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
- const dialog=$('task-panel'),box=$('task-panel-body'),projectHint=el('p','hint');projectHint.append(document.createTextNode('Projects: '));(item.effective_project_ids||[]).forEach((key,i)=>{const project=projectList().find(p=>p.id===key);if(i)projectHint.append(document.createTextNode(', '));if(project?.color)projectHint.append(projectDot(project));projectHint.append(document.createTextNode(project?.name||'Removed project'));});
+ const dialog=$('task-panel'),box=$('task-panel-body'),projectHint=el('p','hint');projectHint.append(document.createTextNode((item.effective_project_ids||[]).length?'Projects: ':'No project'));(item.effective_project_ids||[]).forEach((key,i)=>{const project=projectList().find(p=>p.id===key);if(i)projectHint.append(document.createTextNode(', '));if(project?.color)projectHint.append(projectDot(project));projectHint.append(document.createTextNode(project?.name||'Removed project'));});
  const panelHead=el('div','task-panel-head');const panelTitle=el('h2','task-card-title',item.text);panelTitle.id='task-panel-title';panelHead.append(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),panelTitle);
  box.replaceChildren(panelHead,projectHint);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};

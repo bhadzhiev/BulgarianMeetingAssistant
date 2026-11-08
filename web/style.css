@@ -1277,3 +1277,11 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 #task-panel .assignee-choices label.project-choice{display:inline-flex;flex-direction:row;align-items:center;gap:8px;margin:0}
 #task-panel .assignee-choices label.project-choice[hidden]{display:none}
 #task-panel .assignee-choices label.project-choice input{width:auto;margin:0}
+/* The evidence of a review: one row per record, with its quote and its source. */
+.team-evidence{margin-top:16px}
+.team-evidence>summary{cursor:pointer;font-weight:600}
+.team-evidence-row{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-top:1px solid var(--line)}
+.team-evidence-row>p{margin:0;font-size:14px}
+.team-evidence-row blockquote{margin:0;padding:6px 12px;border-left:3px solid var(--line-strong);color:var(--muted);font-size:13px}
+.team-evidence-row>button{align-self:flex-start}
+.team-edit-text{margin:0 0 10px}

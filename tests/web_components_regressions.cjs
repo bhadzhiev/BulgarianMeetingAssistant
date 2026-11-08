@@ -8,7 +8,7 @@ vm.runInContext(source.slice(source.indexOf('function el('),source.indexOf('func
 // Use a VM deadline: WebKit optimizes an accidental tail-recursive helper into
 // an endless loop rather than the RangeError seen in Node.
 const empty=vm.runInContext("emptyNote('No saved meetings <yet>')",context,{timeout:500});
-assert.equal(empty.tagName,'P');assert.equal(empty.className,'hint');assert.equal(empty.textContent,'No saved meetings <yet>');
+assert.equal(empty.tagName,'P');assert.equal(empty.className,'hint empty-note');assert.equal(empty.textContent,'No saved meetings <yet>');
 (async()=>{
  const button=vm.runInContext("btn('secondary','Open',()=>openMeeting('one'),'Open meeting')",context);assert.equal(button.type,'button');assert.equal(button.title,'Open meeting');await button.onclick();
  const open=vm.runInContext("openMeetingBtn('Meeting','two')",context);assert.equal(open.type,'button');await open.onclick();

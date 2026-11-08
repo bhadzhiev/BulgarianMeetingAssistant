@@ -1108,3 +1108,5 @@ dialog.dialog-scrolls .dialog-foot{border-top:1px solid var(--line);padding-top:
 .tracked-text.task-title,.conversation-title{color:var(--ink)}
 .tracked-text.task-title:hover:not(:disabled),.conversation-title:hover:not(:disabled){color:var(--green)}
 #workspace-content>.empty-note{margin-top:14px}
+/* A background job can be opened: the status line leads to its meeting. */
+#activity-status.background{cursor:pointer;pointer-events:auto}

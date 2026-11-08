@@ -19,7 +19,7 @@ function el(tag, className, text) { const node = document.createElement(tag); if
 function btn(className, label, onclick, title) { const b = el('button', className, label); b.type='button'; if(title) b.title=title; if(onclick) b.onclick=onclick; return b; }
 function actionBtn(className, label, fn, title) { return btn(className, label, () => perform(fn), title); }
 function openMeetingBtn(title, id, className='quiet') { return btn(className, title, () => perform(() => openMeeting(id)), 'Open the meeting'); }
-function emptyNote(text) { return el('p', 'hint', text); }
+function emptyNote(text) { return el('p', 'hint empty-note', text); }
 // Inline SVG icons on a 24px grid in the nav-icon style: 2px stroke, currentColor, no fill.
 const ICON_PATHS={close:'M6 6l12 12M18 6L6 18',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('icon');const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',ICON_PATHS[name]||ICON_PATHS.sparkle);svg.append(path);return svg;}
@@ -471,6 +471,8 @@ async function applyRoute(){
   else if(target==='analytics')await $('open-analytics').onclick();
   else if(target==='conversations')await perform(openConversations);
   else if(view!=='setup'&&view!=='recording')await $('new-meeting').onclick();
+  // The first screen is shown without show(); its header joins the top bar like every other view.
+  else syncPageHeader(view);
  }finally{routing=false;syncRoute(true);}
 }
 window.addEventListener('popstate',()=>perform(applyRoute));
@@ -501,7 +503,7 @@ function syncPageHeader(which){
  if(mountedPageHeader?.view===which)return;
  if(mountedPageHeader){const {heading,home,action,actionHome}=mountedPageHeader;home.prepend(heading);if(action)actionHome.append(action);mountedPageHeader=null;}
  const slot=$('page-header');slot.replaceChildren();
- const compact=['tasks','projects',...LIBRARY_VIEWS].includes(which),home=$(which),heading=compact?home.querySelector('.heading'):null;
+ const compact=['setup','importing','prepare','tasks','projects',...LIBRARY_VIEWS].includes(which),home=$(which),heading=compact?home.querySelector('.heading'):null;
  slot.hidden=!heading;document.querySelector('main').classList.toggle('compact-header',!!heading);
  if(!heading)return;
  const action=which==='projects'?$('workspace-new'):LIBRARY_VIEWS.includes(which)?$('header-import'):null,actionHome=action?.parentElement;
@@ -730,7 +732,8 @@ function renderDetail() {
  $('meeting-add-task').disabled=busy;
  $('detail-title').textContent=d.title;$('detail-title').title=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?'Ready for review':'Transcript ready'):statusNames[d.status]||d.status;
  const titleMessages={pending:'AI title pending',generating:'Generating AI title…',generated:'AI-generated title',waiting:'AI title waiting for a transcript',manual:'',error:'AI title could not be generated'};
- $('title-status').textContent=(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
+ const titleNote=d.title_status==='generated'&&!d.title_error;if(titleNote)$('detail-date').textContent+=' · AI title';
+ $('title-status').textContent=titleNote?'':(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
  const sync=d.calendar_sync; $('calendar-status').hidden=!sync;$('calendar-status').replaceChildren();
  if(sync){$('calendar-status').append(el('span','',sync.status==='synced'?'Saved in Google Calendar':sync.status==='error'?'Calendar sync needs attention: '+sync.error:'Calendar sync pending…'));if(sync.status==='synced'&&sync.html_link){const url=new URL(sync.html_link);if(url.protocol==='https:'&&['www.google.com','calendar.google.com'].includes(url.hostname)){const link=el('a','',' Open event ');link.append(icon('external'));link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';$('calendar-status').append(link);}}}
  renderScope(d);
@@ -2005,6 +2008,8 @@ function renderBulkTasks(){
   }finally{bulkSaving=false;apply.disabled=false;}
  });box.append(action,input,apply,note);
 }
+// Only the Tasks and Decisions tabs show task counts; the other tabs keep their own subtitle.
+function taskSummary(text){if(['task','decision'].includes(workTab))$('tasks-summary').textContent=text;}
 function renderTasks() {
  if(itemEditing||bulkSaving)return;
  if($('proposal-filters').parentElement!==$('work-suggested').querySelector('.work-content'))$('work-suggested').querySelector('.work-content').append($('proposal-filters'));
@@ -2021,8 +2026,8 @@ function renderTasks() {
  const open=tasks.filter(t=>t.acceptance_state!=='proposed'&&t.workflow_state!=='cancelled'&&t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
  const noWork=!itemsData.items.length&&!itemsData.pending.length;
- $('tasks-summary').textContent=noWork?'Your tasks and decisions from every meeting and source.':open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':'');
- if(itemKind==='task'&&managerView==='inbox'&&!noWork)$('tasks-summary').textContent=AtlantaUX.count(tasks.length,'meeting action')+' · '+AtlantaUX.count((itemsData.graph?.proposals||[]).filter(p=>p.state==='pending').length,'source proposal');
+ taskSummary(noWork?'Your tasks and decisions from every meeting and source.':open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':''));
+ if(itemKind==='task'&&managerView==='inbox'&&!noWork)taskSummary(AtlantaUX.count(tasks.length,'meeting action')+' · '+AtlantaUX.count((itemsData.graph?.proposals||[]).filter(p=>p.state==='pending').length,'source proposal'));
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','The AI found mentions that look like existing items. Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
@@ -2042,12 +2047,12 @@ function renderTasks() {
   .filter(t=>inbox||!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:t.owner===$('task-owner').value))
   .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||latest(b).localeCompare(latest(a)));
  else rows=decisions.filter(personal).filter(d=>['all','snoozed','dismissed'].includes(filter)||(filter==='current'?d.status==='accepted':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
- if(itemKind==='task'&&['mine','delegated'].includes(managerView)&&!managerSelf)$('tasks-summary').textContent='Choose “This is me” to show your responsibilities.';
+ if(itemKind==='task'&&['mine','delegated'].includes(managerView)&&!managerSelf)taskSummary('Choose “This is me” to show your responsibilities.');
  if(sourceFilter&&!inbox)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
  if(itemKind==='task'&&!inbox)rows=rows.filter(item=>AtlantaTasks.personMatches(item,{requester:taskRequester,follower:taskFollower})&&(!taskWorkflow||AtlantaTasks.workflow(item)===taskWorkflow));
  const activeFilters=[sourceFilter&&SOURCES[sourceFilter]?.[0],project.value&&project.selectedOptions[0]?.textContent,$('task-owner').value&&'Owner: '+$('task-owner').selectedOptions[0]?.textContent,itemKind==='task'&&taskRequester&&'From: '+((state.people||[]).find(p=>p.id===taskRequester)?.name||'Not specified'),itemKind==='task'&&taskFollower&&'Following: '+((state.people||[]).find(p=>p.id===taskFollower)?.name||'Not specified'),itemKind==='task'&&taskWorkflow&&AtlantaTasks.STATES[taskWorkflow],filter!==(itemKind==='task'?'open':'current')&&filter].filter(Boolean);$('manager-filter-summary').textContent='Filters'+(activeFilters.length?' · '+activeFilters.join(' · '):'');
  taskVisibleRows=itemKind==='task'&&!inbox?rows:[];taskSelection=AtlantaTasks.visibleSelection(taskSelection,taskVisibleRows);renderBulkTasks();
- if(itemKind==='task'&&!inbox&&!noWork){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));$('tasks-summary').textContent=rows.length+' shown · '+active.length+' open · '+active.filter(t=>t.due_date&&t.due_date<today).length+' overdue';}
+ if(itemKind==='task'&&!inbox&&!noWork){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));taskSummary(rows.length+' shown · '+active.length+' open · '+active.filter(t=>t.due_date&&t.due_date<today).length+' overdue');}
  $('task-list').replaceChildren();
  if(inbox&&rows.length&&$('proposal-list').querySelector('.empty-content'))$('proposal-list').replaceChildren();
  if(itemKind==='task'&&managerView==='inbox')$('task-list').append(el('h2','','Proposed actions'),el('p','hint','Review actions from every source. Project filters apply to tasks after acceptance.'),$('proposal-filters'),$('proposal-list'));
@@ -2070,6 +2075,10 @@ function showWorkTab(tab){
  if(tab==='task'||tab==='decision'){itemKind=tab;renderTasks();}
  else if(tab==='review')perform(loadReviewQueue);
  else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(async()=>{await loadGitHub();showGitHubSection(ghSection);});
+ // The subtitle describes the tab that is shown; Tasks and Decisions set their own counts.
+ const summaries={questions:()=>AtlantaUX.count((itemsData?.meeting_questions||[]).length,'question')+' from meeting notes · '+(itemsData?.items||[]).filter(i=>i.kind==='question').length+' tracked',
+  review:()=>'Meetings that still wait for your review',gmail:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',chat:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',github:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub'};
+ if(summaries[tab])$('tasks-summary').textContent=summaries[tab]();
 }
 for(const button of document.querySelectorAll('#work-tabs button,#source-tabs button')) button.onclick=()=>showWorkTab(button.dataset.workTab);
 // One queue for the whole library: each row opens the meeting at the step that resolves it.

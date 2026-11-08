@@ -1,42 +1,39 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const app=fs.readFileSync('web/app.js','utf8');
+const app=fs.readFileSync('web/app.js','utf8'),UX=require('../web/ux.js');
 const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
-// A background job of a meeting shows its step and the meeting; an action that a person started wins.
-const status={hidden:true,textContent:'',title:''},bar={hidden:true};
-const c=vm.createContext({setTimeout,clearTimeout,state:{meetings:[]},answers:[],$:id=>id==='activity'?bar:status});
-vm.runInContext('let runningActions=0,activityTimer=null,activityLabel="";const BUSY_DELAY=250;'+slice('let foregroundShown=false','if(typeof document.getElementById')+slice('// The other background jobs','async function perform('),c);
+// The status line: an action that a person started wins; otherwise the summary of the job registry on the server.
+const status={hidden:true,textContent:'',title:'',classes:new Set()},bar={hidden:true};
+status.classList={toggle:(n,on)=>on?status.classes.add(n):status.classes.delete(n)};
+const answers=[];
+const c=vm.createContext({setTimeout,clearTimeout,AtlantaUX:UX,api:async()=>answers.shift(),$:id=>id==='activity'?bar:id==='activity-status'?status:null});
+vm.runInContext('let runningActions=0,activityTimer=null,activityLabel="";const BUSY_DELAY=250;'+slice('let foregroundShown=false','if(typeof document.getElementById')+slice('// Background jobs come from one registry','function openJob('),c);
 const run=code=>vm.runInContext(code,c);
-run('renderBackgroundActivity()');assert.equal(status.hidden,true);
-c.state.meetings=[{id:'a',title:'Weekly sync',status:'processing',progress:'Generating notes · part 1 of 2'},{id:'b',title:'Other',status:'ready',title_status:'generating'}];
-run('renderBackgroundActivity()');assert.equal(status.hidden,false);assert.equal(status.textContent,'Generating notes · part 1 of 2 · Weekly sync · +1 more');
-run('activityLabel="Save settings";foregroundShown=true;paintActivity()');assert.equal(status.textContent,'Save settings · in progress…');
-run('runningActions=1;endActivity()');assert.equal(status.textContent,'Generating notes · part 1 of 2 · Weekly sync · +1 more');
-c.state.meetings=[{id:'b',title:'Other',status:'ready',title_status:'generating'}];run('renderBackgroundActivity()');assert.equal(status.textContent,'Generating AI title · Other');
-c.state.meetings=[];run('renderBackgroundActivity()');assert.equal(status.hidden,true);
-// Other jobs (1:1 AI, prompt test, email AI, reports) stay in the same line until their own status ends.
 (async()=>{
-c.state.meetings=[];
-run("trackJob('team-ai',{text:'Preparing the 1:1 with AI · Ana',open:()=>'review'})");assert.equal(status.hidden,false);assert.equal(status.textContent,'Preparing the 1:1 with AI · Ana');
-assert.equal(run('backgroundJob.open()'),'review');
-c.state.meetings=[{id:'b',title:'Other',status:'ready',title_status:'generating'}];run('renderBackgroundActivity()');assert.equal(status.textContent,'Generating AI title · Other · +1 more');
-c.state.meetings=[];run("trackJob('team-ai',null)");assert.equal(status.hidden,true);
-// A job with poll() is checked also when its page is closed: new text while it runs, gone at the end.
-c.answers=['Email AI is reading a message · step 2',null];
-run("trackJob('gmail-ai',{text:'Email AI is reading a message',poll:async()=>answers.shift()})");
-await run('pollActivityJobs()');assert.equal(status.textContent,'Email AI is reading a message · step 2');
-await run('pollActivityJobs()');assert.equal(status.hidden,true);
-// A check that fails keeps the job; five failures in a row remove it.
-run("trackJob('repo-report',{text:'Repository report',poll:async()=>{throw new Error('busy');}})");
-for(let i=0;i<4;i++)await run('pollActivityJobs()');assert.equal(status.textContent,'Repository report');
-await run('pollActivityJobs()');assert.equal(status.hidden,true);
-run('clearTimeout(activityJobsTimer)');
-// The families that report to the line.
-for(const key of ['team-ai','team-github','gmail-ai','repo-report'])assert.match(app,new RegExp("trackJob\\('"+key+"'|trackTeamJob\\('"+key+"'"));
-assert.match(fs.readFileSync('web/prompt-editor.js','utf8'),/trackJob\('prompt-test',result\.running&&/);
-// A dialog opened after the line shows it again, above the dialog.
-assert.match(app,/if\(dialog\.open&&records\.some\(r=>r\.target===dialog&&r\.attributeName==='open'\)\)raiseActivity\(\);/);
-// renderState keeps the line current on every state event; a click opens the meeting.
-assert.match(app,/function renderState\(\) \{\n if\(typeof renderBackgroundActivity==='function'\)renderBackgroundActivity\(\);/);
-assert.match(app,/addEventListener\('click',\(\)=>\{if\(!foregroundShown&&backgroundJob\)perform\(backgroundJob\.open\);\}\)/);
-console.log('Background activity PASS: job step and meeting, action priority, title generation, other AI jobs, polls and failures, click opens the job.');
+ const job=(id,state,label,extra={})=>({id,state,label,phase:'',error:null,progress:null,target:{view:'meeting',id:'m1'},...extra});
+ run('renderBackgroundActivity()');assert.equal(status.hidden,true);
+ // One running job: its own words, with its step and progress.
+ answers.push({jobs:[job('team_ai:a','running','Preparing the 1:1 with AI · Ana',{phase:'Preparing part 1 of 2',progress:{done:0,total:2}})],summary:{running:1}});
+ await run('refreshJobs()');run('clearTimeout(jobsTimer)');
+ assert.equal(status.textContent,'Preparing the 1:1 with AI · Ana · Preparing part 1 of 2 · 0 of 2');assert(!status.classes.has('failed'));
+ // A failure is never hidden by a running or a completed job: the counts show both, in the failed tone.
+ answers.push({jobs:[job('p:1','failed','Testing AI instructions',{error:'No'}),job('m:1','running','Processing · Weekly'),job('r:1','completed','Repository report')],summary:{running:1,failed:1,completed:1}});
+ await run('refreshJobs()');run('clearTimeout(jobsTimer)');
+ assert.equal(status.textContent,'1 job running · 1 job failed');assert(status.classes.has('failed'));
+ // Only completed jobs: no summary, no false "all done".
+ answers.push({jobs:[job('r:1','completed','Repository report')],summary:{completed:1}});
+ await run('refreshJobs()');assert.equal(status.hidden,true);
+ // An action that a person started wins over the summary.
+ answers.push({jobs:[job('m:1','running','Processing · Weekly')],summary:{running:1}});await run('refreshJobs()');run('clearTimeout(jobsTimer)');
+ run('activityLabel="Save settings";foregroundShown=true;paintActivity()');assert.equal(status.textContent,'Save settings · in progress…');
+ run('runningActions=1;endActivity()');assert.equal(status.textContent,'Processing · Weekly');
+ // The registry is the only source: no job list in the browser, and every family asks it.
+ assert.doesNotMatch(app,/trackJob|activityJobs/);
+ assert.match(app,/function renderState\(\) \{\n[^\n]*\n if\(typeof refreshJobs==='function'\)refreshJobs\(\);/);
+ assert.match(app,/addEventListener\('click',\(\)=>\{if\(!foregroundShown&&backgroundJob\)perform\(backgroundJob\.open\);\}\)/);
+ assert.match(fs.readFileSync('web/prompt-editor.js','utf8'),/refreshJobs\(\);/);
+ assert.match(fs.readFileSync('web/index.html','utf8'),/<div id="jobs-panel" popover="auto" role="dialog" aria-label="Background jobs"><\/div>/);
+ assert.match(app,/actionBtn\('quiet small-action','Dismiss',async\(\)=>\{jobsData=await api\('\/api\/jobs\/dismiss',\{id:job\.id\}\)/);
+ // A dialog opened after the line shows it again, above the dialog.
+ assert.match(app,/if\(dialog\.open&&records\.some\(r=>r\.target===dialog&&r\.attributeName==='open'\)\)raiseActivity\(\);/);
+ console.log('Background activity PASS: one registry, job summary, failures never hidden, action priority, dismiss.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

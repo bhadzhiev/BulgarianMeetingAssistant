@@ -163,6 +163,8 @@ class MeetingService:
         self.team_ai = ReviewAI(self)
         from .team_github import TeamGitHub
         self.team_github = TeamGitHub(self)
+        from .job_registry import Jobs
+        self.jobs = Jobs(self)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()

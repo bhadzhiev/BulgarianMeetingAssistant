@@ -15,7 +15,7 @@ const tick=()=>new Promise(setImmediate);
  let start,polled=0;const requests=[],els=new Map();
  const field=id=>{if(!els.has(id))els.set(id,{open:true,value:'',textContent:''});return els.get(id);};
  const q=vm.createContext({$:field,ask:async()=>true,perform:async fn=>fn(),promptBusy(){},promptError(){},invalidatePromptTest(){},clearTimeout(){},
-  promptDirty:()=>false,editorDirty:{clear(){}},trackJob(){},pollPromptTest:()=>{polled++;},
+  promptDirty:()=>false,editorDirty:{clear(){}},refreshJobs(){},pollPromptTest:()=>{polled++;},
   api:(path,body)=>{requests.push([path,body]);return path==='/api/prompts/test/start'?new Promise(r=>start=r):Promise.resolve({});}});
  vm.runInContext("let promptPreview={preview_token:'preview'},promptPending=false,promptLaunch=0,promptJob=null,promptTimer=null,promptOriginal='';"+
   slice(prompts,'async function leavePromptEditor(','function invalidatePromptTest()')+

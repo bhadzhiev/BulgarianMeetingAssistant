@@ -266,8 +266,8 @@ function actionLabel(trigger){
 let foregroundShown=false,backgroundJob=null;
 function paintActivity(){
  const status=$('activity-status'),text=foregroundShown?(activityLabel||'Working')+' · in progress…':backgroundJob?backgroundJob.text:'';
- status.textContent=text;status.hidden=!text;status.classList?.toggle('background',!foregroundShown&&!!backgroundJob);
- status.title=!foregroundShown&&backgroundJob?'Open it':'';
+ status.textContent=text;status.hidden=!text;status.classList?.toggle('background',!foregroundShown&&!!backgroundJob);status.classList?.toggle('failed',!foregroundShown&&backgroundJob?.tone==='failed');
+ status.title=!foregroundShown&&backgroundJob?'Show the background jobs':'';
  try{if(text){if(status.showPopover&&!status.matches(':popover-open'))status.showPopover();}else if(status.hidePopover&&status.matches(':popover-open'))status.hidePopover();}catch{}
 }
 // A dialog that opens later covers the status line in the top layer. Showing the popover again puts it above the dialog.
@@ -285,30 +285,55 @@ function endActivity(){
 function activityStep(label){activityLabel=label;if(foregroundShown)paintActivity();}
 // Processing after a recording or an import runs on the server: its current step and the meeting show here.
 if(typeof document.getElementById==='function'&&document.getElementById('activity-status'))document.getElementById('activity-status').addEventListener('click',()=>{if(!foregroundShown&&backgroundJob)perform(backgroundJob.open);});
-// The other background jobs: a 1:1 AI run, a GitHub collection, an AI instructions test, email AI, a repository report.
-// The start request ends at once; the job stays in the status line until its own status says that it ended.
-// A job with poll() is checked here also when its page is closed; poll() gives the new text, or null at the end.
-const activityJobs=new Map();let activityJobsTimer=null;
-function trackJob(key,job){
- if(key!==null){if(job)activityJobs.set(key,job);else activityJobs.delete(key);}
- renderBackgroundActivity();
- if(!activityJobsTimer&&[...activityJobs.values()].some(j=>j.poll))activityJobsTimer=setTimeout(pollActivityJobs,2000);
+// Background jobs come from one registry on the server (/api/jobs): meetings, 1:1 AI and GitHub, the prompt test,
+// email AI and repository reports. It is the single source of their state: queued, running, completed, failed, cancelled.
+// The status line sums them up; a click opens the list. A failure stays there until it is dismissed.
+let jobsData={jobs:[],summary:{}},jobsTimer=null,jobsLoading=null;
+function refreshJobs(){
+ if(jobsLoading)return jobsLoading;
+ jobsLoading=(async()=>{
+  try{jobsData=await api('/api/jobs');}catch{}finally{jobsLoading=null;}
+  renderBackgroundActivity();clearTimeout(jobsTimer);jobsTimer=null;
+  if(jobsData.summary?.running||jobsData.summary?.queued)jobsTimer=setTimeout(refreshJobs,2000);
+ })();return jobsLoading;
 }
-async function pollActivityJobs(){
- activityJobsTimer=null;
- for(const [key,job] of [...activityJobs]){
-  if(!job.poll)continue;
-  // A failed check keeps the job: the server can be busy. After five failed checks in a row the line goes.
-  try{const text=await job.poll();if(activityJobs.get(key)!==job)continue;if(text)activityJobs.set(key,{...job,text,failures:0});else activityJobs.delete(key);}
-  catch{if(activityJobs.get(key)!==job)continue;const failures=(job.failures||0)+1;if(failures>=5)activityJobs.delete(key);else activityJobs.set(key,{...job,failures});}
- }
- trackJob(null);
+function backgroundJobText(job){return job.label+(job.phase&&!job.label.includes(job.phase)&&!['running','queued'].includes(job.phase.toLowerCase())?' · '+job.phase:'')+(job.progress&&job.progress.total>1?' · '+job.progress.done+' of '+job.progress.total:'');}
+function jobsSummary(){
+ const sum=jobsData.summary||{},active=(sum.running||0)+(sum.queued||0),failed=sum.failed||0,list=jobsData.jobs||[];
+ if(!active&&!failed)return null;
+ // One running job and no failure: its own words. Otherwise the counts; a failure is never hidden by a success.
+ if(active===1&&!failed)return {text:backgroundJobText(list.find(j=>['running','queued'].includes(j.state))),tone:'running'};
+ return {text:[active&&AtlantaUX.count(active,'job')+' running',failed&&AtlantaUX.count(failed,'job')+' failed'].filter(Boolean).join(' · '),tone:failed?'failed':'running'};
 }
 function renderBackgroundActivity(){
- const meetings=(state?.meetings||[]).filter(m=>m.status==='processing'||m.title_status==='generating');
- const jobs=[...meetings.map(m=>({text:(m.status==='processing'?(m.progress||'Processing'):'Generating AI title')+' · '+(m.title||'Untitled meeting'),open:()=>openMeeting(m.id)})),...activityJobs.values()],first=jobs[0];
- backgroundJob=first?{text:first.text+(jobs.length>1?' · +'+(jobs.length-1)+' more':''),open:first.open}:null;
- paintActivity();
+ const summary=jobsSummary();
+ backgroundJob=summary?{text:summary.text,tone:summary.tone,open:()=>toggleJobsPanel(true)}:null;
+ paintActivity();if($('jobs-panel')?.matches?.(':popover-open'))renderJobsPanel();
+}
+function openJob(job){
+ const t=job.target||{};toggleJobsPanel(false);
+ if(t.view==='meeting')return openMeeting(t.id);
+ if(t.view==='team')return openTeamReview(t.id);
+ if(t.view==='settings'){if(!$('settings-dialog').open)openSettings(t.id);showSettingsTab(t.id);return;}
+ if(t.view==='work'){workTab=t.id==='github-reports'?'github':t.id;return $('open-tasks').onclick().then(()=>{if(t.id==='github-reports'){showGitHubSection('reports');return loadRepoReports();}});}
+}
+const JOB_STATES={queued:'Queued',running:'Running',completed:'Completed',failed:'Failed',cancelled:'Cancelled'};
+function renderJobsPanel(){
+ const panel=$('jobs-panel');panel.replaceChildren(el('h2','','Background jobs'));
+ const jobs=jobsData.jobs||[];if(!jobs.length){panel.append(el('p','hint','No background jobs.'));return;}
+ for(const job of jobs){
+  const row=el('div','job-row job-'+job.state),head=el('div','job-head');
+  head.append(el('span','job-state',JOB_STATES[job.state]||job.state),el('strong','',job.label));row.append(head);
+  const phase=job.phase&&!job.label.includes(job.phase)&&job.phase.toLowerCase()!==job.state?job.phase:'';if(phase||job.progress)row.append(el('p','hint',[phase,job.progress&&job.progress.total>1&&job.progress.done+' of '+job.progress.total].filter(Boolean).join(' · ')));
+  if(job.error)row.append(el('p','error',job.error));
+  const actions=el('div','action-group');actions.append(actionBtn('quiet small-action','Open',()=>openJob(job)));
+  if(['failed','completed','cancelled'].includes(job.state))actions.append(actionBtn('quiet small-action','Dismiss',async()=>{jobsData=await api('/api/jobs/dismiss',{id:job.id});renderBackgroundActivity();}));
+  row.append(actions);panel.append(row);
+ }
+}
+function toggleJobsPanel(open){
+ const panel=$('jobs-panel');if(!panel?.showPopover)return;
+ try{if(open&&!panel.matches(':popover-open')){renderJobsPanel();panel.showPopover();}else if(!open&&panel.matches(':popover-open'))panel.hidePopover();}catch{}
 }
 async function perform(fn) {
  // Nested and later calls do not take the control of the first press.
@@ -582,7 +607,8 @@ async function openMeeting(id,force=false) {
  lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');switchTab(meetingTab);renderLibrary();return true;
 }
 function renderState() {
- if(typeof renderBackgroundActivity==='function')renderBackgroundActivity();
+ // The meetings changed: the job registry gives the new state of their processing.
+ if(typeof refreshJobs==='function')refreshJobs();
  const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
  syncSpeakers();
  if($('settings-dialog').open)renderVoiceStatus();
@@ -1715,9 +1741,7 @@ async function loadMail(){
  const aiText=ai.running?'Email AI is reading the approved message'+(ai.model?' with '+ai.model:'')+'…':ai.error?'Email AI: '+ai.error:['complete','reused'].includes(ai.status)?mailAIResultText(ai):'';
  sourceState('gmail',status.connected,[status.account,AtlantaUX.count(status.count,'thread'),jobText(status.job),status.sync.last_sync&&'updated '+relTime(status.sync.last_sync*1000),status.sync.limited&&'first 200 threads'],status.job.error||aiText);
  $('gmail-ai-cancel').hidden=!ai.running;
- // Email AI keeps its line in the status after the Gmail tab closes.
- const mailJob=ai=>ai.running?'Email AI is reading a message'+(ai.model?' · '+ai.model:''):null;
- trackJob('gmail-ai',ai.running&&{text:mailJob(ai),open:async()=>{workTab='gmail';await $('open-tasks').onclick();},poll:async()=>mailJob(await api('/api/gmail/ai'))});
+ if(ai.running||ai.error)refreshJobs();
  if(!ai.running&&(mailAIWasRunning||(['complete','reused'].includes(ai.status)&&ai.job_id!==mailAISeenJob))){lastTasks='';await loadTasks();if(['complete','reused'].includes(ai.status)){mailAISeenJob=ai.job_id;toast(mailAIResultText(ai));}}
  mailAIWasRunning=ai.running;
  $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-sync').textContent=status.job.running?'Syncing…':status.job.status==='continue'?'Continue sync':'Sync';
@@ -1943,9 +1967,7 @@ async function loadRepoReports(){
  if(!data.reports.some(r=>r.id===repoReportId))repoReportId=data.reports[0]?.id||'';
  $('report-list').replaceChildren(option('Choose a saved report',''),...data.reports.map(r=>option(r.repository+' · '+r.branch+' · '+date(r.period.start)+' → '+date(r.period.end)+' · '+r.status,r.id)));$('report-list').value=repoReportId;
  $('report-collect').disabled=!!data.job.running;$('report-cancel').hidden=!data.job.running;
- // A repository report keeps its line in the status after the reports page closes.
- const reportJob=job=>job.running?'Repository report'+(job.status?' · '+job.status:' · in progress'):null;
- trackJob('repo-report',data.job.running&&{text:reportJob(data.job),open:async()=>{workTab='github';await $('open-tasks').onclick();showGitHubSection('reports');perform(loadRepoReports);},poll:async()=>reportJob((await api('/api/github/reports')).job)});
+ if(data.job.running||data.job.error)refreshJobs();
  $('report-job-status').textContent=data.error||data.job.error||data.job.status||'';
  if(repoReportId){const selectedId=repoReportId,meta=data.reports.find(r=>r.id===selectedId);if(repoReport?.id===selectedId&&repoReport.revision===meta?.revision){if(data.job.running&&view==='tasks'&&workTab==='github'&&ghSection==='reports')repoTimer=setTimeout(()=>perform(loadRepoReports),1500);return;}const detail=await api('/api/github/reports/detail?id='+encodeURIComponent(selectedId));if(sequence!==repoLoadSequence||selectedId!==repoReportId)return;repoReport=detail;renderRepoReport();syncRoute(true);}
  else $('repo-report-detail').replaceChildren(emptyNote('Choose a repository and period to collect its changes. Collection does not send code to AI.'));
@@ -3109,10 +3131,10 @@ function renderTeamReview(){
  // The AI run of this review: what wrote it, or that it is incomplete and blocks Finalize.
  const gen=r.generator;if(gen)head.append(el('p',gen.complete?'hint':'notice',gen.complete?'AI preparation · '+gen.model+' · '+(gen.at?dateTime(gen.at):'')+(gen.rejected?' · '+AtlantaUX.count(gen.rejected,'statement')+' rejected by the check':''):'The AI preparation is incomplete. Run it again before you finalize; the finished parts are kept.'));
  const aiJob=teamAIJob&&teamAIJob.review_id===r.id?teamAIJob:null;
- if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');renderTeamReview();}));head.append(line);}
+ if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});refreshJobs();renderTeamReview();}));head.append(line);}
  else if(aiJob?.error)head.append(el('p','error',aiJob.error));
  const ghJob=teamGitHubJob&&teamGitHubJob.review_id===r.id?teamGitHubJob:null;
- if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');renderTeamReview();}));head.append(line);}
+ if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});refreshJobs();renderTeamReview();}));head.append(line);}
  else if(ghJob?.error)head.append(el('p','error',ghJob.error));
  for(const text of r.coverage?.github?.limitations||[])head.append(el('p','hint','GitHub · '+text));
  const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
@@ -3183,23 +3205,16 @@ async function openTeamAI(r){
 }
 $('team-ai-approve').onchange=()=>{$('team-ai-start').disabled=!$('team-ai-approve').checked||!teamAIPreview?.ai_available;};
 $('team-ai-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
- try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});teamJobName=reviewPersonName(teamReview);trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
+ try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});refreshJobs();$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
  catch(exc){$('team-ai-error').textContent=exc.message;$('team-ai-error').hidden=false;}
 });};
 $('team-ai-close').onclick=()=>$('team-ai-dialog').close();
 // The job runs in the background; the page follows it and reloads the draft when it ends.
-// A 1:1 job shows in the status line on every page, with the person; a click opens its review.
-let teamJobName='';
-function trackTeamJob(key,job,label){
- if(!job?.running){trackJob(key,null);return;}
- const id=job.review_id,name=teamJobName;
- trackJob(key,{text:label+(name?' · '+name:'')+(job.status?' · '+job.status:''),open:()=>openTeamReview(id)});
-}
 function pollTeamAI(){
  clearTimeout(teamAITimer);if(!teamAIJob)return;
  teamAITimer=setTimeout(()=>perform(async()=>{
-  try{teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);}catch(exc){trackJob('team-ai',null);throw exc;}
-  trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');
+  try{teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);}catch(exc){refreshJobs();throw exc;}
+  refreshJobs();
   const here=view==='team'&&teamReview?.id===teamAIJob.review_id;
   if(teamAIJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamAI();return;}
   if(teamAIJob.status==='Ready to review')toast('AI preparation ready · check it against the evidence');
@@ -3222,15 +3237,15 @@ async function openTeamGitHub(r){
 }
 function syncGitHubStart(){const n=$('team-github-repos').querySelectorAll('input:checked').length;$('team-github-start').disabled=!n;$('team-github-start').textContent=n?'Collect from '+AtlantaUX.count(n,'repository','repositories'):'Collect';}
 $('team-github-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
- try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});teamJobName=reviewPersonName(teamReview);trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
+ try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});refreshJobs();$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
  catch(exc){$('team-github-error').textContent=exc.message;$('team-github-error').hidden=false;}
 });};
 $('team-github-close').onclick=()=>$('team-github-dialog').close();
 function pollTeamGitHub(){
  clearTimeout(teamGitHubTimer);if(!teamGitHubJob)return;
  teamGitHubTimer=setTimeout(()=>perform(async()=>{
-  try{teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);}catch(exc){trackJob('team-github',null);throw exc;}
-  trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');
+  try{teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);}catch(exc){refreshJobs();throw exc;}
+  refreshJobs();
   const here=view==='team'&&teamReview?.id===teamGitHubJob.review_id;
   if(teamGitHubJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamGitHub();return;}
   if(teamGitHubJob.status==='Ready to review')toast('GitHub contribution collected');else if(teamGitHubJob.error)toast(teamGitHubJob.error);

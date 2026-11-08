@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/ux.js" defer></script><script src="/status.js" defer></script><script src="/date-picker.js" defer></script><script src="/draft-buffer.js" defer></script><script src="/task-model.js" defer></script><script src="/task-progress.js" defer></script><script src="/app.js" defer></script><script src="/prompt-editor.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/ux.js" defer></script><script src="/status.js" defer></script><script src="/forms.js" defer></script><script src="/date-picker.js" defer></script><script src="/draft-buffer.js" defer></script><script src="/task-model.js" defer></script><script src="/task-progress.js" defer></script><script src="/app.js" defer></script><script src="/prompt-editor.js" defer></script></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="Atlanta home"><span class="brand-icon">A</span><span><strong>ATLANTA</strong><small>MEETING ASSISTANT</small></span></a>
@@ -515,6 +515,7 @@
 <div class="settings-footer"><div id="settings-privacy" class="notice"></div><p class="hint">Processing and retries use these settings. Active recordings keep the settings they started with.</p><div class="review-footer"><button id="settings-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="settings-save" class="primary" type="submit">Save settings</button></div></div></form></dialog>
 <datalist id="known-speakers"></datalist>
 <div id="activity-status" role="status" aria-live="polite" popover="manual" hidden></div>
+<div id="jobs-panel" popover="auto" role="dialog" aria-label="Background jobs"></div>
 <div id="toast" role="status" hidden></div>
 <div id="activity" role="progressbar" aria-label="Working…" hidden></div>
 </body></html>

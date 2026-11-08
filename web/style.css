@@ -1374,3 +1374,25 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 }
 .tracked-task.task-card.compact-task>.task-more{align-self:center}
 #task-panel .task-panel-head h2{overflow-wrap:anywhere;max-width:100%}
+/* The background jobs: a failed job turns the status line red and shows no spinner. The list opens under the line. */
+#activity-status.failed{background:var(--danger-ink,#9b1c1c)}
+#activity-status.failed::before{content:'!';border:0;animation:none;width:auto;height:auto;font-weight:800}
+#jobs-panel{position:fixed;inset:48px auto auto 50%;transform:translateX(-50%);margin:0;width:min(460px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;
+ padding:14px 16px;border:1px solid var(--line-strong);border-radius:14px;background:var(--card);color:var(--ink);box-shadow:0 12px 36px var(--shadow-strong)}
+#jobs-panel h2{font-size:14px;margin:0 0 8px}
+#jobs-panel .job-row{border-top:1px solid var(--line);padding:10px 0}
+#jobs-panel .job-head{display:flex;gap:8px;align-items:baseline;font-size:13px}
+#jobs-panel .job-state{flex:none;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+#jobs-panel .job-failed .job-state{color:var(--danger-ink)}
+#jobs-panel .job-row .hint,#jobs-panel .job-row .error{margin:6px 0}
+#jobs-panel .job-row .error{padding:8px 10px;font-size:12px}
+/* Required fields and errors (one rule for every form): a mark on the label, the error under its field,
+   and a summary at the top of the form after a submit that failed. */
+label.required-label::after,.required-label>.date-part-label::after{content:' *' / '';color:var(--danger-ink);font-weight:700}
+label.required-label:has(.date-part-label)::after{content:none}
+.field-error{margin:4px 0 0;color:var(--danger-ink);font-size:12px;font-weight:500}
+[aria-invalid=true]:is(input,select,textarea){box-shadow:0 0 0 1px var(--danger-ink)!important}
+.form-error-summary{margin:8px 0 12px;padding:10px 14px;border:1px solid var(--danger-line);border-radius:10px;background:var(--danger-soft);color:var(--danger-ink);font-size:13px}
+.form-error-summary p{margin:0 0 4px;font-weight:600}
+.form-error-summary ul{margin:0;padding-left:18px}
+.form-error-summary button{padding:2px 0;color:var(--danger-ink);text-decoration:underline;text-align:left}

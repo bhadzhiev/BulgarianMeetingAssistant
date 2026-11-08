@@ -227,6 +227,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.chat.messages(parse_qs(url.query).get('space',[''])[0]))
         if url.path == '/api/chat/message':
             return self.respond(200, self.server.service.chat.detail(parse_qs(url.query).get('name',[''])[0]))
+        if url.path == '/api/jobs':
+            return self.respond(200, self.server.service.jobs.listing())
         if url.path == '/api/gmail/ai':
             return self.respond(200, self.server.service.gmail_ai.status())
         if url.path == '/api/gmail':
@@ -270,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and match[2] in EXPORTS:
             path = self.server.service.library.directory(match[1]) / match[2]
             return self.serve_file(path, download=match[2] not in {'recording.wav', 'transcription.wav'})
-        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/task-model.js':'task-model.js', '/task-progress.js':'task-progress.js', '/status.js': 'status.js', '/date-picker.js': 'date-picker.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
+        assets = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/ux.js': 'ux.js', '/task-model.js':'task-model.js', '/task-progress.js':'task-progress.js', '/status.js': 'status.js', '/date-picker.js': 'date-picker.js', '/forms.js': 'forms.js', '/draft-buffer.js': 'draft-buffer.js', '/prompt-editor.js':'prompt-editor.js'}
         if url.path in assets:
             return self.serve_file(PROJECT / 'web' / assets[url.path])
         self.respond(404, {'error': 'Not found'})
@@ -500,6 +502,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.team_github.stop(body.get('job'))
             elif path == '/api/team/review/ai/start':
                 result = service.team_ai.start(body)
+            elif path == '/api/jobs/dismiss':
+                result = service.jobs.dismiss(body.get('id'))
             elif path == '/api/team/review/ai/stop':
                 result = service.team_ai.stop(body.get('job'))
             elif path == '/api/team/membership':

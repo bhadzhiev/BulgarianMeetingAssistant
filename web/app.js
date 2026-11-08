@@ -456,6 +456,7 @@ function currentRoute(){
  if(view==='detail'&&selected){q.set('meeting',selected);if(meetingTab!=='transcript')q.set('tab',meetingTab);}
  else if(view==='tasks'){q.set('view','work');q.set('tab',workTab);if(workTab==='gmail'&&mailThread)q.set('source',mailThread);if(workTab==='chat'&&chatSpace)q.set('source',chatSpace);if(workTab==='github'){if(ghSection==='reports'){q.set('section','reports');if(repoReportId)q.set('report',repoReportId);}else if(ghItem)q.set('source',String(ghItem));}}
  else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);if(workspaceSection==='work'&&workspaceWorkKind)q.set('kind',workspaceWorkKind);}
+ else if(view==='team'){q.set('view','team');if(teamTab!=='members')q.set('tab',teamTab);}
  else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);if(prepareScope.type)q.set('type',prepareScope.type);}
  else if(view==='importing')q.set('view','importing');
  else if(view==='calendar'){q.set('view','calendar');q.set('day',calendarDay);if($('calendar-project').value)q.set('project',$('calendar-project').value);}
@@ -480,6 +481,7 @@ async function applyRoute(){
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
    workspaceSection=q.get('section')||'overview';workspaceWorkKind=['task','decision','question'].includes(q.get('kind'))?q.get('kind'):'';await $('open-projects').onclick();
   }
+  else if(target==='team')await openTeam(q.get('tab')==='reviews'?'reviews':'members');
   else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
   else if(target==='importing')await openImport();
   else if(target==='calendar')await openCalendar(q.get('day'),q.get('project')||'');
@@ -519,15 +521,15 @@ function syncPageHeader(which){
  if(mountedPageHeader?.view===which)return;
  if(mountedPageHeader){const {heading,home,action,actionHome}=mountedPageHeader;home.prepend(heading);if(action)actionHome.append(action);mountedPageHeader=null;}
  const slot=$('page-header');slot.replaceChildren();
- const compact=['setup','importing','prepare','tasks','projects',...LIBRARY_VIEWS].includes(which),home=$(which),heading=compact?home.querySelector('.heading'):null;
+ const compact=['setup','importing','prepare','tasks','team','projects',...LIBRARY_VIEWS].includes(which),home=$(which),heading=compact?home.querySelector('.heading'):null;
  slot.hidden=!heading;document.querySelector('main').classList.toggle('compact-header',!!heading);
  if(!heading)return;
  const action=which==='projects'?$('workspace-new'):LIBRARY_VIEWS.includes(which)?$('header-import'):null,actionHome=action?.parentElement;
  slot.append(heading);if(action)heading.append(action);mountedPageHeader={view:which,heading,home,action,actionHome};
 }
 function setConnection(message){const node=$('connection');node.textContent=message;node.title=message;node.setAttribute('aria-label',message);node.dataset.status=/disconnected|stopped|failed/i.test(message)?'error':/recording/i.test(message)?'recording':/connecting/i.test(message)?'pending':'connected';}
-function show(which) {const changed=view!==which;if(changed)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','analytics','prepare','find','projects','conversations','calendar','importing']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
- syncPageHeader(which);for(const [id,on] of [['open-tasks',which==='tasks'],['open-projects',which==='projects'],['open-conversations',LIBRARY_VIEWS.includes(which)]]){if(on)$(id).setAttribute('aria-current','page');else $(id).removeAttribute('aria-current');}if(LIBRARY_VIEWS.includes(which))$(which).prepend($('library-tabs'));$('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar();if(changed)window.scrollTo(0,0); syncRoute(); }
+function show(which) {const changed=view!==which;if(changed)readers.invalidate();view=which; if(LIBRARY_VIEWS.includes(which))store('library-view',which); for(const id of ['setup','recording','detail','tasks','team','analytics','prepare','find','projects','conversations','calendar','importing']) $(id).hidden=id!==which; $('open-tasks').classList.toggle('current',which==='tasks'); $('open-team').classList.toggle('current',which==='team'); $('open-projects').classList.toggle('current',which==='projects'); $('open-conversations').classList.toggle('current',LIBRARY_VIEWS.includes(which));
+ syncPageHeader(which);for(const [id,on] of [['open-tasks',which==='tasks'],['open-team',which==='team'],['open-projects',which==='projects'],['open-conversations',LIBRARY_VIEWS.includes(which)]]){if(on)$(id).setAttribute('aria-current','page');else $(id).removeAttribute('aria-current');}if(LIBRARY_VIEWS.includes(which))$(which).prepend($('library-tabs'));$('library-tabs').hidden=!LIBRARY_VIEWS.includes(which);for(const b of $('library-tabs').querySelectorAll('button')){const on=b.dataset.library===which;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));} $('open-analytics').classList.toggle('current',which==='analytics'); $('open-prepare').classList.toggle('current',which==='prepare'); $('open-find').classList.toggle('current',which==='find'); renderRecordingBar();if(changed)window.scrollTo(0,0); syncRoute(); }
 function renderLibrary() {
  const query='';
  const meetings=state.meetings;
@@ -2864,6 +2866,75 @@ function sourceCard(source){
  main.append(top,meta);card.append(main);return card;
 }
 let workspaceWorkKind='';
+// Team: the people in my team and their 1:1 reviews. Membership records periods only; it starts no analysis.
+let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null;
+async function openTeam(tab){
+ if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;show('team');renderLibrary();await loadTeam();
+}
+async function loadTeam(){const sequence=++teamSequence,fresh=await api('/api/team');if(sequence!==teamSequence||view!=='team')return;teamData=fresh;renderTeam();}
+function teamPeriodText(periods){
+ const last=periods.at(-1);if(!last)return '';
+ return last.end===null?'In the team since '+date(last.start):'In the team '+date(last.start)+' · left '+date(last.end);
+}
+function teamCard(member,person){
+ const card=el('article','entity-card team-card'),main=el('div','entity-main'),top=el('div','entity-top'),chips=el('div','entity-chips'),meta=el('div','entity-meta');
+ const projects=member.project_ids.map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
+ if(projects.length===1&&projects[0].color){card.classList.add('has-project-line');card.style.setProperty('--project-color',projects[0].color);}
+ top.append(btn('entity-title',person.name,()=>perform(()=>openPerson(person.id))));for(const project of projects)chips.append(projectChip(project));
+ const change=member.active?btn('quiet','Leave the team…',()=>openTeamDialog('leave',person)):btn('quiet','Rejoin the team…',()=>openTeamDialog('join',person));
+ top.append(chips,rowMenu('More actions for '+person.name,btn('quiet','Open profile',()=>perform(()=>openPerson(person.id))),change));
+ const identity=personIdentity(person);if(identity)meta.append(el('span','',identity));
+ meta.append(el('span','',teamPeriodText(member.periods)));
+ // Earlier periods stay visible: leaving and rejoining keep the history.
+ if(member.periods.length>1){const history=el('details','entity-people');history.append(el('summary','',AtlantaUX.count(member.periods.length,'team period')),el('p','hint',member.periods.map(p=>date(p.start)+' – '+(p.end?'left '+date(p.end):'now')).join(' · ')));meta.append(history);}
+ meta.append(statusBadge({tone:'muted',label:'No 1:1 review yet'}));
+ main.append(top,meta);card.append(avatar(person.name),main);return card;
+}
+function renderTeam(){
+ if(!teamData)return;
+ for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab===teamTab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
+ $('team-members-panel').hidden=teamTab!=='members';$('team-reviews-panel').hidden=teamTab!=='reviews';syncRoute(true);
+ const people=new Map((state.people||[]).map(p=>[p.id,p])),members=teamData.members.filter(m=>people.has(m.id)),active=members.filter(m=>m.active).length;
+ fillProjects($('team-project'),$('team-project').value,'All projects');
+ segmentedChoice($('team-status'),[['active','Active · '+active],['former','Former · '+(members.length-active)]],teamStatus,value=>{teamStatus=value;renderTeam();});
+ const project=$('team-project').value,list=$('team-list');list.replaceChildren();
+ $('team-project').hidden=$('team-status').hidden=!members.length;
+ if(!members.length){
+  const empty=el('div','empty-work');empty.append(el('h3','','Your team is empty'),el('p','','Add the people who work with you. Their meetings, tasks and sources then stay in one place. Adding a person starts no analysis.'));
+  empty.append(actionBtn('primary','＋ Add to my team',()=>openTeamDialog('join')));list.append(empty);
+ }else{
+  const rows=members.filter(m=>m.active===(teamStatus==='active')&&(!project||m.project_ids.includes(project))).sort((a,b)=>people.get(a.id).name.localeCompare(people.get(b.id).name));
+  for(const member of rows)list.append(teamCard(member,people.get(member.id)));
+  if(!rows.length)list.append(emptyNote(teamStatus==='active'?(project?'No active member works in this project.':'No active members. Rejoin a former member or add a person.'):(project?'No former member worked in this project.':'No former members. A person who leaves the team stays here with the history.')));
+ }
+ $('team-reviews').replaceChildren(emptyNote('No 1:1 reviews yet. A review appears here after you prepare a 1:1 with a member of your team.'));
+}
+// One dialog adds a person, ends a period or starts a new one. The date is the first day in the team, or the first day outside it.
+function openTeamDialog(action,person=null){
+ teamDialogAction={action,person};const today=new Date().toLocaleDateString('en-CA');
+ const candidates=(state.people||[]).filter(p=>!(teamData?.members||[]).some(m=>m.id===p.id&&m.active)).sort((a,b)=>a.name.localeCompare(b.name));
+ $('team-person-field').hidden=!!person;$('team-error').hidden=true;$('team-date').value=today;
+ $('team-person').replaceChildren(...candidates.map(p=>option(p.name,p.id)));
+ const leave=action==='leave';
+ $('team-dialog-title').textContent=leave?'Leave the team · '+person.name:person?'Rejoin the team · '+person.name:'Add to my team';
+ $('team-date-label').textContent=leave?'Left the team on':'In the team from';
+ $('team-save').textContent=leave?'Leave the team':person?'Rejoin the team':'Add to my team';
+ $('team-dialog-hint').textContent=leave?'The history and the 1:1 reviews stay. The person moves to Former.':'Adding a person starts no analysis. Atlanta prepares a 1:1 only when you ask.';
+ if(!person&&!candidates.length){$('team-error').textContent='Everybody in People is already in your team. Add a new person in Settings → People first.';$('team-error').hidden=false;}
+ $('team-save').disabled=!person&&!candidates.length;$('team-dialog').showModal();
+}
+$('team-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
+ const {action,person}=teamDialogAction,chosen=person||(state.people||[]).find(p=>p.id===$('team-person').value);if(!chosen)return;
+ if(!validDates($('team-form')))return;
+ try{const result=await api('/api/team/membership',{id:chosen.id,revision:(state.people||[]).find(p=>p.id===chosen.id)?.revision,action,date:$('team-date').value});
+  state.people=result.people;teamData=result.team;$('team-dialog').close();if(action==='join')teamStatus='active';renderTeam();toast(action==='leave'?chosen.name+' left the team':chosen.name+' is in your team');}
+ catch(exc){$('team-error').textContent=exc.message;$('team-error').hidden=false;}
+});};
+$('team-close').onclick=()=>$('team-dialog').close();
+$('team-add').onclick=()=>openTeamDialog('join');
+$('team-project').onchange=renderTeam;
+for(const b of $('team-tabs').querySelectorAll('button'))b.onclick=()=>{teamTab=b.dataset.teamTab;renderTeam();};
+$('open-team').onclick=()=>perform(()=>openTeam());
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
 $('workspace-refresh').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;itemsData=await api('/api/items');await loadWorkspace();});
@@ -3249,6 +3320,7 @@ const dialogPolicies={
  'manual-task-dialog':{dismiss:()=>$('manual-task-dialog').close()},
  'excerpt-dialog':{close:'excerpt-cancel',form:'excerpt-form'},
  'person-dialog':{close:'person-close',cancel:'person-cancel',form:'person-form',actions:['person-delete']},
+ 'team-dialog':{close:'team-close',cancel:'team-cancel',form:'team-form'},
  'template-dialog':{close:'template-close',cancel:'template-cancel',form:'template-form',actions:['template-delete']},
  'github-link-dialog':{close:'github-link-close',cancel:'github-link-cancel',form:'github-link-form'},
  'scope-dialog':{close:'scope-close',cancel:'scope-cancel',form:'scope-form'},

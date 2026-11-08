@@ -19,6 +19,7 @@ from .safe_json import SafeJSON
 EMAIL = re.compile(r'[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,63}')
 LOGIN = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})')
 MAX_PEOPLE = 500
+MAX_TEAM_PERIODS = 50
 
 
 from .work_items import WorkItemConflict as Conflict
@@ -33,6 +34,42 @@ def _text(value, field, limit=80, required=False):
     if required and not value or len(value) > limit:
         raise ValueError(f'{field} must have 1 to {limit} characters' if required else f'{field} is too long')
     return value
+
+
+def _day(value, field):
+    try:
+        return dt.date.fromisoformat(value).isoformat() if isinstance(value, str) and len(value) == 10 else dt.date.fromisoformat('x')
+    except ValueError:
+        raise ValueError(f'{field} must be a date') from None
+
+
+def _team_periods(value):
+    """The periods [start, end) when a person was in my team: oldest first, without overlaps; only the last can be open.
+
+    The end is the day the person left: the first day outside the team.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_TEAM_PERIODS:
+        raise ValueError(f'A person has at most {MAX_TEAM_PERIODS} team periods')
+    periods = []
+    for row in value:
+        if not isinstance(row, dict):
+            raise ValueError('Invalid team period')
+        start = _day(row.get('start'), 'Team start')
+        end = None if row.get('end') is None else _day(row.get('end'), 'Team end')
+        if end is not None and end < start:
+            raise ValueError('A team period ends on or after its start')
+        if periods and (periods[-1]['end'] is None or start < periods[-1]['end']):
+            raise ValueError('Team periods must not overlap')
+        periods.append(dict(start=start, end=end))
+    return periods
+
+
+def in_team(person, day=None):
+    """True when a person is in my team on this day (today by default). On the end day the person is already out."""
+    day = day or dt.date.today().isoformat()
+    return any(p['start'] <= day and (p['end'] is None or day < p['end']) for p in person.get('team', []))
 
 
 def _names(person):
@@ -97,6 +134,7 @@ class People(SafeJSON):
             if account is not None and (type(account) is not int or account <= 0):
                 raise ValueError('Invalid GitHub user ID')
             person['github'] = dict(login=login, id=account)
+        person['team'] = _team_periods(value.get('team'))
         if not keep and re.fullmatch(r'SPEAKER[ _-]?\d+', person['name'], re.I):
             raise ValueError('Unidentified speakers belong to one meeting. Choose a real person name.')
         return person
@@ -121,6 +159,8 @@ class People(SafeJSON):
             value=dict(value)
             if old:
                 value.setdefault('identities',old.get('identities',[]))
+                # The profile form does not send team periods; Team changes them.
+                value.setdefault('team',old.get('team',[]))
                 if old['name'].casefold()!=str(value.get('name','')).strip().casefold() and not re.fullmatch(r'SPEAKER[ _-]?\d+',old['name'],re.I):
                     value['aliases']=[*(value.get('aliases') or []),old['name']]
             person = self._valid(value)
@@ -143,6 +183,30 @@ class People(SafeJSON):
                 raise ValueError(f'At most {MAX_PEOPLE} people')
             self.save_file(others + [person])
             return copy.deepcopy(person)
+
+    def team_change(self, person_id, revision, action, day):
+        """Add a person to my team from a day, or end the open period on a day. The old periods stay."""
+        with self.lock:
+            person = self.get(person_id)
+            if not person or type(revision) is not int or person['revision'] != revision:
+                raise Conflict('This person changed. Reload and try again.')
+            day = _day(day, 'Date')
+            periods = copy.deepcopy(person.get('team', []))
+            if action == 'join':
+                if periods and periods[-1]['end'] is None:
+                    raise ValueError(f'{person["name"]} is already in your team')
+                if periods and day < periods[-1]['end']:
+                    raise ValueError('Choose a day on or after the day the person left')
+                periods.append(dict(start=day, end=None))
+            elif action == 'leave':
+                if not periods or periods[-1]['end'] is not None:
+                    raise ValueError(f'{person["name"]} is not in your team')
+                if day < periods[-1]['start']:
+                    raise ValueError('Choose a day on or after the team start')
+                periods[-1]['end'] = day
+            else:
+                raise ValueError('Choose join or leave')
+            return self.save(dict(person, team=periods))
 
     def delete(self, person_id, revision):
         with self.lock:

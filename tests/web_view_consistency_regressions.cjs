@@ -1,7 +1,7 @@
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.css','utf8');
 // Every view with a plain heading uses the compact top bar, also the first screen.
-assert.match(app,/const compact=\['setup','importing','prepare','tasks','projects',\.\.\.LIBRARY_VIEWS\]\.includes\(which\)/);
+assert.match(app,/const compact=\['setup','importing','prepare','tasks','team','projects',\.\.\.LIBRARY_VIEWS\]\.includes\(which\)/);
 assert.match(app,/else syncPageHeader\(view\);\n \}finally\{routing=false;syncRoute\(true\);\}/);
 // The connection status is a dot in every view, the meeting included.
 assert.doesNotMatch(css,/\.compact-header #connection/);assert.match(css,/main #connection\{position:relative;flex:none;width:26px/);

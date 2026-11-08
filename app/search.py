@@ -15,7 +15,7 @@ import threading
 from .meeting_types import SECTION_FIELDS
 
 KINDS = ('decision', 'task', 'summary', 'next_step', 'question', 'observation', 'marker', 'transcript', 'draft', 'meeting')
-NOTE_FIELDS = (('summary', 'summary'), ('next_steps', 'next_step'), ('needs_decision', 'question'),
+NOTE_FIELDS = (('summary', 'summary'), ('updates', 'summary'), ('next_steps', 'next_step'), ('needs_decision', 'question'),
                ('open_questions', 'question'), ('observations', 'observation'), ('decisions', 'decision'), ('tasks', 'task'),
                *((field, 'summary') for field in SECTION_FIELDS))
 # Question words and verbs of talking match almost every passage and only add noise to the ranking.

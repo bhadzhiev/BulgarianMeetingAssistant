@@ -11,7 +11,7 @@ PHASE_PREFIXES = [('Downloading', 'Model download'), ('Loading', 'Model loading'
                   ('Reusing completed notes', 'Checkpoint reuse'),
                   ('Transcribing', 'Speech inference'), ('Sending the whole recording', 'Speech inference'),
                   ('Generating notes', 'AI requests'), ('Notes saved without merging', 'AI requests'), ('AI correction', 'AI requests'),
-                  ('Output limit reached', 'AI requests'),
+                  ('Output limit reached', 'AI requests'), ('Matching tasks', 'AI requests'),
                   ('Identifying speakers', 'Speaker inference'), ('Learning voice', 'Voice learning'),
                   ('Checking topic', 'Topic analysis'), ('Building conversation analytics', 'Analytics'),
                   ('Publishing', 'Publishing')]

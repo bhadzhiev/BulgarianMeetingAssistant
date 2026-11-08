@@ -2788,8 +2788,8 @@ function renderWorkspace(){
   }
  }else if(workspaceSection==='meetings'){
   box.append(el('h2','',AtlantaUX.count(data.meetings.length,'meeting')));
-  for(const meeting of data.meetings){const row=el('article','workspace-item'),open=openMeetingBtn(meeting.title,meeting.id);row.append(open,el('p','hint',date(meeting.started_at||meeting.created)+' · '+(statusNames[meeting.status]||meeting.status)));
-   const assign=el('select');assign.setAttribute('aria-label','Project for '+meeting.title);fillProjects(assign,meeting.project_id||'','No project');const save=el('button','secondary small-action','Move meeting');save.onclick=()=>perform(async()=>{await api('/api/meetings/'+meeting.id+'/scope',{project:assign.value?{id:assign.value}:null,series:assign.value===meeting.project_id&&meeting.series_id?{id:meeting.series_id}:null});state=await api('/api/state');lastTasks='';itemsData=await api('/api/items');renderState();await loadWorkspace();});row.append(assign,save);box.append(row);}
+  const meetingList=el('div','entity-list');for(const meeting of data.meetings)meetingList.append(meetingCard(meeting,{onChange:loadWorkspace}));box.append(meetingList);
+  if(!data.meetings.length)box.append(emptyNote('No meetings in this project yet. Add one from Library with + Add project.'));
  }else if(workspaceSection==='conversations'){
   box.append(el('h2','','Project conversations'),el('p','hint','External conversations cached locally and attached to this project. The meetings themselves are in the Meetings tab. Source snapshots do not imply a task or commitment.'));
   if(!(data.conversations||[]).length)box.append(el('p','hint','No external conversations attached yet.'));
@@ -2857,6 +2857,7 @@ function renderConversations(){
  $('conversation-selection').textContent=AtlantaUX.count(selectedConversations.size,'meeting')+' selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;
  $('conversation-prev').disabled=!result.offset;$('conversation-next').disabled=result.offset+result.rows.length>=result.total;
  for(const row of result.rows){
+  if(row.provider==='meeting'){list.append(meetingCard({...row,id:row.external_id},{participants:row.participants,onChange:loadConversations,select:{checked:selectedConversations.has(row.external_id),onchange:check=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=AtlantaUX.count(selectedConversations.size,'meeting')+' selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;}}}));continue;}
   const card=el('article','conversation-card'),main=el('div','conversation-main'),open=btn('quiet conversation-title',row.title);
   open.onclick=()=>perform(async()=>{if(row.provider==='meeting')return openMeeting(row.external_id);if(row.provider==='attached')return openAttachment(row.external_id);show('tasks');lastTasks='';await loadTasks();if(row.provider==='gmail'){showWorkTab('gmail');await openMail(row.external_id);}else{chatSpace=row.external_id;showWorkTab('chat');}});
   main.append(open,el('p','hint',(CONVERSATION_LABELS[row.provider]||row.provider)+' · '+dateTime(row.date)+(row.status?' · '+(statusNames[row.status]||row.status):'')),el('p','hint',(row.participants||[]).join(', ')));
@@ -2871,6 +2872,46 @@ function renderConversations(){
   card.append(main);list.append(card);
  }
  if(!result.rows.length&&!emptyLibrary)list.append(emptyNote('No conversations match these filters. Change or clear the active filters.'));
+}
+// One meeting card for Library, Projects and Calendar: what it is, its project, its state and what to do.
+// A status shows only when a meeting needs something; a plain ready meeting has none.
+function meetingStatus(m){
+ if(m.error||m.status==='error')return {tone:'danger',label:'Processing stopped'};
+ if(['starting','recording','paused','stopping','processing'].includes(m.status))return {tone:'warn',label:statusNames[m.status]||'Processing'};
+ if(m.status==='interrupted')return {tone:'danger',label:'Interrupted'};
+ if(m.notes_need_refresh)return {tone:'warn',label:'Notes need update'};
+ return null;
+}
+function projectChip(project){const chip=el('span','project-chip');chip.append(projectDot(project),document.createTextNode(project.name));return chip;}
+function clockTime(value){const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';}
+function meetingCard(m,{variant='list',participants=null,select=null,onChange=null}={}){
+ const ids=m.project_ids||(m.project_id?[m.project_id]:[]),projects=ids.map(id=>projectList().find(p=>p.id===id)).filter(Boolean),compact=variant==='calendar';
+ const card=el('article','entity-card meeting-card'+(compact?' compact':''));card.dataset.meetingId=m.id;
+ if(projects.length===1&&projects[0].color){card.classList.add('has-project-line');card.style.setProperty('--project-color',projects[0].color);}
+ if(select){const check=el('input','entity-check');check.type='checkbox';check.checked=select.checked;check.setAttribute('aria-label','Select '+m.title+' for a bulk change');check.onchange=()=>select.onchange(check);card.append(check);}
+ const main=el('div','entity-main'),top=el('div','entity-top'),chips=el('div','entity-chips');
+ if(compact)top.append(el('span','entity-time',clockTime(m.started_at||m.created||m.date)));
+ top.append(openMeetingBtn(m.title,m.id,'entity-title'));
+ for(const project of projects)chips.append(projectChip(project));
+ // The project picker: "+ Add project" for a meeting without one, "Change project…" in the menu otherwise.
+ const picker=el('details','project-pick'),summary=el('summary','add-project','＋ Add project'),pick=el('select'),save=el('button','primary small-action','Save'),cancel=el('button','secondary small-action','Cancel');
+ summary.hidden=!!projects.length;pick.setAttribute('aria-label','Project for '+m.title);fillProjects(pick,ids[0]||'','No project');save.type=cancel.type='button';
+ cancel.onclick=()=>{picker.open=false;};
+ save.onclick=()=>perform(async()=>{await api('/api/meetings/'+m.id+'/scope',{project:pick.value?{id:pick.value}:null,series:pick.value&&pick.value===m.project_id&&m.series_id?{id:m.series_id}:null});picker.open=false;state=await api('/api/state');renderState();lastTasks='';toast(pick.value?'Meeting moved to '+(projectList().find(p=>p.id===pick.value)?.name||'the project'):'Meeting removed from its project');if(onChange)await onChange();});
+ const pickBody=el('div','project-pick-body');pickBody.append(pick,save,cancel);picker.append(summary,pickBody);chips.append(picker);
+ const change=btn('quiet',projects.length?'Change project…':'Add to a project…',()=>{picker.open=true;pick.focus();});
+ const menu=rowMenu('More actions for '+m.title,btn('quiet','Open meeting',()=>perform(()=>openMeeting(m.id))),change);
+ const meta=el('div','entity-meta'),facts=[];
+ if(!compact)facts.push('Meeting',dateTime(m.started_at||m.created||m.date));
+ if(m.duration)facts.push(shortDuration(m.duration));
+ meta.append(el('span','',facts.join(' · ')));
+ // The participant count is the control that shows their names.
+ if(participants?.length){const people=el('details','entity-people');people.append(el('summary','',AtlantaUX.count(participants.length,'participant')),el('p','hint',participants.join(', ')));meta.append(people);}
+ const status=meetingStatus(m);if(status)meta.append(statusBadge(status));
+ // A compact card (Calendar) gives the title the width; the project joins the metadata row.
+ if(compact){top.append(menu);meta.append(chips);}else top.append(chips,menu);
+ main.append(top,meta);
+ card.append(main);return card;
 }
 // A whole email thread or Chat conversation can join a project before any task exists.
 async function attachExternal(provider,id){
@@ -3543,9 +3584,7 @@ function renderCalendar(){
  }
  $('calendar-day-title').textContent=date(calendarDay);const daily=rows.filter(row=>row.day===calendarDay),box=$('calendar-meetings');box.replaceChildren();
  $('calendar-day-count').textContent=AtlantaUX.count(daily.length,'meeting');
- for(const row of daily){const card=el('article','calendar-meeting'),open=openMeetingBtn(row.title,row.id);
-  const status=row.error?'Processing stopped':row.notes_need_refresh?AtlantaStatus.label('review','needs_review'):statusNames[row.status]||row.status;
-  card.append(open,el('p','hint',dateTime(row.started_at||row.created)+' · '+status));box.append(card);}
+ for(const row of daily)box.append(meetingCard(row,{variant:'calendar',onChange:async()=>renderCalendar()}));
  if(!daily.length){box.append(emptyNote('No saved meetings on this day.' ));const actions=el('div','work-actions');for(const [label,id] of [['New meeting','new-meeting'],['Import audio or transcript','open-import']]){if(!$(id))continue;const b=btn('secondary',label);b.onclick=()=>$(id).click();actions.append(b);}box.append(actions);}
  const missing=(state.meetings||[]).filter(m=>!AtlantaUX.meetingDay(m)).length;
  $('calendar-notice').textContent='Saved locally · Europe/Sofia'+(missing?' · '+AtlantaUX.count(missing,'meeting')+' without a valid date; available in Conversations.':'');

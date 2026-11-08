@@ -159,6 +159,8 @@ class MeetingService:
         self.repo_reports = RepoReports(self)
         from .task_draft import DraftJobs
         self.task_drafts = DraftJobs(self)
+        from .team_ai import ReviewAI
+        self.team_ai = ReviewAI(self)
         self.automation = MeetingAutomation(self)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
@@ -2917,6 +2919,7 @@ class MeetingService:
         self.closed.set()
         self.prompt_lab.close()
         self.task_drafts.close()
+        self.team_ai.close()
         self.repo_reports.close()
         self.github.close()
         self.chat.close()

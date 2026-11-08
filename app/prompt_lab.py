@@ -79,6 +79,10 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
     if stage in {'repository_changes','repository_summary'}:
         suffix='\nProduce one overall report across these changes; prioritize consequences, risks and follow-ups, without repeating each file.' if stage=='repository_summary' else ''
         return [dict(role='system',content=repo_reports.SYSTEM+suffix),dict(role='user',content=canonical(dict(untrusted_repository_evidence=[dict(id='preview',text=snippet)])))],repo_reports.SCHEMA
+    if stage=='team_review':
+        from . import team_ai
+        data=dict(person='Test person',records=[dict(id='e1',kind='task_assigned',confirmation_basis='A person chose the owner',facts=dict(text=snippet,role='accountable'),quote=snippet)])
+        return [dict(role='system',content=team_ai.SYSTEM),dict(role='user',content=canonical(dict(untrusted_records=data)))],team_ai.SCHEMA
     if stage=='meeting_answer':
         sources=[dict(kind='transcript',meeting_title='Test excerpt',timestamp='00:00:00',meeting_date='',text=snippet)]
         return [dict(role='user',content=search.answer_prompt('Какво е обсъдено в този откъс?',sources))],search.ANSWER_SCHEMA
@@ -129,6 +133,9 @@ def generate(settings,key=''):
     elif stage=='followup_email':
         from .followup_email import clean
         clean(result)
+    elif stage=='team_review':
+        from .team_ai import validate
+        validate(result,{'e1'})
     elif stage=='topic_matches':
         if set(result)!={'matches'} or not isinstance(result['matches'],list) or any(type(v) is not int or v!=0 for v in result['matches']):raise ValueError('Invalid segment IDs')
     elif stage=='meeting_answer':

@@ -70,6 +70,9 @@ class TeamReviews:
         self.lock = threading.RLock()
 
     # Files ----------------------------------------------------------------------------------------
+    def directory(self, review_id):
+        return self._directory(review_id)
+
     def _directory(self, review_id):
         if not isinstance(review_id, str) or not ID.fullmatch(review_id):
             raise ValueError('Invalid review')
@@ -209,7 +212,28 @@ class TeamReviews:
             facts = collect(meta['period']['start'], meta['period']['end'], self.previous(meta['person_id']))
             atomic_text(directory / 'review.md', facts['review_md'])
             atomic_json(directory / 'evidence.json', facts['evidence'])
-            self._write_meta(directory, dict(meta, coverage=dict(facts['coverage'], excluded_items=facts['excluded']), revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
+            self._write_meta(directory, dict(meta, coverage=dict(facts['coverage'], excluded_items=facts['excluded']), generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
+            return self.get(review_id)
+
+    def set_generator(self, review_id, revision, generator):
+        """Record the AI target, prompt and input of a run before it starts. An incomplete run blocks Finalize."""
+        with self.lock:
+            directory, meta = self._current(review_id, revision)
+            if meta['status'] != 'draft':
+                raise ValueError('Only a draft gets AI preparation')
+            self._write_meta(directory, dict(meta, generator=generator, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
+
+    def apply_ai(self, review_id, revision, text, generator):
+        """Save the AI part of a draft. A draft that changed during the run keeps its text; the run can repeat."""
+        with self.lock:
+            try:
+                directory, meta = self._current(review_id, revision)
+            except Conflict:
+                raise Conflict('The draft changed during the AI preparation. Run it again; the finished parts are kept.') from None
+            if meta['status'] != 'draft' or len(text) > MAX_REVIEW:
+                raise ValueError('The AI result does not fit this draft')
+            atomic_text(directory / 'review.md', text)
+            self._write_meta(directory, dict(meta, generator=generator, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
     def save_review(self, review_id, revision, text):
@@ -239,6 +263,8 @@ class TeamReviews:
             directory, meta = self._current(review_id, revision)
             if meta['status'] != 'draft':
                 raise ValueError('Only a draft can be finalized')
+            if meta.get('generator') and not meta['generator'].get('complete'):
+                raise ValueError('The AI preparation is incomplete. Run it again, or collect the facts again without AI.')
             now = _iso(dt.datetime.now(TZ))
             if meta['supersedes']:
                 old_dir = self._directory(meta['supersedes'])

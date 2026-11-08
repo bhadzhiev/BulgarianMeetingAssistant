@@ -7,9 +7,9 @@ assert.match(row,/quick\.hidden=!openTaskFields\.has\(item\.id\)/);
 assert.match(row,/toggle\.textContent=open\?'Hide fields':'Change owner or dates'/);
 assert.match(row,/toggle\.setAttribute\('aria-expanded',String\(open\)\)/);
 assert.match(row,/if\(open\)openTaskFields\.add\(item\.id\);else openTaskFields\.delete\(item\.id\)/);
-// Mark done stays on the card; Add update and Timeline go with the fields.
-assert.match(row,/rowActions\.append\(doneButton\(item\),toggle\)/);
-assert.match(row,/fieldActions\.append\(addUpdate,timeline\)/);
+// Mark done and Timeline stay on the card; Add update goes with the fields.
+assert.match(row,/rowActions\.append\(doneButton\(item\),timeline,toggle\)/);
+assert.match(row,/fieldActions\.append\(addUpdate\)/);
 // An owner name without a People entry says so in plain words.
 assert.match(row,/' · not in People'/);assert.doesNotMatch(row,/current name/);
 // A matching People entry is selected instead of a second option with the same name; Undo restores the plain name.

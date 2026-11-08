@@ -152,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/review-queue':
             from app.review_queue import build
             return self.respond(200, build(self.server.service))
+        if url.path == '/api/team':
+            return self.respond(200, self.server.service.team_overview())
         if url.path == '/api/people/profile':
             return self.respond(200, self.server.service.person_profile(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/github/links':
@@ -476,6 +478,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = remove(service,body)
             elif path == '/api/people/save':
                 result = service.save_person(body)
+            elif path == '/api/team/membership':
+                result = service.team_change(body)
             elif path == '/api/people/delete':
                 result = service.delete_person(body.get('id'), body.get('revision'))
             elif path == '/api/github/user':

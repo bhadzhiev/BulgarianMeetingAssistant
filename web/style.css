@@ -1246,3 +1246,9 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 .finding-evidence[open]{display:flex;flex-direction:column;gap:8px}
 .finding-evidence[open]>summary{margin-bottom:2px}
 .reader-head>.entity-meta{margin-top:6px}
+/* Team: members on the shared card, with the avatar in front. */
+.team-card>.speaker-badge{flex:none;width:32px;height:32px;font-size:12px}
+.team-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0}
+.team-filters #team-project{flex:0 1 240px;width:240px;max-width:100%}
+.team-filters #team-add{margin-left:auto}
+#team-reviews,#team-list{margin-top:4px}

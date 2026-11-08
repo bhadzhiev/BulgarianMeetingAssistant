@@ -7,6 +7,7 @@
   <button id="new-meeting" class="primary wide"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New meeting</button>
   <nav class="primary-navigation" aria-label="Primary navigation">
   <a href="/?view=work" id="open-tasks" class="tasks-link sidebar-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10"/></svg>My Work <span id="tasks-badge" class="count-badge" hidden></span></a>
+  <a href="/?view=team" id="open-team" class="tasks-link sidebar-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.6 3.2-6 6.5-6s5.9 2.4 6.5 6M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.4c2 .8 3.2 2.9 3.5 5.6"/></svg>Team</a>
   <a href="/?view=conversations" id="open-conversations" class="tasks-link sidebar-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5zM10 4h4v16h-4zM15 5l4 1-3 14-4-1z"/></svg>Library</a>
   <a href="/?view=projects" id="open-projects" class="tasks-link sidebar-link"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3zM3 7V5h6l2 2"/></svg>Projects</a>
   </nav>
@@ -92,6 +93,15 @@
     <div class="card conversation-bulk"><strong id="conversation-selection">0 meetings selected</strong><button id="conversation-clear" class="quiet">Clear selection</button><select id="conversation-bulk-project" aria-label="Move selected meetings to project"></select><select id="conversation-bulk-series" aria-label="Series for selected meetings"></select><button id="conversation-move" class="secondary">Move selected meetings</button><p class="hint">Manual project assignments on work items stay unchanged. Up to 200 meetings per operation.</p></div>
     <div class="work-actions"><p id="conversation-count" class="hint" aria-live="polite"></p><button id="conversation-select-page" class="quiet" type="button">Select this page</button></div><div id="conversation-list" class="conversation-list"></div>
     <div class="work-actions conversation-pagination"><button id="conversation-prev" class="secondary">Previous page</button><button id="conversation-next" class="secondary">Next page</button></div>
+  </section>
+  <section id="team" hidden>
+    <div class="heading"><h1>Team</h1><p class="subheading">Prepare a 1:1 from facts in meetings, tasks and sources.</p></div>
+    <div class="tabs" id="team-tabs" role="tablist" aria-label="Team sections"><button role="tab" data-team-tab="members">My team</button><button role="tab" data-team-tab="reviews">Reviews</button></div>
+    <div id="team-members-panel" role="tabpanel">
+      <div class="work-actions team-filters"><select id="team-project" aria-label="Project"></select><div id="team-status" class="segmented" aria-label="Members"></div><button id="team-add" class="primary" type="button">＋ Add to my team</button></div>
+      <div id="team-list" class="entity-list"></div>
+    </div>
+    <div id="team-reviews-panel" role="tabpanel" hidden><div id="team-reviews"></div></div>
   </section>
   <section id="projects" hidden>
     <div class="heading"><h1>Projects</h1><p class="subheading">Meetings, work and sources, grouped by project.</p></div>
@@ -277,6 +287,14 @@
   <label for="person-notes">Notes</label><textarea id="person-notes" rows="2" maxlength="1000"></textarea>
   <div id="person-identities" class="identity-list"></div><div id="person-profile" class="person-profile"></div>
   <div class="review-footer"><button id="person-delete" class="danger" type="button">Delete person</button><button id="person-cancel" class="secondary dismiss-action" type="button">Cancel</button><button class="primary" type="submit">Save person</button></div>
+</form></dialog>
+<dialog id="team-dialog" aria-labelledby="team-dialog-title"><form id="team-form" method="dialog">
+  <div class="card-heading"><div><p class="eyebrow">TEAM</p><h2 id="team-dialog-title">Add to my team</h2></div><button id="team-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <p id="team-error" class="error" role="alert" hidden></p>
+  <div id="team-person-field"><label for="team-person">Person</label><select id="team-person"></select><p class="hint">The same profile as in People: names in meetings, task owner, email, Chat and GitHub.</p></div>
+  <label for="team-date" id="team-date-label">In the team from</label><input id="team-date" type="date" required>
+  <p id="team-dialog-hint" class="hint">Adding a person starts no analysis. Atlanta prepares a 1:1 only when you ask.</p>
+  <div class="review-footer"><button id="team-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-save" class="primary" type="submit">Add to my team</button></div>
 </form></dialog>
 <dialog id="template-dialog" aria-labelledby="template-title"><form id="template-form" method="dialog">
   <div class="card-heading"><div><p class="eyebrow">MEETING TYPE</p><h2 id="template-title">New template</h2></div><button id="template-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>

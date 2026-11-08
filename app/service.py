@@ -1369,6 +1369,42 @@ class MeetingService:
     def save_person(self, body):
         return dict(person=self.people.save(body), people=self.people.list(), speakers=self.library.speakers())
 
+    def team_change(self, body):
+        """Join or leave my team. A change only records the period; it starts no analysis."""
+        if not isinstance(body, dict):
+            raise ValueError('Invalid team change')
+        person = self.people.team_change(body.get('id'), body.get('revision'), body.get('action'), body.get('date'))
+        return dict(person=person, people=self.people.list(), team=self.team_overview())
+
+    def team_overview(self):
+        """The people with a team period: whether they are in the team today, and their projects.
+
+        A project comes from a meeting where the person speaks under a confirmed name, or from a task that they own.
+        """
+        from .people import in_team
+        members = [p for p in self.people.list() if p.get('team')]
+        if not members:
+            return dict(members=[])
+        names = {p['id']: {n for n in self._person_names(p) if len(self.people.matching(n)) == 1} for p in members}
+        projects = {p['id']: set() for p in members}
+        for meeting in self.library.list():
+            if not meeting.get('project_id'):
+                continue
+            try:
+                speakers = {name.casefold() for name in self.conversations._text(meeting)['participants']}
+            except (OSError, ValueError):
+                continue
+            for person_id, known in names.items():
+                if known & speakers:
+                    projects[person_id].add(meeting['project_id'])
+        for item in self.item_list()['items']:
+            if item['kind'] != 'task':
+                continue
+            owner, _how = self.people.owner_of(item)
+            if owner and owner['id'] in projects:
+                projects[owner['id']].update(item.get('effective_project_ids') or [])
+        return dict(members=[dict(id=p['id'], active=in_team(p), periods=p['team'], project_ids=sorted(projects[p['id']])) for p in members])
+
     def delete_person(self, person_id, revision):
         self.people.delete(person_id, revision)
         return dict(people=self.people.list(), speakers=self.library.speakers())

@@ -1296,3 +1296,11 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 .team-github-repos label.project-choice input{width:auto;margin:0}
 .team-source-changes>summary{cursor:pointer}
 .team-source-changes>p{margin:6px 0 0}
+/* Actions and goals of a 1:1. */
+.team-agreements{margin:0 0 16px}
+.team-agreement-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 12px}
+.team-agreement{display:grid;grid-template-columns:110px minmax(160px,1fr) 130px 150px 110px auto auto;gap:8px;align-items:center}
+.team-agreement.compact{grid-template-columns:1fr 130px}
+.team-agreement-text{font-size:14px;overflow-wrap:anywhere}
+@media(max-width:900px){.team-agreement{grid-template-columns:1fr 1fr}.team-agreement>input:not([type=date]){grid-column:1/-1;order:-1}}
+@media(max-width:900px){.team-agreement:not(.compact){padding-top:10px;border-top:1px solid var(--line)}.team-agreement:not(.compact):first-child{border-top:0;padding-top:0}}

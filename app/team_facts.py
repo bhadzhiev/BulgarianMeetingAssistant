@@ -375,12 +375,21 @@ def collect(service, person, start, end, previous=None):
             record = c.evidence[int(ref[1:]) - 1]
             record['facts'] = dict(record['facts'], open_at_end=row['open_at_end'])
     carried = c.carried(items, tasks)
+    # The actions and goals of the last 1:1: each one is a record with its saved state and the state of its task.
+    by_id = {i['id']: i for i in items}
+    agreements = []
+    for row in (previous or {}).get('agreements', []):
+        task = by_id.get(row.get('task_id')) if row.get('task_id') else None
+        task_state = None if not row.get('task_id') else 'removed' if not task else 'done' if task.get('status') == 'done' else AtlantaState.get(task.get('workflow_state'), 'open')
+        ref = c.add('agreement', task, (previous or {}).get('period', {}).get('end'), 'Agreed in the last 1:1 and saved by the manager',
+                    dict(text=row['text'], kind=row['kind'], owner=row['owner'], status=row['status'], due_date=row.get('due_date'), task_state=task_state, open_at_end=row['status'] == 'open'))
+        agreements.append(dict(row, ref=ref, task_state=task_state))
     waits = blockers(c, items, tasks)
     coverage = c.coverage(items)
     counts = {key: sum(1 for t in tasks if key in t['marks']) for key, _ in COUNTS}
     coverage['counts'] = counts
     return dict(evidence=c.evidence, coverage=coverage, excluded=c.excluded,
-                review_md=markdown(c, tasks, decisions, waits, carried, coverage, counts))
+                review_md=markdown(c, tasks, decisions, waits, carried, coverage, counts, agreements))
 
 
 def blockers(c, items, tasks):
@@ -447,7 +456,7 @@ def change_section(c, coverage, counts):
     return out
 
 
-def markdown(c, tasks, decisions, waits, carried, coverage, counts):
+def markdown(c, tasks, decisions, waits, carried, coverage, counts, agreements=()):
     person = c.person['name']
     period = f"{c.start.astimezone(TZ).strftime('%d.%m.%Y %H:%M')} – {c.end.astimezone(TZ).strftime('%d.%m.%Y %H:%M')} (Europe/Sofia)"
     ref = lambda refs: ' ' + ' '.join(f'[{r}]' for r in refs) if refs else ''
@@ -488,7 +497,12 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts):
     if c.previous is None:
         out.append('_This is the first review. There are no earlier agreements yet._')
     else:
-        out += [f"- {r['text']} · now {r['state']}" for r in carried] or ['_The last review had no open commitments._']
+        owners = dict(person='the person', manager='the manager', both='both')
+        for a in agreements:
+            due = f" · due {_fmt_day(a['due_date'])}" if a.get('due_date') else ''
+            task = f" · task {a['task_state']}" if a.get('task_state') else ''
+            out.append(f"- {'Goal' if a['kind'] == 'goal' else 'Action'} ({owners[a['owner']]}): {a['text']} · {a['status']}{due}{task} [{a['ref']}]")
+        out += [f"- {r['text']} · now {r['state']}" for r in carried] or ([] if agreements else ['_The last review had no open commitments and no saved actions or goals._'])
         out.append('- The notes of the last 1:1 are in that review.')
     out += ['', '## Questions for the conversation', '', '_The AI step suggests questions later. Add your own here._', '']
     return '\n'.join(out)

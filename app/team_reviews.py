@@ -5,6 +5,7 @@ team-reviews/<person-id>/<review-id>/
   conversation-notes.md  notes, actions and goals of the conversation. Always editable.
   metadata.json          period, status, version, coverage and the generator snapshot.
   evidence.json          saved copies of the evidence. Fixed after Finalize.
+  agreements.json        the actions and goals that the manager saved after the conversation. Always editable.
 
 A review starts as a Draft, becomes Finalized and is then fixed. A correction is a new version: a new
 Draft that names the review it replaces. When that version is finalized, the old one becomes Superseded.
@@ -31,6 +32,10 @@ FIRST_PERIOD_DAYS = 7
 MAX_PERIOD_DAYS = 366
 MAX_REVIEW = 500_000
 MAX_NOTES = 200_000
+MAX_AGREEMENTS = 50
+AGREEMENT_KINDS = {'action', 'goal'}
+AGREEMENT_OWNERS = {'person', 'manager', 'both'}
+AGREEMENT_STATES = {'open', 'done', 'dropped'}
 ID = re.compile(r'[a-f0-9]{12}')
 SECTIONS = ['Coverage', 'Commitments', 'Tasks', 'Decisions', 'Blockers', 'GitHub contribution',
             'Previous agreements and goals', 'Questions for the conversation']
@@ -86,13 +91,21 @@ class TeamReviews:
         if text:
             meta = dict(meta, review_md=(directory / 'review.md').read_text(encoding='utf-8'),
                         notes_md=(directory / 'conversation-notes.md').read_text(encoding='utf-8'),
-                        evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')))
+                        evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')),
+                        agreements=self._agreements(directory))
         return meta
+
+    @staticmethod
+    def _agreements(directory):
+        path = directory / 'agreements.json'
+        return json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
 
     def _all(self, person_id=None):
         if not self.root.exists():
             return []
         rows = []
+        if person_id is not None and not (isinstance(person_id, str) and ID.fullmatch(person_id)):
+            return []
         for path in self.root.glob(('*' if person_id is None else person_id) + '/*/metadata.json'):
             if not ID.fullmatch(path.parent.name) or not ID.fullmatch(path.parent.parent.name):
                 continue
@@ -205,8 +218,8 @@ class TeamReviews:
         if not done:
             return None
         directory = self._directory(done[0]['id'])
-        return dict(id=done[0]['id'], period=done[0]['period'], coverage=done[0].get('coverage') or {},
-                    evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')))
+        return dict(id=done[0]['id'], period=done[0]['period'], coverage=done[0].get('coverage') or {}, revision=done[0]['revision'],
+                    evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')), agreements=self._agreements(directory))
 
     def recollect(self, review_id, revision, collect):
         """Collect the facts of a draft again. The new text replaces the old one; the notes stay."""
@@ -280,6 +293,67 @@ class TeamReviews:
             atomic_text(directory / 'review.md', text)
             self._write_meta(directory, dict(meta, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
+
+    def save_agreements(self, review_id, revision, rows):
+        """The actions and goals of the conversation. Only what the manager saves counts; they change apart from the review."""
+        with self.lock:
+            if not isinstance(rows, list) or len(rows) > MAX_AGREEMENTS:
+                raise ValueError(f'Save at most {MAX_AGREEMENTS} actions and goals')
+            directory, meta = self._current(review_id, revision)
+            old = {row['id']: row for row in self._agreements(directory)}
+            now, clean = _iso(dt.datetime.now(TZ)), []
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError('Invalid action or goal')
+                text = row.get('text')
+                if not isinstance(text, str) or not text.strip() or len(text) > 1000:
+                    raise ValueError('Each action or goal needs a text of up to 1000 characters')
+                if row.get('kind') not in AGREEMENT_KINDS or row.get('owner') not in AGREEMENT_OWNERS or row.get('status') not in AGREEMENT_STATES:
+                    raise ValueError('Choose the kind, the owner and the state of each action or goal')
+                due = row.get('due_date')
+                if due is not None:
+                    try:
+                        due = dt.date.fromisoformat(due).isoformat()
+                    except (TypeError, ValueError):
+                        raise ValueError('A due date must be YYYY-MM-DD') from None
+                key = row.get('id') if isinstance(row.get('id'), str) and row['id'] in old else uuid.uuid4().hex[:12]
+                task = row.get('task_id') if isinstance(row.get('task_id'), str) and re.fullmatch(r'[a-f0-9]{12}', row['task_id']) else None
+                entry = dict(id=key, kind=row['kind'], text=' '.join(text.split()), owner=row['owner'], due_date=due, status=row['status'], task_id=task,
+                             created=old.get(key, {}).get('created', now), updated=now if old.get(key) != row else old.get(key, {}).get('updated', now))
+                if old.get(key) and all(old[key].get(k) == entry[k] for k in ('kind', 'text', 'owner', 'due_date', 'status', 'task_id')):
+                    entry['updated'] = old[key].get('updated', now)
+                clean.append(entry)
+            if len({r['id'] for r in clean}) != len(clean):
+                raise ValueError('Each action or goal is saved once')
+            atomic_json(directory / 'agreements.json', clean)
+            self._write_meta(directory, dict(meta, revision=meta['revision'] + 1, updated=now))
+            return self.get(review_id)
+
+    def delete(self, review_id, revision):
+        """Delete a review with its notes, agreements and evidence. The version links of the others stay valid."""
+        with self.lock:
+            directory, meta = self._current(review_id, revision)
+            now = _iso(dt.datetime.now(TZ))
+            if meta.get('supersedes'):
+                try:
+                    old_dir = self._directory(meta['supersedes'])
+                    old = self._read(old_dir)
+                    if old.get('superseded_by') == review_id:
+                        # The review that this version replaced is the current one again.
+                        self._write_meta(old_dir, dict(old, status='finalized' if old['status'] == 'superseded' else old['status'], superseded_by=None, revision=old['revision'] + 1, updated=now))
+                except ValueError:
+                    pass
+            if meta.get('superseded_by'):
+                try:
+                    new_dir = self._directory(meta['superseded_by'])
+                    new = self._read(new_dir)
+                    self._write_meta(new_dir, dict(new, supersedes=None, revision=new['revision'] + 1, updated=now))
+                except ValueError:
+                    pass
+            shutil.rmtree(directory)
+            if directory.parent.exists() and not any(directory.parent.iterdir()):
+                directory.parent.rmdir()
+            return dict(deleted=review_id, person_id=meta['person_id'])
 
     def save_notes(self, review_id, revision, text):
         """The conversation notes change apart from the review, also after Finalize."""

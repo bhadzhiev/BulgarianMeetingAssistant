@@ -1446,7 +1446,10 @@ class MeetingService:
             if not item or item.get('revision') != revision:
                 changed.append(dict(item_id=key, text=(record.get('facts') or {}).get('text', ''), removed=not item))
         person = self.people.get(review['person_id'])
-        return dict(review, source_changes=changed, person_current_name=person['name'] if person else None)
+        # The agreements of the last 1:1 stay editable here, so the manager marks them done or dropped.
+        last = self.team_reviews.previous(review['person_id'], review['period']['start'], review.get('supersedes')) if review['status'] == 'draft' else None
+        previous = last and dict(review_id=last['id'], revision=last['revision'], period=last['period'], agreements=last['agreements'])
+        return dict(review, source_changes=changed, person_current_name=person['name'] if person else None, previous_agreements=previous)
 
     def team_review_action(self, action, body):
         result = self._team_review_action(action, body)
@@ -1473,11 +1476,17 @@ class MeetingService:
             return reviews.save_notes(body.get('id'), body.get('revision'), body.get('notes_md'))
         if action == 'finalize':
             return reviews.finalize(body.get('id'), body.get('revision'))
+        if action == 'agreements':
+            return reviews.save_agreements(body.get('id'), body.get('revision'), body.get('agreements'))
+        if action == 'delete':
+            return reviews.delete(body.get('id'), body.get('revision'))
         if action == 'discard':
             return reviews.discard(body.get('id'), body.get('revision'))
         raise ValueError('Unknown review action')
 
     def delete_person(self, person_id, revision):
+        if isinstance(person_id, str) and re.fullmatch(r'[a-f0-9]{12}', person_id) and self.team_reviews.list(person_id):
+            raise ValueError('This person has 1:1 reviews. Delete them in Team → Reviews first, or keep the person.')
         self.people.delete(person_id, revision)
         return dict(people=self.people.list(), speakers=self.library.speakers())
 
@@ -1835,7 +1844,7 @@ class MeetingService:
 
     @contextmanager
     def _snapshot_guard(self):
-        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.people.lock, self.github_links.lock, self.templates.lock, self.capture_setup.lock, self.prompts.lock:
+        with self.lock, self.items.lock, self.items.store.serialized(), self.projects.lock, self.library.lock, self.people.lock, self.github_links.lock, self.templates.lock, self.capture_setup.lock, self.prompts.lock, self.team_reviews.lock:
             self.library._finish_scope_batch()
             # Recover a projection interrupted after SQLite committed before pinning it.
             self.items.data, self.items.revision = self.items.store.load()

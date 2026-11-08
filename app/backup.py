@@ -22,10 +22,13 @@ from contextlib import contextmanager, nullcontext
 FORMAT = 'meeting-assistant-backup'
 SHARED = ('commit-journal.json', 'capture-setup.json', 'ai-prompts.json', 'settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json', 'repo-reports.json', 'people.json', 'github-links.json', 'meeting-templates.json')
 ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}(?:-[a-f0-9]{8})?\.tar\.gz')
-MEMBER = re.compile(r'(?:commit-journal|capture-setup|ai-prompts|settings|speakers|trackers|projects|items|repo-reports|people|github-links|meeting-templates|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*')
+MEMBER = re.compile(r'(?:commit-journal|capture-setup|ai-prompts|settings|speakers|trackers|projects|items|repo-reports|people|github-links|meeting-templates|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*|team-reviews/[a-f0-9]{12}/[a-f0-9]{12}/(?:review\.md|conversation-notes\.md|metadata\.json|evidence\.json|agreements\.json)')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
 # Derived from recording.wav and the saved settings; large, and not needed to restore a meeting.
 DERIVED = {'transcription.wav'}
+# 1:1 reviews: these files only. Checkpoints and folders of a write in progress start with a dot and stay out.
+REVIEW_FILES = ('review.md', 'conversation-notes.md', 'metadata.json', 'evidence.json', 'agreements.json')
+REVIEW_ID = re.compile(r'[a-f0-9]{12}')
 
 
 class _Hashing:
@@ -52,6 +55,18 @@ def _library_files(root: Path, skip):
             if (path.is_file() and not path.is_symlink() and path.name not in DERIVED
                     and not any(part.startswith('.') for part in relative.parts)):
                 yield relative.as_posix(), path
+    reviews = root / 'team-reviews'
+    if reviews.is_dir() and not reviews.is_symlink():
+        for person in sorted(reviews.iterdir()):
+            if not REVIEW_ID.fullmatch(person.name) or person.is_symlink() or not person.is_dir():
+                continue
+            for review in sorted(person.iterdir()):
+                if not REVIEW_ID.fullmatch(review.name) or review.is_symlink() or not review.is_dir():
+                    continue
+                for name in REVIEW_FILES:
+                    path = review / name
+                    if path.is_file() and not path.is_symlink():
+                        yield f'team-reviews/{person.name}/{review.name}/{name}', path
 
 
 @contextmanager
@@ -93,7 +108,7 @@ def _create_snapshot(root: Path, destination: Path, excluded=()) -> dict:
                     reader = _Hashing(handle)
                     archive.addfile(info, reader)
                 files[member] = dict(size=info.size, sha256=reader.digest.hexdigest())
-                if '/' in member:
+                if '/' in member and MEETING_ID.fullmatch(member.split('/')[0]):
                     meetings.add(member.split('/')[0])
             manifest = json.dumps(dict(format=FORMAT, version=1, created=dt.datetime.now().astimezone().isoformat(),
                                        meetings=sorted(meetings), skipped_meetings=sorted(excluded), files=files), ensure_ascii=False, indent=2).encode()
@@ -180,6 +195,21 @@ def archive_path(destination: Path, name) -> Path:
     return destination / name
 
 
+def restore_reviews(staging, root):
+    """Add the 1:1 reviews that the library does not have. An existing review is never changed."""
+    restored, source = 0, staging / 'team-reviews'
+    if not source.is_dir():
+        return 0
+    for person in sorted(source.iterdir()):
+        for review in sorted(person.iterdir()) if person.is_dir() else []:
+            target = root / 'team-reviews' / person.name / review.name
+            if REVIEW_ID.fullmatch(person.name) and REVIEW_ID.fullmatch(review.name) and (review / 'metadata.json').is_file() and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(review, target)
+                restored += 1
+    return restored
+
+
 def restore(archive_file: Path, library, merge=None, guard=None, validate=None) -> dict:
     """Add the meetings that the library does not have. Existing meetings are never changed."""
     staging = Path(tempfile.mkdtemp(prefix='.restore-', dir=library.root))
@@ -202,12 +232,13 @@ def restore(archive_file: Path, library, merge=None, guard=None, validate=None) 
                     library.save_trackers(library.trackers() + extra)
             except (OSError, ValueError, TypeError, AttributeError):
                 pass
+            reviews = restore_reviews(staging, library.root)
             if merge:
                 merge(staging, set(restored))  # data that the service owns: projects and the task registry
             try:
                 library.add_speakers(json.loads((staging / 'speakers.json').read_text()))
             except (OSError, ValueError):
                 pass
-        return dict(restored=restored, skipped=skipped)
+        return dict(restored=restored, skipped=skipped, reviews_restored=reviews)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

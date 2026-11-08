@@ -56,7 +56,7 @@ def ai_input(review):
     """The records that go to the AI: the facts of the review, without the person ID or local paths."""
     rows = []
     for record in review.get('evidence', []):
-        facts = {k: v for k, v in (record.get('facts') or {}).items() if k in {'text', 'role', 'shared', 'state', 'until', 'to', 'before', 'after', 'owner', 'open_at_end'}}
+        facts = {k: v for k, v in (record.get('facts') or {}).items() if k in {'text', 'role', 'shared', 'state', 'until', 'to', 'before', 'after', 'owner', 'open_at_end', 'kind', 'status', 'task_state'}}
         rows.append(dict(id=record['id'], kind=record['kind'], confirmation_basis=record.get('confirmation_basis', ''), facts=facts, quote=record.get('quote', '')))
     return dict(person=review['person_name'], records=rows)
 

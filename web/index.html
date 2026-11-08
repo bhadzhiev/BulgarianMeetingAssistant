@@ -101,7 +101,11 @@
       <div class="work-actions team-filters"><select id="team-project" aria-label="Project"></select><div id="team-status" class="segmented" aria-label="Members"></div><button id="team-add" class="primary" type="button">＋ Add to my team</button></div>
       <div id="team-list" class="entity-list"></div>
     </div>
-    <div id="team-reviews-panel" role="tabpanel" hidden><div id="team-reviews"></div></div>
+    <div id="team-reviews-panel" role="tabpanel" hidden>
+      <div class="work-actions team-filters"><input id="team-review-search" type="search" placeholder="Search by person" aria-label="Search reviews by person"><select id="team-review-status" aria-label="Review status"><option value="">All statuses</option><option value="draft">Draft</option><option value="finalized">Finalized</option><option value="superseded">Superseded</option></select></div>
+      <div id="team-reviews" class="entity-list"></div>
+    </div>
+    <div id="team-review-panel" hidden></div>
   </section>
   <section id="projects" hidden>
     <div class="heading"><h1>Projects</h1><p class="subheading">Meetings, work and sources, grouped by project.</p></div>
@@ -295,6 +299,14 @@
   <label for="team-date" id="team-date-label">In the team from</label><input id="team-date" type="date" required>
   <p id="team-dialog-hint" class="hint">Adding a person starts no analysis. Atlanta prepares a 1:1 only when you ask.</p>
   <div class="review-footer"><button id="team-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-save" class="primary" type="submit">Add to my team</button></div>
+</form></dialog>
+<dialog id="team-review-dialog" aria-labelledby="team-review-dialog-title"><form id="team-review-form" method="dialog">
+  <div class="card-heading"><div><p class="eyebrow">PREPARE 1:1</p><h2 id="team-review-dialog-title">Prepare 1:1</h2></div><button id="team-review-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <p id="team-review-error" class="error" role="alert" hidden></p>
+  <p id="team-review-period-hint" class="hint"></p>
+  <div class="team-period"><label>From<input id="team-review-start" type="datetime-local" required></label><label>Until (not included)<input id="team-review-end" type="datetime-local" required></label></div>
+  <p class="hint">Times are in Europe/Sofia. The draft starts with empty sections. Nothing is sent anywhere.</p>
+  <div class="review-footer"><button id="team-review-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-review-save" class="primary" type="submit">Create draft</button></div>
 </form></dialog>
 <dialog id="template-dialog" aria-labelledby="template-title"><form id="template-form" method="dialog">
   <div class="card-heading"><div><p class="eyebrow">MEETING TYPE</p><h2 id="template-title">New template</h2></div><button id="template-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>

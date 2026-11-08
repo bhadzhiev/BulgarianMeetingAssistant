@@ -137,6 +137,8 @@ class MeetingService:
         CommitJournal(self.items.store.path).recover()
         self.projects = Projects(root / 'projects.json')
         self.people = self.library.people
+        from .team_reviews import TeamReviews
+        self.team_reviews = TeamReviews(self.library.root)
         self.github_links = GitHubLinks(root / 'github-links.json')
         self.templates = Templates(root / 'meeting-templates.json')
         from .capture_setup import CaptureSetup
@@ -1403,7 +1405,43 @@ class MeetingService:
             owner, _how = self.people.owner_of(item)
             if owner and owner['id'] in projects:
                 projects[owner['id']].update(item.get('effective_project_ids') or [])
-        return dict(members=[dict(id=p['id'], active=in_team(p), periods=p['team'], project_ids=sorted(projects[p['id']])) for p in members])
+        return dict(members=[dict(id=p['id'], active=in_team(p), periods=p['team'], project_ids=sorted(projects[p['id']]), **self.team_reviews.summary(p['id'])) for p in members])
+
+    def _team_person(self, person_id):
+        person = self.people.get(person_id)
+        if not person:
+            raise ValueError('This person no longer exists. Reload and try again.')
+        return person
+
+    def team_reviews_list(self, person_id=''):
+        """Every review, newest period first, with its person and status. No review text."""
+        return dict(reviews=self.team_reviews.list(person_id or None))
+
+    def team_review_prepare(self, person_id):
+        """The default period of the next review. Nothing is saved."""
+        person = self._team_person(person_id)
+        return dict(person_id=person['id'], person_name=person['name'], **self.team_reviews.next_period(person['id']))
+
+    def team_review_action(self, action, body):
+        if not isinstance(body, dict):
+            raise ValueError('Invalid review change')
+        reviews = self.team_reviews
+        if action == 'create':
+            person = self._team_person(body.get('person_id'))
+            return reviews.create(person, body.get('start'), body.get('end'))
+        if action == 'version':
+            old = reviews.get(body.get('id'))
+            person = self._team_person(old['person_id'])
+            return reviews.create(person, old['period']['start'], old['period']['end'], supersedes=old['id'])
+        if action == 'save':
+            return reviews.save_review(body.get('id'), body.get('revision'), body.get('review_md'))
+        if action == 'notes':
+            return reviews.save_notes(body.get('id'), body.get('revision'), body.get('notes_md'))
+        if action == 'finalize':
+            return reviews.finalize(body.get('id'), body.get('revision'))
+        if action == 'discard':
+            return reviews.discard(body.get('id'), body.get('revision'))
+        raise ValueError('Unknown review action')
 
     def delete_person(self, person_id, revision):
         self.people.delete(person_id, revision)

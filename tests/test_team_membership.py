@@ -54,7 +54,7 @@ class TeamMembershipTests(unittest.TestCase):
         self.assertEqual(service.team_overview(), dict(members=[]))
         today = dt.date.today().isoformat()
         result = service.team_change(dict(id=maria['id'], revision=maria['revision'], action='join', date=today))
-        self.assertEqual(result['team']['members'], [dict(id=maria['id'], active=True, periods=[dict(start=today, end=None)], project_ids=[project])])
+        self.assertEqual(result['team']['members'], [dict(id=maria['id'], active=True, periods=[dict(start=today, end=None)], project_ids=[project], last_finalized=None, draft=None)])
         self.assertNotIn(ivan['id'], [m['id'] for m in result['team']['members']])
         self.assertFalse(list(self.root.glob('team-reviews*')))
 

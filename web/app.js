@@ -309,7 +309,7 @@ async function perform(fn) {
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // What a person would lose, in their words, so the question says what it is about.
 const EDITOR_NAMES={'task-draft':'task draft','task-panel':'task changes','meeting-review':'review edit','inline-edit':'note edit',
- 'project-repositories':'project links','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
+ 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
 function unsavedNames(){
  const names=[dirtyTranscript&&'transcript corrections',dirtyNotes&&'notes changes',itemEditing&&'task changes',speakerNaming&&'speaker name',
   ...editorDirty.keys().map(key=>key.startsWith('dialog:')?'changes in the open window':EDITOR_NAMES[key]||'changes')];
@@ -456,7 +456,7 @@ function currentRoute(){
  if(view==='detail'&&selected){q.set('meeting',selected);if(meetingTab!=='transcript')q.set('tab',meetingTab);}
  else if(view==='tasks'){q.set('view','work');q.set('tab',workTab);if(workTab==='gmail'&&mailThread)q.set('source',mailThread);if(workTab==='chat'&&chatSpace)q.set('source',chatSpace);if(workTab==='github'){if(ghSection==='reports'){q.set('section','reports');if(repoReportId)q.set('report',repoReportId);}else if(ghItem)q.set('source',String(ghItem));}}
  else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);if(workspaceSection==='work'&&workspaceWorkKind)q.set('kind',workspaceWorkKind);}
- else if(view==='team'){q.set('view','team');if(teamTab!=='members')q.set('tab',teamTab);}
+ else if(view==='team'){q.set('view','team');if(teamReviewId)q.set('review',teamReviewId);else if(teamTab!=='members')q.set('tab',teamTab);}
  else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);if(prepareScope.type)q.set('type',prepareScope.type);}
  else if(view==='importing')q.set('view','importing');
  else if(view==='calendar'){q.set('view','calendar');q.set('day',calendarDay);if($('calendar-project').value)q.set('project',$('calendar-project').value);}
@@ -481,7 +481,7 @@ async function applyRoute(){
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
    workspaceSection=q.get('section')||'overview';workspaceWorkKind=['task','decision','question'].includes(q.get('kind'))?q.get('kind'):'';await $('open-projects').onclick();
   }
-  else if(target==='team')await openTeam(q.get('tab')==='reviews'?'reviews':'members');
+  else if(target==='team'){const review=q.get('review');if(review&&/^[a-f0-9]{12}$/.test(review))await openTeamReview(review);else await openTeam(q.get('tab')==='reviews'?'reviews':'members');}
   else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
   else if(target==='importing')await openImport();
   else if(target==='calendar')await openCalendar(q.get('day'),q.get('project')||'');
@@ -2867,11 +2867,11 @@ function sourceCard(source){
 }
 let workspaceWorkKind='';
 // Team: the people in my team and their 1:1 reviews. Membership records periods only; it starts no analysis.
-let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null;
+let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null,teamReviewId='',teamReview=null,teamReviewRows=null,teamReviewPerson=null;
 async function openTeam(tab){
- if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;show('team');renderLibrary();await loadTeam();
+ if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;teamReviewId='';teamReview=null;show('team');renderLibrary();await loadTeam();
 }
-async function loadTeam(){const sequence=++teamSequence,fresh=await api('/api/team');if(sequence!==teamSequence||view!=='team')return;teamData=fresh;renderTeam();}
+async function loadTeam(){const sequence=++teamSequence,[fresh,reviews]=await Promise.all([api('/api/team'),api('/api/team/reviews')]);if(sequence!==teamSequence||view!=='team')return;teamData=fresh;teamReviewRows=reviews.reviews;renderTeam();}
 function teamPeriodText(periods){
  const last=periods.at(-1);if(!last)return '';
  return last.end===null?'In the team since '+date(last.start):'In the team '+date(last.start)+' · left '+date(last.end);
@@ -2887,8 +2887,13 @@ function teamCard(member,person){
  meta.append(el('span','',teamPeriodText(member.periods)));
  // Earlier periods stay visible: leaving and rejoining keep the history.
  if(member.periods.length>1){const history=el('details','entity-people');history.append(el('summary','',AtlantaUX.count(member.periods.length,'team period')),el('p','hint',member.periods.map(p=>date(p.start)+' – '+(p.end?'left '+date(p.end):'now')).join(' · ')));meta.append(history);}
- meta.append(statusBadge({tone:'muted',label:'No 1:1 review yet'}));
- main.append(top,meta);card.append(avatar(person.name),main);return card;
+ if(member.draft)meta.append(statusBadge({tone:'warn',label:'Draft review'}));
+ if(member.last_finalized)meta.append(el('span','','Last 1:1 review · '+date(member.last_finalized.end)));else if(!member.draft)meta.append(statusBadge({tone:'muted',label:'No 1:1 review yet'}));
+ main.append(top,meta);
+ // One visible action: continue the draft, or prepare the next 1:1. A former member keeps it in the … menu.
+ const prepare=member.draft?actionBtn('secondary small-action','Open draft',()=>openTeamReview(member.draft.id)):actionBtn('secondary small-action','Prepare 1:1',()=>openPrepareReview(person));
+ if(member.active){const actions=el('div','action-group');actions.append(prepare);main.append(actions);}else{prepare.classList.remove('secondary','small-action');top.querySelector('.menu-items')?.prepend(prepare);}
+ card.append(avatar(person.name),main);return card;
 }
 function renderTeam(){
  if(!teamData)return;
@@ -2907,7 +2912,7 @@ function renderTeam(){
   for(const member of rows)list.append(teamCard(member,people.get(member.id)));
   if(!rows.length)list.append(emptyNote(teamStatus==='active'?(project?'No active member works in this project.':'No active members. Rejoin a former member or add a person.'):(project?'No former member worked in this project.':'No former members. A person who leaves the team stays here with the history.')));
  }
- $('team-reviews').replaceChildren(emptyNote('No 1:1 reviews yet. A review appears here after you prepare a 1:1 with a member of your team.'));
+ $('team-review-panel').hidden=true;renderTeamReviews();
 }
 // One dialog adds a person, ends a period or starts a new one. The date is the first day in the team, or the first day outside it.
 function openTeamDialog(action,person=null){
@@ -2923,6 +2928,85 @@ function openTeamDialog(action,person=null){
  if(!person&&!candidates.length){$('team-error').textContent='Everybody in People is already in your team. Add a new person in Settings → People first.';$('team-error').hidden=false;}
  $('team-save').disabled=!person&&!candidates.length;$('team-dialog').showModal();
 }
+// Reviews: every 1:1 review with its person, period, status and coverage. Search by person, filter by status.
+const REVIEW_STATUS={draft:{tone:'warn',label:'Draft'},finalized:{tone:'ok',label:'Finalized'},superseded:{tone:'muted',label:'Superseded'}};
+function reviewPeriod(period){const at=value=>dateTime(value);return at(period.start)+' – '+at(period.end)+' · '+period.timezone;}
+function reviewCoverage(review){const sources=review.coverage?.sources||[];return sources.length?AtlantaUX.count(sources.length,'source'):'No facts collected yet';}
+function teamReviewCard(review){
+ const card=el('article','entity-card team-review-card'),main=el('div','entity-main'),top=el('div','entity-top'),meta=el('div','entity-meta');
+ top.append(btn('entity-title',review.person_name+' · 1:1 review',()=>perform(()=>openTeamReview(review.id))));
+ meta.append(statusBadge(REVIEW_STATUS[review.status]||{tone:'muted',label:review.status}),el('span','',reviewPeriod(review.period)));
+ if(review.version>1)meta.append(el('span','','Version '+review.version));
+ meta.append(el('span','',reviewCoverage(review)),el('span','',(review.finalized_at?'Finalized ':'Created ')+date(review.finalized_at||review.created)));
+ main.append(top,meta);card.append(main);return card;
+}
+function renderTeamReviews(){
+ const box=$('team-reviews'),rows=teamReviewRows||[],query=$('team-review-search').value.trim().toLocaleLowerCase(),status=$('team-review-status').value;
+ const shown=rows.filter(r=>(!status||r.status===status)&&(!query||r.person_name.toLocaleLowerCase().includes(query)));
+ box.replaceChildren(...shown.map(teamReviewCard));
+ $('team-review-search').hidden=$('team-review-status').hidden=!rows.length;
+ if(!rows.length)box.append(emptyNote('No 1:1 reviews yet. Choose Prepare 1:1 on a member of your team.'));
+ else if(!shown.length)box.append(emptyNote('No review matches this search or status.'));
+}
+$('team-review-search').oninput=$('team-review-status').onchange=renderTeamReviews;
+// Prepare 1:1: the period comes from the last finalized review, or the last 7 days. Creating the draft collects nothing yet.
+const localInput=value=>{const d=new Date(value),pad=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());};
+async function openPrepareReview(person){
+ const next=await api('/api/team/review/prepare?person='+encodeURIComponent(person.id));teamReviewPerson=person;
+ $('team-review-dialog-title').textContent='Prepare 1:1 · '+person.name;$('team-review-error').hidden=true;
+ $('team-review-period-hint').textContent=next.first?'First review: the last 7 days. Change the period if you need a different one.':'From the end of the last finalized review until now.';
+ $('team-review-start').value=localInput(next.start);$('team-review-end').value=localInput(next.end);$('team-review-dialog').showModal();
+}
+$('team-review-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
+ try{const review=await api('/api/team/review/create',{person_id:teamReviewPerson.id,start:$('team-review-start').value,end:$('team-review-end').value});$('team-review-dialog').close();toast('Draft review created');await openTeamReview(review.id,{saved:true});}
+ catch(exc){$('team-review-error').textContent=exc.message;$('team-review-error').hidden=false;}
+});};
+$('team-review-close').onclick=()=>$('team-review-dialog').close();
+// One review: the period, status and coverage on top; the review text; then the conversation notes, which stay editable.
+async function openTeamReview(id,{saved=false}={}){
+ // After a save in a dialog nothing is unsaved; the dialog save is still settling.
+ if(!saved&&!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;
+ const review=await api('/api/team/review?id='+encodeURIComponent(id));teamReviewId=id;teamReview=review;show('team');renderLibrary();renderTeamReview();
+}
+function renderTeamReview(){
+ const r=teamReview,box=$('team-review-panel');$('team-members-panel').hidden=$('team-reviews-panel').hidden=true;box.hidden=false;
+ for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab==='reviews';b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
+ editorDirty.clear('team-review');editorDirty.clear('team-notes');syncRoute(true);
+ const back=actionBtn('quiet team-back','← All reviews',()=>openTeam('reviews'));
+ const head=el('div','card team-review-head'),title=el('h2','',r.person_name+' · 1:1 review'),meta=el('div','entity-meta');
+ meta.append(statusBadge(REVIEW_STATUS[r.status]||{tone:'muted',label:r.status}),el('span','',reviewPeriod(r.period)),el('span','','Version '+r.version),el('span','',reviewCoverage(r)));
+ head.append(el('p','eyebrow','1:1 REVIEW'),title,meta);
+ for(const text of r.coverage?.limitations||[])head.append(el('p','hint',text));
+ if(r.status==='superseded'&&r.superseded_by)head.append(el('p','notice','A newer version replaces this review.'));
+ const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
+ const text=el('textarea','team-review-text');text.value=r.review_md;text.rows=22;text.setAttribute('aria-label','Review text');text.oninput=()=>editorDirty.set('team-review',text.value!==r.review_md);
+ const saveText=async()=>{if(text.value!==teamReview.review_md){teamReview=await api('/api/team/review/save',{id:r.id,revision:teamReview.revision,review_md:text.value});}editorDirty.clear('team-review');};
+ if(draft){
+  actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision});toast('Review finalized');renderTeamReview();}),
+   actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
+   actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');toast('Draft discarded');await openTeam('reviews');}));
+ }else{
+  if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));
+ }
+ actions.append(actionBtn('secondary','Export Markdown',()=>exportTeamReview(teamReview)));
+ // The version links: to the newer review, and to the one that this version replaces.
+ if(r.status==='superseded'&&r.superseded_by)actions.prepend(actionBtn('primary','Open the newer version',()=>openTeamReview(r.superseded_by)));
+ if(r.supersedes)actions.append(actionBtn('quiet','Open the version it replaces',()=>openTeamReview(r.supersedes)));
+ head.append(actions);
+ const body=el('section','card team-review-body');body.append(el('h3','','Review'));
+ if(draft)body.append(text);else body.append(markdownBlock(r.review_md));
+ const notesCard=el('section','card team-review-notes'),notes=el('textarea','team-notes-text');notes.value=r.notes_md;notes.rows=8;notes.placeholder='Notes, agreed actions and goals of the conversation';notes.setAttribute('aria-label','Conversation notes');
+ notes.oninput=()=>editorDirty.set('team-notes',notes.value!==r.notes_md);
+ const saveNotes=actionBtn('secondary small-action','Save notes',async()=>{teamReview=await api('/api/team/review/notes',{id:r.id,revision:teamReview.revision,notes_md:notes.value});editorDirty.clear('team-notes');toast('Notes saved');});
+ notesCard.append(el('h3','','Conversation notes'),el('p','hint','Separate from the review. Edit them before and after the conversation; they never change the review.'),notes,saveNotes);
+ box.replaceChildren(back,head,body,notesCard);
+}
+// Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
+function exportTeamReview(r){
+ const text=r.review_md.trimEnd()+'\n\n---\n\n## Conversation notes\n\n'+(r.notes_md.trim()||'_No notes._')+'\n',link=document.createElement('a');
+ link.href=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));link.download='1-1-review-'+r.person_name.replace(/[^\p{L}\p{N}]+/gu,'-').toLowerCase()+'-'+r.period.end.slice(0,10)+'-v'+r.version+'.md';
+ document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+}
 $('team-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
  const {action,person}=teamDialogAction,chosen=person||(state.people||[]).find(p=>p.id===$('team-person').value);if(!chosen)return;
  if(!validDates($('team-form')))return;
@@ -2933,7 +3017,7 @@ $('team-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>
 $('team-close').onclick=()=>$('team-dialog').close();
 $('team-add').onclick=()=>openTeamDialog('join');
 $('team-project').onchange=renderTeam;
-for(const b of $('team-tabs').querySelectorAll('button'))b.onclick=()=>{teamTab=b.dataset.teamTab;renderTeam();};
+for(const b of $('team-tabs').querySelectorAll('button'))b.onclick=()=>perform(()=>openTeam(b.dataset.teamTab));
 $('open-team').onclick=()=>perform(()=>openTeam());
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
@@ -3321,6 +3405,7 @@ const dialogPolicies={
  'excerpt-dialog':{close:'excerpt-cancel',form:'excerpt-form'},
  'person-dialog':{close:'person-close',cancel:'person-cancel',form:'person-form',actions:['person-delete']},
  'team-dialog':{close:'team-close',cancel:'team-cancel',form:'team-form'},
+ 'team-review-dialog':{close:'team-review-close',cancel:'team-review-cancel',form:'team-review-form'},
  'template-dialog':{close:'template-close',cancel:'template-cancel',form:'template-form',actions:['template-delete']},
  'github-link-dialog':{close:'github-link-close',cancel:'github-link-cancel',form:'github-link-form'},
  'scope-dialog':{close:'scope-close',cancel:'scope-cancel',form:'scope-form'},

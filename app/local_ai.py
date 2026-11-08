@@ -152,7 +152,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # A cloud API (Kimi K3) also spent a 16,384-token budget on thinking and returned no notes.
     # Topic matching is a short classification; on a cloud API, thinking only makes a speaker rename slow.
     if reasoning == 'default' and (
-            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review'}
+            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review', 'task_matching'}
             and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
             or name == 'topic_matches' and is_remote(base_url)):
         reasoning = 'none'

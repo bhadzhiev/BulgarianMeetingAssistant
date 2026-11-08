@@ -23,7 +23,7 @@ console.log('Configured API PASS: cloud detection, privacy text names the host, 
 // The Settings footer names the cloud host too; it gets the API address from the form.
 const fields=app.slice(app.indexOf('function settingsFields('),app.indexOf('\nfunction ',app.indexOf('function settingsFields(')+1));
 assert.match(fields,/privacy\(\{[^}]*local_ai_base_url:\$\('local-ai-base-url'\)\.value/);
-assert.match(app,/\$\('local-ai-base-url'\)\.addEventListener\('input',\(\)=>\{renderCloudNote\(\);settingsFields\(\);\}\)/);
+assert.match(app,/\$\('local-ai-base-url'\)\.addEventListener\('input',\(\)=>\{renderCloudNote\(\);settingsFields\(\);renderTaskMatching\(\);\}\)/);
 // The settings body shrinks and scrolls, so the dialog never cuts off Save settings.
 const css=fs.readFileSync('web/style.css','utf8');
 assert.match(css,/\.settings-body\{flex:1 1 auto;min-height:120px;/);

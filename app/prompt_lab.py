@@ -57,6 +57,14 @@ def save(service,body):
         return service.prompts.catalog()
 
 
+def matching_test_data(snippet):
+    """One synthetic mention and one synthetic candidate: the test sends no real task."""
+    return dict(meeting=dict(date='2026-01-01'),
+        mentions=[dict(id='t0',kind='task',text=snippet[:200],owner=None,due_date=None,quote=snippet[:200],evidence_timestamp=None,candidate_ids=['x1'])],
+        existing_tasks=[dict(id='x1',revision=1,title='Test task: prepare the offer for the client',projects=[],owner=None,due_date=None,
+            state='todo',state_note='as recorded at the meeting',expected_result=None,updates=[])])
+
+
 def messages_for(stage,snippet,kind,settings=None,speakers=()):
     """Use production task contracts with a synthetic single source for previews."""
     from meeting_assistant import llm_prompt,minutes_schema
@@ -70,6 +78,10 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
     if stage=='meeting_title':
         from .meeting_automation import TITLE_SYSTEM
         return [dict(role='system',content=TITLE_SYSTEM),dict(role='user',content=snippet)],dict(type='object',additionalProperties=False,required=['title'],properties=dict(title=dict(type='string')))
+    if stage=='task_matching':
+        from . import task_matching
+        data=matching_test_data(snippet)
+        return [dict(role='system',content=task_matching.SYSTEM),dict(role='user',content=canonical(dict(untrusted_meeting=dict(date=data['meeting']['date'],mentions=data['mentions']),existing_tasks=data['existing_tasks'])))],task_matching.SCHEMA
     if stage=='task_draft':return [dict(role='system',content=task_draft.SYSTEM),dict(role='user',content=canonical(dict(untrusted_source=dict(body=snippet))))],task_draft.SCHEMA
     if stage=='followup_email':
         from . import followup_email
@@ -125,6 +137,9 @@ def generate(settings,key=''):
     elif stage in {'repository_changes','repository_summary'}:
         from .repo_reports import validate_findings
         validate_findings(result,[dict(id='preview',text=snippet)])
+    elif stage=='task_matching':
+        from .task_matching import validate
+        if not validate(result,matching_test_data(snippet))['matches']:raise ValueError('The answer matched no test mention')
     elif stage=='meeting_title':
         if set(result)!={'title'} or not isinstance(result['title'],str) or not 3<=len(result['title'].strip())<=100 or any(ord(c)<32 for c in result['title']):raise ValueError('Invalid title')
     elif stage=='task_draft':

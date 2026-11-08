@@ -56,7 +56,7 @@ from .local_ai import DEFAULT_BASE_URL, DEFAULT_CONTEXT, DEFAULT_MODEL, migrate_
 
 DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model='gpt-transcribe',
                 summarizer='none', llm_model='gpt-4.1-mini', transcript_correction='local',
-                local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', local_ai_context=DEFAULT_CONTEXT, local_ai_temperature='zero', auto_process=True, live_transcription=True,
+                local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', local_ai_context=DEFAULT_CONTEXT, local_ai_temperature='zero', task_matching_target='', auto_process=True, live_transcription=True,
                 whisper_vad=True, whisper_vocabulary='', audio_preparation='off',
                 diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
@@ -183,6 +183,11 @@ class MeetingService:
             raise ValueError('Invalid API reasoning effort')
         if values['local_ai_temperature'] not in {'zero', 'server'}:
             raise ValueError('Invalid temperature setting')
+        # The permission to send task context goes with one API address. Another address needs a new permission.
+        if not isinstance(values['task_matching_target'], str):
+            raise ValueError('Invalid task matching permission')
+        if values['task_matching_target'] and values['task_matching_target'] != values['local_ai_base_url']:
+            values['task_matching_target'] = ''
         if type(values['local_ai_context']) is not int or not 4096 <= values['local_ai_context'] <= 2_000_000:
             raise ValueError('The model context must be between 4096 and 2000000 tokens')
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
@@ -815,10 +820,10 @@ class MeetingService:
             return {'id': meeting_id, 'cancel_requested': True}
 
     def _execute(self, action, directory, settings, progress, key='', speakers=(), trackers=()):
-        if action in {'summarize','correct','analytics'} and '_prompt_snapshot' not in settings:
+        if action in {'summarize','correct','analytics','task_matching'} and '_prompt_snapshot' not in settings:
             meeting=read_json(directory/'meeting.json',{})
             settings=dict(settings,_prompt_snapshot=self.prompts.snapshot(meeting_types.of(meeting)['id'],meeting.get('id')))
-        if action in {'summarize','correct','analytics'}:
+        if action in {'summarize','correct','analytics','task_matching'}:
             from .prompts import record_usage
             record_usage(directory,action,settings['_prompt_snapshot'])
         if self.step_runner:
@@ -881,6 +886,14 @@ class MeetingService:
                 with job.step('Meeting notes'):
                     self._execute('summarize', directory, settings, progress, step_key(settings.get('summarizer')), self.library.speakers())
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
+                # Matching the notes to existing tasks is a step of the same job. Its failure never stops the notes.
+                try:
+                    with job.step('Task matching'):
+                        self._match_tasks(meeting_id, directory, settings, progress, step_key('local'))
+                except JobCancelled:
+                    raise
+                except Exception as exc:
+                    self._save_matching(directory, dict(status='failed', error=self.redact(str(exc))))
             if action != 'recover' and (directory / 'transcript.json').exists():
                 with job.step('Analytics'):
                     self._run_analytics(meeting_id, settings, progress)
@@ -907,6 +920,42 @@ class MeetingService:
                 self.cancel_events.pop(meeting_id, None)
                 self.processing_threads.pop(meeting_id, None)
             self._queue_metadata(meeting_id, enrich=not cancel.is_set())
+
+    def _save_matching(self, directory, record):
+        atomic_json(directory / 'task-matching.json', dict(version=1, at=items.now(), **record))
+
+    def _match_tasks(self, meeting_id, directory, settings, progress, key):
+        """Suggest which existing task each task or update of the notes belongs to. Nothing changes a task here."""
+        from . import task_matching
+        from .local_ai import is_remote
+        path = directory / ('minutes.proposed.json' if (directory / 'minutes.proposed.json').exists() else 'minutes.json')
+        minutes = read_json(path, None)
+        if not minutes:
+            return
+        if settings.get('summarizer') != 'local':
+            return self._save_matching(directory, dict(status='skipped', reason='Task matching uses the configured API.', notes=path.name))
+        base_url = settings.get('local_ai_base_url')
+        if is_remote(base_url) and settings.get('task_matching_target') != base_url:
+            return self._save_matching(directory, dict(status='needs_permission', notes=path.name,
+                reason='Allow task context for this API in Settings → AI to match tasks.'))
+        with self.lock, self.items.lock:
+            meeting = self.library.get(meeting_id)
+            meetings = self._meeting_refs()
+            tasks = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings)) for item in self.items.items.values() if item['kind'] == 'task']
+            names = {p['id']: p['name'] for p in self.projects.data['projects']}
+            data = task_matching.select(tasks, minutes, meeting, names, self.people.list())
+        if not data:
+            return self._save_matching(directory, dict(status='no_candidates', notes=path.name))
+        sign = task_matching.signature(data, settings)
+        previous = read_json(directory / 'task-matching.json', {})
+        if previous.get('signature') == sign and previous.get('status') == 'complete':
+            return  # a retry with the same input and target: the saved answer stands
+        progress(f"Matching tasks with existing work · {len(data['existing_tasks'])} candidates")
+        result = self._execute('task_matching', directory, dict(settings, task_matching_input=data), progress, key)
+        self._save_matching(directory, dict(status='complete', signature=sign, notes=path.name,
+            target=dict(base_url=base_url, model=settings.get('local_ai_model')),
+            candidates={c['id']: c['revision'] for c in data['existing_tasks']},
+            mentions=data['mentions'], matches=result['matches'], rejected=result['rejected']))
 
     def _run_diarization(self, meeting_id, directory, progress):
         from meeting_assistant import TranscriptSegment, save_transcript

@@ -28,3 +28,8 @@ assert.match(app,/\$\('local-ai-base-url'\)\.addEventListener\('input',\(\)=>\{r
 const css=fs.readFileSync('web/style.css','utf8');
 assert.match(css,/\.settings-body\{flex:1 1 auto;min-height:120px;/);
 console.log('Settings footer PASS: cloud host in the footer, Save settings stays visible.');
+// A cloud API shows its temperature and context without advanced settings; Kimi rejects temperature 0.
+assert.match(app,/\$\('settings-form'\)\.classList\.toggle\('cloud-api',remote\)/);
+assert.match(css,/#settings-form\.simple\.cloud-api \.cloud-setting\{display:block\}/);
+assert.equal((html.match(/class="advanced-setting cloud-setting"/g)||[]).length,2);
+console.log('Cloud settings PASS: temperature and context show for a cloud API.');

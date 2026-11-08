@@ -2939,9 +2939,11 @@ function openTeamDialog(action,person=null){
 const REVIEW_STATUS={draft:{tone:'warn',label:'Draft'},finalized:{tone:'ok',label:'Finalized'},superseded:{tone:'muted',label:'Superseded'}};
 function reviewPeriod(period){const at=value=>dateTime(value);return at(period.start)+' – '+at(period.end)+' · '+period.timezone;}
 function reviewCoverage(review){const sources=review.coverage?.sources||[];return sources.length?AtlantaUX.count(sources.length,'source'):'No facts collected yet';}
+// A review keeps the name from its time; a later rename shows both. The person ID keeps the attribution.
+function reviewPersonName(review){const now=(state.people||[]).find(p=>p.id===review.person_id)?.name||review.person_current_name;return now&&now!==review.person_name?now+' (then '+review.person_name+')':review.person_name;}
 function teamReviewCard(review){
  const card=el('article','entity-card team-review-card'),main=el('div','entity-main'),top=el('div','entity-top'),meta=el('div','entity-meta');
- top.append(btn('entity-title',review.person_name+' · 1:1 review',()=>perform(()=>openTeamReview(review.id))));
+ top.append(btn('entity-title',reviewPersonName(review)+' · 1:1 review',()=>perform(()=>openTeamReview(review.id))));
  meta.append(statusBadge(REVIEW_STATUS[review.status]||{tone:'muted',label:review.status}),el('span','',reviewPeriod(review.period)));
  if(review.version>1)meta.append(el('span','','Version '+review.version));
  meta.append(el('span','',reviewCoverage(review)),el('span','',(review.finalized_at?'Finalized ':'Created ')+date(review.finalized_at||review.created)));
@@ -2949,7 +2951,7 @@ function teamReviewCard(review){
 }
 function renderTeamReviews(){
  const box=$('team-reviews'),rows=teamReviewRows||[],query=$('team-review-search').value.trim().toLocaleLowerCase(),status=$('team-review-status').value;
- const shown=rows.filter(r=>(!status||r.status===status)&&(!query||r.person_name.toLocaleLowerCase().includes(query)));
+ const shown=rows.filter(r=>(!status||r.status===status)&&(!query||reviewPersonName(r).toLocaleLowerCase().includes(query)));
  box.replaceChildren(...shown.map(teamReviewCard));
  $('team-review-search').hidden=$('team-review-status').hidden=!rows.length;
  if(!rows.length)box.append(emptyNote('No 1:1 reviews yet. Choose Prepare 1:1 on a member of your team.'));
@@ -2980,12 +2982,15 @@ function renderTeamReview(){
  for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab==='reviews';b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
  editorDirty.clear('team-review');editorDirty.clear('team-notes');syncRoute(true);
  const back=actionBtn('quiet team-back','← All reviews',()=>openTeam('reviews'));
- const head=el('div','card team-review-head'),title=el('h2','',r.person_name+' · 1:1 review'),meta=el('div','entity-meta');
+ const head=el('div','card team-review-head'),title=el('h2','',reviewPersonName(r)+' · 1:1 review'),meta=el('div','entity-meta');
  meta.append(statusBadge(REVIEW_STATUS[r.status]||{tone:'muted',label:r.status}),el('span','',reviewPeriod(r.period)),el('span','','Version '+r.version),el('span','',reviewCoverage(r)));
  head.append(el('p','eyebrow','1:1 REVIEW'),title,meta);
  // The limitations are in the Coverage section of the review; the head names only what waits for a person.
  if(r.coverage?.excluded)head.append(el('p','hint',AtlantaUX.count(r.coverage.excluded,'item')+' excluded from the analysis · '+(r.coverage.excluded===1?'it needs':'they need')+' confirmation. See Coverage.'));
  if(r.status==='superseded'&&r.superseded_by)head.append(el('p','notice','A newer version replaces this review.'));
+ // A source that changed after the review: a finalized review stays fixed and suggests a new version.
+ const changes=r.source_changes||[];
+ if(changes.length&&r.status!=='superseded'){const box=el('details','notice team-source-changes');box.append(el('summary','',AtlantaUX.count(changes.length,'source')+' changed after this review was collected.'+(r.status==='finalized'?' Make a new version to correct it.':' Collect the facts again to update it.')),...changes.map(c=>el('p','hint',(c.removed?'Removed · ':'Changed · ')+c.text)));head.append(box);}
  // The AI run of this review: what wrote it, or that it is incomplete and blocks Finalize.
  const gen=r.generator;if(gen)head.append(el('p',gen.complete?'hint':'notice',gen.complete?'AI preparation · '+gen.model+' · '+(gen.at?dateTime(gen.at):'')+(gen.rejected?' · '+AtlantaUX.count(gen.rejected,'statement')+' rejected by the check':''):'The AI preparation is incomplete. Run it again before you finalize; the finished parts are kept.'));
  const aiJob=teamAIJob&&teamAIJob.review_id===r.id?teamAIJob:null;
@@ -3003,7 +3008,7 @@ function renderTeamReview(){
    actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
    actionBtn('secondary','Collect GitHub contribution…',()=>openTeamGitHub(r)),
    actionBtn('secondary','Prepare with AI…',()=>openTeamAI(r)),
-   ...(r.supersedes?[]:[actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits, the GitHub part and the AI part. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
+   ...([actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits, the GitHub part and the AI part. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
    actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');toast('Draft discarded');await openTeam('reviews');}));
  }else{
   if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));

@@ -1431,7 +1431,29 @@ class MeetingService:
         from .team_facts import collect
         return lambda start, end, previous: collect(self, person, start, end, previous)
 
+    def team_review(self, review_id):
+        """One review, and the sources that changed after it was collected: a finalized review suggests a new version."""
+        review = self.team_reviews.get(review_id)
+        items = {i['id']: i for i in self.item_list()['items']}
+        changed, seen = [], set()
+        for record in review.get('evidence', []):
+            ref = record.get('source_ref') or {}
+            key, revision = ref.get('item_id'), ref.get('revision')
+            if not key or revision is None or key in seen:
+                continue
+            seen.add(key)
+            item = items.get(key)
+            if not item or item.get('revision') != revision:
+                changed.append(dict(item_id=key, text=(record.get('facts') or {}).get('text', ''), removed=not item))
+        person = self.people.get(review['person_id'])
+        return dict(review, source_changes=changed, person_current_name=person['name'] if person else None)
+
     def team_review_action(self, action, body):
+        result = self._team_review_action(action, body)
+        # A changed review comes back with its source changes and the current name, like a read.
+        return self.team_review(result['id']) if isinstance(result, dict) and 'review_md' in result else result
+
+    def _team_review_action(self, action, body):
         if not isinstance(body, dict):
             raise ValueError('Invalid review change')
         reviews = self.team_reviews

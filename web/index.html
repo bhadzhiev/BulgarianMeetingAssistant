@@ -85,7 +85,7 @@
         <label>Source<select id="conversation-source"><option value="meeting">Meetings</option><option value="all">All cached sources</option><option value="gmail">Gmail threads</option><option value="google_chat">Chat conversations</option><option value="attached">Saved project conversations &amp; excerpts</option></select></label>
         <label>From<input id="conversation-from" type="date"></label><label>Through<input id="conversation-to" type="date"></label>
         <label>Series<select id="conversation-series"></select></label><label>Participant<select id="conversation-participant"><option value="">All participants</option></select></label>
-        <div class="work-actions"><button class="primary" type="submit">Apply filters</button><button id="conversation-reset" class="quiet" type="button">Reset filters</button></div>
+        <div class="work-actions"><button class="primary" type="submit">Apply filters</button><button id="conversation-reset" class="quiet" type="button">Reset filters</button><button id="conversation-clear-all" class="quiet" type="button">Clear all</button></div>
       </div></details><div id="conversation-filter-chips" class="filter-chips"></div>
     </form>
     <div id="conversation-empty" class="card empty-work" hidden><h2>No conversations yet</h2><p>Record a meeting or import an existing transcript to get started.</p><div class="work-actions"><button id="library-new" class="primary" type="button">New meeting</button><button id="library-import" class="secondary" type="button">Import transcript</button><button id="library-sources" class="quiet" type="button">Browse synced sources</button></div></div>
@@ -132,7 +132,7 @@
         <details id="manager-all-filters" class="manager-all-filters"><summary id="manager-filter-summary">Filters</summary><div id="manager-person-filters"></div>
         <div id="source-filter" class="segmented source-filter" role="group" aria-label="Filter by source"></div>
         <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><div class="work-actions"><select id="work-project" aria-label="Project"><option value="">All projects</option></select><select id="task-owner" aria-label="Filter tasks by owner"></select></div></div>
-        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button></details>
+        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button><button id="task-clear-all" class="quiet" type="button">Clear all</button></details>
         <div id="task-bulk-bar" class="task-bulk-bar" aria-label="Selected task actions" hidden></div>
         <div id="link-review" class="card link-review" hidden></div>
         <div id="task-list" class="task-list"></div>

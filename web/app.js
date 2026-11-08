@@ -2202,7 +2202,18 @@ function renderTasks() {
  if(itemKind==='task'&&managerView==='inbox')$('task-list').append(el('h2','','Proposed actions'),el('p','hint','Review actions from every source. Project filters apply to tasks after acceptance.'),$('proposal-filters'),$('proposal-list'));
 
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
- if(!rows.length){if(noKindItems&&!inbox){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else if(!(itemKind==='task'&&managerView==='inbox'&&$('proposal-list').children.length))$('task-list').append(emptyNote('Nothing matches this filter.'));}
+ if(!rows.length){if(noKindItems&&!inbox){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else if(!(itemKind==='task'&&managerView==='inbox'&&$('proposal-list').children.length)){
+  // 0 results: the conditions that are active, and an action for each scope.
+  const search=itemKind==='task'?stored('task-search')||'':'',view=itemKind==='task'&&managerView!=='all'?{inbox:'For review',mine:'My tasks',delegated:'Assigned by me',followup:'Follow-up'}[managerView]:'';
+  const conditions=[view&&'View: '+view,...activeFilters,search&&'Search: “'+search+'”'].filter(Boolean),box=el('div','empty-content no-match');
+  box.append(el('p','',itemKind==='task'?'No tasks match.':'No decisions match.'));
+  if(conditions.length)box.append(el('p','hint','Active: '+conditions.join(' · ')));
+  const actions=el('div','action-group'),filtered=!!view||activeFilters.length>0;
+  if(filtered)actions.append(actionBtn('secondary small-action','Reset filters',()=>resetTaskFilters()));
+  if(search)actions.append(actionBtn('secondary small-action','Clear search',()=>{store('task-search','');renderTasks();}));
+  if(filtered&&search)actions.append(actionBtn('secondary small-action','Clear all',()=>resetTaskFilters({all:true})));
+  if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
+ }}
  const compact=taskDensity==='compact';$('task-list').classList.toggle('compact-list',itemKind==='task'&&compact);
  // The compact list has one header row with the column names; it lines up with the rows.
  if(itemKind==='task'&&compact&&rows.length){const selecting=taskSelecting||taskSelection.size>0,head=el('div','tracked-task task-card compact-task compact-head'),cols=el('div','tracked-main');head.setAttribute('aria-hidden','true');
@@ -2611,7 +2622,16 @@ $('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;di
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
-$('task-reset-filters').onclick=()=>{taskRequester=taskFollower=taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';for(const key of ['tasks-requester','tasks-follower','tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');renderTasks();};
+// Reset filters: every filter and the task view (they change the results); the search stays.
+// Clear all: also the search, back to the first state. "This is me" is who you are, not a filter: neither clears it.
+function resetTaskFilters({all=false}={}){
+ taskRequester=taskFollower=taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';
+ for(const key of ['tasks-requester','tasks-follower','tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');
+ managerView='all';store('manager-view','all');
+ if(all){store('task-search','');taskSelecting=false;taskSelection.clear();}
+ renderTasks();
+}
+$('task-reset-filters').onclick=()=>resetTaskFilters();$('task-clear-all').onclick=()=>resetTaskFilters({all:true});
 $('work-project').onchange=()=>{store('tasks-project',$('work-project').value);renderTasks();};
 $('task-owner').onchange=()=>{store('tasks-owner',$('task-owner').value);renderTasks();};
 // Transcript rows grow with their text instead of showing an inner scroll bar.
@@ -3366,7 +3386,15 @@ function renderConversations(){
   if(row.provider==='meeting'){list.append(meetingCard({...row,id:row.external_id},{participants:row.participants,onChange:loadConversations,select:{checked:selectedConversations.has(row.external_id),onchange:check=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=AtlantaUX.count(selectedConversations.size,'meeting')+' selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;}}}));continue;}
   list.append(conversationCard(row,{onChange:loadConversations}));
  }
- if(!result.rows.length&&!emptyLibrary)list.append(emptyNote('No conversations match these filters. Change or clear the active filters.'));
+ if(!result.rows.length&&!emptyLibrary){
+  // The chips above name the active conditions; here is an action for each scope.
+  const query=$('conversation-query').value,filtered=['project','series','participant','from','to'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
+  const box=el('div','empty-content no-match'),actions=el('div','action-group');box.append(el('p','','No conversations match.'),el('p','hint','The active conditions are above.'));
+  if(filtered)actions.append(actionBtn('secondary small-action','Reset filters',()=>resetConversationFilters()));
+  if(query)actions.append(actionBtn('secondary small-action','Clear search',()=>{$('conversation-query').value='';conversationOffset=0;perform(loadConversations);}));
+  if(filtered&&query)actions.append(actionBtn('secondary small-action','Clear all',()=>resetConversationFilters({all:true})));
+  if(actions.childNodes.length)box.append(actions);list.append(box);
+ }
 }
 // One meeting card for Library, Projects and Calendar: what it is, its project, its state and what to do.
 // A status shows only when a meeting needs something; a plain ready meeting has none.
@@ -3439,7 +3467,12 @@ $('workspace-prepare').onclick=()=>perform(()=>openPrepare(['','__none__'].inclu
 $('conversation-filters').onsubmit=event=>{event.preventDefault();conversationOffset=0;selectedConversations.clear();perform(async()=>{await loadConversations();$('conversation-advanced').open=false;});};
 $('conversation-project').onchange=()=>fillSeries($('conversation-series'),$('conversation-project').value,'','All series');
 $('conversation-bulk-project').onchange=()=>fillSeries($('conversation-bulk-series'),$('conversation-bulk-project').value,'','Keep series when project stays the same');
-$('conversation-reset').onclick=()=>{for(const id of ['conversation-query','conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to'])$(id).value='';$('conversation-source').value='meeting';syncConversationFilters();conversationOffset=0;selectedConversations.clear();perform(loadConversations);};
+// Reset filters keeps the search; Clear all also clears it.
+function resetConversationFilters({all=false}={}){
+ for(const id of ['conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to',...(all?['conversation-query']:[])])$(id).value='';
+ $('conversation-source').value='meeting';syncConversationFilters();conversationOffset=0;selectedConversations.clear();perform(loadConversations);
+}
+$('conversation-reset').onclick=()=>resetConversationFilters();$('conversation-clear-all').onclick=()=>resetConversationFilters({all:true});
 $('conversation-select-page').onclick=()=>{for(const row of conversationPage?.rows||[])if(row.provider==='meeting'&&selectedConversations.size<200)selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});renderConversations();};
 $('conversation-clear').onclick=()=>{selectedConversations.clear();renderConversations();};
 $('conversation-prev').onclick=()=>{conversationOffset=Math.max(0,conversationOffset-50);perform(loadConversations);};

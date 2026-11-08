@@ -1087,3 +1087,7 @@ button.primary.is-done::after{color:inherit}
 
 /* An empty search result keeps the card padding. */
 .find-empty{padding:20px 24px}
+/* Every action that takes longer than a quarter of a second names itself here, at the top, also above an open dialog. */
+#activity-status{position:fixed;inset:8px auto auto 50%;transform:translateX(-50%);margin:0;padding:7px 16px;border:0;border-radius:999px;background:var(--ink);color:var(--on-accent);font-size:13px;font-weight:600;box-shadow:0 5px 20px var(--shadow-strong);z-index:30;display:flex;align-items:center;gap:10px;max-width:min(520px,calc(100vw - 32px));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#activity-status[hidden]{display:none}
+#activity-status::before{content:'';flex:none;width:.9em;height:.9em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}

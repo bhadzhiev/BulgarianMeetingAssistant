@@ -225,8 +225,12 @@ async function readApiResponse(response){
 }
 async function api(path,body) {
  if(body!==undefined)actionWrites++;
- const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
- return readApiResponse(response);
+ // A save outside perform() (a select, a checkbox) also shows that it runs.
+ if(body!==undefined)beginActivity('Saving');
+ try{
+  const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return await readApiResponse(response);
+ }finally{if(body!==undefined)endActivity();}
 }
 // The desktop window (WKWebView) ignores target=_blank links. The backend opens them in the default browser.
 document.addEventListener('click',event=>{
@@ -242,7 +246,29 @@ for(const type of ['click','change','submit'])document.addEventListener(type,eve
  const node=type==='submit'?event.submitter||event.target.querySelector?.('[type=submit]'):event.target.closest?.('button,select,input');
  actionTrigger=node||null;setTimeout(()=>{if(actionTrigger===node)actionTrigger=null;});
 },true);
-function showActivity(){activityTimer=null;if(runningActions)$('activity').hidden=false;}
+let activityLabel='';
+// The name of a pressed control, in its own words, for the activity status.
+function actionLabel(trigger){
+ if(!trigger)return '';
+ const text=String((trigger.matches('button,[type=submit]')&&trigger.textContent)||'').replace(/\s+/g,' ').replace(/[✓…]/g,'').trim();
+ return (text||trigger.getAttribute?.('aria-label')||trigger.title||'').slice(0,60);
+}
+function showActivity(){
+ activityTimer=null;if(!runningActions)return;$('activity').hidden=false;
+ const status=$('activity-status');status.textContent=(activityLabel||'Working')+' · in progress…';status.hidden=false;
+ try{if(status.showPopover&&!status.matches(':popover-open'))status.showPopover();}catch{}
+}
+function beginActivity(label){
+ if(!runningActions)activityLabel=label||'';else if(label&&!activityLabel)activityLabel=label;
+ runningActions++;if(!activityTimer&&$('activity').hidden)activityTimer=setTimeout(showActivity,BUSY_DELAY);
+}
+function endActivity(){
+ runningActions--;if(runningActions)return;
+ clearTimeout(activityTimer);activityTimer=null;$('activity').hidden=true;activityLabel='';
+ const status=$('activity-status');try{if(status.hidePopover&&status.matches(':popover-open'))status.hidePopover();}catch{}status.hidden=true;
+}
+// A long step inside an action names itself, for example "Importing transcript".
+function activityStep(label){activityLabel=label;if(!$('activity-status').hidden)$('activity-status').textContent=label+' · in progress…';}
 async function perform(fn) {
  // Nested and later calls do not take the control of the first press.
  const trigger=actionTrigger;actionTrigger=null;
@@ -251,12 +277,12 @@ async function perform(fn) {
  if(button&&busyTriggers.has(button))return;
  if(trigger)busyTriggers.add(trigger);
  const writes=actionWrites;let failed=false;
- runningActions++;if(!activityTimer&&$('activity').hidden)activityTimer=setTimeout(showActivity,BUSY_DELAY);
+ beginActivity(actionLabel(trigger));
  const busy=trigger&&setTimeout(()=>{trigger.classList.add('is-busy');trigger.setAttribute('aria-busy','true');},BUSY_DELAY);
  clearError();
  try { await fn(); } catch(e) { failed=true; error(e.message); }
  finally {
-  runningActions--;if(!runningActions){clearTimeout(activityTimer);activityTimer=null;$('activity').hidden=true;}
+  endActivity();
   if(trigger){clearTimeout(busy);busyTriggers.delete(trigger);trigger.classList.remove('is-busy');trigger.removeAttribute('aria-busy');}
   // A button that saved or started something confirms it in place, also when the action was fast.
   if(button&&!failed&&actionWrites!==writes&&button.isConnected&&button.getClientRects().length){
@@ -2430,7 +2456,8 @@ $('microphone').onchange=()=>{captureWantedMic=null;renderState();};
 $('record-form').onsubmit=event=>{event.preventDefault();perform(async()=>{pending=true;$('start').disabled=true;store('record-mode',document.querySelector('input[name=mode]:checked').value);store('record-mic',$('microphone').selectedOptions[0]?.textContent||'');try{const m=await api('/api/start',{title:$('meeting-title').value,mode:document.querySelector('input[name=mode]:checked').value,device:Number($('microphone').value),device_name:$('microphone').selectedOptions[0]?.textContent,fallback_device_name:$('fallback-microphone').value,transcription_timing:$('transcription-timing').value,project_id:$('record-project').value||null,series_id:$('record-series').value||null,meeting_type:$('record-type').value||null});selected=m.id;state.active=m;renderState();show('recording');}finally{pending=false;}});};
 async function importTranscript(text,filename,modified=null) {
  if(!(await approveImport(filename||'pasted transcript')))return;
- const d=await api('/api/import',{text,filename,modified});
+ activityStep('Importing the transcript and building analytics');
+ const d=await api('/api/import',{text,filename,modified});activityStep('Opening the meeting');
  $('import-file').value='';$('import-text').value='';$('import-button').disabled=$('import-paste-button').disabled=true;
  toast('Transcript imported · '+d.transcript.length+' segments');state=await api('/api/state');renderState();await openMeeting(d.id,true);
 }
@@ -3126,9 +3153,10 @@ async function withDialogAction(dialog,action){
  dialogJobs.add(dialog);editorDirty.set('dialog-save:'+dialog.id,true);
  const inert=dialog.inert,focus=document.activeElement;
  dialog.inert=true;dialog.setAttribute('aria-busy','true');
- const waiting=el('p','hint dialog-wait','Please wait…');waiting.setAttribute('role','status');dialog.prepend(waiting);editorHeartbeat();
+ // The activity status names the action above the dialog; a text here only pushed the dialog's buttons down.
+ editorHeartbeat();
  try{return await action();}
- finally{waiting.remove();dialog.inert=inert;dialog.removeAttribute('aria-busy');dialogJobs.delete(dialog);editorDirty.clear('dialog-save:'+dialog.id);editorHeartbeat();if(dialog.open&&focus?.isConnected)focus.focus();}
+ finally{dialog.inert=inert;dialog.removeAttribute('aria-busy');dialogJobs.delete(dialog);editorDirty.clear('dialog-save:'+dialog.id);editorHeartbeat();if(dialog.open&&focus?.isConnected)focus.focus();}
 }
 document.addEventListener('input',markDialogDirty);document.addEventListener('change',markDialogDirty);
 document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG'){editorDirty.clear('dialog:'+event.target.id);dialogBaselines.delete(event.target);}},true);

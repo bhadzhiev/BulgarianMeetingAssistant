@@ -13,28 +13,31 @@ class Control{
 }
 
 function context(){
- const listeners={},activity={hidden:true},errors=[];
+ const listeners={},activity={hidden:true},status={hidden:true,textContent:''},errors=[];
  const c=vm.createContext({setTimeout,clearTimeout,errors,
   document:{addEventListener:(type,fn)=>{listeners[type]=fn;}},
-  $:id=>{assert.equal(id,'activity');return activity;},
+  $:id=>{assert.ok(['activity','activity-status'].includes(id),id);return id==='activity'?activity:status;},
   clearError:()=>{},error:message=>errors.push(message)});
  vm.runInContext(extract('// A pressed control shows','function hasEdits()'),c);
  // A user press: the capture listener runs first, then the control's own handler.
  const press=(control,handler,type='click')=>{listeners[type]({target:control,submitter:type==='submit'?control:undefined});return handler();};
  const write=()=>vm.runInContext('actionWrites++',c);
- return {c,press,write,activity,errors};
+ return {c,press,write,activity,status,errors};
 }
 
 (async()=>{
  // A slow action shows a spinner and the top bar, then a check mark after a saved change.
  {
-  const {c,press,write,activity}=context(),button=new Control('button');let finish;
+  const {c,press,write,activity,status}=context(),button=new Control('button');button.textContent=' Import file ';let finish;
   const done=press(button,()=>vm.runInContext('perform',c)(()=>new Promise(r=>finish=r)));
-  assert.equal(button.classes.has('is-busy'),false,'no flicker for fast actions');
+  assert.equal(button.classes.has('is-busy'),false,'no flicker for fast actions');assert.equal(status.hidden,true);
   await wait(300);
   assert.equal(button.classes.has('is-busy'),true);assert.equal(button.attrs['aria-busy'],'true');assert.equal(activity.hidden,false);
+  // The status names the action in the words of its button.
+  assert.equal(status.hidden,false);assert.equal(status.textContent,'Import file · in progress…');
+  vm.runInContext('activityStep',c)('Importing the transcript');assert.equal(status.textContent,'Importing the transcript · in progress…');
   write();finish();await done;
-  assert.equal(button.classes.has('is-busy'),false);assert.equal(activity.hidden,true);assert.equal(button.classes.has('is-done'),true);
+  assert.equal(button.classes.has('is-busy'),false);assert.equal(activity.hidden,true);assert.equal(status.hidden,true);assert.equal(button.classes.has('is-done'),true);
  }
  // A second press of the same button does not start the action again.
  {

@@ -94,7 +94,8 @@ class TeamFactTests(unittest.TestCase):
 
     def test_name_only_owner_is_excluded_and_counts_nothing(self):
         t = self.task('Check the firewall', 'e', owner='Maria')
-        self.times(t, DAY(3), created=DAY(3))
+        # Both events (created, owner set) are in the week; the second had the real time before.
+        self.times(t, DAY(3), DAY(3), created=DAY(3))
         result = self.run_week()
         self.assertEqual(sum(result['coverage']['counts'].values()), 0)
         self.assertEqual([row['item_id'] for row in result['excluded']], [t['id']])

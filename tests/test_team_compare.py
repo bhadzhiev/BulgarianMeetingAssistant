@@ -43,7 +43,10 @@ class TeamCompareTests(unittest.TestCase):
         self.assertIn('The two reviews have different sources.', collect(self.s, self.maria, DAY(8, 0), DAY(15, 0), other)['review_md'])
 
     def test_a_changed_source_marks_a_finalized_review(self):
-        review = self.finalized('2026-11-01T00:00', '2026-11-09T00:00')
+        # The task is made now, so the period ends after now: a fixed date broke this test when the day passed it.
+        import datetime as dt
+        now = dt.datetime.now()
+        review = self.finalized((now - dt.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M'), (now + dt.timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M'))
         self.assertEqual(review['source_changes'], [])
         task = self.s.items.items[self.task['id']]
         self.s.update_item(task['id'], task['text'], dict(due_date='2026-12-01'), task['revision'])

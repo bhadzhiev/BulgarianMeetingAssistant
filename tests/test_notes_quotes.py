@@ -43,7 +43,7 @@ class QuoteTests(unittest.TestCase):
     def test_old_notes_without_quotes_or_updates_stay_valid_and_unchanged(self):
         old = notes(decisions=[dict(text='Решение', evidence_timestamp='00:00:00')])
         validate_minutes(old, segments())
-        self.assertEqual(old['updates'], [])
+        self.assertNotIn('updates', old)  # an empty list is not added to saved notes
         self.assertNotIn('quote', old['decisions'][0])
         with self.assertRaisesRegex(ValueError, 'quote must be text'):
             validate_minutes(notes(decisions=[dict(text='Решение', evidence_timestamp=None, quote=7)]))

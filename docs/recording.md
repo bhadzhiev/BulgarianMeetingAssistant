@@ -25,6 +25,8 @@
 - **Settings:** **Fast**, **Balanced**, **Best quality** and **Maximum privacy** fill the fields; nothing
   changes until **Save settings**. **Show advanced settings** reveals audio preparation, voice detection
   and the local AI response options. Closing Settings with unsaved changes asks first.
+- **Dialogs:** the title and the button bar of a dialog stay in view; only the content between them
+  scrolls. A status or an error that appears out of view scrolls into view.
 - **Action feedback:** an action that takes longer than a quarter of a second shows a spinner on its
   button, a thin bar at the top of the window and a status at the top that names it, for example
   "Save settings · in progress…". The status also shows above an open dialog, and for a save from a

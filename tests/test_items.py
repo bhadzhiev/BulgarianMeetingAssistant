@@ -56,7 +56,7 @@ class RegistryTests(unittest.TestCase):
         first = self.meeting('2026-10-19T10:00:00+03:00', notes([task('Иван да провери VPN failover', 'Иван')]), 'DevOps')
         [item] = self.service.tasks()
         second = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Провери VPN failover до петък', 'Иван', 'петък', '2026-10-30')]), 'Weekly')
-        [pending] = self.service.item_list()['pending']
+        [pending] = self.service.pending_links()
         self.assertEqual((pending['meeting_id'], pending['candidates'][0]['item_id']), (second, item['id']))
         self.resolve(second, 'tasks', 'same', item['id'], fields=['deadline', 'due_date'])
         [item] = self.service.tasks()
@@ -104,7 +104,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkItemConflict, 'changed after you opened'):
             self.resolve(later, 'tasks', 'same', item['id'], fields=['due_date'], revision=seen)
         # The review stays: nothing was linked.
-        self.assertEqual(len(self.service.item_list()['pending']), 1)
+        self.assertEqual(len(self.service.pending_links()), 1)
         with self.assertRaisesRegex(ValueError, 'Only the owner, deadline and due date'):
             self.resolve(later, 'tasks', 'same', item['id'], fields=['status'])
 
@@ -112,14 +112,14 @@ class RegistryTests(unittest.TestCase):
         self.meeting('2026-10-19T10:00:00+03:00', notes([task('Подготви оферта за Клиент X')]))
         [item] = self.service.tasks()
         later = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Подготви оферта за Клиент X', 'Иван'), task('Подготви оферта за Клиент Y')]))
-        self.assertEqual(len(self.service.item_list()['pending']), 2)
+        self.assertEqual(len(self.service.pending_links()), 2)
         self.resolve(later, 'tasks', 'duplicate', item['id'], index=0)
         self.resolve(later, 'tasks', 'new', index=1)
         tasks = {t['text']: t for t in self.service.tasks()}
         self.assertEqual(set(tasks), {'Подготви оферта за Клиент X', 'Подготви оферта за Клиент Y'})
         self.assertIsNone(tasks['Подготви оферта за Клиент X']['owner'])
         self.assertEqual(tasks['Подготви оферта за Клиент X']['history'][-1]['event'], 'duplicate')
-        self.assertEqual(self.service.item_list()['pending'], [])
+        self.assertEqual(self.service.pending_links(), [])
 
     def test_decisions_are_proposed_accepted_and_superseded(self):
         first = self.meeting('2026-10-19T10:00:00+03:00', notes(decisions=[decision('Резервният интернет е LTE рутер')]))

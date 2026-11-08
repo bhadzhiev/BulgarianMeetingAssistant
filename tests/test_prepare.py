@@ -133,7 +133,7 @@ class PrepareTests(unittest.TestCase):
             other.restore_backup(name)
             self.assertEqual(other.projects.get('projects', project_id)['name'], 'DevOps')
             self.assertEqual({t['text']: len(t['history']) for t in other.tasks()}, history)
-            self.assertEqual(other.item_list()['pending'], [])
+            self.assertEqual(other.pending_links(), [])
         finally:
             other.close()
 

@@ -77,7 +77,7 @@ class ConsistencyTests(ConsistencyBase):
         [item] = self.service.tasks()
         self.assertEqual((item['status'], item['owner']), ('done', 'Мария'))
         self.assertEqual(self.minutes(meeting_id)['tasks'][0]['status'], 'done')
-        self.assertEqual(self.service.item_list()['pending'], [])
+        self.assertEqual(self.service.pending_links(), [])
 
     def test_new_notes_replace_a_reworded_task_of_the_earlier_notes(self):
         # A person reviews each task once: the new notes do not ask to link the old wording.
@@ -86,7 +86,7 @@ class ConsistencyTests(ConsistencyBase):
         self.service.update_item(old['id'], old['text'], {'status': 'done'})
         self.transcribe_again(meeting_id)
         self.new_notes(meeting_id, notes([task('Провери failover на VPN в офиса', 'Иван')]))
-        self.assertEqual(self.service.item_list()['pending'], [])
+        self.assertEqual(self.service.pending_links(), [])
         items = self.service.item_list()['items']
         self.assertEqual([(i['kind'], i['text']) for i in items], [('task', 'Провери failover на VPN в офиса')])
         self.assertNotIn(old['id'], self.service.items.items)
@@ -101,7 +101,7 @@ class ConsistencyTests(ConsistencyBase):
         self.new_notes(second, notes([task('Обнови фърмуера на рутера')]))
         item = self.service.items.items[shared]
         self.assertEqual([link['meeting_id'] for link in item['links']], [first])
-        self.assertEqual(self.service.item_list()['pending'], [])
+        self.assertEqual(self.service.pending_links(), [])
 
     def test_a_changed_ai_decision_is_proposed_again(self):
         meeting_id = self.meeting(notes(decisions=[decision('Резервният интернет е LTE рутер', 'verified')]))

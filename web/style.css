@@ -1400,3 +1400,8 @@ label.required-label:has(.date-part-label)::after{content:none}
 .link-changes{display:grid;gap:4px;margin-top:10px}
 .link-changes>p,.link-changes>label{margin:0!important}
 .link-changes>label{display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px}
+/* A meeting match in For review: the suggested task or the candidates, the reason, then one main action. */
+.meeting-match .match-targets{display:grid;gap:6px;margin:8px 0}
+.meeting-match .match-target{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:500;font-size:13px;margin:0}
+.meeting-match .match-target>.hint{margin:0}
+.meeting-match label>textarea{width:100%;margin-top:4px}

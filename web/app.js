@@ -1503,7 +1503,10 @@ function statusBadge(status,detail){return el('span','status-badge status-'+stat
 function workReviewBadge(state){return ['needs_review','edited'].includes(state)?statusBadge(AtlantaStatus.status('review',state)):'';}
 const openTaskFields=new Set();
 function globalTaskRow(item,today,{select=true}={}) {
- const [kind,label]=dueInfo(item,today), row=el('div','tracked-task '+kind), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+ const [kind,label]=dueInfo(item,today), row=el('div','tracked-task entity-card task-card '+kind), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+ // The shared card: title with its project, one metadata row, a one-line last update, the source and the actions.
+ const projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
+ if(projects.length===1&&projects[0].color){row.classList.add('has-project-line');row.style.setProperty('--project-color',projects[0].color);}
  who.append(avatar(item.owner||''),el('span','',item.owner||'No owner'));
  if(item.owner&&!item.manual?.includes('owner')){
   if(/^SPEAKER[ _-]?\d+$/i.test(item.owner))who.append(el('span','hint','Unidentified speaker · choose an owner'));
@@ -1511,12 +1514,17 @@ function globalTaskRow(item,today,{select=true}={}) {
   else{const confirm=btn('quiet small-action owner-confirm','Confirm owner');confirm.title='Confirm this person as the task owner.';confirm.onclick=()=>perform(()=>changeItem(item,{owner:item.owner}));who.append(confirm);}
  }
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
- meta.append(who,el('span','due-label '+kind,label),workReviewBadge(item.review_state));
+ const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
+ meta.append(who,el('span','task-state',stateName),el('span','due-label '+kind,label),workReviewBadge(item.review_state));
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
  const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
  const update=AtlantaTasks.lastUpdate(item);
- main.append(title,meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));if(update){main.append(el('p','task-last-update',dateTime(update.at)));main.append(markdownBlock(update.text));}main.append(sourceChips(item,itemsData.meetings));
+ const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));head.append(title,chips);
+ main.append(head,meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));
+ // The last update is one line; Timeline holds the full text.
+ if(update){const last=el('p','task-last-line');last.title=update.text;last.append(el('span','task-last-when','Last update · '+dateTime(update.at)+' · '),document.createTextNode(String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim()));main.append(last);}
+ main.append(sourceChips(item,itemsData.meetings));
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
@@ -1543,7 +1551,7 @@ function globalTaskRow(item,today,{select=true}={}) {
   // Add update and Timeline stay on the card: a progress note and the history are not fields to change.
   const rowActions=el('div','task-row-actions');rowActions.append(doneButton(item),addUpdate,timeline,toggle);main.append(rowActions,quick);
  }
- if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(restore);}else{const accept=el('button','primary small-action','Accept task'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));actions.append(accept,skip);}main.append(actions);}
+ if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(restore);}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','','Select'));marks.append(pick);}row.append(marks,main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';more.append(trigger,itemActions(item,row));row.append(more);}return row;
 }
 function decisionRow(item,byId) {
@@ -3388,11 +3396,12 @@ async function openMeetingReview(){
  if(data.items.length)box.append(el('h3','',open?open+' of '+data.items.length+' need your review':'All '+data.items.length+' reviewed'));
  if(data.source_changed)box.append(el('p','notice warning',AtlantaStatus.label('verification','changed')+' · update the notes before confirming.'));
  for(const item of data.items){
-  const row=el('section','note-section'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
-  row.append(state,el('p','',item.text));
-  if(item.owner)row.append(el('p','hint','Owner: '+item.owner));
+  const row=el('section','entity-card review-card'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
+  const head=el('div','entity-top');head.append(el('p','review-text',item.text),state);row.append(head);
+  row.append(el('p','entity-meta',(item.kind==='decision'?'Decision':'Task')+(item.owner?' · Owner: '+item.owner:'')));
   row.append(reviewRouting(item));
-  for(const evidence of item.evidence||[]){const proof=el('div','review-evidence');proof.append(el('blockquote','',evidence.quote),listenButton(meetingId,evidence.start,{label:'Listen · '+evidence.timestamp,until:evidence.end,className:'secondary'}));row.append(proof);}
+  // A short quote with its moment; the full quote shows on request and plays in place.
+  for(const evidence of item.evidence||[]){const proof=el('div','review-evidence'),quote=el('blockquote','',evidence.quote);quote.title='Show the whole quote';quote.onclick=()=>quote.classList?.toggle('expanded');proof.append(listenButton(meetingId,evidence.start,{label:evidence.timestamp,until:evidence.end,className:'quiet'}),quote);row.append(proof);}
   const actions=el('div','action-group review-item-actions');
   const edit=btn('secondary','Edit');
   edit.onclick=()=>{
@@ -3403,7 +3412,7 @@ async function openMeetingReview(){
    save.type=cancel.type='button';form.append(text);if(item.kind==='task')form.append(owner);const editActions=el('div','action-group editor-actions');editActions.append(cancel,save);form.append(editActions);row.append(form);
    cancel.onclick=()=>perform(async()=>{if((text.value!==item.text||owner.value!==(item.owner||''))&&!(await ask('Discard these unsaved edits?',{ok:'Discard',cancel:'Keep editing',danger:true})))return;editorDirty.clear('meeting-review');form.remove();edit.disabled=false;});form.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();cancel.click();}};
    save.onclick=()=>perform(async()=>{save.disabled=cancel.disabled=true;try{const changes={text:text.value};if(item.kind==='task')changes.owner=owner.value;await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action:'edit',changes});editorDirty.clear('meeting-review');await openMeetingReview();}finally{save.disabled=cancel.disabled=false;}});
-  };if(!(item.kind==='task'&&item.dismiss_blocked_reason&&item.state!=='dismissed'))actions.append(edit);
+  };const showEdit=!(item.kind==='task'&&item.dismiss_blocked_reason&&item.state!=='dismissed');
 
   if(item.dismiss_blocked_reason&&item.state!=='dismissed'){
    const notice=el('div','notice review-confirmation-context');
@@ -3411,13 +3420,16 @@ async function openMeetingReview(){
    for(const confirmation of item.confirmed_in||[])notice.append(openMeetingBtn(confirmation.title,confirmation.meeting_id));
    const open=btn('secondary',item.kind==='task'?'Open task':'Open in My Work');open.onclick=()=>perform(async()=>{if(item.kind==='task')return openTaskPanel(item.id);if(!(await leaveEdits()))return;show('tasks');lastTasks='';await loadTasks();showWorkTab(item.kind);});notice.append(open);row.append(notice);
   }
+  // One group in the same order on every card: Confirm, Edit, Skip (or Restore).
+  const ordered={};
   for(const [action,label] of item.state==='dismissed'?[['restore','Restore to My Work']]:[['confirm','Confirm'],['dismiss','Skip proposal']]){
    if(item.state==='confirmed'||action==='dismiss'&&item.can_dismiss===false)continue;
    const button=btn(action==='confirm'?'primary':'secondary',label);button.disabled=data.source_changed;
    if(action==='dismiss')button.title='Hides this '+item.kind+' in My Work and in every meeting. You can undo it.';if(action==='confirm')button.title='Saves your review on this Mac. Nothing is sent.';
    button.onclick=()=>perform(async()=>{button.disabled=true;try{const result=await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:data.source,content:item.content,action});await openMeetingReview();
-    if(action==='dismiss'){const row=result.items.find(r=>r.id===item.id);if(row)undoToast('Dismissed: '+item.text,()=>perform(async()=>{await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:result.source,content:row.content,action:'restore'});await openMeetingReview();toast('Undone');}));}}finally{button.disabled=false;}});actions.append(button);
+    if(action==='dismiss'){const row=result.items.find(r=>r.id===item.id);if(row)undoToast('Dismissed: '+item.text,()=>perform(async()=>{await api('/api/meeting-review',{meeting_id:meetingId,item_id:item.id,source:result.source,content:row.content,action:'restore'});await openMeetingReview();toast('Undone');}));}}finally{button.disabled=false;}});ordered[action]=button;
   }
+  for(const button of [ordered.confirm,showEdit?edit:null,ordered.dismiss,ordered.restore])if(button)actions.append(button);
   row.append(actions);box.append(row);
  }
  if(!data.items.length)box.append(el('p','hint','No linked tasks or decisions. Review the saved notes and unresolved mentions in Tasks & decisions.'));

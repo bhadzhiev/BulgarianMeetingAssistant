@@ -2986,12 +2986,18 @@ function renderTeamReview(){
  // The limitations are in the Coverage section of the review; the head names only what waits for a person.
  if(r.coverage?.excluded)head.append(el('p','hint',AtlantaUX.count(r.coverage.excluded,'item')+' excluded from the analysis · '+(r.coverage.excluded===1?'it needs':'they need')+' confirmation. See Coverage.'));
  if(r.status==='superseded'&&r.superseded_by)head.append(el('p','notice','A newer version replaces this review.'));
+ // The AI run of this review: what wrote it, or that it is incomplete and blocks Finalize.
+ const gen=r.generator;if(gen)head.append(el('p',gen.complete?'hint':'notice',gen.complete?'AI preparation · '+gen.model+' · '+(gen.at?dateTime(gen.at):'')+(gen.rejected?' · '+AtlantaUX.count(gen.rejected,'statement')+' rejected by the check':''):'The AI preparation is incomplete. Run it again before you finalize; the finished parts are kept.'));
+ const aiJob=teamAIJob&&teamAIJob.review_id===r.id?teamAIJob:null;
+ if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});renderTeamReview();}));head.append(line);}
+ else if(aiJob?.error)head.append(el('p','error',aiJob.error));
  const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
  const text=el('textarea','team-review-text');text.value=r.review_md;text.rows=22;text.setAttribute('aria-label','Review text');text.oninput=()=>editorDirty.set('team-review',text.value!==r.review_md);
  const saveText=async()=>{if(text.value!==teamReview.review_md){teamReview=await api('/api/team/review/save',{id:r.id,revision:teamReview.revision,review_md:text.value});}editorDirty.clear('team-review');};
  if(draft){
   actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision});toast('Review finalized');renderTeamReview();}),
    actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
+   actionBtn('secondary','Prepare with AI…',()=>openTeamAI(r)),
    ...(r.supersedes?[]:[actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
    actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');toast('Draft discarded');await openTeam('reviews');}));
  }else{
@@ -3028,6 +3034,37 @@ function evidenceList(r){
   box.append(row);
  }
  return box;
+}
+// AI preparation: a preview of the destination and the exact records, an explicit approval, then one job.
+let teamAIPreview=null,teamAIJob=null,teamAITimer=null;
+async function openTeamAI(r){
+ if(editorDirty.keys().includes('team-review')){toast('Save the draft first');return;}
+ const p=await api('/api/team/review/ai/preview?id='+encodeURIComponent(r.id));teamAIPreview=p;
+ const box=$('team-ai-summary');box.replaceChildren();$('team-ai-error').hidden=true;$('team-ai-approve').checked=false;$('team-ai-start').disabled=true;
+ if(!p.ai_available){$('team-ai-error').textContent=p.ai_unavailable_reason;$('team-ai-error').hidden=false;}
+ const t=p.target,facts=[['Destination',(t.provider==='openai'?'OpenAI':'Configured API')+' · '+t.local_ai_model],['Address',t.local_ai_base_url||'—'],['Records',p.records+' · '+AtlantaUX.count(p.batches,'part')+' · '+p.characters.toLocaleString('en-GB')+' characters']];
+ for(const [name,value] of facts){const row=el('p','team-ai-fact');row.append(el('strong','',name+': '),document.createTextNode(value));box.append(row);}
+ if(p.remote)box.append(el('p','notice','This destination is outside this Mac. The records, with their quotes and the name '+r.person_name+', leave the Mac.'));
+ if(!p.records)box.append(el('p','hint','This review has no records. The AI can only say that there is not enough data.'));
+ $('team-ai-input').textContent=JSON.stringify(p.input,null,2);$('team-ai-dialog').showModal();
+}
+$('team-ai-approve').onchange=()=>{$('team-ai-start').disabled=!$('team-ai-approve').checked||!teamAIPreview?.ai_available;};
+$('team-ai-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
+ try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
+ catch(exc){$('team-ai-error').textContent=exc.message;$('team-ai-error').hidden=false;}
+});};
+$('team-ai-close').onclick=()=>$('team-ai-dialog').close();
+// The job runs in the background; the page follows it and reloads the draft when it ends.
+function pollTeamAI(){
+ clearTimeout(teamAITimer);if(!teamAIJob)return;
+ teamAITimer=setTimeout(()=>perform(async()=>{
+  teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);
+  const here=view==='team'&&teamReview?.id===teamAIJob.review_id;
+  if(teamAIJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamAI();return;}
+  if(teamAIJob.status==='Ready to review')toast('AI preparation ready · check it against the evidence');
+  else if(teamAIJob.error)toast('AI preparation stopped: '+teamAIJob.error);
+  if(here){teamReview=await api('/api/team/review?id='+encodeURIComponent(teamReview.id));renderTeamReview();}
+ }),1500);
 }
 // Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
 function exportTeamReview(r){
@@ -3446,6 +3483,8 @@ const dialogPolicies={
  'person-dialog':{close:'person-close',cancel:'person-cancel',form:'person-form',actions:['person-delete']},
  'team-dialog':{close:'team-close',cancel:'team-cancel',form:'team-form'},
  'team-review-dialog':{close:'team-review-close',cancel:'team-review-cancel',form:'team-review-form'},
+ // The approval box is not an edit: closing the AI preview never asks to discard it.
+ 'team-ai-dialog':{close:'team-ai-close',cancel:'team-ai-cancel',form:'team-ai-form',transient:true},
  'template-dialog':{close:'template-close',cancel:'template-cancel',form:'template-form',actions:['template-delete']},
  'github-link-dialog':{close:'github-link-close',cancel:'github-link-cancel',form:'github-link-form'},
  'scope-dialog':{close:'scope-close',cancel:'scope-cancel',form:'scope-form'},

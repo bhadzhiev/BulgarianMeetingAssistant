@@ -22,6 +22,9 @@ def execute(action, directory, settings, progress, key='', speakers=(), trackers
     if action == 'task_draft':
         from .task_draft import generate
         return generate(settings['task_draft_source'], settings, key)
+    if action == 'team_review':
+        from .team_ai import generate
+        return generate(settings['team_review_input'], settings, key)
     if action == 'repo_synthesis':
         from .repo_reports import synthesize
         return synthesize(settings['repo_evidence'],settings,progress,key)

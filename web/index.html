@@ -308,6 +308,15 @@
   <p class="hint">Times are in Europe/Sofia. Atlanta collects the confirmed facts of the period from meetings, tasks and decisions. No AI runs and nothing is sent anywhere.</p>
   <div class="review-footer"><button id="team-review-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-review-save" class="primary" type="submit">Create draft</button></div>
 </form></dialog>
+<dialog id="team-ai-dialog" aria-labelledby="team-ai-title"><form id="team-ai-form" method="dialog">
+  <div class="card-heading"><div><p class="eyebrow">AI PREPARATION</p><h2 id="team-ai-title">Prepare with AI</h2></div><button id="team-ai-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <p id="team-ai-error" class="error" role="alert" hidden></p>
+  <div id="team-ai-summary"></div>
+  <details id="team-ai-data"><summary>The data that the AI gets</summary><pre id="team-ai-input" class="team-ai-input"></pre></details>
+  <label class="checkbox"><input id="team-ai-approve" type="checkbox"> I approve: send these records to this AI destination.</label>
+  <p class="hint">The AI writes observations and questions with record IDs. The app rejects unknown IDs and adds every number and date itself. The facts of the review do not change.</p>
+  <div class="review-footer"><button id="team-ai-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="team-ai-start" class="primary" type="submit" disabled>Prepare with AI</button></div>
+</form></dialog>
 <dialog id="template-dialog" aria-labelledby="template-title"><form id="template-form" method="dialog">
   <div class="card-heading"><div><p class="eyebrow">MEETING TYPE</p><h2 id="template-title">New template</h2></div><button id="template-close" class="quiet" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <p id="template-error" class="error" role="alert" hidden></p>

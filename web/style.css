@@ -1110,3 +1110,20 @@ dialog.dialog-scrolls .dialog-foot{border-top:1px solid var(--line);padding-top:
 #workspace-content>.empty-note{margin-top:14px}
 /* A background job can be opened: the status line leads to its meeting. */
 #activity-status.background{cursor:pointer;pointer-events:auto}
+/* One button scale (measured: 24 heights before). Standard: 32px, 13px text, for every primary, secondary and
+   danger button and for the "…" menu in headers, toolbars and dialogs. Small: 28px, 12px, for actions inside
+   task, decision and note rows. Text links (quiet), tabs, chips, calendar days and play buttons keep their own size.
+   The large Start recording button stays the main call to action. */
+:is(button,a.button):is(.primary,.secondary,.danger,.danger-text):not(.quiet):not(.small-action):not(#start),
+.review-footer>button,.review-footer>span>button,.editor-actions>button,.task-card-footer>button,.tracked-edit-bar>button,
+.menu>summary.overflow-trigger{
+ box-sizing:border-box!important;min-height:32px!important;height:32px!important;padding:0 14px!important;font-size:13px!important;line-height:1!important;
+ display:inline-flex!important;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.menu>summary.overflow-trigger{min-width:36px!important;padding:0 8px!important;font-size:18px!important}
+:is(button,a):is(.small-action),
+.task-more>summary.overflow-trigger,.row-menu>summary.overflow-trigger,.tracked-task .menu>summary.overflow-trigger{
+ box-sizing:border-box!important;min-height:28px!important;height:28px!important;padding:0 10px!important;font-size:12px!important;line-height:1!important;
+ display:inline-flex!important;align-items:center;justify-content:center;white-space:nowrap}
+.task-more>summary.overflow-trigger,.row-menu>summary.overflow-trigger,.tracked-task .menu>summary.overflow-trigger{min-width:30px!important;padding:0 6px!important;font-size:16px!important}
+/* A footer action that needs two lines (a long label in a narrow dialog) may grow. */
+@media(max-width:480px){.review-footer>button,.editor-actions>button,.task-card-footer>button{height:auto!important;white-space:normal;padding:7px 14px!important;line-height:1.3!important}}

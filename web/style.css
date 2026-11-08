@@ -1337,3 +1337,40 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 /* A long day: the month keeps the height of its grid and stays in view while the agenda scrolls. */
 .calendar-layout{align-items:start}
 .calendar-month-panel{position:sticky;top:12px}
+/* Task editor: the main fields first; details, people, sources and history open on demand. */
+#task-panel .task-core{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+#task-panel .task-section{border-top:1px solid var(--line);margin:0}
+#task-panel .task-section>summary{display:flex;align-items:baseline;gap:10px;cursor:pointer;padding:12px 0;font-size:13px;font-weight:600;min-width:0}
+#task-panel .task-section-title{flex:none}
+#task-panel .task-section-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:12px;font-weight:400}
+#task-panel .task-section[open]>summary .task-section-summary{display:none}
+#task-panel .task-section[open]{padding-bottom:12px}
+#task-panel .task-section .note-section{margin:8px 0}
+/* Compact task list (the default view): one row per task. Title, owner, state, due date and "…" line up under a header. */
+#task-list.compact-list{display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:visible}
+#task-list.compact-list>.tracked-task.task-card.compact-task{margin:0;padding:8px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none;align-items:center;gap:10px}
+#task-list.compact-list>.tracked-task.task-card.compact-task:last-child{border-bottom:0}
+#task-list.compact-list>.tracked-task.task-card.compact-task.has-project-line{border-left:3px solid var(--project-color)}
+.tracked-task.task-card.compact-task>.tracked-main{flex:1 1 0;width:auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 170px 130px 150px;align-items:center;column-gap:10px;row-gap:2px}
+.tracked-task.task-card.compact-task>.tracked-main>.entity-top{grid-column:1;grid-row:1}
+.tracked-task.task-card.compact-task>.tracked-main>.compact-flags{grid-column:1;grid-row:2;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tracked-task.task-card.compact-task .task-quick-fields{display:contents}
+.tracked-task.task-card.compact-task .task-quick-fields>label{grid-row:1 / span 2;align-self:center;font-size:0;margin:0}
+.tracked-task.task-card.compact-task .task-quick-fields>label>*{font-size:13px}
+.tracked-task.task-card.compact-task .entity-top .tracked-text{font-size:13px}
+.tracked-task.task-card.compact-task>.task-more>.tracked-actions .compact-next-check{display:grid;gap:4px;padding:6px 8px;font-size:12px;color:var(--muted)}
+.compact-head{font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);padding-top:10px!important;padding-bottom:6px!important}
+.compact-head>.tracked-main>span{grid-row:1}
+.compact-head .compact-col-more{flex:none;width:32px}
+.task-bulk-bar .task-density{margin-right:6px}
+@media(max-width:720px){
+ .compact-head{display:none!important}
+ .tracked-task.task-card.compact-task>.tracked-main{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:6px}
+ .tracked-task.task-card.compact-task .task-quick-fields>label:first-child{grid-column:1 / -1}
+ .tracked-task.task-card.compact-task .task-quick-fields>label :is(select,input,.date-control){width:100%}
+ .tracked-task.task-card.compact-task>.tracked-main>.entity-top,.tracked-task.task-card.compact-task>.tracked-main>.compact-flags{grid-column:1 / -1;grid-row:auto}
+ .tracked-task.task-card.compact-task .task-quick-fields>label{grid-row:auto}
+ .tracked-task.task-card.compact-task .entity-top .tracked-text{-webkit-line-clamp:2}
+}
+.tracked-task.task-card.compact-task>.task-more{align-self:center}
+#task-panel .task-panel-head h2{overflow-wrap:anywhere;max-width:100%}

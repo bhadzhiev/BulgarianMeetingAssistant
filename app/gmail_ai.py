@@ -13,7 +13,8 @@ from .work_items import WorkItemConflict, canonical
 
 VERSION = 2
 MAX_INPUT = 20000
-TARGET_FIELDS = ('local_ai_base_url', 'local_ai_model', 'local_ai_format', 'local_ai_max_tokens', 'local_ai_reasoning')
+# The temperature is part of the target: some cloud models (Kimi K3) accept only their own value.
+TARGET_FIELDS = ('local_ai_base_url', 'local_ai_model', 'local_ai_format', 'local_ai_max_tokens', 'local_ai_reasoning', 'local_ai_temperature')
 SCHEMA = dict(type='object', additionalProperties=False, required=['tasks'], properties=dict(tasks=dict(type='array',maxItems=20,
     items=dict(type='object',additionalProperties=False,required=['text','quote','owner','deadline','due_date'],properties=dict(
         text=dict(type='string'),quote=dict(type='string'),owner=dict(type=['string','null']),

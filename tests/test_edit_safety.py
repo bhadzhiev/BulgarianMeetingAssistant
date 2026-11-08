@@ -65,11 +65,11 @@ class EditSafetyTests(unittest.TestCase):
         self.assertEqual(self.service.tasks(), [])  # the registry has seen the deletion before the restore
         result = self.service.restore_backup(name)
         self.assertEqual(result['restored'], [])
-        self.assertEqual((self.service.tasks(), self.service.item_list()['pending']), ([], []))
+        self.assertEqual((self.service.tasks(), self.service.pending_links()), ([], []))
 
     def test_merge_in_one_meeting_keeps_the_chosen_text_and_a_quiet_history(self):
         meeting_id = self.meeting(notes([task('Провери VPN failover на офиса'), task('Провери VPN failover')]))
-        pending = self.service.item_list()['pending']
+        pending = self.service.pending_links()
         for entry in pending:
             self.service.resolve_link(meeting_id, 'tasks', entry['index'], entry['text'], 'new')
         tasks = {t['text']: t for t in self.service.tasks()}

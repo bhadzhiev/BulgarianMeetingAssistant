@@ -368,6 +368,9 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_saved_meetings()
             elif path == '/api/import':
                 result = service.import_transcript(body['text'], body.get('filename', ''), body.get('modified'))
+            elif path == '/api/work/meeting-review':
+                from app import meeting_proposals
+                result = meeting_proposals.review(service, body)
             elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability', '/api/work/project'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
             elif path == '/api/editor-state':

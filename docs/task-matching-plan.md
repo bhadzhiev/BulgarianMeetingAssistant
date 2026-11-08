@@ -86,3 +86,14 @@ Measure apart:
 1. Is the right task in the top 8 (the sieve)?
 2. Is the match right (the AI)?
 3. Is the proposal type right?
+
+## Status after PR 4
+
+Done:
+- PR 1 (#154), PR 2 (#156) and PR 3 (#157) are merged.
+- In PR 4, meeting tasks and updates become proposals in For review.
+
+Known limits of the first version:
+- **Decisions** keep the old link review. Task matching covers tasks and updates only.
+- **Regenerated notes** (`minutes.proposed.json`) get AI proposals at the next processing run after they are applied. Until then, the local text similarity still makes proposals.
+- **No automatic linking.** Every proposal waits for a person. Automatic linking is a later decision, after the quality check.

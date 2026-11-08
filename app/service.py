@@ -2206,6 +2206,13 @@ class MeetingService:
             self.items.save()
             path = directory / 'minutes.json'
             self.items_synced[meeting_id] = path.stat().st_mtime_ns if path.exists() else None
+            # Mentions that may be existing tasks wait in For review as proposals.
+            if path.exists() and meeting_id != self.active and meeting_id not in self.busy:
+                try:
+                    from . import meeting_proposals
+                    meeting_proposals.build(self, meeting_id)
+                except (OSError, ValueError, items.WorkItemConflict) as exc:
+                    print(f'Meeting proposals: {meeting_id}: {exc}', flush=True)
             if follow:
                 self._sync_linked(changed, except_meeting=meeting_id)
 
@@ -2306,9 +2313,25 @@ class MeetingService:
         self._review_source_cache=fresh
         return sources
 
+    def _migrate_link_reviews(self):
+        """Once: the mentions that waited in the old link review become proposals in For review."""
+        if getattr(self, '_links_migrated', False):
+            return
+        self._links_migrated = True
+        from . import meeting_proposals
+        for meeting_id in sorted({entry['meeting_id'] for entry in self.pending_links()}):
+            if meeting_id == self.active or meeting_id in self.busy:
+                self._links_migrated = False
+                continue
+            try:
+                meeting_proposals.build(self, meeting_id)
+            except (OSError, ValueError, items.WorkItemConflict) as exc:
+                print(f'Meeting proposals: {meeting_id}: {exc}', flush=True)
+
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
+            self._migrate_link_reviews()
             meetings = self._meeting_refs()
             sources=self.review_sources()
             rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item,sources))
@@ -2323,7 +2346,8 @@ class MeetingService:
             for link in github_rows:
                 link.pop('observations',None)
                 if link.get('progress'):link['progress']={k:v for k,v in link['progress'].items() if k!='events'}
-            return dict(items=rows, pending=self.pending_links(), meetings=meetings, graph=graph, github_links=github_rows,
+            # Tasks wait in For review as proposals; decisions keep the link review until they have proposals too.
+            return dict(items=rows, pending=[entry for entry in self.pending_links() if entry['kind'] == 'decision'], meetings=meetings, graph=graph, github_links=github_rows,
                         meeting_questions=self.meeting_questions(meetings))
 
     def meeting_questions(self, meetings):
@@ -2484,6 +2508,9 @@ class MeetingService:
             if action == 'availability':
                 return graph.availability(body['source_id'], body['source_revision'], body['available'])
             if action == 'review':
+                # A meeting match has its own decisions (link, update, change); the generic review would make a new item.
+                if (self.items.data.get('proposals', {}).get(body.get('id')) or {}).get('origin') == 'meeting_match':
+                    raise ValueError('Review this meeting suggestion with its own buttons.')
                 return graph.review(body['id'], body['revision'], body['action'],
                     target_id=body.get('target_id'), target_revision=body.get('target_revision'),
                     snoozed_until=body.get('snoozed_until'),edited_text=body.get('text'))
@@ -2504,7 +2531,8 @@ class MeetingService:
         open_tasks = [t for t in self.tasks() if t['status'] == 'open' and t.get('workflow_state')!='cancelled' and t.get('acceptance_state')!='proposed' and not t.get('dismissed')
                       and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
-                    today=today, review=len(self.pending_links()))
+                    today=today, review=sum(1 for p in self.items.data.get('proposals', {}).values()
+                                            if p.get('origin') == 'meeting_match' and p.get('state') == 'pending'))
 
     def _linked_minutes(self, item):
         """Each meeting that mentions the item, with its notes; busy meetings must wait."""

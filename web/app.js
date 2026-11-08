@@ -1093,7 +1093,7 @@ function proposalBanner(busy) {
  banner.append(button); return banner;
 }
 function taskRow(task,index,busy,mentions=[task]) {
- if(task.link&&!task.item_id) return linkCard({meeting_id:detail.id,kind:'task',field:'tasks',index,mention:task,text:task.task,candidates:task.link.candidates},detail.item_meetings,detail.items||{});
+ if(task.link&&!task.item_id){const box=el('div','link-card');box.append(el('p','link-text',task.task),el('p','hint','This may be an existing task. It waits in My Work → For review.'));const go=btn('secondary small-action','Open For review');go.onclick=()=>perform(async()=>{workTab='suggested';await $('open-tasks').onclick();});box.append(go);return box;}
  // The persistent task holds the current state; the mention holds what this meeting said.
  const item=detail.items?.[task.item_id], current=item||{text:task.task,owner:task.owner,deadline:task.deadline,due_date:task.due_date,status:task.status};
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(current,today);
@@ -2062,6 +2062,43 @@ function renderRepoReport(){
 }
 
 let proposalFilter='pending';
+// A meeting mention that may be an existing task: what was said, the suggested task, why, and the result of each choice.
+const MATCH_PRIMARY={existing_mention:['link','Link to this task'],existing_update:['update','Add the update'],proposed_change:['change','Apply the checked changes'],uncertain:['link','Link to the chosen task']};
+function meetingMatchCard(p,ev){
+ const m=p.match,card=el('div','work-proposal meeting-match'),byId=Object.fromEntries(itemsData.items.map(i=>[i.id,i]));
+ const top=el('div','proposal-top');top.append(originChip('meeting',meetingLabel(m.meeting_id,itemsData.meetings),()=>openMeeting(m.meeting_id)),el('span','hint',(m.basis==='ai'?'AI suggestion':'Close wording')+' · '+(m.field==='updates'?'update':'task')));
+ card.append(top,el('p','hint','Said in the meeting'),el('strong','proposal-text',p.text));
+ if(ev)card.append(el('blockquote','',ev.quote));
+ const review=(action,extra={})=>graphAction('meeting-review',{id:p.id,revision:p.revision,action,...extra});
+ const facts=t=>[t.owner||'No owner',AtlantaTasks.STATES[AtlantaTasks.workflow(t)],t.due_date&&'due '+date(t.due_date)].filter(Boolean).join(' · ');
+ // The suggested task, or for an uncertain match a choice between the candidates.
+ const ids=m.type==='uncertain'?[...new Set([m.task_id,...(m.candidates||[])].filter(id=>byId[id]))]:[m.task_id].filter(id=>byId[id]);
+ let chosen=ids[0];const targets=el('div','match-targets');
+ for(const id of ids){const t=byId[id],row=el('label',ids.length>1?'checkbox match-target':'match-target');
+  if(ids.length>1){const radio=el('input');radio.type='radio';radio.name='match-'+p.id;radio.value=id;radio.checked=id===chosen;radio.onchange=()=>{chosen=id;};row.append(radio);}
+  const open=btn('quiet small-action','Open task');open.onclick=event=>{event.preventDefault();perform(()=>openTaskPanel(id));};
+  row.append(el('span','',(ids.length>1?'':'Suggested task: ')+t.text),el('span','hint',facts(t)),open);targets.append(row);}
+ if(!ids.length)targets.append(el('p','hint','The suggested task is no longer available. Choose another task or make a new one.'));
+ card.append(targets);if(m.reason)card.append(el('p','hint','Why: '+m.reason));
+ let update=null;const checks=[];
+ if(m.type==='existing_update'){update=el('textarea');update.rows=2;update.value=m.update_text||'';update.setAttribute('aria-label','Update to add');const l=el('label','','Update to add to the task history');l.append(update);card.append(l);}
+ if(m.type==='proposed_change'&&byId[m.task_id]){const t=byId[m.task_id],box=el('div','link-changes');box.append(el('p','hint','The meeting proposed a change. Check only what should change:'));
+  const show=(field,value)=>value==null||value===''?'none':field==='due_date'?date(value):field==='workflow_state'?AtlantaTasks.STATES[value]||value:value;
+  for(const c of m.changes||[]){const now=c.field==='workflow_state'?AtlantaTasks.workflow(t):t[c.field];const line=el('label','checkbox link-change'),check=el('input');check.type='checkbox';check.value=c.field;
+   line.append(check,document.createTextNode(({owner:'Owner',due_date:'Due date',workflow_state:'State'})[c.field]+': '+show(c.field,now)+' → '+show(c.field,c.value)));box.append(line);checks.push(check);}card.append(box);}
+ const actions=el('div','work-actions');
+ if(p.state==='pending'){
+  const [action,label]=MATCH_PRIMARY[m.type]||MATCH_PRIMARY.uncertain;
+  if(ids.length){const primary=btn('primary small-action',label);primary.onclick=()=>perform(async()=>{const t=byId[chosen];
+   await review(action,{task_id:t.id,task_revision:t.revision,...(action==='update'?{update_text:update.value}:{}),...(action==='change'?{fields:checks.filter(c=>c.checked).map(c=>c.value)}:{})});});actions.append(primary);
+   if(action!=='link'){const plain=btn('secondary small-action','Link only');plain.title='Link the meeting as evidence. Nothing else changes.';plain.onclick=()=>perform(()=>review('link',{task_id:byId[chosen].id,task_revision:byId[chosen].revision}));actions.append(plain);}}
+  const other=el('select');other.setAttribute('aria-label','Other task');other.append(option('Other task…',''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&!i.dismissed&&!ids.includes(i.id)).map(i=>option(i.text.slice(0,90),i.id)));
+  other.onchange=()=>{const t=byId[other.value];if(t)perform(()=>review('other',{task_id:t.id,task_revision:t.revision}));};actions.append(other);
+  if(m.field==='tasks')actions.append(actionBtn('secondary small-action','New task',()=>review('new')));
+  actions.append(actionBtn('quiet small-action','Reject',()=>review('reject')));
+ }else actions.append(el('span','hint',p.state==='linked'?'Linked':p.state==='accepted'?'New task':p.state));
+ card.append(actions);return card;
+}
 async function graphAction(action,body){await api('/api/work/'+action,body);await refreshAfterItemChange();}
 function renderWorkGraph(){
  const graph=itemsData.graph||{},today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
@@ -2073,6 +2110,7 @@ function renderWorkGraph(){
  const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
  for(const p of proposals){
   if(itemKind==='task'&&managerView==='inbox'&&stored('task-search')&&!p.text.toLowerCase().includes(stored('task-search').toLowerCase()))continue;
+  if(p.origin==='meeting_match'&&p.match){list.append(meetingMatchCard(p,evidence[p.evidence_id]));continue;}
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
   const top=el('div','proposal-top');top.append(source?originChip(source.provider,sourceLabel(source),()=>openSource(source)):originChip('','Unavailable source'),el('span','hint',(['gmail_ai','repo_ai'].includes(p.origin)?'AI suggestion · ':'')+p.kind+' · '+p.state+(p.snoozed_until?' · snoozed until '+p.snoozed_until:'')));
   card.append(top,el('strong','proposal-text',p.text));

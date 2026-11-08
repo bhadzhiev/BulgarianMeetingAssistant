@@ -1403,8 +1403,9 @@ class MeetingService:
             if item['kind'] != 'task':
                 continue
             owner, _how = self.people.owner_of(item)
-            if owner and owner['id'] in projects:
-                projects[owner['id']].update(item.get('effective_project_ids') or [])
+            for person_id in {owner['id'] if owner else None, *(item.get('assignee_person_ids') or [])}:
+                if person_id in projects:
+                    projects[person_id].update(item.get('effective_project_ids') or [])
         return dict(members=[dict(id=p['id'], active=in_team(p), periods=p['team'], project_ids=sorted(projects[p['id']]), **self.team_reviews.summary(p['id'])) for p in members])
 
     def _team_person(self, person_id):
@@ -1490,6 +1491,9 @@ class MeetingService:
             tasks = [(i, how) for i, (owner, how) in owned if owner and owner['id'] == person_id]
         row = lambda i: dict(id=i['id'], text=i['text'], status=i['status'], due_date=i.get('due_date'), links=i.get('links', []))
         confirmed = [row(i) for i, how in tasks if how == 'linked' or 'owner' in i.get('manual', [])]
+        # A shared task: the person works on it, and another person is accountable.
+        with self.items.lock:
+            shared = [row(i) for i in self.items.items.values() if i['kind'] == 'task' and person_id in (i.get('assignee_person_ids') or [])[1:]]
         suggested = [row(i) for i, how in tasks if how != 'linked' and 'owner' not in i.get('manual', [])]
         github = []
         if person['github'] and person['github'].get('id'):
@@ -1498,7 +1502,7 @@ class MeetingService:
             except (ValueError, GitHubError):
                 github = []
         return dict(person=person, voice_samples=voice_samples, statements=len(said), meetings=len(meetings), said=said[:50],
-                    commitments=confirmed, suggested=suggested, github=github, channels=identity_channels.profile(self,person))
+                    commitments=confirmed, shared=shared, suggested=suggested, github=github, channels=identity_channels.profile(self,person))
 
     # GitHub drafts and local links -------------------------------------------------------------------
     def _resource(self, value):
@@ -2460,7 +2464,7 @@ class MeetingService:
             return copy.deepcopy(self.items.items[key])
 
     def _clean_item_changes(self, item, changes):
-        allowed = {'text', 'owner', 'owner_person_id', 'destination_repository', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
+        allowed = {'text', 'owner', 'owner_person_id', 'assignee_person_ids', 'destination_repository', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
         allowed |= {'dismissed', 'snoozed_until'}
         if item['kind']=='task':allowed |= {'project_ids','details','completion_criteria','workflow_state','acceptance_state','requester_person_id','assigned_by_person_id','follower_person_id','follow_up_date','update_note','update_evidence_id'}
         if set(changes) - allowed:
@@ -2505,6 +2509,11 @@ class MeetingService:
                 if value not in (items.TASK_STATES if item['kind'] == 'task' else items.DECISION_STATES):
                     raise ValueError('Invalid status')
                 clean[name] = value
+            elif name == 'assignee_person_ids':
+                from .work_items import MAX_ASSIGNEES
+                if not isinstance(value, list) or len(value) > MAX_ASSIGNEES or len(set(value)) != len(value) or any(not isinstance(v, str) or not self.people.get(v) for v in value):
+                    raise ValueError(f'Choose up to {MAX_ASSIGNEES} different people from People')
+                clean[name] = list(value)
             elif name == 'owner_person_id':
                 # A person chooses who owns the task. That also confirms the owner.
                 person = self.people.get(value) if value is not None else None
@@ -2538,6 +2547,37 @@ class MeetingService:
         if 'owner' in clean and 'owner_person_id' not in clean and item.get('owner_person_id') and (
                 not linked or not clean['owner'] or clean['owner'].casefold() not in self._person_names(linked)):
             clean['owner_person_id'] = None
+        return self._clean_assignees(item, changes, clean)
+
+    def _clean_assignees(self, item, changes, clean):
+        """Keep the assignee list and the owner link together: the first assignee is the accountable owner.
+
+        A person sets the whole list, or changes the accountable owner. Without linked people the text owner stays.
+        """
+        if item['kind'] != 'task':
+            return clean
+        current = list(item.get('assignee_person_ids') or ([item['owner_person_id']] if item.get('owner_person_id') else []))
+        if 'assignee_person_ids' in clean:
+            ids = clean['assignee_person_ids']
+            if 'owner_person_id' in clean and clean['owner_person_id'] != (ids[0] if ids else None):
+                raise ValueError('The first assignee is the owner. Choose one of them.')
+            clean['owner_person_id'] = ids[0] if ids else None
+            if ids and 'owner' not in changes:
+                person = self.people.get(ids[0])
+                clean['owner'] = item.get('owner') if item.get('owner') and item['owner'].casefold() in self._person_names(person) else person['name']
+        elif 'owner_person_id' in clean:
+            owner, others = clean['owner_person_id'], current[1:]
+            if owner:
+                ids = [owner, *[i for i in current if i != owner]]
+            elif others and 'owner_person_id' in changes:
+                # Removing the accountable person makes the next assignee accountable.
+                ids, person = others, self.people.get(others[0])
+                clean['owner_person_id'], clean['owner'] = others[0], person['name'] if person else item.get('owner')
+            elif others:
+                raise ValueError('This task is shared. Choose the owner from People, or remove the other assignees first.')
+            else:
+                ids = []
+            clean['assignee_person_ids'] = ids
         return clean
 
     def update_item(self, item_id, text, changes, revision=None):

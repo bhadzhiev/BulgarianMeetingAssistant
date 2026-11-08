@@ -2292,7 +2292,7 @@ class MeetingService:
         return result
 
     def review_sources(self):
-        from .meeting_review import source_digest, minutes_evidence, legacy_minutes_evidence
+        from .meeting_review import source_digest, minutes_evidence, legacy_minutes_evidence, evidence_variants
         sources={}
         cache=getattr(self,'_review_source_cache',{})
         fresh={}
@@ -2307,7 +2307,8 @@ class MeetingService:
                 revision=self._transcript_revision(transcript)
                 minutes=json.loads((directory/'minutes.json').read_text()) if (directory/'minutes.json').exists() else None
                 sources[meeting['id']]=dict(source=source_digest(revision,self._minutes_revision(directory)),evidence=source_digest(revision,minutes_evidence(minutes)),
-                                            legacy_evidence=source_digest(revision,legacy_minutes_evidence(minutes)))
+                                            legacy_evidence=source_digest(revision,legacy_minutes_evidence(minutes)),
+                                            compatible=[source_digest(revision,value) for value in evidence_variants(minutes)])
                 fresh[meeting['id']]=(stamps,sources[meeting['id']])
             except (OSError,ValueError):pass
         self._review_source_cache=fresh

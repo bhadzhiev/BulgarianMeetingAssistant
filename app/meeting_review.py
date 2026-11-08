@@ -21,13 +21,28 @@ def fingerprint(item):
     return hashlib.sha256(canonical(fields).encode()).hexdigest()
 
 
-def legacy_minutes_evidence(minutes):
-    """The first evidence: the whole notes without review markers. Receipts made with it stay valid while it holds."""
+def _no_empty_updates(minutes):
+    """An empty "updates" list says nothing: notes with it and notes without it are the same evidence."""
+    if isinstance(minutes,dict) and minutes.get('updates')==[]:
+        return {k:v for k,v in minutes.items() if k!='updates'}
+    return minutes
+
+
+def _digest_notes(minutes):
     def clean(value):
         if isinstance(value,dict):return {k:clean(v) for k,v in value.items() if k!='review'}
         if isinstance(value,list):return [clean(v) for v in value]
         return value
     return hashlib.sha256(canonical(clean(minutes)).encode()).hexdigest()
+
+
+def _without_lists(minutes):
+    return {k:v for k,v in minutes.items() if k not in ('tasks','decisions')} if isinstance(minutes,dict) else minutes
+
+
+def legacy_minutes_evidence(minutes):
+    """The first evidence: the whole notes without review markers. Receipts made with it stay valid while it holds."""
+    return _digest_notes(_no_empty_updates(minutes))
 
 
 def minutes_evidence(minutes):
@@ -37,14 +52,22 @@ def minutes_evidence(minutes):
     written back into them. Each item has its own content fingerprint, so a change to one item asks for
     a new review of that item only, not of every item in the meeting.
     """
-    if isinstance(minutes,dict):minutes={k:v for k,v in minutes.items() if k not in ('tasks','decisions')}
-    return legacy_minutes_evidence(minutes)
+    return legacy_minutes_evidence(_without_lists(minutes))
+
+
+def evidence_variants(minutes):
+    """The evidence that receipts made between the notes update (#156) and this fix used: the notes with an
+    empty "updates" list. They stay valid, so a confirmation is not asked again only because of that list."""
+    if not isinstance(minutes,dict):
+        return []
+    with_list=dict(_no_empty_updates(minutes),updates=[]) if not minutes.get('updates') else minutes
+    return [_digest_notes(_without_lists(with_list)),_digest_notes(with_list)]
 
 
 def source_matches(receipt, source):
     if isinstance(source,dict):
         # Older receipts stay valid on their original exact source; no review is invented.
-        if receipt.get('evidence'):return receipt['evidence'] in {source.get('evidence'),source.get('legacy_evidence')}
+        if receipt.get('evidence'):return receipt['evidence'] in {source.get('evidence'),source.get('legacy_evidence'),*source.get('compatible',())}
         return receipt.get('source')==source.get('source')
     return receipt.get('source')==source
 
@@ -113,6 +136,11 @@ def linked(item, meeting_id):
     return any(link.get('meeting_id')==meeting_id and not link.get('detached') for link in item.get('links',[]))
 
 
+def closed(item):
+    """A done or cancelled task: its review is not asked again when notes or other meetings change."""
+    return item.get('kind')=='task' and (item.get('status')=='done' or item.get('workflow_state') in ('done','cancelled'))
+
+
 def meeting_state(item, meeting_id, source):
     """The item's review in one meeting; the receipt holds only while source and content stay the same."""
     receipt = item.get('meeting_reviews',{}).get(meeting_id)
@@ -173,7 +201,7 @@ def snapshot(service, meeting_id):
                      destination_repository=item.get('destination_repository'),repositories=service.project_repositories(projects) if item['kind']=='task' else [])
         guard=dismissal(item,meeting_id,sources.get(meeting_id,source),sources)
         guard['confirmed_in']=[dict(meeting_id=mid,title=refs.get(mid,{}).get('title') or 'Confirmed meeting') for mid in guard['confirmed_in']]
-        rows.append(dict(routing,**guard,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,
+        rows.append(dict(routing,**guard,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,closed=closed(item),
                          revision=item.get('revision'),content=digest,receipt=copy.deepcopy(receipt),
                          links=copy.deepcopy(item.get('links',[]))))
     rows.sort(key=lambda row:ORDER[row['state']])

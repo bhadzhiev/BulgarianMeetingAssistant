@@ -1100,7 +1100,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  const row=el('div','tracked-task '+kind);
  const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(avatar(current.owner||''),el('span','',current.owner||'No owner'));
- meta.append(item?.created_by==='user'?el('span','badge','Manually added'):item?workReviewBadge(item.review_state):reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
+ meta.append(item?.created_by==='user'?el('span','badge','Manually added'):item?workReviewBadge(item.review_state,item):reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
  if(current.deadline) meta.append(el('span','hint','Said: '+current.deadline));
  const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
@@ -1602,7 +1602,7 @@ $('github-link-form').onsubmit=event=>{event.preventDefault();return perform(asy
  catch(e){showError($('github-link-error'),e.message);}});};
 // Statuses come from one vocabulary (status.js).
 function statusBadge(status,detail){return el('span','status-badge status-'+status.tone,status.label+(detail?' · '+detail:''));}
-function workReviewBadge(state){return ['needs_review','edited'].includes(state)?statusBadge(AtlantaStatus.status('review',state)):'';}
+function workReviewBadge(state,item){return ['needs_review','edited'].includes(state)&&!(item&&item.kind==='task'&&(item.status==='done'||['done','cancelled'].includes(item.workflow_state)))?statusBadge(AtlantaStatus.status('review',state)):'';}
 // The people who work on a shared task: the owner first (accountable), then the others.
 function taskCoAssignees(item){return (item.assignee_person_ids||[]).slice(1).map(id=>(state.people||[]).find(p=>p.id===id)).filter(Boolean);}
 function taskPeopleNames(item){return [item.owner,...taskCoAssignees(item).map(p=>p.name)].filter(Boolean);}
@@ -1624,7 +1624,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  }
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
- meta.append(who,el('span','task-state',stateName),el('span','due-label '+kind,label),workReviewBadge(item.review_state));
+ meta.append(who,el('span','task-state',stateName),el('span','due-label '+kind,label),workReviewBadge(item.review_state,item));
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
  const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
@@ -1667,7 +1667,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
    if(!showProject)chips.replaceChildren();
    const flags=el('div','compact-flags');
    if(['overdue','today'].includes(kind))flags.append(el('span','due-label '+kind,dueInfo(item,today)[1]));
-   const review=workReviewBadge(item.review_state);if(review)flags.append(review);
+   const review=workReviewBadge(item.review_state,item);if(review)flags.append(review);
    if(co.length)flags.append(el('span','badge shared-badge','Shared · +'+co.length));
    main.replaceChildren(head,...(flags.childNodes.length?[flags]:[]),quick);
    for(const b of [addUpdate,timeline]){b.classList.remove('secondary','small-action');b.classList.add('quiet');}
@@ -4034,11 +4034,12 @@ async function openMeetingReview(){
  // What Atlanta understood: the saved summary statements, each with its moment.
  const summary=typeof data.summary==='string'?[{text:data.summary}]:(data.summary||[]).filter(entry=>entry?.text);
  if(summary.length){const list=el('ul','review-summary');for(const entry of summary){const line=el('li','',entry.text);if(entry.evidence_timestamp)line.append(' ',stampButton(entry.evidence_timestamp));list.append(line);}box.append(el('h3','','What Atlanta understood'),list);}
- const open=data.items.filter(item=>['needs_review','edited'].includes(item.state)).length;
+ // A closed task is not asked again: it shows its state, but does not count as waiting for a review.
+ const waiting=item=>['needs_review','edited'].includes(item.state)&&!item.closed,open=data.items.filter(waiting).length;
  if(data.items.length)box.append(el('h3','',open?open+' of '+data.items.length+' need your review':'All '+data.items.length+' reviewed'));
  if(data.source_changed)box.append(el('p','notice warning',AtlantaStatus.label('verification','changed')+' · update the notes before confirming.'));
  for(const item of data.items){
-  const row=el('section','entity-card review-card'+(['needs_review','edited'].includes(item.state)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
+  const row=el('section','entity-card review-card'+(waiting(item)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
   const head=el('div','entity-top');head.append(el('p','review-text',item.text),state);row.append(head);
   row.append(el('p','entity-meta',(item.kind==='decision'?'Decision':'Task')+(item.owner?' · Owner: '+item.owner:'')));
   row.append(reviewRouting(item));

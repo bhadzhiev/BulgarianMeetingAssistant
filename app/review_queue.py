@@ -9,7 +9,7 @@ import json
 import re
 import threading
 from . import items
-from .meeting_review import linked, meeting_state, source_digest, minutes_evidence, legacy_minutes_evidence
+from .meeting_review import closed, linked, meeting_state, source_digest, minutes_evidence, legacy_minutes_evidence
 
 GENERIC = re.compile(r'^SPEAKER[ _-]?\d+$', re.I)
 _cache, _cache_lock = {}, threading.Lock()
@@ -43,13 +43,14 @@ def _transcript(data):
 def _minutes(data):
     from meeting_assistant import validate_minutes
     minutes, ids = json.loads(data), set()
-    evidence,legacy=minutes_evidence(minutes),legacy_minutes_evidence(minutes)
+    from .meeting_review import evidence_variants
+    evidence,legacy,variants=minutes_evidence(minutes),legacy_minutes_evidence(minutes),evidence_variants(minutes)
     validate_minutes(minutes)
     for field in items.FIELD.values():
         for mention in minutes.get(field, []):
             ids.add(mention.get('item_id'))
             ids.update(c.get('item_id') for c in (mention.get('link') or {}).get('candidates', []))
-    return dict(revision=hashlib.sha256(data).hexdigest(), evidence=evidence, legacy_evidence=legacy, ids=ids)
+    return dict(revision=hashlib.sha256(data).hexdigest(), evidence=evidence, legacy_evidence=legacy, variants=variants, ids=ids)
 
 
 def build(service):
@@ -72,9 +73,10 @@ def build(service):
             transcript = transcript or dict(revision=None, speakers=0)
             minutes = read('minutes.json', _minutes, dict(revision=None, ids=set()))
             source = dict(source=source_digest(transcript['revision'], minutes['revision']),evidence=source_digest(transcript['revision'],minutes.get('evidence',minutes_evidence(None))),
-                          legacy_evidence=source_digest(transcript['revision'],minutes.get('legacy_evidence',legacy_minutes_evidence(None))))
+                          legacy_evidence=source_digest(transcript['revision'],minutes.get('legacy_evidence',legacy_minutes_evidence(None))),
+                          compatible=[source_digest(transcript['revision'],value) for value in minutes.get('variants',[])])
             pending = [item for key in minutes['ids'] if (item := service.items.items.get(key))
-                       and linked(item, meeting['id']) and meeting_state(item, meeting['id'], source) in {'needs_review','edited'}]
+                       and linked(item, meeting['id']) and not closed(item) and meeting_state(item, meeting['id'], source) in {'needs_review','edited'}]
             notes = ('proposal' if (directory / 'minutes.proposed.json').exists()
                      else 'refresh' if meeting.get('notes_need_refresh') or meeting.get('notes_refresh_error') else None)
             if not (pending or transcript['speakers'] or notes or repair):

@@ -542,8 +542,11 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
     if not isinstance(minutes, dict) or not fields <= set(minutes) or set(minutes) - fields - set(MINUTES_OPTIONAL) - set(SECTION_FIELDS):
         raise ValueError("Minutes must contain summary, decisions, tasks, and open_questions")
     for field in MINUTES_OPTIONAL:
-        minutes.setdefault(field, [])
-    fields |= set(MINUTES_OPTIONAL) | set(SECTION_FIELDS) & set(minutes)
+        # Older notes stay as they were saved: an empty "updates" list is not added, because the
+        # content of the notes is the evidence of a person's confirmation (app/meeting_review.py).
+        if field != "updates":
+            minutes.setdefault(field, [])
+    fields |= (set(MINUTES_OPTIONAL) | set(SECTION_FIELDS)) & set(minutes)
     for field in fields:
         if not isinstance(minutes[field], list):
             raise ValueError(f"{field} must be a list")

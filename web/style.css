@@ -1291,3 +1291,6 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 #team-ai-data{margin:10px 0}
 #team-ai-data>summary{cursor:pointer;font-size:13px;font-weight:600}
 .team-ai-progress{display:flex;align-items:center;gap:8px}
+.team-github-repos{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto;margin:8px 0}
+.team-github-repos label.project-choice{display:flex;align-items:center;gap:8px;margin:0;font-weight:500}
+.team-github-repos label.project-choice input{width:auto;margin:0}

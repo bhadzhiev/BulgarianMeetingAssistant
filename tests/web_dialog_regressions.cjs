@@ -20,7 +20,7 @@ function fixture(){
 (async()=>{
  const f=fixture(),policies=JSON.parse(vm.runInContext('JSON.stringify(dialogPolicies)',f.c));
  const ids=[...html.matchAll(/<dialog id="([^"]+)"/g)].map(m=>m[1]);
- assert.deepEqual(Object.keys(policies).sort(),ids.sort(),'Every actual modal needs an explicit policy');assert.equal(ids.length,22);
+ assert.deepEqual(Object.keys(policies).sort(),ids.sort(),'Every actual modal needs an explicit policy');assert.equal(ids.length,23);
  const htmlIds=new Set([...html.matchAll(/id="([^"]+)"/g)].map(m=>m[1]));
  for(const p of Object.values(policies))for(const id of [p.close,p.cancel,p.form,...(p.actions||[]),...(p.otherClose||[])].filter(Boolean))assert(htmlIds.has(id),'Missing dialog control '+id);
  for(const [id,p] of Object.entries(policies)){

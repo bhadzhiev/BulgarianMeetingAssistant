@@ -93,14 +93,14 @@ class GitHubConnection:
             self.store.delete();self.bundle={};self.loaded=True;self.configured=False;self.generation+=1;self.path.unlink(missing_ok=True)
         return self.status()
     def get(self,resource,query=None,expected_account=None):
-        allowed=resource in {'/user','/user/repos','/issues','/search/issues'} or re.fullmatch(r'/users/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})',resource)
+        allowed=resource in {'/user','/user/repos','/issues','/search/issues','/search/commits'} or re.fullmatch(r'/users/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})',resource)
         if not allowed:
             listing=re.fullmatch(r'/repos/([^/]+/[^/]+)/(?:issues|issues/[1-9][0-9]*/(?:comments|timeline))',resource)
             if listing:repo_name(listing[1]);allowed=True
         if not allowed:
             match=re.fullmatch(r'/repos/([^/]+/[^/]+)(?:/(issues|pulls|issues/comments)/([1-9][0-9]*))?',resource)
             if not match:
-                match=re.fullmatch(r'/repos/([^/]+/[^/]+)/(?:commits(?:/[a-f0-9]{40}(?:/pulls)?)?|pulls/[1-9][0-9]*/files|git/blobs/[a-f0-9]{40}|compare/[a-f0-9]{40}\.\.\.[a-f0-9]{40})',resource)
+                match=re.fullmatch(r'/repos/([^/]+/[^/]+)/(?:commits(?:/[a-f0-9]{40}(?:/pulls)?)?|pulls/[1-9][0-9]*/(?:files|reviews)|git/blobs/[a-f0-9]{40}|compare/[a-f0-9]{40}\.\.\.[a-f0-9]{40})',resource)
             if not match:raise ValueError('Unsupported GitHub read endpoint')
             repo_name(match[1])
         with self.lock:

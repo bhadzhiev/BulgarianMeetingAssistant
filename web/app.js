@@ -266,8 +266,8 @@ function actionLabel(trigger){
 let foregroundShown=false,backgroundJob=null;
 function paintActivity(){
  const status=$('activity-status'),text=foregroundShown?(activityLabel||'Working')+' · in progress…':backgroundJob?backgroundJob.text:'';
- status.textContent=text;status.hidden=!text;status.classList?.toggle('background',!foregroundShown&&!!backgroundJob);
- status.title=!foregroundShown&&backgroundJob?'Open it':'';
+ status.textContent=text;status.hidden=!text;status.classList?.toggle('background',!foregroundShown&&!!backgroundJob);status.classList?.toggle('failed',!foregroundShown&&backgroundJob?.tone==='failed');
+ status.title=!foregroundShown&&backgroundJob?'Show the background jobs':'';
  try{if(text){if(status.showPopover&&!status.matches(':popover-open'))status.showPopover();}else if(status.hidePopover&&status.matches(':popover-open'))status.hidePopover();}catch{}
 }
 // A dialog that opens later covers the status line in the top layer. Showing the popover again puts it above the dialog.
@@ -285,30 +285,55 @@ function endActivity(){
 function activityStep(label){activityLabel=label;if(foregroundShown)paintActivity();}
 // Processing after a recording or an import runs on the server: its current step and the meeting show here.
 if(typeof document.getElementById==='function'&&document.getElementById('activity-status'))document.getElementById('activity-status').addEventListener('click',()=>{if(!foregroundShown&&backgroundJob)perform(backgroundJob.open);});
-// The other background jobs: a 1:1 AI run, a GitHub collection, an AI instructions test, email AI, a repository report.
-// The start request ends at once; the job stays in the status line until its own status says that it ended.
-// A job with poll() is checked here also when its page is closed; poll() gives the new text, or null at the end.
-const activityJobs=new Map();let activityJobsTimer=null;
-function trackJob(key,job){
- if(key!==null){if(job)activityJobs.set(key,job);else activityJobs.delete(key);}
- renderBackgroundActivity();
- if(!activityJobsTimer&&[...activityJobs.values()].some(j=>j.poll))activityJobsTimer=setTimeout(pollActivityJobs,2000);
+// Background jobs come from one registry on the server (/api/jobs): meetings, 1:1 AI and GitHub, the prompt test,
+// email AI and repository reports. It is the single source of their state: queued, running, completed, failed, cancelled.
+// The status line sums them up; a click opens the list. A failure stays there until it is dismissed.
+let jobsData={jobs:[],summary:{}},jobsTimer=null,jobsLoading=null;
+function refreshJobs(){
+ if(jobsLoading)return jobsLoading;
+ jobsLoading=(async()=>{
+  try{jobsData=await api('/api/jobs');}catch{}finally{jobsLoading=null;}
+  renderBackgroundActivity();clearTimeout(jobsTimer);jobsTimer=null;
+  if(jobsData.summary?.running||jobsData.summary?.queued)jobsTimer=setTimeout(refreshJobs,2000);
+ })();return jobsLoading;
 }
-async function pollActivityJobs(){
- activityJobsTimer=null;
- for(const [key,job] of [...activityJobs]){
-  if(!job.poll)continue;
-  // A failed check keeps the job: the server can be busy. After five failed checks in a row the line goes.
-  try{const text=await job.poll();if(activityJobs.get(key)!==job)continue;if(text)activityJobs.set(key,{...job,text,failures:0});else activityJobs.delete(key);}
-  catch{if(activityJobs.get(key)!==job)continue;const failures=(job.failures||0)+1;if(failures>=5)activityJobs.delete(key);else activityJobs.set(key,{...job,failures});}
- }
- trackJob(null);
+function backgroundJobText(job){return job.label+(job.phase&&!job.label.includes(job.phase)&&!['running','queued'].includes(job.phase.toLowerCase())?' · '+job.phase:'')+(job.progress&&job.progress.total>1?' · '+job.progress.done+' of '+job.progress.total:'');}
+function jobsSummary(){
+ const sum=jobsData.summary||{},active=(sum.running||0)+(sum.queued||0),failed=sum.failed||0,list=jobsData.jobs||[];
+ if(!active&&!failed)return null;
+ // One running job and no failure: its own words. Otherwise the counts; a failure is never hidden by a success.
+ if(active===1&&!failed)return {text:backgroundJobText(list.find(j=>['running','queued'].includes(j.state))),tone:'running'};
+ return {text:[active&&AtlantaUX.count(active,'job')+' running',failed&&AtlantaUX.count(failed,'job')+' failed'].filter(Boolean).join(' · '),tone:failed?'failed':'running'};
 }
 function renderBackgroundActivity(){
- const meetings=(state?.meetings||[]).filter(m=>m.status==='processing'||m.title_status==='generating');
- const jobs=[...meetings.map(m=>({text:(m.status==='processing'?(m.progress||'Processing'):'Generating AI title')+' · '+(m.title||'Untitled meeting'),open:()=>openMeeting(m.id)})),...activityJobs.values()],first=jobs[0];
- backgroundJob=first?{text:first.text+(jobs.length>1?' · +'+(jobs.length-1)+' more':''),open:first.open}:null;
- paintActivity();
+ const summary=jobsSummary();
+ backgroundJob=summary?{text:summary.text,tone:summary.tone,open:()=>toggleJobsPanel(true)}:null;
+ paintActivity();if($('jobs-panel')?.matches?.(':popover-open'))renderJobsPanel();
+}
+function openJob(job){
+ const t=job.target||{};toggleJobsPanel(false);
+ if(t.view==='meeting')return openMeeting(t.id);
+ if(t.view==='team')return openTeamReview(t.id);
+ if(t.view==='settings'){if(!$('settings-dialog').open)openSettings(t.id);showSettingsTab(t.id);return;}
+ if(t.view==='work'){workTab=t.id==='github-reports'?'github':t.id;return $('open-tasks').onclick().then(()=>{if(t.id==='github-reports'){showGitHubSection('reports');return loadRepoReports();}});}
+}
+const JOB_STATES={queued:'Queued',running:'Running',completed:'Completed',failed:'Failed',cancelled:'Cancelled'};
+function renderJobsPanel(){
+ const panel=$('jobs-panel');panel.replaceChildren(el('h2','','Background jobs'));
+ const jobs=jobsData.jobs||[];if(!jobs.length){panel.append(el('p','hint','No background jobs.'));return;}
+ for(const job of jobs){
+  const row=el('div','job-row job-'+job.state),head=el('div','job-head');
+  head.append(el('span','job-state',JOB_STATES[job.state]||job.state),el('strong','',job.label));row.append(head);
+  const phase=job.phase&&!job.label.includes(job.phase)&&job.phase.toLowerCase()!==job.state?job.phase:'';if(phase||job.progress)row.append(el('p','hint',[phase,job.progress&&job.progress.total>1&&job.progress.done+' of '+job.progress.total].filter(Boolean).join(' · ')));
+  if(job.error)row.append(el('p','error',job.error));
+  const actions=el('div','action-group');actions.append(actionBtn('quiet small-action','Open',()=>openJob(job)));
+  if(['failed','completed','cancelled'].includes(job.state))actions.append(actionBtn('quiet small-action','Dismiss',async()=>{jobsData=await api('/api/jobs/dismiss',{id:job.id});renderBackgroundActivity();}));
+  row.append(actions);panel.append(row);
+ }
+}
+function toggleJobsPanel(open){
+ const panel=$('jobs-panel');if(!panel?.showPopover)return;
+ try{if(open&&!panel.matches(':popover-open')){renderJobsPanel();panel.showPopover();}else if(!open&&panel.matches(':popover-open'))panel.hidePopover();}catch{}
 }
 async function perform(fn) {
  // Nested and later calls do not take the control of the first press.
@@ -582,7 +607,8 @@ async function openMeeting(id,force=false) {
  lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');switchTab(meetingTab);renderLibrary();return true;
 }
 function renderState() {
- if(typeof renderBackgroundActivity==='function')renderBackgroundActivity();
+ // The meetings changed: the job registry gives the new state of their processing.
+ if(typeof refreshJobs==='function')refreshJobs();
  const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
  syncSpeakers();
  if($('settings-dialog').open)renderVoiceStatus();
@@ -1715,9 +1741,7 @@ async function loadMail(){
  const aiText=ai.running?'Email AI is reading the approved message'+(ai.model?' with '+ai.model:'')+'…':ai.error?'Email AI: '+ai.error:['complete','reused'].includes(ai.status)?mailAIResultText(ai):'';
  sourceState('gmail',status.connected,[status.account,AtlantaUX.count(status.count,'thread'),jobText(status.job),status.sync.last_sync&&'updated '+relTime(status.sync.last_sync*1000),status.sync.limited&&'first 200 threads'],status.job.error||aiText);
  $('gmail-ai-cancel').hidden=!ai.running;
- // Email AI keeps its line in the status after the Gmail tab closes.
- const mailJob=ai=>ai.running?'Email AI is reading a message'+(ai.model?' · '+ai.model:''):null;
- trackJob('gmail-ai',ai.running&&{text:mailJob(ai),open:async()=>{workTab='gmail';await $('open-tasks').onclick();},poll:async()=>mailJob(await api('/api/gmail/ai'))});
+ if(ai.running||ai.error)refreshJobs();
  if(!ai.running&&(mailAIWasRunning||(['complete','reused'].includes(ai.status)&&ai.job_id!==mailAISeenJob))){lastTasks='';await loadTasks();if(['complete','reused'].includes(ai.status)){mailAISeenJob=ai.job_id;toast(mailAIResultText(ai));}}
  mailAIWasRunning=ai.running;
  $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-sync').textContent=status.job.running?'Syncing…':status.job.status==='continue'?'Continue sync':'Sync';
@@ -1943,9 +1967,7 @@ async function loadRepoReports(){
  if(!data.reports.some(r=>r.id===repoReportId))repoReportId=data.reports[0]?.id||'';
  $('report-list').replaceChildren(option('Choose a saved report',''),...data.reports.map(r=>option(r.repository+' · '+r.branch+' · '+date(r.period.start)+' → '+date(r.period.end)+' · '+r.status,r.id)));$('report-list').value=repoReportId;
  $('report-collect').disabled=!!data.job.running;$('report-cancel').hidden=!data.job.running;
- // A repository report keeps its line in the status after the reports page closes.
- const reportJob=job=>job.running?'Repository report'+(job.status?' · '+job.status:' · in progress'):null;
- trackJob('repo-report',data.job.running&&{text:reportJob(data.job),open:async()=>{workTab='github';await $('open-tasks').onclick();showGitHubSection('reports');perform(loadRepoReports);},poll:async()=>reportJob((await api('/api/github/reports')).job)});
+ if(data.job.running||data.job.error)refreshJobs();
  $('report-job-status').textContent=data.error||data.job.error||data.job.status||'';
  if(repoReportId){const selectedId=repoReportId,meta=data.reports.find(r=>r.id===selectedId);if(repoReport?.id===selectedId&&repoReport.revision===meta?.revision){if(data.job.running&&view==='tasks'&&workTab==='github'&&ghSection==='reports')repoTimer=setTimeout(()=>perform(loadRepoReports),1500);return;}const detail=await api('/api/github/reports/detail?id='+encodeURIComponent(selectedId));if(sequence!==repoLoadSequence||selectedId!==repoReportId)return;repoReport=detail;renderRepoReport();syncRoute(true);}
  else $('repo-report-detail').replaceChildren(emptyNote('Choose a repository and period to collect its changes. Collection does not send code to AI.'));
@@ -2202,7 +2224,18 @@ function renderTasks() {
  if(itemKind==='task'&&managerView==='inbox')$('task-list').append(el('h2','','Proposed actions'),el('p','hint','Review actions from every source. Project filters apply to tasks after acceptance.'),$('proposal-filters'),$('proposal-list'));
 
  const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
- if(!rows.length){if(noKindItems&&!inbox){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else if(!(itemKind==='task'&&managerView==='inbox'&&$('proposal-list').children.length))$('task-list').append(emptyNote('Nothing matches this filter.'));}
+ if(!rows.length){if(noKindItems&&!inbox){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else if(!(itemKind==='task'&&managerView==='inbox'&&$('proposal-list').children.length)){
+  // 0 results: the conditions that are active, and an action for each scope.
+  const search=itemKind==='task'?stored('task-search')||'':'',view=itemKind==='task'&&managerView!=='all'?{inbox:'For review',mine:'My tasks',delegated:'Assigned by me',followup:'Follow-up'}[managerView]:'';
+  const conditions=[view&&'View: '+view,...activeFilters,search&&'Search: “'+search+'”'].filter(Boolean),box=el('div','empty-content no-match');
+  box.append(el('p','',itemKind==='task'?'No tasks match.':'No decisions match.'));
+  if(conditions.length)box.append(el('p','hint','Active: '+conditions.join(' · ')));
+  const actions=el('div','action-group'),filtered=!!view||activeFilters.length>0;
+  if(filtered)actions.append(actionBtn('secondary small-action','Reset filters',()=>resetTaskFilters()));
+  if(search)actions.append(actionBtn('secondary small-action','Clear search',()=>{store('task-search','');renderTasks();}));
+  if(filtered&&search)actions.append(actionBtn('secondary small-action','Clear all',()=>resetTaskFilters({all:true})));
+  if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
+ }}
  const compact=taskDensity==='compact';$('task-list').classList.toggle('compact-list',itemKind==='task'&&compact);
  // The compact list has one header row with the column names; it lines up with the rows.
  if(itemKind==='task'&&compact&&rows.length){const selecting=taskSelecting||taskSelection.size>0,head=el('div','tracked-task task-card compact-task compact-head'),cols=el('div','tracked-main');head.setAttribute('aria-hidden','true');
@@ -2611,7 +2644,16 @@ $('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;di
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});
-$('task-reset-filters').onclick=()=>{taskRequester=taskFollower=taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';for(const key of ['tasks-requester','tasks-follower','tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');renderTasks();};
+// Reset filters: every filter and the task view (they change the results); the search stays.
+// Clear all: also the search, back to the first state. "This is me" is who you are, not a filter: neither clears it.
+function resetTaskFilters({all=false}={}){
+ taskRequester=taskFollower=taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';
+ for(const key of ['tasks-requester','tasks-follower','tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');
+ managerView='all';store('manager-view','all');
+ if(all){store('task-search','');taskSelecting=false;taskSelection.clear();}
+ renderTasks();
+}
+$('task-reset-filters').onclick=()=>resetTaskFilters();$('task-clear-all').onclick=()=>resetTaskFilters({all:true});
 $('work-project').onchange=()=>{store('tasks-project',$('work-project').value);renderTasks();};
 $('task-owner').onchange=()=>{store('tasks-owner',$('task-owner').value);renderTasks();};
 // Transcript rows grow with their text instead of showing an inner scroll bar.
@@ -3089,10 +3131,10 @@ function renderTeamReview(){
  // The AI run of this review: what wrote it, or that it is incomplete and blocks Finalize.
  const gen=r.generator;if(gen)head.append(el('p',gen.complete?'hint':'notice',gen.complete?'AI preparation · '+gen.model+' · '+(gen.at?dateTime(gen.at):'')+(gen.rejected?' · '+AtlantaUX.count(gen.rejected,'statement')+' rejected by the check':''):'The AI preparation is incomplete. Run it again before you finalize; the finished parts are kept.'));
  const aiJob=teamAIJob&&teamAIJob.review_id===r.id?teamAIJob:null;
- if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');renderTeamReview();}));head.append(line);}
+ if(aiJob?.running){const line=el('p','notice team-ai-progress',aiJob.status+(aiJob.total>1?' · '+aiJob.done+' of '+aiJob.total+' parts':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAIJob=await api('/api/team/review/ai/stop',{job:aiJob.id});refreshJobs();renderTeamReview();}));head.append(line);}
  else if(aiJob?.error)head.append(el('p','error',aiJob.error));
  const ghJob=teamGitHubJob&&teamGitHubJob.review_id===r.id?teamGitHubJob:null;
- if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');renderTeamReview();}));head.append(line);}
+ if(ghJob?.running){const line=el('p','notice team-ai-progress','GitHub · '+ghJob.status);line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamGitHubJob=await api('/api/team/review/github/stop',{job:ghJob.id});refreshJobs();renderTeamReview();}));head.append(line);}
  else if(ghJob?.error)head.append(el('p','error',ghJob.error));
  for(const text of r.coverage?.github?.limitations||[])head.append(el('p','hint','GitHub · '+text));
  const actions=el('div','action-group team-review-actions'),draft=r.status==='draft';
@@ -3163,23 +3205,16 @@ async function openTeamAI(r){
 }
 $('team-ai-approve').onchange=()=>{$('team-ai-start').disabled=!$('team-ai-approve').checked||!teamAIPreview?.ai_available;};
 $('team-ai-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
- try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});teamJobName=reviewPersonName(teamReview);trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
+ try{teamAIJob=await api('/api/team/review/ai/start',{id:teamReview.id,preview_token:teamAIPreview.preview_token,approved:$('team-ai-approve').checked});refreshJobs();$('team-ai-dialog').close();renderTeamReview();pollTeamAI();}
  catch(exc){$('team-ai-error').textContent=exc.message;$('team-ai-error').hidden=false;}
 });};
 $('team-ai-close').onclick=()=>$('team-ai-dialog').close();
 // The job runs in the background; the page follows it and reloads the draft when it ends.
-// A 1:1 job shows in the status line on every page, with the person; a click opens its review.
-let teamJobName='';
-function trackTeamJob(key,job,label){
- if(!job?.running){trackJob(key,null);return;}
- const id=job.review_id,name=teamJobName;
- trackJob(key,{text:label+(name?' · '+name:'')+(job.status?' · '+job.status:''),open:()=>openTeamReview(id)});
-}
 function pollTeamAI(){
  clearTimeout(teamAITimer);if(!teamAIJob)return;
  teamAITimer=setTimeout(()=>perform(async()=>{
-  try{teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);}catch(exc){trackJob('team-ai',null);throw exc;}
-  trackTeamJob('team-ai',teamAIJob,'Preparing the 1:1 with AI');
+  try{teamAIJob=await api('/api/team/review/ai/status?job='+teamAIJob.id);}catch(exc){refreshJobs();throw exc;}
+  refreshJobs();
   const here=view==='team'&&teamReview?.id===teamAIJob.review_id;
   if(teamAIJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamAI();return;}
   if(teamAIJob.status==='Ready to review')toast('AI preparation ready · check it against the evidence');
@@ -3202,15 +3237,15 @@ async function openTeamGitHub(r){
 }
 function syncGitHubStart(){const n=$('team-github-repos').querySelectorAll('input:checked').length;$('team-github-start').disabled=!n;$('team-github-start').textContent=n?'Collect from '+AtlantaUX.count(n,'repository','repositories'):'Collect';}
 $('team-github-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{
- try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});teamJobName=reviewPersonName(teamReview);trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
+ try{teamGitHubJob=await api('/api/team/review/github/start',{id:teamReview.id,revision:teamGitHubFound.revision,repositories:[...$('team-github-repos').querySelectorAll('input:checked')].map(c=>c.value)});refreshJobs();$('team-github-dialog').close();renderTeamReview();pollTeamGitHub();}
  catch(exc){$('team-github-error').textContent=exc.message;$('team-github-error').hidden=false;}
 });};
 $('team-github-close').onclick=()=>$('team-github-dialog').close();
 function pollTeamGitHub(){
  clearTimeout(teamGitHubTimer);if(!teamGitHubJob)return;
  teamGitHubTimer=setTimeout(()=>perform(async()=>{
-  try{teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);}catch(exc){trackJob('team-github',null);throw exc;}
-  trackTeamJob('team-github',teamGitHubJob,'Collecting GitHub for the 1:1');
+  try{teamGitHubJob=await api('/api/team/review/github/status?job='+teamGitHubJob.id);}catch(exc){refreshJobs();throw exc;}
+  refreshJobs();
   const here=view==='team'&&teamReview?.id===teamGitHubJob.review_id;
   if(teamGitHubJob.running){if(here&&!editorDirty.has())renderTeamReview();pollTeamGitHub();return;}
   if(teamGitHubJob.status==='Ready to review')toast('GitHub contribution collected');else if(teamGitHubJob.error)toast(teamGitHubJob.error);
@@ -3366,7 +3401,15 @@ function renderConversations(){
   if(row.provider==='meeting'){list.append(meetingCard({...row,id:row.external_id},{participants:row.participants,onChange:loadConversations,select:{checked:selectedConversations.has(row.external_id),onchange:check=>{if(check.checked){if(selectedConversations.size>=200){check.checked=false;toast('Select up to 200 meetings');return;}selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});}else selectedConversations.delete(row.external_id);$('conversation-selection').textContent=AtlantaUX.count(selectedConversations.size,'meeting')+' selected';$('conversation-move').disabled=!selectedConversations.size;$('conversation-move').closest('.conversation-bulk').hidden=!selectedConversations.size;}}}));continue;}
   list.append(conversationCard(row,{onChange:loadConversations}));
  }
- if(!result.rows.length&&!emptyLibrary)list.append(emptyNote('No conversations match these filters. Change or clear the active filters.'));
+ if(!result.rows.length&&!emptyLibrary){
+  // The chips above name the active conditions; here is an action for each scope.
+  const query=$('conversation-query').value,filtered=['project','series','participant','from','to'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
+  const box=el('div','empty-content no-match'),actions=el('div','action-group');box.append(el('p','','No conversations match.'),el('p','hint','The active conditions are above.'));
+  if(filtered)actions.append(actionBtn('secondary small-action','Reset filters',()=>resetConversationFilters()));
+  if(query)actions.append(actionBtn('secondary small-action','Clear search',()=>{$('conversation-query').value='';conversationOffset=0;perform(loadConversations);}));
+  if(filtered&&query)actions.append(actionBtn('secondary small-action','Clear all',()=>resetConversationFilters({all:true})));
+  if(actions.childNodes.length)box.append(actions);list.append(box);
+ }
 }
 // One meeting card for Library, Projects and Calendar: what it is, its project, its state and what to do.
 // A status shows only when a meeting needs something; a plain ready meeting has none.
@@ -3439,7 +3482,12 @@ $('workspace-prepare').onclick=()=>perform(()=>openPrepare(['','__none__'].inclu
 $('conversation-filters').onsubmit=event=>{event.preventDefault();conversationOffset=0;selectedConversations.clear();perform(async()=>{await loadConversations();$('conversation-advanced').open=false;});};
 $('conversation-project').onchange=()=>fillSeries($('conversation-series'),$('conversation-project').value,'','All series');
 $('conversation-bulk-project').onchange=()=>fillSeries($('conversation-bulk-series'),$('conversation-bulk-project').value,'','Keep series when project stays the same');
-$('conversation-reset').onclick=()=>{for(const id of ['conversation-query','conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to'])$(id).value='';$('conversation-source').value='meeting';syncConversationFilters();conversationOffset=0;selectedConversations.clear();perform(loadConversations);};
+// Reset filters keeps the search; Clear all also clears it.
+function resetConversationFilters({all=false}={}){
+ for(const id of ['conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to',...(all?['conversation-query']:[])])$(id).value='';
+ $('conversation-source').value='meeting';syncConversationFilters();conversationOffset=0;selectedConversations.clear();perform(loadConversations);
+}
+$('conversation-reset').onclick=()=>resetConversationFilters();$('conversation-clear-all').onclick=()=>resetConversationFilters({all:true});
 $('conversation-select-page').onclick=()=>{for(const row of conversationPage?.rows||[])if(row.provider==='meeting'&&selectedConversations.size<200)selectedConversations.set(row.external_id,{id:row.external_id,revision:row.scope_revision});renderConversations();};
 $('conversation-clear').onclick=()=>{selectedConversations.clear();renderConversations();};
 $('conversation-prev').onclick=()=>{conversationOffset=Math.max(0,conversationOffset-50);perform(loadConversations);};

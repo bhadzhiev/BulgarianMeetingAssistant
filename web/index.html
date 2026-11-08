@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/ux.js" defer></script><script src="/status.js" defer></script><script src="/date-picker.js" defer></script><script src="/draft-buffer.js" defer></script><script src="/task-model.js" defer></script><script src="/task-progress.js" defer></script><script src="/app.js" defer></script><script src="/prompt-editor.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlanta</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/ux.js" defer></script><script src="/status.js" defer></script><script src="/forms.js" defer></script><script src="/date-picker.js" defer></script><script src="/draft-buffer.js" defer></script><script src="/task-model.js" defer></script><script src="/task-progress.js" defer></script><script src="/app.js" defer></script><script src="/prompt-editor.js" defer></script></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="Atlanta home"><span class="brand-icon">A</span><span><strong>ATLANTA</strong><small>MEETING ASSISTANT</small></span></a>
@@ -85,7 +85,7 @@
         <label>Source<select id="conversation-source"><option value="meeting">Meetings</option><option value="all">All cached sources</option><option value="gmail">Gmail threads</option><option value="google_chat">Chat conversations</option><option value="attached">Saved project conversations &amp; excerpts</option></select></label>
         <label>From<input id="conversation-from" type="date"></label><label>Through<input id="conversation-to" type="date"></label>
         <label>Series<select id="conversation-series"></select></label><label>Participant<select id="conversation-participant"><option value="">All participants</option></select></label>
-        <div class="work-actions"><button class="primary" type="submit">Apply filters</button><button id="conversation-reset" class="quiet" type="button">Reset filters</button></div>
+        <div class="work-actions"><button class="primary" type="submit">Apply filters</button><button id="conversation-reset" class="quiet" type="button">Reset filters</button><button id="conversation-clear-all" class="quiet" type="button">Clear all</button></div>
       </div></details><div id="conversation-filter-chips" class="filter-chips"></div>
     </form>
     <div id="conversation-empty" class="card empty-work" hidden><h2>No conversations yet</h2><p>Record a meeting or import an existing transcript to get started.</p><div class="work-actions"><button id="library-new" class="primary" type="button">New meeting</button><button id="library-import" class="secondary" type="button">Import transcript</button><button id="library-sources" class="quiet" type="button">Browse synced sources</button></div></div>
@@ -132,7 +132,7 @@
         <details id="manager-all-filters" class="manager-all-filters"><summary id="manager-filter-summary">Filters</summary><div id="manager-person-filters"></div>
         <div id="source-filter" class="segmented source-filter" role="group" aria-label="Filter by source"></div>
         <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><div class="work-actions"><select id="work-project" aria-label="Project"><option value="">All projects</option></select><select id="task-owner" aria-label="Filter tasks by owner"></select></div></div>
-        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button></details>
+        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button><button id="task-clear-all" class="quiet" type="button">Clear all</button></details>
         <div id="task-bulk-bar" class="task-bulk-bar" aria-label="Selected task actions" hidden></div>
         <div id="link-review" class="card link-review" hidden></div>
         <div id="task-list" class="task-list"></div>
@@ -515,6 +515,7 @@
 <div class="settings-footer"><div id="settings-privacy" class="notice"></div><p class="hint">Processing and retries use these settings. Active recordings keep the settings they started with.</p><div class="review-footer"><button id="settings-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="settings-save" class="primary" type="submit">Save settings</button></div></div></form></dialog>
 <datalist id="known-speakers"></datalist>
 <div id="activity-status" role="status" aria-live="polite" popover="manual" hidden></div>
+<div id="jobs-panel" popover="auto" role="dialog" aria-label="Background jobs"></div>
 <div id="toast" role="status" hidden></div>
 <div id="activity" role="progressbar" aria-label="Working…" hidden></div>
 </body></html>

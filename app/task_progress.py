@@ -123,6 +123,8 @@ def build(service,item_id):
     for event in item.get('history',[]):
         evidence=graph['source_evidence'].get(event.get('evidence_id'))
         fields=dict(changes=event.get('changes',{}),by=event.get('by'),meeting_id=event.get('meeting_id'))
+        if event.get('evidence_timestamp'):fields['timestamp']=event['evidence_timestamp']
+        if event.get('quote') and not event.get('evidence_id'):fields['quote']=event['quote']
         if evidence:fields.update(quote=evidence['quote'],source_id=evidence['source_id'],locator=evidence.get('locator',{}))
         add(event['event'],event.get('at'),event.get('text',''),**fields)
     if not any(e['kind']=='created' for e in events):add('created',item.get('created'),'Created locally')

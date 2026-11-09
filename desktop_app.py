@@ -563,6 +563,8 @@ class Handler(BaseHTTPRequestHandler):
                 from app.task_progress import check,readiness
                 item_id=path.split('/')[3]
                 result=check(service,item_id,body) if path.endswith('/github-progress') else readiness(service,item_id,body.get('repository'))
+            elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}/meeting-update/remove',path):
+                result=service.remove_meeting_update(path.split('/')[3],body)
             elif path == '/api/items/bulk':
                 result = service.bulk_update_tasks(body)
             elif path == '/api/items/create':

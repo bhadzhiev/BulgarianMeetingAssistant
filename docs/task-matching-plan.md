@@ -96,4 +96,7 @@ Done:
 Known limits of the first version:
 - **Decisions** keep the old link review. Task matching covers tasks and updates only.
 - **Regenerated notes** (`minutes.proposed.json`) get AI proposals at the next processing run after they are applied. Until then, the local text similarity still makes proposals.
-- **No automatic linking.** Every proposal waits for a person. Automatic linking is a later decision, after the quality check.
+- **Automatic updates of the speaker's own tasks** (decision of 9 November 2026). The open tasks of the speaker of a
+  mention are always candidates. An `existing_update` about an open, accepted task that the speaker owns or works on is
+  added to that task at once, as an update by AI with the meeting, the time and the quote. The task timeline has
+  **Remove this update**. Every other answer still waits for a person in For review. An unknown speaker adds nothing.

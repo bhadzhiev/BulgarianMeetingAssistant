@@ -2,8 +2,9 @@
 
 1. A local sieve (text similarity, project, owner) picks a few candidates for each mention. It costs no tokens.
 2. Only when a mention has candidates, one request asks the configured API to classify each mention.
-3. The answer is checked: every ID must be one that was sent. Nothing changes a task here; the result
-   waits for review (PR 4).
+3. The answer is checked: every ID must be one that was sent. Nothing changes a task here.
+4. An update that the speaker gave about their own open task is added to that task at once (automatic()).
+   All other answers wait for review (PR 4).
 
 The existing tasks are context to recognize the same work. They are not evidence of what the meeting said.
 """
@@ -15,6 +16,8 @@ from . import items as registry
 from .work_items import canonical
 
 PER_MENTION = 8          # candidates for one mention
+PER_SPEAKER = 15         # candidates for one mention when the speaker has open tasks
+SPEAKER_BOOST = 0.5      # the open tasks of the speaker always pass the sieve and come first
 PER_MEETING = 30         # unique candidates for one meeting
 TITLE_LIMIT = 200
 DETAIL_LIMIT = 300
@@ -30,6 +33,7 @@ WORKFLOW = ('todo', 'in_progress', 'waiting', 'done', 'cancelled')
 SYSTEM = """You match what one meeting said to existing tasks.
 untrusted_meeting.mentions are the tasks and updates of THIS meeting, with the words that were said.
 existing_tasks are context to recognize the same work. They are not evidence of what the meeting said.
+A mention can name its speaker. The open tasks of that speaker are candidates even when the words differ.
 For each mention, choose one type:
 - new_task: separate new work with its own result.
 - existing_mention: the same work as one candidate, with no new information.
@@ -136,18 +140,34 @@ def tokens(value):
     return len(canonical(value)) // 3 + 1
 
 
-def select(tasks, minutes, meeting, project_names=None, people=()):
-    """The input for one meeting, within the limits; None when no mention has a candidate."""
+def assigned_to(item, person_id):
+    """True when the person owns the task or works on it."""
+    return bool(person_id) and (item.get('owner_person_id') == person_id or person_id in (item.get('assignee_person_ids') or []))
+
+
+def select(tasks, minutes, meeting, project_names=None, people=(), speaker_at=None):
+    """The input for one meeting, within the limits; None when no mention has a candidate.
+
+    speaker_at(evidence_timestamp) gives (name, person_id) of the speaker at that moment, or (None, None)."""
     project_names = project_names or {}
     end = cutoff(meeting)
     rows = mentions(minutes)
     pool = [item for item in tasks if eligible(item, end, meeting.get('id'))]
     project = meeting.get('project_id')
-    scored = {}
+    scored, speaker_ids = {}, {}
     for mention in rows:
-        found = []
+        name, person_id = speaker_at(mention.get('evidence_timestamp')) if speaker_at else (None, None)
+        if name:
+            mention['speaker'] = name
+        if person_id:
+            speaker_ids[mention['id']] = person_id
+        found, own = [], 0
         for item in pool:
             score = registry.similarity(mention['text'], item.get('text') or '')
+            if _closed_at(item) is None and assigned_to(item, person_id):
+                # The speaker talks about their own work: their open tasks are always candidates.
+                score = max(score, THRESHOLD) + SPEAKER_BOOST
+                own += 1
             if mention.get('owner') and mention['owner'] == item.get('owner'):
                 score += 0.05
             if project and project in item.get('effective_project_ids', []):
@@ -155,8 +175,9 @@ def select(tasks, minutes, meeting, project_names=None, people=()):
             if score >= THRESHOLD:
                 found.append((round(min(score, 1.0), 3), item['id']))
         found.sort(reverse=True)
-        mention['candidate_ids'] = [key for _, key in found[:PER_MENTION]]
-        for score, key in found[:PER_MENTION]:
+        limit = max(PER_MENTION, min(PER_SPEAKER, own + 3))
+        mention['candidate_ids'] = [key for _, key in found[:limit]]
+        for score, key in found[:limit]:
             scored[key] = max(scored.get(key, 0), score)
     if not scored:
         return None
@@ -168,9 +189,11 @@ def select(tasks, minutes, meeting, project_names=None, people=()):
     while True:
         for mention in rows:
             mention['candidate_ids'] = [key for key in mention['candidate_ids'] if key in candidates]
-        data = dict(meeting=dict(date=end.date().isoformat()),
-                    mentions=[m for m in rows if m['candidate_ids']],
-                    existing_tasks=sorted(candidates.values(), key=lambda c: -scored[c['id']]))
+        sent = [m for m in rows if m['candidate_ids']]
+        # speaker_ids stay on this Mac: generate() sends only the mentions and the existing tasks.
+        data = dict(meeting=dict(date=end.date().isoformat()), mentions=sent,
+                    existing_tasks=sorted(candidates.values(), key=lambda c: -scored[c['id']]),
+                    speaker_ids={m['id']: speaker_ids[m['id']] for m in sent if m['id'] in speaker_ids})
         if not data['mentions']:
             return None
         if tokens(data) <= TOKEN_BUDGET or len(candidates) == 1:
@@ -251,3 +274,22 @@ def _changes(rows, kind):
         fields.add(field)
         clean.append(dict(field=field, value=value))
     return clean
+
+
+def automatic(record, tasks):
+    """The updates to add at once: an existing_update about an open, accepted task of the speaker of the mention.
+    Every other answer waits for review. tasks maps an ID to the current task."""
+    sent = {m['id']: m for m in record.get('mentions', [])}
+    speakers = record.get('speaker_ids') or {}
+    rows = []
+    for match in record.get('matches', []):
+        mention = sent.get(match.get('mention_id'))
+        task = tasks.get(match.get('task_id'))
+        person_id = speakers.get(match.get('mention_id'))
+        if (match.get('type') != 'existing_update' or not match.get('update_text') or not mention or not task or not person_id
+                or task.get('kind') != 'task' or task.get('acceptance_state') == 'proposed' or task.get('dismissed')
+                or _closed_at(task) is not None or not assigned_to(task, person_id)):
+            continue
+        rows.append(dict(mention_id=mention['id'], task_id=task['id'], text=match['update_text'],
+                         evidence_timestamp=mention.get('evidence_timestamp'), quote=mention.get('quote')))
+    return rows

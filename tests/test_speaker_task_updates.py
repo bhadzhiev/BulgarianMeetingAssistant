@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 from pathlib import Path
 import tempfile
@@ -23,6 +24,7 @@ class SpeakerTaskUpdateTests(unittest.TestCase):
         self.offer = self.task('Подготви офертата за клиента', self.ivan, 'a')
         self.server = self.task('Инсталирай новия сървър', self.maria, 'b')
         self.answers = {}
+        self.confidence = {}
         self.inputs = []
         real = self.s._execute
 
@@ -31,7 +33,7 @@ class SpeakerTaskUpdateTests(unittest.TestCase):
                 return real(action, directory, settings, progress, key, *rest)
             data = settings['task_matching_input'];self.inputs.append(data)
             return task_matching.validate(dict(matches=[dict(mention_id=m['id'], type='existing_update', task_id=self.answers[m['id']],
-                                                             reason='Same work', update_text=text, changes=[])
+                                                             reason='Same work', update_text=text, changes=[], confidence=self.confidence.get(m['id'], 'high'))
                                                         for m in data['mentions'] for text in [f'Ново за {m["id"]}']]), data)
         self.s._execute = execute
 
@@ -83,6 +85,8 @@ class SpeakerTaskUpdateTests(unittest.TestCase):
         [update] = self.updates(self.offer)
         self.assertEqual((update['by'], update['text'], update['meeting_id'], update['evidence_timestamp']), ('ai', 'Ново за u0', mid, '00:00:00'))
         self.assertEqual(update['quote'], 'Чакам цените от доставчика')
+        # The update has the time of the meeting: its start plus its duration.
+        self.assertEqual(dt.datetime.fromisoformat(update['at']), dt.datetime.fromisoformat('2026-11-20T10:01:00+02:00'))
         # Running again adds nothing.
         self.run_step(mid)
         self.assertEqual(len(self.updates(self.offer)), 1)
@@ -110,6 +114,24 @@ class SpeakerTaskUpdateTests(unittest.TestCase):
         record = self.run_step(mid)
         self.assertEqual(record.get('applied', []), [])
         self.assertEqual(self.updates(self.offer), [])
+
+    def test_only_high_confidence_is_added_at_once(self):
+        mid = self.meeting()
+        self.answers = dict(u0=self.offer['id'], u1=self.server['id'])
+        self.confidence = dict(u0='medium', u1='low')
+        record = self.run_step(mid)
+        self.assertEqual(record.get('applied', []), [])
+        self.assertEqual(self.updates(self.offer) + self.updates(self.server), [])
+        self.assertEqual([m['confidence'] for m in record['matches']], ['medium', 'low'])
+        # Without an automatic update, both wait in For review.
+        _, found = meeting_proposals.suggestions(self.s, mid)
+        self.assertEqual(sorted(meta['index'] for _, meta in found), [0, 1])
+
+    def test_a_missing_confidence_counts_as_low(self):
+        data = dict(mentions=[dict(id='u0', candidate_ids=['x'])])
+        [row] = task_matching.validate(dict(matches=[dict(mention_id='u0', type='existing_update', task_id='x', reason='r',
+                                                          update_text='t', changes=[])]), data)['matches']
+        self.assertEqual(row['confidence'], 'low')
 
     def test_a_person_can_remove_an_added_update(self):
         mid = self.meeting()

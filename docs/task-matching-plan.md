@@ -98,5 +98,5 @@ Known limits of the first version:
 - **Regenerated notes** (`minutes.proposed.json`) get AI proposals at the next processing run after they are applied. Until then, the local text similarity still makes proposals.
 - **Automatic updates of the speaker's own tasks** (decision of 9 November 2026). The open tasks of the speaker of a
   mention are always candidates. An `existing_update` about an open, accepted task that the speaker owns or works on is
-  added to that task at once, as an update by AI with the meeting, the time and the quote. The task timeline has
+  added to that task at once when the AI gives `confidence: high`, as an update by AI with the meeting, the time and the quote. The task timeline has
   **Remove this update**. Every other answer still waits for a person in For review. An unknown speaker adds nothing.

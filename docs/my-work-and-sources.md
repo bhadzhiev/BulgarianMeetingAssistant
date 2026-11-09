@@ -18,10 +18,12 @@ come next, also in alphabetical order. The typed owner suggestions use the same 
 After the notes of a meeting, Atlanta compares what each speaker said with the open tasks of that
 speaker. When a speaker gives new progress, a blocker or a clarification about their own open task,
 Atlanta adds it to that task. The timeline shows it as "Update from the meeting (added by AI)", with
-the meeting, the time and the words that were said. **Remove this update** removes a wrong update;
+the meeting, the time and the words that were said. The update has the date of the meeting, so an
+update from an old meeting never hides a newer one. **Remove this update** removes a wrong update;
 the history keeps a record of the removal.
 
-Only the speaker's own open tasks get an update at once. A speaker must be a person in People.
+Only the speaker's own open tasks get an update at once, and only when the AI is sure (confidence high)
+that the words are about the same work and result. A speaker must be a person in People.
 Updates about tasks of other people, closed tasks and proposed changes (owner, due date, state) wait
 in For review. This uses task matching, so it needs the configured API and its permission in
 Settings → AI.

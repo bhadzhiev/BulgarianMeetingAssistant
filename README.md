@@ -1,6 +1,6 @@
 # Atlanta
 
-<img src="desktop/src-tauri/icons/atlanta.svg" width="96" alt="Atlanta icon: Atlas holds the celestial sphere">
+<img src="desktop/src-tauri/icons/icon.png" width="96" alt="Atlanta icon: a Greek huntress with a laurel wreath and a bow">
 
 Atlanta was named Bulgarian Meeting Assistant before.
 

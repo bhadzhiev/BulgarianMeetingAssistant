@@ -33,7 +33,10 @@ WORKFLOW = ('todo', 'in_progress', 'waiting', 'done', 'cancelled')
 SYSTEM = """You match what one meeting said to existing tasks.
 untrusted_meeting.mentions are the tasks and updates of THIS meeting, with the words that were said.
 existing_tasks are context to recognize the same work. They are not evidence of what the meeting said.
-A mention can name its speaker. The open tasks of that speaker are candidates even when the words differ.
+A mention can name its speaker. The open tasks of that speaker are candidates to check, even when the words differ.
+A candidate is never a match by itself. The same person often does several separate pieces of work.
+Choose an existing type only when the mention is about the same work and the same result as the task.
+Other work of the same person is new_task (or uncertain), even when it is the only candidate.
 For each mention, choose one type:
 - new_task: separate new work with its own result.
 - existing_mention: the same work as one candidate, with no new information.
@@ -44,16 +47,19 @@ task_id is one of the candidate_ids of that mention, or null for new_task and un
 Similar titles with a different project, result or period are not the same work.
 A closed task stays closed: the meeting talking about it does not reopen it.
 reason: one short sentence. update_text: only for existing_update, from the words of the meeting.
+confidence: high only when the mention clearly names the same work and result as the task; medium when it is probable;
+low when it is a guess. An update with high confidence may be added to the task without review.
 changes: only for proposed_change, only fields that the meeting said. Never invent an ID or a value."""
 
 SCHEMA = dict(type='object', additionalProperties=False, required=['matches'], properties=dict(matches=dict(type='array', items=dict(
     type='object', additionalProperties=False,
-    required=['mention_id', 'type', 'task_id', 'reason', 'update_text', 'changes'],
+    required=['mention_id', 'type', 'task_id', 'reason', 'update_text', 'changes', 'confidence'],
     properties=dict(
         mention_id=dict(type='string'),
         type=dict(type='string', enum=list(TYPES)),
         task_id=dict(type=['string', 'null']),
         reason=dict(type='string'),
+        confidence=dict(type='string', enum=['high', 'medium', 'low']),
         update_text=dict(type=['string', 'null']),
         changes=dict(type='array', items=dict(type='object', additionalProperties=False, required=['field', 'value'],
                                               properties=dict(field=dict(type='string', enum=list(CHANGE_FIELDS)),
@@ -248,7 +254,8 @@ def validate(result, data):
                     reason = 'a change without a field'
                 else:
                     seen.add(mention['id'])
-                    clean.append(dict(mention_id=mention['id'], type=kind, task_id=task_id,
+                    confidence = row.get('confidence') if row.get('confidence') in ('high', 'medium', 'low') else 'low'
+                    clean.append(dict(mention_id=mention['id'], type=kind, task_id=task_id, confidence=confidence,
                                       reason=_cut(row.get('reason'), 300), update_text=text, changes=changes))
                     continue
         except (AttributeError, TypeError, ValueError):
@@ -277,7 +284,7 @@ def _changes(rows, kind):
 
 
 def automatic(record, tasks):
-    """The updates to add at once: an existing_update about an open, accepted task of the speaker of the mention.
+    """The updates to add at once: an existing_update with high confidence about an open, accepted task of the speaker.
     Every other answer waits for review. tasks maps an ID to the current task."""
     sent = {m['id']: m for m in record.get('mentions', [])}
     speakers = record.get('speaker_ids') or {}
@@ -286,7 +293,8 @@ def automatic(record, tasks):
         mention = sent.get(match.get('mention_id'))
         task = tasks.get(match.get('task_id'))
         person_id = speakers.get(match.get('mention_id'))
-        if (match.get('type') != 'existing_update' or not match.get('update_text') or not mention or not task or not person_id
+        if (match.get('type') != 'existing_update' or match.get('confidence') != 'high' or not match.get('update_text')
+                or not mention or not task or not person_id
                 or task.get('kind') != 'task' or task.get('acceptance_state') == 'proposed' or task.get('dismissed')
                 or _closed_at(task) is not None or not assigned_to(task, person_id)):
             continue

@@ -972,6 +972,8 @@ class MeetingService:
         The added mentions are kept in the record, so For review does not show them again."""
         from . import task_matching
         with self.lock, self.items.lock:
+            # The update has the time of the meeting, not of the check: an old meeting never hides a newer update.
+            when = task_matching.cutoff(self.library.get(meeting_id)).astimezone().isoformat(timespec='seconds')
             rows = task_matching.automatic(record, self.items.items)
             applied, added = list(record.get('applied') or []), 0
             for row in rows:
@@ -980,7 +982,7 @@ class MeetingService:
                            and e.get('evidence_timestamp') == row['evidence_timestamp'] and e.get('text') == row['text']
                            for e in task.get('history', []))
                 if not same:
-                    task['history'].append(dict(at=items.now(), event='progress_update', by='ai', changes={}, text=row['text'],
+                    task['history'].append(dict(at=when, event='progress_update', by='ai', changes={}, text=row['text'],
                                                 meeting_id=meeting_id, evidence_timestamp=row['evidence_timestamp'],
                                                 quote=(row['quote'] or '')[:500] or None, mention_id=row['mention_id']))
                     added += 1

@@ -348,20 +348,14 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
         "required": ["text", "evidence_timestamp", "quote"],
         "additionalProperties": False,
     }
+    # The model writes the fields in this order. It is the order of the section rule in the prompt, with summary
+    # last: a statement that is already a decision or a task is then not written again in a later section.
+    order = ("decisions", "tasks", "updates", *sections, "needs_decision", "open_questions", "next_steps", "observations", "summary")
+    shapes = {"decisions": quoted, "updates": quoted, "tasks": task}
     return {
         "type": "object",
-        "properties": {
-            "summary": {"type": "array", "items": item},
-            "decisions": {"type": "array", "items": quoted},
-            "updates": {"type": "array", "items": quoted},
-            "next_steps": {"type": "array", "items": item},
-            "needs_decision": {"type": "array", "items": item},
-            "tasks": {"type": "array", "items": task},
-            "open_questions": {"type": "array", "items": item},
-            "observations": {"type": "array", "items": item},
-            **{name: {"type": "array", "items": item} for name in sections},
-        },
-        "required": ["summary", "decisions", "updates", "next_steps", "needs_decision", "tasks", "open_questions", "observations", *sections],
+        "properties": {name: {"type": "array", "items": shapes.get(name, item)} for name in order},
+        "required": list(order),
         "additionalProperties": False,
     }
 
@@ -404,6 +398,9 @@ def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date:
 Транскриптът е автоматичен и може да съдържа фонетични грешки. Използвай IT и бизнес контекста и речника само за очевидни изписвания.
 Не възстановявай липсващи факти, отговорници, срокове или съгласие по предположение. При двусмислие запази несигурността.
 Задача трябва да е изрично подкрепена от текста; обсъждана идея не е автоматично задача.
+Предположение не е ангажимент: „може би ще го дам на Иван“, „ако има време“, „ще видим“ не правят задача и
+не правят отговорник. Запиши ги в open_questions. Задача с отговорник и отворен въпрос „дали той ще я поеме“
+си противоречат: избери едното според текста.
 Ако отговорник или срок липсва, върни null. За всяка задача дай timestamp от текста.
 Отговорник: когато говорещият поема работа в първо лице („ще говоря“, „искам да говоря с него“, „аз ще го пусна“),
 отговорникът е говорещият на този ред. Когато възлага работа на друг („Иван трябва да прекара кабела“), отговорникът е той.
@@ -423,17 +420,18 @@ quote: за всяка задача, решение и актуализация 
 updates: напредък, пречка или уточнение по работа, която вече е започната или възложена преди срещата
 (например „миграцията е готова наполовина“, „чакаме достъп от клиента“). Нова работа е задача, не актуализация.
 Не измисляй към коя съществуваща задача се отнася актуализацията.
-Всяко нещо записвай само в една секция — в първата подходяща по този ред: decisions, tasks, секциите на типа
-срещата, needs_decision, open_questions, next_steps, observations, summary. Не повтаряй едно и също в две секции
+Всяко нещо записвай само в една секция — в първата подходяща по този ред: decisions, tasks, updates, секциите
+на типа срещата, needs_decision, open_questions, next_steps, observations, summary. Не повтаряй едно и също в две секции
 с други думи. Един въпрос е или в needs_decision, или в open_questions, не и в двете.
 summary: до 6 съществени извода, без задължителен минимум, и не повече от един на всеки 2 минути запис
 (по последния timestamp; за кратка среща — 1 или 2). Обобщава контекста и резултатите; не преразказва
-задачите, решенията и въпросите. Не пиши една мисъл два пъти с други думи. Пиши какво е установено или какъв е
+задачите, решенията, актуализациите и въпросите. Не пиши една мисъл два пъти с други думи. Пиши какво е установено или какъв е
 резултатът, а не че нещо е обсъдено: „Складът няма покритие, защото няма точка наблизо“, не „Обсъдено е покритието“.
 Кратки потвърждения, откази и промени на договореното са съществени. Не ги премахвай като шум.
 Пропускай поздрави и странични разговори само когато нямат отношение към целта и типа на срещата.
-Дата на срещата: {meeting_date or dt.date.today().isoformat()}. Ако срокът на задача може да се определи
-като конкретна дата спрямо нея, попълни due_date във формат YYYY-MM-DD; иначе върни null.
+Дата на срещата: {meeting_date or dt.date.today().isoformat()}. deadline е срокът с думите от текста („днес“,
+„до петък“). Ако deadline може да се определи като конкретна дата спрямо датата на срещата, попълни due_date
+във формат YYYY-MM-DD. Ако deadline е null, due_date също е null: не избирай дата сам.
 next_steps: договорени следващи стъпки за процеса (например следваща среща); не повтаряй задачите.
 needs_decision: въпроси, които изрично чакат решение от ръководител или възложител и не са решени.
 observations: до 3 поверителни наблюдения за ръководителя след срещата: рискове за работата, обещания,

@@ -54,10 +54,15 @@ Workspace admin policy, OAuth testing users or restricted-scope verification can
 See [desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app) and
 [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
 
-Choose **Refresh connection**, then **Sync / Continue**. Each run handles one page of up to 20 threads.
-The first sync covers up to 200 threads with Inbox/Sent activity in the preceding 30 days. Continue
-until the status says synced. A limit message means the initial window is incomplete. Subsequent runs
-use Gmail history; an expired history cursor asks you to start a bounded rebuild. Recording/processing
+The Gmail tab syncs by itself. When the tab opens, a sync starts if the last one is older than
+5 minutes or did not finish. While the tab is open, it checks again each minute. **Sync** starts a
+sync at once.
+
+One sync continues page by page (20 threads per page) until the cache is current. Each page is saved,
+so a stop keeps the work done. The first sync covers up to 200 threads with Inbox/Sent activity in the
+preceding 30 days. A limit message means the initial window is incomplete. Later syncs use Gmail
+history. Atlanta reads the history first and then fetches the changed threads newest first, so today's
+mail comes first. An expired history cursor asks you to start a bounded rebuild. Recording/processing
 pauses further work, and Cancel stops before the next cache commit. A network request already in
 flight can take up to its 30-second timeout; it does not hold recording controls.
 

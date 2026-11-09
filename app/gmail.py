@@ -1,4 +1,8 @@
-"""Bounded, manual Gmail read-only sync. Cache is rebuildable and never sent to AI."""
+"""Bounded Gmail read-only sync. Cache is rebuildable and never sent to AI.
+
+One run continues page by page until the cache is current. Each page is saved, so a stop or a
+recording keeps the work done; the next run continues from there. Changes come newest first.
+"""
 import base64
 from contextlib import closing
 import hashlib
@@ -15,6 +19,10 @@ from .work_items import canonical
 
 MAX_THREADS = 200
 PAGE_SIZE = 20
+# One run reads at most this many pages; the next run continues.
+MAX_STEPS = 100
+# History pages read before the threads; the rest stays for the next pass.
+MAX_HISTORY_PAGES = 50
 
 
 class _Text(HTMLParser):
@@ -165,56 +173,75 @@ class GmailSync:
         return result
     def _run(self, account):
         try:
-            state = self._state(account)
-            if not state.get('mode'):
-                profile = self._get(account,'/profile')
-                if profile.get('emailAddress') != account: raise ValueError('Gmail account identity changed')
-                if not str(profile.get('historyId','')).isdigit(): raise ValueError('Invalid Gmail history cursor')
-                state = dict(mode='full', anchor=str(profile['historyId']), cutoff=int(time.time())-30*86400,
-                             count=0, pending=[], page=None)
-                self._save(account,state)
-            # At most one page (20 threads) per user-triggered run; Continue resumes durably.
-            if not state.get('pending'):
-                if state['mode']=='full':
-                    page = self._get(account,'/threads',dict(q=f"after:{state['cutoff']} {{in:inbox in:sent}}", maxResults=PAGE_SIZE, **({'pageToken':state['page']} if state.get('page') else {})))
-                    ids = [row['id'] for row in page.get('threads', [])]
-                else:
-                    try:
-                        page = self._get(account,'/history',dict(startHistoryId=state['history_id'],maxResults=PAGE_SIZE,**({'pageToken':state['page']} if state.get('page') else {})))
-                    except CalendarError as exc:
-                        if getattr(exc,'status',None)!=404: raise
-                        state.pop('mode',None); self._save(account,state)
-                        raise InterruptedError('history expired; sync again to rebuild the recent window')
-                    ids = sorted({message['threadId'] for row in page.get('history',[]) for message in (row.get('messages',[]) + [event['message'] for name in ('messagesAdded','messagesDeleted','labelsAdded','labelsRemoved') for event in row.get(name,[])]) if message.get('threadId')})
-                    # A history page may reference many threads. Keep all IDs in a durable queue.
-                    state['next_history_id'] = str(page['historyId'])
-                state.update(pending=ids,next_page=page.get('nextPageToken'))
-                self._save(account,state)
-            for key in list(state['pending'])[:PAGE_SIZE]:
-                try: record = thread_record(self._get(account,'/threads/'+key,{'format':'full'}), state['cutoff'])
-                except CalendarError as exc:
-                    if getattr(exc,'status',None)!=404: raise
-                    record = None
-                self._check()
-                # Refresh only sources already promoted to WorkItems; this never extracts new AI proposals.
-                self.on_thread(account,key,record)
-                state['pending'].remove(key)
-                if state['mode']=='full': state['count'] += 1
-                self._save(account,state,key,record)
-            if not state['pending']:
-                state['page'] = state.pop('next_page',None)
-                if state['mode']=='full' and (not state['page'] or state['count']>=MAX_THREADS):
-                    state.update(limited=bool(state['page']), mode='history', history_id=state['anchor'],page=None)
-                elif state['mode']=='history' and not state['page']:
-                    state['history_id'] = state.pop('next_history_id', state['history_id'])
-                state['last_sync'] = time.time()
-                self._save(account,state)
-            with self.lock: self.job = dict(running=False,status='continue' if state.get('pending') or state.get('page') or state['mode']=='full' else 'synced',error=None)
+            done = False
+            for _ in range(MAX_STEPS):
+                # The run ends after a full history pass, so mail that came during the first window is in too.
+                was_history = self._state(account).get('mode') == 'history'
+                state = self._step(account)
+                done = was_history and not (state.get('pending') or state.get('page'))
+                with self.lock: self.job = dict(running=True,status='syncing',error=None,pending=len(state.get('pending') or []))
+                if done: break
+            with self.lock: self.job = dict(running=False,status='synced' if done else 'continue',error=None)
         except InterruptedError as exc:
             with self.lock: self.job = dict(running=False,status=str(exc),error=None)
         except Exception as exc:
             # Never include message bodies or credential-bearing exception strings in public errors.
             with self.lock: self.job = dict(running=False,status='error',error=str(exc) if isinstance(exc,CalendarError) else 'Gmail sync failed. Retry the current page.')
+    def _step(self, account):
+        """One page: list the next threads or history changes, then fetch up to PAGE_SIZE threads."""
+        state = self._state(account)
+        if not state.get('mode'):
+            profile = self._get(account,'/profile')
+            if profile.get('emailAddress') != account: raise ValueError('Gmail account identity changed')
+            if not str(profile.get('historyId','')).isdigit(): raise ValueError('Invalid Gmail history cursor')
+            state = dict(mode='full', anchor=str(profile['historyId']), cutoff=int(time.time())-30*86400,
+                         count=0, pending=[], page=None)
+            self._save(account,state)
+        # One page (20 threads) per step; each step is saved, so a stop resumes durably.
+        if not state.get('pending'):
+            if state['mode']=='full':
+                page = self._get(account,'/threads',dict(q=f"after:{state['cutoff']} {{in:inbox in:sent}}", maxResults=PAGE_SIZE, **({'pageToken':state['page']} if state.get('page') else {})))
+                ids = [row['id'] for row in page.get('threads', [])]
+            else:
+                # Read the history pages first (IDs only), then fetch the threads newest first.
+                # History is oldest first, so the last change comes last in the pages.
+                changed, token = [], state.get('page')
+                for _ in range(MAX_HISTORY_PAGES):
+                    try:
+                        page = self._get(account,'/history',dict(startHistoryId=state['history_id'],maxResults=PAGE_SIZE,**({'pageToken':token} if token else {})))
+                    except CalendarError as exc:
+                        if getattr(exc,'status',None)!=404: raise
+                        state.pop('mode',None); self._save(account,state)
+                        raise InterruptedError('history expired; sync again to rebuild the recent window')
+                    changed += [message['threadId'] for row in page.get('history',[]) for message in (row.get('messages',[]) + [event['message'] for name in ('messagesAdded','messagesDeleted','labelsAdded','labelsRemoved') for event in row.get(name,[])]) if message.get('threadId')]
+                    state['next_history_id'] = str(page['historyId'])
+                    token = page.get('nextPageToken')
+                    if not token: break
+                # Each thread once, at the place of its newest change. Keep all IDs in a durable queue.
+                ids = list(dict.fromkeys(reversed(changed)))
+                page = dict(nextPageToken=token)
+            state.update(pending=ids,next_page=page.get('nextPageToken'))
+            self._save(account,state)
+        for key in list(state['pending'])[:PAGE_SIZE]:
+            try: record = thread_record(self._get(account,'/threads/'+key,{'format':'full'}), state['cutoff'])
+            except CalendarError as exc:
+                if getattr(exc,'status',None)!=404: raise
+                record = None
+            self._check()
+            # Refresh only sources already promoted to WorkItems; this never extracts new AI proposals.
+            self.on_thread(account,key,record)
+            state['pending'].remove(key)
+            if state['mode']=='full': state['count'] += 1
+            self._save(account,state,key,record)
+        if not state['pending']:
+            state['page'] = state.pop('next_page',None)
+            if state['mode']=='full' and (not state['page'] or state['count']>=MAX_THREADS):
+                state.update(limited=bool(state['page']), mode='history', history_id=state['anchor'],page=None)
+            elif state['mode']=='history' and not state['page']:
+                state['history_id'] = state.pop('next_history_id', state['history_id'])
+            state['last_sync'] = time.time()
+            self._save(account,state)
+        return state
     def clear(self, account=None):
         with self.lock:
             if self.thread and self.thread.is_alive(): raise ValueError('Cancel sync and wait for it to finish before clearing the cache.')

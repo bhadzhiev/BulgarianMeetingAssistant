@@ -1767,7 +1767,7 @@ async function openSource(source){
  else if(source.provider==='github'){showWorkTab('github');showGitHubSection('items');await openGitHubItem(Number(source.external_id.split(':')[1]));}
 }
 
-let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false,mailThread='',mailThreads=[],mailAutoSynced=false,mailAIStatus={},mailAISeenJob='';
+let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false,mailThread='',mailThreads=[],mailAutoSyncedAt=0,mailAIStatus={},mailAISeenJob='';
 async function loadMail(){
  const status=await api('/api/gmail'),ai=await api('/api/gmail/ai');
  mailAIStatus=ai;
@@ -1780,14 +1780,21 @@ async function loadMail(){
  $('gmail-sync').disabled=!status.connected||status.job.running;$('gmail-sync').textContent=status.job.running?'Syncing…':status.job.status==='continue'?'Continue sync':'Sync';
  $('gmail-cancel').disabled=!status.job.running;
  cacheAccounts($('gmail-cache-account'),$('gmail-clear'),status.cached_accounts.map(a=>[a,a]),status.job.running);
- // The first visit after connecting fetches the first page without an extra click.
- if(status.connected&&!status.count&&!status.job.running&&!mailAutoSynced){mailAutoSynced=true;await api('/api/gmail/sync',{});return loadMail();}
+ // The open Gmail tab keeps the cache current: a sync starts when the last one is old or did not finish.
+ if(mailSyncDue(status,Date.now())){mailAutoSyncedAt=Date.now();try{await api('/api/gmail/sync',{});return loadMail();}catch(e){/* A recording or processing has priority; the next check tries again. */}}
  segmentedChoice($('gmail-filters'),[['needs_reply','Needs reply'],['waiting','Waiting for'],['all','All']],mailView,value=>{mailView=value;perform(loadMail);});
  mailThreads=status.connected?await api('/api/gmail/threads?view='+mailView):[];
  renderMailList();renderMailAI();
  if(!mailThread)emptyState($('gmail-detail'),mailThreads.length?'Choose a thread above to read it here.':'');
  if(mailTimer)clearTimeout(mailTimer);mailTimer=null;
- if((status.job.running||ai.running)&&view==='tasks'&&workTab==='gmail')mailTimer=setTimeout(()=>perform(loadMail),2000);
+ // While a job runs, the list updates every 2 s. Otherwise a quiet check each minute; a failed check shows no error.
+ if(view==='tasks'&&workTab==='gmail')mailTimer=status.job.running||ai.running?setTimeout(()=>perform(loadMail),2000):setTimeout(()=>loadMail().catch(()=>{}),MAIL_CHECK_MS);
+}
+const MAIL_CHECK_MS=60000,MAIL_STALE_MS=5*60000;
+function mailSyncDue(status,now){
+ if(!status.connected||status.job.running||now-mailAutoSyncedAt<MAIL_STALE_MS)return false;
+ const last=(status.sync?.last_sync||0)*1000;
+ return !status.count||status.job.status==='continue'||!last||now-last>=MAIL_STALE_MS;
 }
 function renderMailList(){
  const query=$('gmail-search').value.trim().toLocaleLowerCase(),list=$('gmail-threads');const focused=list.contains(document.activeElement);

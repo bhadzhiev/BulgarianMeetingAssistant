@@ -29,7 +29,7 @@ class FakeMailGoogle:
         if self.handler:return self.handler(path,query)
         if path=='/profile':return dict(emailAddress=self.account,historyId='100')
         if path=='/threads':return dict(threads=[dict(id='t1')])
-        if path=='/history':return dict(historyId='110',history=[])
+        if path=='/history':return dict(historyId='100',history=[])
         return copy.deepcopy(self.responses.get(path,thread(path.rsplit('/',1)[-1])))
 
 
@@ -94,15 +94,22 @@ class GmailSyncTests(unittest.TestCase):
         self.assertNotIn('body',str(self.sync.listing()))
         self.assertEqual(self.sync.detail('t1')['messages'][0]['body'],'Please review synthetic backups.')
         self.assertEqual(self.sync.listing('waiting'),[])
-    def test_full_pagination_continues_after_restart(self):
-        def handler(path,query):
+    def test_one_run_reads_every_page_and_a_pause_resumes_after_restart(self):
+        def handler(path,query,pause=False):
             if path=='/profile':return dict(emailAddress=self.google.account,historyId='100')
-            if path=='/threads':return dict(threads=[dict(id='t2' if query.get('pageToken') else 't1')],**({} if query.get('pageToken') else dict(nextPageToken='page2')))
+            if path=='/history':return dict(historyId='100',history=[])
+            if path=='/threads':
+                # A recording starts while the second page is read: the first page stays saved.
+                if query.get('pageToken') and pause:self.active=True
+                return dict(threads=[dict(id='t2' if query.get('pageToken') else 't1')],**({} if query.get('pageToken') else dict(nextPageToken='page2')))
             return thread(path.rsplit('/',1)[-1],sent=True)
-        self.google.handler=handler
-        self.assertEqual(self.run_sync()['job']['status'],'continue')
+        self.google.handler=lambda path,query:handler(path,query,pause=True)
+        self.assertIn('paused',self.run_sync()['job']['status'])
+        self.assertEqual(len(self.sync.listing('waiting')),1)
+        self.active=False;self.google.handler=handler
         reopened=GmailSync(Path(self.tmp.name),self.google)
-        reopened.start();reopened.thread.join(5);reopened.close()
+        reopened.start();reopened.thread.join(5)
+        self.assertEqual(reopened.status()['job']['status'],'synced');reopened.close()
         self.assertEqual(len(reopened.listing('waiting')),2)
         self.assertEqual(reopened.status()['sync']['history_id'],'100')
     def test_history_specific_events_are_fetched_before_cursor_advances(self):
@@ -171,25 +178,30 @@ class GmailSyncTests(unittest.TestCase):
                 return dict(threads=[dict(id='t'+str(page*20+i)) for i in range(20)],nextPageToken=str(page+1))
             return thread(path.rsplit('/',1)[-1])
         self.google.handler=paged
-        for _ in range(10):self.run_sync()
+        self.run_sync()
         state=self.sync.status()
         self.assertEqual((state['count'],state['sync']['mode'],state['sync']['limited']),(200,'history',True))
         self.assertEqual(len([c for c in self.google.calls if c[0]=='/threads']),10)
 
-    def test_large_history_page_retains_every_pending_id_before_advancing(self):
+    def test_history_changes_are_fetched_newest_first_in_one_run(self):
         self.run_sync()
         def many(path,query):
-            if path=='/history':return dict(historyId='200',history=[dict(messages=[dict(threadId='n'+str(i)) for i in range(25)])])
+            # Two history pages, oldest first, as Gmail returns them. n3 changes twice.
+            if path=='/history':
+                if query.get('pageToken'):return dict(historyId='200',history=[dict(messages=[dict(threadId='n'+str(i)) for i in range(20,25)]+[dict(threadId='n3')])])
+                return dict(historyId='200',nextPageToken='h2',history=[dict(messages=[dict(threadId='n'+str(i)) for i in range(20)])])
             return thread(path.rsplit('/',1)[-1])
         self.google.handler=many
-        self.run_sync()
-        self.assertEqual(self.sync.status()['sync']['history_id'],'100')
-        self.assertEqual(len(self.sync.status()['sync']['pending']),5)
-        history_calls=len([c for c in self.google.calls if c[0]=='/history'])
-        self.run_sync()
-        self.assertEqual(self.sync.status()['sync']['history_id'],'200')
-        self.assertEqual(len([c for c in self.google.calls if c[0]=='/history']),history_calls)
-        self.assertEqual(self.sync.status()['count'],26)
+        before=len(self.changed)
+        state=self.run_sync()
+        self.assertEqual(state['job']['status'],'synced')
+        self.assertEqual(state['sync']['history_id'],'200');self.assertEqual(state['sync']['pending'],[])
+        order=[row[1] for row in self.changed[before:]]
+        self.assertEqual(order[:7],['n3','n24','n23','n22','n21','n20','n19'])
+        self.assertEqual(len(order),25)
+        # The history pages are read once, before any thread.
+        calls=[c[0] for c in self.google.calls]
+        self.assertEqual(calls.count('/history'),3)
 
     def test_mime_html_is_text_only_and_attachments_are_skipped(self):
         payload=dict(mimeType='multipart/alternative',parts=[dict(mimeType='text/html',body=dict(data=encoded('<p>Hello</p><script>bad()</script><img src="https://invalid">'))),dict(mimeType='text/plain',body=dict(data=encoded('Plain text')))])

@@ -509,7 +509,7 @@
 <div class="prompt-grid"><label>AI operation<select id="prompt-stage"></select></label><label>Apply to<select id="prompt-scope"></select></label></div>
 <p id="prompt-context" class="hint" role="status"></p>
 <label for="prompt-text">Your instructions · optional additional layer</label><textarea id="prompt-text" rows="8" maxlength="8000" spellcheck="true" placeholder="Inherit the default instructions, or add your language, style and focus here…"></textarea>
-<p class="hint">Layers: default → global → meeting type → individual meeting. Later instructions take precedence for style and focus. Available literal placeholders: {meeting_type}, {language}. Leave blank and save to inherit.</p>
+<p class="hint">Layers: global → meeting type → individual meeting. They add to the built-in instructions of the app. Later instructions take precedence for style and focus. Choose Preview test request to see the exact messages. Available literal placeholders: {meeting_type}, {language}. Leave blank and save to inherit.</p>
 <div class="work-actions"><button id="prompt-save" type="button" class="primary">Save instructions</button><button id="prompt-reset" type="button" class="quiet">Reset to inherited</button><button id="prompt-reprocess" type="button" class="secondary" hidden>Generate new notes for this meeting</button></div>
 <div class="prompt-grid"><label>Saved versions<select id="prompt-history"></select></label><button id="prompt-restore" type="button" class="secondary">Load version into editor</button></div>
 <details><summary>Effective task instructions and protected contract</summary><pre id="prompt-effective" class="prompt-preview"></pre><pre id="prompt-policy" class="prompt-preview"></pre></details>

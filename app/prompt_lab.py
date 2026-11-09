@@ -42,7 +42,7 @@ def resolve(service,body):
         if text==saved.get('text') and mode==saved.get('mode','append'):return snapshot,kind
         config=snapshot['stages'][stage];config['layers']=[v for v in config['layers'] if v['scope']!=scope]
         if text is not None:config['layers'].append(dict(scope=scope,text=text.strip(),revision='draft',**({'mode':'replace'} if mode=='replace' else {})))
-        effective=[config['default']]
+        effective=[]
         for layer in config['layers']:
             if layer.get('mode')=='replace':effective=[]
             effective.append(layer['text'])
@@ -208,7 +208,7 @@ def catalog(service):
     for kind in result['types']:
         instruction=meeting_types.prompt(meeting_types.definition(kind['id'],service.templates.get(kind['id'])))
         global_text=result['entries'].get('meeting_minutes|global',{}).get('text')
-        result['meeting_type_prompts'][kind['id']]='\n\n'.join(text for text in [STAGES['meeting_minutes'][1],global_text,instruction] if text)
+        result['meeting_type_prompts'][kind['id']]='\n\n'.join(text for text in [global_text,instruction] if text)
     result['meetings']=[dict(id=m['id'],title=m['title']) for m in service.library.list()]
     result['meeting_stages']=sorted(MEETING_STAGES)
     result['builtin_templates']={key:dict(label=value['label']+' copy',description=value['description'],prepare=key,

@@ -46,7 +46,7 @@ For each mention, choose one type:
 task_id is one of the candidate_ids of that mention, or null for new_task and uncertain.
 Similar titles with a different project, result or period are not the same work.
 A closed task stays closed: the meeting talking about it does not reopen it.
-reason: one short sentence. update_text: only for existing_update, from the words of the meeting.
+reason: one short sentence in Bulgarian. update_text: in Bulgarian, only for existing_update, from the words of the meeting.
 confidence: high only when the mention clearly names the same work and result as the task; medium when it is probable;
 low when it is a guess. An update with high confidence may be added to the task without review.
 changes: only for proposed_change, only fields that the meeting said. Never invent an ID or a value."""

@@ -33,6 +33,7 @@ Rules:
 - For summary, synthesize up to the requested maximum, with no minimum. Preserve
   qualifications and disagreements. Reference every input in the summary groups;
   this is a high-level digest, not a task list. Keep technical terms and names intact.
+- Write each summary text in Bulgarian, like the input statements. Keep English technical terms in English.
 
 Example: "Deploy on Friday" and "Deploy on Monday" stay two singleton groups (different
 deadlines); "Deploy on Friday" said twice by two speakers merges into one group whose

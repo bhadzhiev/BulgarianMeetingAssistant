@@ -139,7 +139,9 @@ GitHub report synthesis, search answers and semantic topic matching. Edit the ta
 (language, style, focus and extraction priorities); source adapters, JSON schemas and
 runtime evidence checks remain in code. Transcription vocabulary remains under Recording.
 
-Instructions inherit in order: defaults → global → meeting type → individual meeting.
+Each operation has one built-in prompt in the app. Your layers add to it in order: global →
+meeting type → individual meeting. Without a layer, only the built-in prompt goes to the model.
+**Preview test request** shows the exact messages.
 Meeting-specific scopes apply to notes, correction, titles and topic matching. Operations
 spanning sources use global instructions. **AI instructions** next to a meeting's type
 opens its override. Save blank / Reset to inherited removes only that layer. The last

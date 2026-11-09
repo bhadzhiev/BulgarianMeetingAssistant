@@ -1261,6 +1261,10 @@ class MeetingService:
                     # A draft derived from the previous transcript is no longer safe to apply.
                     (directory / 'minutes.proposed.json').unlink(missing_ok=True)
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.json').exists(), notes_refresh_error=None)
+                # A named speaker gets the name in the saved notes too, without AI: "SPEAKER_00 да провери" becomes
+                # "Мария да провери". The tasks and decisions of the meeting follow the notes.
+                if renames and (directory / 'minutes.json').exists():
+                    self._name_speakers_in_notes(meeting_id, directory, renames)
                 # Human labels become known speakers; diarization IDs stay meeting-local.
                 old_names = {s.speaker for s in old_segments}
                 self.library.add_speakers(s.speaker for s in segments if s.speaker and s.speaker not in old_names and not conversation.is_generic_speaker(s.speaker))
@@ -2254,6 +2258,47 @@ class MeetingService:
                 minutes = None
             cached = self.task_cache[meeting_id] = (stamp, minutes)
         return cached[1]
+
+    def _name_speakers_in_notes(self, meeting_id, directory, renames):
+        """Put the names of named speakers in the saved notes and in the items that still have the label.
+
+        A text that a person changed in the item stays: only an item text equal to the old notes text follows.
+        A placeholder is not wording, so the reviews that held before still hold."""
+        from meeting_assistant import save_minutes
+        from .notes import name_speakers
+        from .meeting_review import fingerprint
+        minutes = read_json(directory / 'minutes.json', None)
+        named = name_speakers(minutes, renames)
+        if not named:
+            return
+        with self.items.lock:
+            previous = copy.deepcopy(self.items.data)
+            try:
+                for kind, field in items.FIELD.items():
+                    for old, new in zip(minutes.get(field) or [], named.get(field) or []):
+                        item = self.items.items.get(new.get('item_id')) if new.get('item_id') else None
+                        link = next((l for l in item['links'] if l['meeting_id'] == meeting_id), None) if item else None
+                        if not link or old == new:
+                            continue
+                        before, applied = fingerprint(item), {}
+                        for name, source in items.MENTION[kind].items():
+                            if old.get(source) != new.get(source) and item.get(name) == old.get(source) and not (name == 'owner' and item.get('owner_person_id')):
+                                applied[name] = [item.get(name), new.get(source)]
+                                item[name] = new.get(source)
+                        # The notes changed by a name, not by a person: the item does not take it as an edit.
+                        link['seen'] = items.seen(kind, new)
+                        if applied:
+                            self.items._event(item, 'speaker_named', meeting_id, applied, by='system')
+                            after = fingerprint(item)
+                            for receipt in item.get('meeting_reviews', {}).values():
+                                if receipt.get('state') == 'confirmed' and receipt.get('content') == before:
+                                    receipt['content'] = after
+                self.items.save()
+            except Exception:
+                self.items.data = previous
+                raise
+        save_minutes(directory, named)
+        self._sync_items(meeting_id)
 
     def _sync_items(self, meeting_id, follow=True):
         """Run after every change to a meeting's notes. A status change reaches every linked meeting."""

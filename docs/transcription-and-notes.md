@@ -70,6 +70,10 @@ the settings it started with for automatic processing.
   example "Ex Am Pull" to "example.org"), Atlanta offers to add it: "Add “example.org” (heard as
   “Ex Am Pull”) to the vocabulary?". **Add to vocabulary** saves `example.org | Ex Am Pull`.
   Only short replacements count (up to 3 words); a rewrite or a speaker name offers nothing.
+- **Named speakers in the notes:** when you name a speaker (for example SPEAKER_00 as Мария), the
+  saved notes get the name too, without AI: "SPEAKER_00 да провери" becomes "Мария да провери",
+  also as the task owner. The tasks and decisions of the meeting follow, unless you changed their
+  text yourself. Quotes keep the words that were said. Reviews that you confirmed still hold.
 - **Cloud transcription:** sends recorded audio chunks to OpenAI; requires an API key and
   incurs API charges. Default model is `gpt-transcribe`, configurable in Settings. Cloud
   timestamps indicate approximate audio chunk boundaries, not word alignment. See the

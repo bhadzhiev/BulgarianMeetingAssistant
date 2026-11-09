@@ -91,3 +91,28 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
         for index in sorted(indices, reverse=True):
             del result[field][index]
     return result
+
+
+def name_speakers(minutes, renames):
+    """The notes with each named speaker label (SPEAKER_00) replaced by the name, without AI.
+
+    Only the written fields change: statement text, task text and owner. Quotes keep the words that were said.
+    Returns a new dict, or None when nothing changed.
+    """
+    import copy
+    import re
+    labels = {old: new for old, new in (renames or {}).items() if isinstance(old, str) and re.fullmatch(r'SPEAKER[ _-]?\d+', old.strip(), re.I) and new}
+    if not isinstance(minutes, dict) or not labels:
+        return None
+    pattern = re.compile(r'(?<![\w])(' + '|'.join(re.escape(old) for old in sorted(labels, key=len, reverse=True)) + r')(?![\w])')
+    result, changed = copy.deepcopy(minutes), False
+    for field in FIELDS:
+        for entry in result.get(field) or []:
+            if not isinstance(entry, dict):
+                continue
+            for key in ('text', 'task', 'owner'):
+                value = entry.get(key)
+                if isinstance(value, str) and pattern.search(value):
+                    entry[key] = pattern.sub(lambda m: labels[m.group(1)], value)
+                    changed = True
+    return result if changed else None

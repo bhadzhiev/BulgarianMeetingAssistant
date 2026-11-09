@@ -62,6 +62,10 @@ the settings it started with for automatic processing.
   the first pass gives the segments and timestamps, the second gives the words. The app aligns
   the words to the segments. If the two passes differ too much, the first text stays.
   Live captions use the same prompt and drop captions that only repeat it.
+- **Named speakers in the notes:** when you name a speaker (for example SPEAKER_00 as Мария), the
+  saved notes get the name too, without AI: "SPEAKER_00 да провери" becomes "Мария да провери",
+  also as the task owner. The tasks and decisions of the meeting follow, unless you changed their
+  text yourself. Quotes keep the words that were said. Reviews that you confirmed still hold.
 - **Cloud transcription:** sends recorded audio chunks to OpenAI; requires an API key and
   incurs API charges. Default model is `gpt-transcribe`, configurable in Settings. Cloud
   timestamps indicate approximate audio chunk boundaries, not word alignment. See the

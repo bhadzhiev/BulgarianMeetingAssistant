@@ -948,6 +948,10 @@ class MeetingService:
             person = self.people.match(name) if name else None
             return (person['name'] if person else name), (person['id'] if person else None)
         with self.lock, self.items.lock:
+            try:
+                self._link_confirmed_owners()
+            except items.WorkItemConflict:
+                pass
             meeting = self.library.get(meeting_id)
             meetings = self._meeting_refs()
             tasks = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings)) for item in self.items.items.values() if item['kind'] == 'task']
@@ -2411,10 +2415,40 @@ class MeetingService:
             pass  # an invalid saved vocabulary stays as it is; Settings shows its error
         return settings
 
+    def _link_confirmed_owners(self):
+        """A confirmed owner name that belongs to exactly one person links the task to that person.
+
+        Only a name that a person confirmed (accepted the task or chose Confirm owner) links. A shared name links
+        nobody, and an owner that a person chose stays. Returns the number of linked tasks."""
+        linked = 0
+        for item in self.items.items.values():
+            if (item.get('kind') != 'task' or item.get('owner_person_id') or 'owner' not in (item.get('manual') or [])
+                    or item.get('acceptance_state') == 'proposed'):
+                continue
+            person, how = self.people.owner_of(item)
+            if not person or how != 'name':
+                continue
+            from .meeting_review import fingerprint, keep_confirmed
+            before = fingerprint(item)
+            item['owner_person_id'] = person['id']
+            # The link is the confirmed owner itself: the reviews that held before it still hold.
+            keep_confirmed(item, before, {'owner_person_id': person['id']})
+            if 'owner_person_id' not in item['manual']:
+                item['manual'].append('owner_person_id')
+            self.items._event(item, 'owner_linked', None, {'owner_person_id': [None, person['id']]}, by='system')
+            linked += 1
+        if linked:
+            self.items.save()
+        return linked
+
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
             self._migrate_link_reviews()
+            try:
+                self._link_confirmed_owners()
+            except items.WorkItemConflict:
+                pass  # another writer won; the next refresh links again
             meetings = self._meeting_refs()
             sources=self.review_sources()
             rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item,sources))

@@ -2,6 +2,7 @@ import datetime as dt
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from app.service import MeetingService
 from app.storage import atomic_json
@@ -115,6 +116,37 @@ class TeamFactTests(unittest.TestCase):
         self.times(t, DAY(3), DAY(3), created=DAY(3))
         self.assertEqual(self.run_week(), self.run_week())
         self.assertIn('Work that nobody recorded in Atlanta is not missing work.', self.run_week()['coverage']['limitations'])
+
+    def decision(self, key, text, stamp=None):
+        """An accepted decision of the meeting, accepted by a person on 3 November."""
+        return dict(id=key * 16, kind='decision', text=text, status='accepted', dismissed=False,
+                    history=[dict(at=DAY(3), event='edit', by='user', changes=dict(status=['proposed', 'accepted']))],
+                    links=[dict(meeting_id=self.meeting)],
+                    evidence=[dict(provider='meeting', source_id=self.meeting, timestamp=stamp)] if stamp else [])
+
+    def test_only_decisions_that_the_person_said_or_that_name_them(self):
+        decisions = [self.decision('a', 'The VPN rollout ends on Friday.', '00:00:11'),
+                     self.decision('b', 'Maria owns the printer migration.'),
+                     self.decision('c', 'Ivan creates the new repository.'),
+                     self.decision('d', 'Problems go in writing with a ticket number.')]
+        listing = self.s.item_list
+        with patch.object(self.s, 'item_list', lambda *a, **k: dict(listing(*a, **k), items=listing(*a, **k)['items'] + decisions)):
+            result = self.run_week()
+        rows = [(e['facts']['text'], e['facts']['role']) for e in self.facts(result, 'decision')]
+        self.assertEqual(rows, [('The VPN rollout ends on Friday.', 'said it'), ('Maria owns the printer migration.', 'named in it')])
+        self.assertNotIn('Ivan creates', result['review_md'])
+        self.assertIn('2 other accepted decisions of meetings where Maria speaks are not listed', result['review_md'])
+
+    def test_a_task_that_went_to_another_owner_is_not_a_commitment(self):
+        t = self.task('Prepare the RPi', 'b', owner_person_id=self.maria['id'])
+        t = self.s.update_item(t['id'], t['text'], dict(owner_person_id=self.ivan['id']), t['revision'])
+        self.times(t, DAY(3), DAY(3), DAY(3, 15), created=DAY(3))
+        md = self.run_week(self.maria)['review_md']
+        commitments = md.split('## Commitments')[1].split('## Tasks')[0]
+        self.assertNotIn('Prepare the RPi', commitments)
+        self.assertIn('_No confirmed commitments in this period._', commitments)
+        self.assertIn('moved to another person', md)
+        self.assertIn('- Prepare the RPi · until 03.11.2026', md)
 
 
 if __name__ == '__main__':

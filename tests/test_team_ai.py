@@ -110,5 +110,28 @@ class TeamAITests(unittest.TestCase):
         self.assertIsNone(review['generator']); self.assertNotIn('## AI observations', review['review_md'])
 
 
+class SectionAndPromptTests(unittest.TestCase):
+    def test_previous_is_a_section_only_with_records_of_the_last_review(self):
+        from app import team_ai
+        first = team_ai.schema([dict(id='e1', kind='task_assigned')])
+        enum = first['properties']['observations']['items']['properties']['section']['enum']
+        self.assertNotIn('previous', enum)
+        self.assertIn('previous', team_ai.SECTIONS)  # the shared schema stays whole
+        self.assertIs(team_ai.schema([dict(id='e1', kind='agreement')]), team_ai.SCHEMA)
+        self.assertIs(team_ai.schema([dict(id='e1', kind='task_carried')]), team_ai.SCHEMA)
+
+    def test_a_previous_observation_without_a_last_review_is_rejected(self):
+        from app import team_ai
+        answer = dict(observations=[dict(section='previous', text='A', evidence=['e1'], attribution='clear'),
+                                    dict(section='tasks', text='B', evidence=['e1'], attribution='clear')], questions=[], not_enough_data=False)
+        clean, rejected = team_ai.validate(answer, {'e1'}, previous=False)
+        self.assertEqual(([o['text'] for o in clean['observations']], rejected), (['B'], 1))
+
+    def test_the_prompt_says_a_transfer_is_not_a_close(self):
+        from app import team_ai
+        self.assertIn('It does not mean the task is closed or done.', team_ai.SYSTEM)
+        self.assertIn('Use the section "previous" only for records of kind agreement or task_carried.', team_ai.SYSTEM)
+
+
 if __name__ == '__main__':
     unittest.main()

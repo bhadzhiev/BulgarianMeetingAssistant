@@ -14,6 +14,7 @@ Bulgarian speech. It also makes notes, tasks and decisions that you can edit and
 - **Separates speakers** and suggests names from voices in earlier meetings. You confirm each name.
 - **Makes notes:** summary, decisions, tasks and open questions. Each statement links to its moment in the recording.
 - **Collects work in My Work:** tasks from meetings, Gmail, Google Chat and GitHub, in one list.
+- **Sends tasks by email:** one or more tasks in one Gmail draft. You send the draft from Gmail.
 - **Prepares you** for the next meeting of a project or a series.
 - **Searches** all meetings and answers questions from them.
 

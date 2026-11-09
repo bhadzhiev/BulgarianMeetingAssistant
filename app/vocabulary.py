@@ -80,3 +80,97 @@ def canonicalize(text, rows):
     if not aliases: return text
     pattern = re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(a) for a in sorted(aliases, key=len, reverse=True)) + r')(?!\w)', re.I)
     return pattern.sub(lambda match: aliases.get(match.group().casefold(), match.group()), text)
+
+
+def with_terms(text, extra):
+    """The vocabulary plus extra plain terms (people, projects, repositories) that it does not have yet.
+
+    A term is skipped when it is already a spelling in the vocabulary, when Scribe cannot take it (over 50
+    characters or 5 words, or < > { } [ ] \\) or when it is not a valid entry. The vocabulary text itself is kept.
+    """
+    text = text or ''
+    known = {name.casefold() for row in entries(text) for name in [row['term'], *row['aliases']]}
+    added = []
+    for term in extra:
+        term = ' '.join(str(term or '').split())
+        if (not term or term.casefold() in known or len(term) > 50 or len(term.split()) > 5
+                or any(c in term for c in '<>{}[]\\,;|')):
+            continue
+        try:
+            entries(term)
+        except ValueError:
+            continue
+        known.add(term.casefold());added.append(term)
+    return text + ('\n' if text.strip() and added else '') + '\n'.join(added) if added else text
+
+
+# A word may hold dots, hyphens and slashes inside (linkin.eu, AP-то), never at its end.
+WORD = re.compile(r"\w(?:[\w.\-/]*\w)?", re.U)
+PLACEHOLDER = re.compile(r"SPEAKER[ _-]?\d+", re.I)
+
+
+def suggestions(old, new, text=''):
+    """Terms that a person corrected in a short edit: "MCP Link in Elo" -> "MCP linkin.eu" gives linkin.eu | Link in Elo.
+
+    Only small replacements count (up to 3 words each side, up to 6 changed words in all); a rewrite gives nothing.
+    A correction that the vocabulary already has, a speaker placeholder or a change of numbers gives nothing.
+    """
+    import difflib
+    before, after = WORD.findall(old or ''), WORD.findall(new or '')
+    matcher = difflib.SequenceMatcher(a=[w.casefold() for w in before], b=[w.casefold() for w in after], autojunk=False)
+    changes = [op for op in matcher.get_opcodes() if op[0] != 'equal']
+    if not changes or sum(max(i2 - i1, j2 - j1) for _, i1, i2, j1, j2 in changes) > 6:
+        # Case-only edits ("Lift" -> "LIFT") have no change for the matcher.
+        changes = []
+    rows = []
+    for tag, i1, i2, j1, j2 in changes:
+        if tag != 'replace' or i2 - i1 > 3 or j2 - j1 > 3:
+            continue
+        rows.append((' '.join(after[j1:j2]), ' '.join(before[i1:i2])))
+    for a, b in zip(before, after):
+        if a != b and a.casefold() == b.casefold() and len(before) == len(after):
+            rows.append((b, None))
+    try:
+        known = entries(text or '')
+    except ValueError:
+        known = []
+    spellings = {row['term'].casefold(): row for row in known}
+    result = []
+    for term, variant in rows:
+        if not re.search(r"[^\W\d_]", term) or PLACEHOLDER.search(term + ' ' + (variant or '')) or len(term) > 50:
+            continue
+        row = spellings.get(term.casefold())
+        if row and row['term'] == term and (not variant or variant.casefold() in {a.casefold() for a in row['aliases']}):
+            continue
+        try:
+            entries(term + (' | ' + variant if variant else ''))
+        except ValueError:
+            continue
+        if (term, variant) not in [(r['term'], r['variant']) for r in result]:
+            result.append(dict(term=term, variant=variant))
+    return result[:3]
+
+
+def add(text, term, variant=None):
+    """The vocabulary with one more term, or one more variant of a term that it has. Raises when it is not valid."""
+    term = ' '.join(str(term or '').split())
+    variant = ' '.join(str(variant or '').split()) or None
+    if not term:
+        raise ValueError('Enter a term')
+    lines = [line for line in re.split(r'\n', text or '')]
+    for index, line in enumerate(lines):
+        head = line.split('|')[0].strip()
+        if head.casefold() == term.casefold() and ',' not in head and ';' not in line:
+            if variant:
+                variants = [v.strip() for v in line.split('|')[1].split(',')] if '|' in line else []
+                if variant.casefold() not in {v.casefold() for v in variants}:
+                    variants.append(variant)
+                lines[index] = term + ' | ' + ', '.join(variants)
+            else:
+                lines[index] = term + (' |' + line.split('|', 1)[1] if '|' in line else '')
+            break
+    else:
+        lines.append(term + (' | ' + variant if variant else ''))
+    result = '\n'.join(line for line in lines if line.strip())
+    entries(result)
+    return result

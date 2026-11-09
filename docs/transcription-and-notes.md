@@ -62,6 +62,14 @@ the settings it started with for automatic processing.
   the first pass gives the segments and timestamps, the second gives the words. The app aligns
   the words to the segments. If the two passes differ too much, the first text stays.
   Live captions use the same prompt and drop captions that only repeat it.
+- **Names that Atlanta knows:** each transcription, correction and set of notes also gets the names
+  and aliases of People, the project names and the repository names. They are added after your
+  vocabulary when the vocabulary does not have them yet. A name over 50 characters or 5 words is
+  left out (the Scribe limit). The saved vocabulary does not change.
+- **Learn from corrections:** when you correct a term in the text of a task or a decision (for
+  example "Ex Am Pull" to "example.org"), Atlanta offers to add it: "Add “example.org” (heard as
+  “Ex Am Pull”) to the vocabulary?". **Add to vocabulary** saves `example.org | Ex Am Pull`.
+  Only short replacements count (up to 3 words); a rewrite or a speaker name offers nothing.
 - **Named speakers in the notes:** when you name a speaker (for example SPEAKER_00 as Мария), the
   saved notes get the name too, without AI: "SPEAKER_00 да провери" becomes "Мария да провери",
   also as the task owner. The tasks and decisions of the meeting follow, unless you changed their

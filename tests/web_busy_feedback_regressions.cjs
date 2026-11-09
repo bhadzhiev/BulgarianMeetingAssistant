@@ -82,6 +82,6 @@ function context(){
  }
  // api() counts a request with a body as a change only after the server accepts it.
  const apiSource=source.slice(source.indexOf('async function api(path,body)'),source.indexOf('\n}',source.indexOf('async function api(path,body)')));
- assert.match(apiSource,/ok=true;return data;/);assert.match(apiSource,/if\(ok\)actionWrites\+\+;else actionFailures\+\+;/);
+ assert.match(apiSource,/readApiResponse\(response\);ok=true;[\s\S]*?return data;/);assert.match(apiSource,/if\(ok\)actionWrites\+\+;else actionFailures\+\+;/);
  console.log('Busy feedback PASS: delayed spinner and bar, double press ignored, selects always apply, nested calls run, check mark only after a saved change, none after a refused save.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -299,17 +299,42 @@ def notes_part_chars(settings: dict) -> int:
     return max(NOTES_PART_CHARS, min(MAX_PART_CHARS, int(free * CHARS_PER_TOKEN)))
 
 
-def canonical_notes(minutes: dict, vocabulary: str) -> dict:
-    """The preferred spelling from the vocabulary in the generated notes. The transcript stays as it was."""
+def canonical_notes(minutes: dict, vocabulary: str, people=()) -> dict:
+    """The preferred spellings in the generated notes. The transcript stays as it was.
+
+    A vocabulary variant becomes its term in statement and task text. Another name of a person in People
+    (an alias, for example a short name) becomes the People name there and in the task owner too: the prompt
+    asks for this, but a model does not always do it, and then one person has two names in one set of notes.
+    """
     from .vocabulary import canonicalize, entries
     rows = entries(vocabulary or '')
-    if not any(row['aliases'] for row in rows):
+    names = [dict(term=p['name'], aliases=[a for a in p.get('aliases') or [] if isinstance(a, str) and a.strip()])
+             for p in people or () if isinstance(p, dict) and isinstance(p.get('name'), str) and p['name'].strip()]
+    # The name itself is in the list too: the longest match wins, so "Мария Петрова" stays as it is and does not
+    # become "Мария Петрова Петрова" through the alias "Мария".
+    names = [dict(row, aliases=[row['term'], *row['aliases']]) for row in names if row['aliases']]
+    if not any(row['aliases'] for row in rows) and not names:
         return minutes
     for items in minutes.values():
         for item in items if isinstance(items, list) else []:
-            for key in ('text', 'task'):
-                if isinstance(item, dict) and isinstance(item.get(key), str):
-                    item[key] = canonicalize(item[key], rows)
+            if not isinstance(item, dict):
+                continue
+            for key in ('text', 'task', 'owner'):
+                value = item.get(key)
+                if not isinstance(value, str):
+                    continue
+                # An owner is a person, not a vocabulary term.
+                if key != 'owner':
+                    value = canonicalize(value, rows)
+                item[key] = canonicalize(value, names)
+    return minutes
+
+
+def clear_unstated_due_dates(minutes: dict) -> dict:
+    """A task without a deadline in the words of the meeting has no due date. A model sometimes picks one."""
+    for task in minutes.get('tasks') or []:
+        if isinstance(task, dict) and not (task.get('deadline') or '').strip():
+            task['due_date'] = None
     return minutes
 
 
@@ -430,7 +455,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
             from .notes_consolidation import failed_audit
             audit = failed_audit(completed, segments, error)
             progress('Notes saved without merging repeated statements · ' + audit['error'])
-    result = canonical_notes(result, args.whisper_vocabulary)
+    result = clear_unstated_due_dates(canonical_notes(result, args.whisper_vocabulary, args.speakers))
     validate_minutes(result, segments)
     proposed = (directory / 'minutes.json').exists()
     audit_path = directory / ('minutes.consolidation.proposed.json' if proposed else 'minutes.consolidation.json')

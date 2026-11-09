@@ -136,10 +136,14 @@ Long transcripts are extracted in parts of about 10,000 characters, then consoli
 selected AI provider. A part fits a 16k-token local model context with its answer.
 The global summary has at most six points; tasks and decisions have no fixed count limit. If the
 model keeps skipping one source, that source stays as its own point instead of failing the merge.
-Each statement goes into one section only, in this order: decisions, tasks, the sections of the
-meeting type, needs decision, open questions, next steps, observations, summary. Observations are
-at most three work risks; they never judge a person. Known participant names keep their exact
-spelling in every statement. Vocabulary variants (`PacketFence | PacketFancy`) become the preferred
+Each statement goes into one section only, in this order: decisions, tasks, updates, the sections
+of the meeting type, needs decision, open questions, next steps, observations, summary. The model
+writes the sections in this order too, so the summary comes last. The summary does not repeat
+tasks, decisions, updates or questions. A guess ("може би ще го дам на Иван") is an open question,
+not a task. Observations are at most three work risks; they never judge a person. Known participant
+names keep their exact spelling in every statement. Another name of a person in People (for
+example a short name) becomes the People name in the statements, task text and owner.
+Vocabulary variants (`PacketFence | PacketFancy`) become the preferred
 spelling in the generated notes; the transcript keeps the recognized text.
 Consolidation selects an existing task or decision instead of rewriting its owner or deadline.
 Different owners, dates, negations, numbers and environments veto a proposed merge. Similarity
@@ -308,7 +312,8 @@ your decision, private observations), and **Analytics**. Generated notes contain
 - **Questions for your decision:** items that wait for a decision and were not decided.
 - **Tasks:** task, owner, deadline as said, due date, status (open or done), and source timestamp.
   The model receives the meeting date. It converts a deadline such as "до петък" into a due
-  date when the date is clear. Otherwise the due date stays empty. You can set it yourself.
+  date when the date is clear. Otherwise the due date stays empty. A task without a deadline in the
+  words of the meeting gets no due date from AI. You can set it yourself.
 - **Open questions.**
 - **Private observations:** risks, promises that look unrealistic, and signs of disagreement.
   This is an AI interpretation. Check it against the recording. It is not in `minutes.md`,

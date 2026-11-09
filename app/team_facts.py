@@ -8,6 +8,9 @@ Attribution:
 - The accountable person (the owner, the first assignee) gets "assigned", "taken on" and "overdue".
 - The others of a shared task "took part"; a person removed from a task "took part until" that day.
 - An overdue task counts for the person who owned it on its due date, not for a later owner.
+- A commitment is a task that the person owns at the end of the period. A task moved to another owner is not one.
+- A decision is listed when the person said it or when it names them. The other decisions of meetings where the
+  person speaks are only a count: speaking in a meeting does not make its decisions theirs.
 - Every count comes from this code. The text of a review cites the evidence records e1…eN.
 """
 from __future__ import annotations
@@ -110,6 +113,8 @@ class Collector:
         self.names = {n for n in service._person_names(person) if len(service.people.matching(n)) == 1}
         self.people = {p['id']: p for p in service.people.list()}
         self.evidence, self.excluded = [], []
+        # Accepted decisions of meetings where the person speaks, but that the person did not say and that do not name them.
+        self.other_decisions = 0
         self.transcripts = {}
         self.meetings = {m['id']: m for m in service.library.list()}
 
@@ -158,6 +163,11 @@ class Collector:
 
     def speaks_in(self, meeting_id):
         return any(isinstance(r.get('speaker'), str) and r['speaker'].casefold() in self.names for r in self.transcript(meeting_id))
+
+    def named_in(self, text):
+        """True when the text names the person with one of their confirmed names (name or alias), as whole words."""
+        text = (text or '').casefold()
+        return any(re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text) for name in self.names)
 
     def own_words(self, item):
         """The person's own words at the moment of the task in a meeting: evidence that they took it on."""
@@ -209,7 +219,7 @@ class Collector:
         end_role = line.role(end_state, pid)
         last_role = next((role for _, role in reversed(roles) if role), None)
         shared = any(len((line.state(m) or {}).get('assignee_person_ids') or []) > 1 for m, role in roles if role)
-        facts = dict(item_id=item['id'], text=item['text'], role=end_role or last_role, shared=shared, refs=[], marks=[],
+        facts = dict(item_id=item['id'], text=item['text'], role=end_role or last_role, end_role=end_role, shared=shared, refs=[], marks=[],
                      open_at_end=end_role is not None and end_state.get('status') != 'done' and end_state.get('workflow_state') != 'cancelled',
                      state=end_state.get('workflow_state'), due_date=end_state.get('due_date'), requester=item.get('requester_person_id'))
         base = dict(text=item['text'], shared=shared)
@@ -301,8 +311,13 @@ class Collector:
                         role, quote, meeting_id, stamp = 'said it', said['text'], ev['source_id'], ev['timestamp']
                         break
             if not role:
+                # Speaking in a meeting does not make every decision of that meeting the person's. A decision about the
+                # work of another person or about the whole company goes in only as a count.
                 meeting_id = next((l['meeting_id'] for l in item.get('links', []) if l.get('meeting_id') in self.meetings and self.speaks_in(l['meeting_id'])), None)
-                role = 'took part in the meeting' if meeting_id else None
+                if meeting_id and self.named_in(item['text']):
+                    role = 'named in it'
+                elif meeting_id:
+                    self.other_decisions += 1
             if role:
                 ref = self.add('decision', item, accepted, 'A person accepted the decision', dict(text=item['text'], role=role), quote, meeting_id, stamp)
                 rows.append(dict(text=item['text'], role=role, ref=ref))
@@ -398,7 +413,7 @@ def blockers(c, items, tasks):
     for t in tasks:
         if not t['open_at_end']:
             continue
-        if t['role'] == 'accountable' and t['state'] == 'waiting':
+        if t.get('end_role', t['role']) == 'accountable' and t['state'] == 'waiting':
             rows['waits'].append(dict(text=t['text'], on=None, ref=t['refs'][-1]))
         if t['requester'] and t['requester'] != pid:
             rows['waited_on'].append(dict(text=t['text'], by=c.name(t['requester']), ref=t['refs'][-1]))
@@ -471,7 +486,10 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts, agreements=(
         out += [f"- {row['text']} · {row['reason']}" for row in c.excluded]
     out += change_section(c, coverage, counts)
     out += ['', '## Commitments', '']
-    mine = [t for t in tasks if t['role'] == 'accountable']
+    # A commitment is a task that the person still owns at the end of the period. A task that went to another
+    # owner is listed with the tasks they took part in, with the day it left them.
+    held = lambda t: t.get('end_role', t['role']) == 'accountable'
+    mine = [t for t in tasks if held(t)]
     if not mine:
         out.append('_No confirmed commitments in this period._')
     for t in mine:
@@ -480,14 +498,17 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts, agreements=(
         out.append(f"- {t['text']} · {state}{due}{shared(t)} · {', '.join(t['marks']) or 'open'}{ref(t['refs'])}")
     out += ['', '## Tasks', '', '| Fact | Count |', '|---|---|']
     out += [f'| {label} | {counts[key]} |' for key, label in COUNTS]
-    others = [t for t in tasks if t['role'] != 'accountable']
+    others = [t for t in tasks if not held(t)]
     if others:
-        out += ['', 'Took part in (another person is accountable):', '']
+        out += ['', 'Took part in, or moved to another person (another person is accountable):', '']
         for t in others:
             until = f" · until {_fmt_day(t['until'])}" if t.get('until') else ''
             out.append(f"- {t['text']}{shared(t)}{until}{ref(t['refs'])}")
     out += ['', '## Decisions', '']
     out += [f"- {d['text']} · {d['role']} [{d['ref']}]" for d in decisions] or ['_No accepted decisions with this person in this period._']
+    if c.other_decisions:
+        out.append(f"- {c.other_decisions} other accepted decisions of meetings where {person} speaks are not listed: "
+                   f"{person} did not say them and they do not name {person}.")
     out += ['', '## Blockers', '']
     lines = [f"- {person} waits{(' for ' + w['on']) if w['on'] else ''}: {w['text']} [{w['ref']}]" for w in waits['waits']]
     lines += [f"- {w['by']} waits for {person}: {w['text']} [{w['ref']}]" for w in waits['waited_on']]

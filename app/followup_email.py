@@ -28,7 +28,8 @@ A person edits this draft and sends it from Gmail, so leave a section out rather
 - Copy owner names and due dates exactly as supplied. Write "без срок" when a task has no due date.
 - List each task on its own line as: task — owner — due date.
 - List open_questions as unresolved questions, without owners or answers. Leave the section out when the list is empty.
-- Do not add a signature, a name for the sender or placeholders such as [Име]."""
+- Do not add a signature, a name for the sender or placeholders such as [Име].
+Write the subject and the body in Bulgarian. Keep English technical terms, product names and personal names as supplied."""
 
 
 def _date(value):

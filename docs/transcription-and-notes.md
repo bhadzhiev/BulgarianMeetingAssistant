@@ -283,7 +283,9 @@ optional diarization, AI correction, notes, analytics, then any calendar automat
 transcription**: **Configured API** (default), **Cloud · OpenAI**, or **Off**.
 
 - The model fixes spelling, punctuation, capital letters, and words that were heard wrong.
-  It uses the known speakers for the spelling of names.
+  It uses the known speakers for the spelling of names. A misspelled name may become the name
+  ("Мариа Петрова" → "Мария Петрова"). A name may not go away, may not appear from other words,
+  and may not become another person. A short name (under 6 letters) keeps its form.
 - Timestamps and speaker labels never change. The model gets numbered segments and must return
   the same segments. If it does not, the correction stops and the Whisper text stays.
 - A segment that changes too much keeps the Whisper text. The limit is a similarity below 60 %

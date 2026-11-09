@@ -246,7 +246,10 @@ async function api(path,body) {
  let ok=false;
  try{
   const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const data=await readApiResponse(response);ok=true;return data;
+  const data=await readApiResponse(response);ok=true;
+  // A correction of a term in a task or decision offers that term for the vocabulary.
+  if(data&&Array.isArray(data.vocabulary_suggestions)&&data.vocabulary_suggestions.length)offerVocabulary(data.vocabulary_suggestions);
+  return data;
  }finally{if(body!==undefined){if(ok)actionWrites++;else actionFailures++;endActivity();}}
 }
 // The desktop window (WKWebView) ignores target=_blank links. The backend opens them in the default browser.
@@ -461,6 +464,21 @@ function revealTask(id){
  if(!taskVisibleRows.some(i=>i.id===id)){resetTaskFilters({all:true});toast('Filters cleared to show the new task');}
  const row=[...$('task-list').querySelectorAll('[data-item-id]')].find(node=>node.dataset.itemId===id);if(!row)return;
  row.scrollIntoView({block:'center'});row.classList.add('just-created');setTimeout(()=>row.classList.remove('just-created'),2500);
+}
+// One offer at a time: "Add linkin.eu (heard as Link in Elo) to the vocabulary?" Nothing changes without Add.
+// The offer has its own box, so the toast of the save does not hide it.
+let vocabularyOffers=[];
+function offerVocabulary(rows){
+ for(const r of rows)if(!vocabularyOffers.some(o=>o.term===r.term&&o.variant===r.variant))vocabularyOffers.push(r);
+ let box=document.getElementById('vocabulary-offer');
+ if(box&&!box.hidden)return;
+ if(!box){box=el('div','vocabulary-offer');box.id='vocabulary-offer';box.setAttribute('role','status');document.body.append(box);}
+ const row=vocabularyOffers[0];if(!row){box.hidden=true;return;}
+ const add=el('button','primary small-action','Add to vocabulary'),skip=el('button','secondary small-action','Not now');add.type=skip.type='button';
+ const next=()=>{vocabularyOffers.shift();box.hidden=true;offerVocabulary([]);};
+ add.onclick=()=>perform(async()=>{await api('/api/vocabulary/add',{term:row.term,variant:row.variant});next();toast('Added to the vocabulary. The next transcription uses it.');});
+ skip.onclick=next;
+ box.replaceChildren(el('span','','Add “'+row.term+'”'+(row.variant?' (heard as “'+row.variant+'”)':'')+' to the vocabulary?'),add,skip);box.hidden=false;
 }
 function showCreatedTask(id,linked=false){const box=$('toast');box.replaceChildren(document.createTextNode(linked?'Evidence linked. ':'Task created. '));const open=el('button','quiet','Open task');open.onclick=()=>perform(()=>openTaskPanel(id));box.append(open);box.hidden=false;setTimeout(()=>{if(box.contains(open))box.hidden=true;},15000);}
 function contextProject(){if(view==='projects'){const key=$('workspace-project').value;return key&&key!=='__none__'?key:'';}return view==='detail'?detail?.project_id||'':$('record-project').value||'';}

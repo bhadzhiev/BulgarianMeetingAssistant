@@ -1415,3 +1415,5 @@ label.required-label:has(.date-part-label)::after{content:none}
 .inline-editor>.tracked-edit{display:block;width:100%;max-height:60vh}
 /* A task that was just created shows a short outline, so the eye finds it in the list. */
 .tracked-task.just-created{outline:2px solid var(--green);outline-offset:2px;transition:outline-color .6s}
+/* The vocabulary offer floats above the toast, so the message of a save does not hide it. */
+.vocabulary-offer{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:min(640px,92vw);padding:12px 16px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 5px 20px var(--shadow-strong);font-size:12px}

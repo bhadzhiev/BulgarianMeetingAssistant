@@ -37,6 +37,12 @@ class PromptRulesTests(unittest.TestCase):
         self.assertIn('Предположение не е ангажимент', self.prompt)
         self.assertIn('не правят задача и\nне правят отговорник. Запиши ги в open_questions.', self.prompt)
 
+    def test_a_task_title_is_short_and_holds_one_fact(self):
+        self.assertIn('обикновено 6–12 думи, най-много 15', self.prompt)
+        self.assertIn('Без условия, списъци, фон или контакти и без „;“', self.prompt)
+        self.assertIn('Друг факт (например кой е контактът по темата) е отделен запис в своята секция.', self.prompt)
+        self.assertNotIn('до около 20 думи', self.prompt)
+
     def test_a_due_date_needs_a_stated_deadline(self):
         self.assertIn('Ако deadline е null, due_date също е null: не избирай дата сам.', self.prompt)
 

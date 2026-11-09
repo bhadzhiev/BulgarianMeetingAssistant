@@ -139,7 +139,8 @@ model keeps skipping one source, that source stays as its own point instead of f
 Each statement goes into one section only, in this order: decisions, tasks, updates, the sections
 of the meeting type, needs decision, open questions, next steps, observations, summary. The model
 writes the sections in this order too, so the summary comes last. The summary does not repeat
-tasks, decisions, updates or questions. A guess ("може би ще го дам на Иван") is an open question,
+tasks, decisions, updates or questions. A task title has 6–12 words (at most 15): owner, action
+and object. Conditions, lists and context stay in the quote. A guess ("може би ще го дам на Иван") is an open question,
 not a task. Observations are at most three work risks; they never judge a person. Known participant
 names keep their exact spelling in every statement. Another name of a person in People (for
 example a short name) becomes the People name in the statements, task text and owner.

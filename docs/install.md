@@ -36,7 +36,9 @@ python scripts/build_desktop.py
 
 To build and install (or reinstall) in one step, run `scripts/install_desktop.sh`. The script makes
 a packaging environment in `.venv-build`, installs the Tauri CLI, and builds the app. It then quits a
-running copy and replaces `/Applications/Bulgarian Meeting Assistant.app`. `BMA_INSTALL_DIR` selects
+running copy and replaces `/Applications/Atlanta.app`. A copy with the old name
+(`Bulgarian Meeting Assistant.app`) moves to the previous copies. The identifier, the library and
+the Keychain item stay the same. `BMA_INSTALL_DIR` selects
 another folder. The script accepts the same options as `build_desktop.py`. It also installs
 `requirements-diarization.txt` and builds with `--with-diarization` by default. Add
 `--without-diarization` for a smaller app without speaker separation.

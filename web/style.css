@@ -1405,3 +1405,5 @@ label.required-label:has(.date-part-label)::after{content:none}
 .meeting-match .match-target{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:500;font-size:13px;margin:0}
 .meeting-match .match-target>.hint{margin:0}
 .meeting-match label>textarea{width:100%;margin-top:4px}
+/* The Atlanta mark: Atlas with the celestial sphere, on the teal tile. */
+.brand-icon>img{display:block;width:80%;height:80%;object-fit:contain;pointer-events:none}

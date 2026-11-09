@@ -6,7 +6,9 @@
 # BMA_BUILD_VENV selects the packaging virtual environment (default .venv-build).
 set -eu
 task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-app_name="Bulgarian Meeting Assistant.app"
+app_name="Atlanta.app"
+# The app had this name before. The same app (same identifier) replaces it.
+legacy_name="Bulgarian Meeting Assistant.app"
 app_id="io.github.bhadzhiev.meeting-assistant"
 install_dir="${BMA_INSTALL_DIR:-/Applications}"
 build_venv="${BMA_BUILD_VENV:-$task_root/.venv-build}"
@@ -127,4 +129,9 @@ fi
 mv "$staging/$app_name" "$target"
 installed=true
 [ -z "$previous" ] || echo "Previous app kept at: $previous/$app_name"
+if [ -e "$install_dir/$legacy_name" ]; then
+  previous=${previous:-$(mktemp -d "$install_dir/.bma-previous.XXXXXX")}
+  mv "$install_dir/$legacy_name" "$previous/$legacy_name"
+  echo "The app is now named Atlanta. The old copy is kept at: $previous/$legacy_name"
+fi
 printf 'Installed. Open it with: open "%s"\n' "$target"

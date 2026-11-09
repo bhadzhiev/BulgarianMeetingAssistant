@@ -37,6 +37,16 @@ class PromptRulesTests(unittest.TestCase):
         self.assertIn('Предположение не е ангажимент', self.prompt)
         self.assertIn('не правят задача и\nне правят отговорник. Запиши ги в open_questions.', self.prompt)
 
+    def test_a_first_person_commitment_is_a_task_not_a_passive_decision(self):
+        self.assertIn('Ангажимент в първо лице („ще изпратя Иван при Мария“, „ще го дам на Иван“) е задача на говорещия, не решение.', self.prompt)
+        self.assertIn('Не го пиши в страдателен залог', self.prompt)
+        self.assertIn('запиши всички в задачата', self.prompt)
+
+    def test_type_sections_and_summary_do_not_repeat_other_sections(self):
+        self.assertIn('Секциите на типа срещата и updates не повтарят решение или задача.', self.prompt)
+        self.assertIn('summary се пише последно. То съдържа само изводи, които не са записани в друга секция.', self.prompt)
+        self.assertIn('върни една точка за целта или резултата на срещата', self.prompt)
+
     def test_a_task_title_is_short_and_holds_one_fact(self):
         self.assertIn('обикновено 6–12 думи, най-много 15', self.prompt)
         self.assertIn('Без условия, списъци, фон или контакти и без „;“', self.prompt)

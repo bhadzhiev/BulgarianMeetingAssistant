@@ -1078,8 +1078,10 @@ function openReview() {
   const section=el('section','review-section'); section.append(el('h3','',meetingType(detail).sections.find(s=>s.key===field)?.title||FIELD_TITLES[field]));
   for(const change of list) {
    const row=el('label','review-change '+change.kind), box=el('input'), main=el('div'), checked=change.current?.review==='verified';
-   // Additions and AI-only edits are preselected; removals and edits of checked statements are not.
-   box.type='checkbox'; box.checked=change.kind==='added'||change.kind==='changed'&&!checked; choices.set(change.id,box);
+   // Additions and AI-only edits are preselected; edits of checked statements are not. A removal is preselected only
+   // for an unchecked AI statement that is no task or decision: otherwise a reworded statement stayed next to the new one.
+   // Removing a task or decision can delete its item, so a person chooses it.
+   box.type='checkbox'; box.checked=change.kind==='added'||change.kind==='changed'&&!checked||change.kind==='removed'&&!checked&&!['tasks','decisions'].includes(field); choices.set(change.id,box);
    main.append(el('span','change-kind',{added:'New',changed:'Changed',removed:'Not in the new notes'}[change.kind]+(checked?' · you checked the saved version':'')));
    if(change.current) main.append(el(change.kind==='removed'||change.kind==='changed'?'del':'p','',changeText(field,change.current)));
    if(change.proposed) main.append(el('ins','',changeText(field,change.proposed)));

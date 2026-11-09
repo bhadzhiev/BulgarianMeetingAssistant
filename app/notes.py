@@ -14,6 +14,22 @@ from .meeting_types import SECTION_FIELDS
 FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *SECTION_FIELDS)
 TASK_DETAILS = ('owner', 'deadline', 'due_date')
 SIMILAR = 0.6
+# Two statements of the same moment (within NEAR seconds) need less similar words to be one statement.
+SAME_MOMENT = 0.4
+NEAR = 10
+
+
+def _seconds(stamp):
+    try:
+        h, m, s = (int(part) for part in str(stamp).split(':'))
+        return h * 3600 + m * 60 + s
+    except (TypeError, ValueError):
+        return None
+
+
+def _near(old, new):
+    a, b = _seconds(old.get('evidence_timestamp')), _seconds(new.get('evidence_timestamp'))
+    return a is not None and b is not None and abs(a - b) <= NEAR
 
 
 def _text(field: str, item: dict) -> str:
@@ -52,6 +68,17 @@ def changes(current: dict | None, proposed: dict) -> list[dict]:
                         for i in old_left for j in new_left), reverse=True)
         for ratio, i, j in pairs:
             if ratio < SIMILAR:
+                break
+            if i in old_left and j in new_left:
+                old_left.remove(i)
+                new_left.remove(j)
+                result.append(_change(field, 'changed', i, j, old[i], new[j]))
+        # A reworded statement of the same moment is the same statement: it is changed, not added next to the old one.
+        # Without this, accepting the additions and not the removals kept two versions of one thought.
+        pairs = sorted(((difflib.SequenceMatcher(None, _key(_text(field, old[i])), _key(_text(field, new[j]))).ratio(), i, j)
+                        for i in old_left for j in new_left if _near(old[i], new[j])), reverse=True)
+        for ratio, i, j in pairs:
+            if ratio < SAME_MOMENT:
                 break
             if i in old_left and j in new_left:
                 old_left.remove(i)

@@ -474,6 +474,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.save_speakers(body['speakers'])
             elif path == '/api/trackers':
                 result = service.save_trackers(body['trackers'])
+            elif path == '/api/vocabulary/add':
+                result = service.add_vocabulary(body)
             elif path == '/api/settings':
                 result = service.save_settings(body)
             elif path == '/api/check-mic':

@@ -508,7 +508,7 @@ class MeetingService:
             if self.active:
                 raise ValueError('A meeting is already recording')
             self._stop_preview()
-            settings = dict(self.settings, models_dir=str(self.models_dir))
+            settings = self._with_known_terms(dict(self.settings, models_dir=str(self.models_dir)))
             settings['fallback_microphone'] = fallback_device_name
             settings['_capture_microphone']=next((d.get('name',device_name or '') for d in devices() if d['id']==device),device_name or '')
             if transcription_timing is not None:
@@ -755,7 +755,7 @@ class MeetingService:
             # Processing retries do not opt old meetings into a different calendar or AI provider.
             for field in ['calendar_enabled','calendar_id','calendar_name','calendar_account','auto_title','title_provider','title_model']:
                 settings[field] = meeting['settings'].get(field, DEFAULTS[field] if field != 'auto_title' else False)
-            settings = migrate_settings(settings)
+            settings = self._with_known_terms(migrate_settings(settings))
             if imported_all:
                 correction_on = settings.get('transcript_correction', 'none') != 'none'
                 if settings['summarizer'] != 'none':
@@ -2392,6 +2392,25 @@ class MeetingService:
             except (OSError, ValueError, items.WorkItemConflict) as exc:
                 print(f'Meeting proposals: {meeting_id}: {exc}', flush=True)
 
+    def known_terms(self):
+        """Names that Atlanta already knows: people and their aliases, projects and repositories."""
+        found = []
+        for person in self.people.list():
+            found += [person.get('name'), *(person.get('aliases') or [])]
+        for project in self.projects.data.get('projects', []):
+            found.append(project.get('name'))
+            found += [str(repo).rsplit('/', 1)[-1] for repo in project.get('repositories') or []]
+        return [name for name in found if isinstance(name, str) and name.strip()]
+
+    def _with_known_terms(self, settings):
+        """Transcription, correction and notes also get the names that Atlanta knows."""
+        from .vocabulary import with_terms
+        try:
+            settings['whisper_vocabulary'] = with_terms(settings.get('whisper_vocabulary', ''), self.known_terms())
+        except ValueError:
+            pass  # an invalid saved vocabulary stays as it is; Settings shows its error
+        return settings
+
     def item_list(self):
         with self.lock, self.items.lock:
             self._refresh_items()
@@ -2799,7 +2818,25 @@ class MeetingService:
                 raise
             # The notes of each meeting show the same state, so exports and searches agree.
             self._sync_linked({item_id})
-            return dict(self.items.items[item_id])
+            result = dict(self.items.items[item_id])
+            if 'text' in clean and clean['text'] != text:
+                result['vocabulary_suggestions'] = self.vocabulary_suggestions(text, clean['text'])
+            return result
+
+    def vocabulary_suggestions(self, old, new):
+        """Terms that a text correction teaches, which the vocabulary and the known names do not have yet."""
+        from .vocabulary import suggestions
+        known = {name.casefold() for name in self.known_terms()}
+        return [row for row in suggestions(old, new, self.settings.get('whisper_vocabulary', ''))
+                if row['variant'] or row['term'].casefold() not in known]
+
+    def add_vocabulary(self, body):
+        """Add one term, or one variant of a term, to the saved vocabulary."""
+        from .vocabulary import add
+        if not isinstance(body, dict) or not isinstance(body.get('term'), str) or not isinstance(body.get('variant') or '', str):
+            raise ValueError('Choose a term to add')
+        self.save_settings(dict(whisper_vocabulary=add(self.settings.get('whisper_vocabulary', ''), body['term'], body.get('variant'))))
+        return dict(vocabulary=self.settings['whisper_vocabulary'])
 
     def bulk_update_tasks(self, body):
         """One explicit selection, one revision-checked commit; never writes externally."""

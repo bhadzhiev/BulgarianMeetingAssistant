@@ -135,6 +135,23 @@ class KeychainStore(CredentialStore):
         super().__init__(account,'google')
 
 
+RATE_LIMIT_REASONS = {'rateLimitExceeded', 'userRateLimitExceeded', 'RATE_LIMIT_EXCEEDED'}
+
+
+def error_reason(exc):
+    """The reason code of a Google error (for example rateLimitExceeded), or ''. Never the message text."""
+    try:
+        error = json.loads(exc.read(65536) or b'{}').get('error', {})
+    except (ValueError, OSError, AttributeError):
+        return ''
+    if not isinstance(error, dict):
+        return ''
+    reasons = [row.get('reason') for row in error.get('errors') or [] if isinstance(row, dict)]
+    reasons += [row.get('reason') for row in error.get('details') or [] if isinstance(row, dict)]
+    reason = next((r for r in reasons if isinstance(r, str) and r), '')
+    return reason if len(reason) <= 64 and reason.replace('_', '').isalnum() else ''
+
+
 def http_json(url: str, method='GET', payload=None, token=None, form=False):
     headers = {'Accept':'application/json'}
     data = None
@@ -155,8 +172,14 @@ def http_json(url: str, method='GET', payload=None, token=None, form=False):
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
         # Keep authorization codes, tokens, response bodies, and client secrets out of errors.
-        error = CalendarError(f'Google request failed (HTTP {exc.code}). Reconnect for 401/403 errors, or retry later.')
+        # Only the short reason code is kept: it tells a rate limit from a missing permission.
+        reason = error_reason(exc)
+        if exc.code == 429 or reason in RATE_LIMIT_REASONS:
+            error = CalendarError('Google asked Atlanta to slow down (too many requests). Wait a minute and retry.')
+        else:
+            error = CalendarError(f'Google request failed (HTTP {exc.code}). Reconnect for 401/403 errors, or retry later.')
         error.status = exc.code
+        error.reason = reason
         raise error from None
     except (urllib.error.URLError, TimeoutError):
         raise CalendarError('Google could not be reached. Check your connection and retry.') from None

@@ -14,11 +14,13 @@ import sqlite3
 import threading
 import time
 
-from .google_calendar import CalendarError
+from .google_calendar import CalendarError, RATE_LIMIT_REASONS
 from .work_items import canonical
 
 MAX_THREADS = 200
 PAGE_SIZE = 20
+# Seconds to wait before each retry after a Gmail rate limit.
+RETRY_DELAYS = (2, 5, 15, 30)
 # One run reads at most this many pages; the next run continues.
 MAX_STEPS = 100
 # History pages read before the threads; the rest stays for the next pass.
@@ -166,8 +168,17 @@ class GmailSync:
         if self.cancel.is_set(): raise InterruptedError('cancelled')
         if self.priority(): raise InterruptedError('paused for recording or processing')
     def _get(self, account, path, query=None):
-        self._check()
-        result = self.google.gmail_get(path,query,expected_account=account)
+        # A rate limit (429, or 403 with a rate-limit reason) waits and retries; other errors stop the run.
+        for delay in RETRY_DELAYS + (None,):
+            self._check()
+            try:
+                result = self.google.gmail_get(path,query,expected_account=account)
+                break
+            except CalendarError as exc:
+                limited = getattr(exc,'status',None) == 429 or getattr(exc,'reason','') in RATE_LIMIT_REASONS
+                if not limited or delay is None: raise
+                with self.lock: self.job = dict(self.job, status='waiting for Gmail rate limit')
+                if self.cancel.wait(delay): raise InterruptedError('cancelled')
         self._check()
         if not isinstance(result, dict): raise ValueError('Invalid Gmail response')
         return result

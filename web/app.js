@@ -1471,7 +1471,9 @@ function inlineEdit(node,text,save,label='Text'){
  const close=()=>{editorDirty.clear('inline-edit');form.replaceWith(node);};
  cancel.onclick=()=>perform(async()=>{if(area.value!==text&&!(await ask('Discard these unsaved edits?',{ok:'Discard',cancel:'Keep editing',danger:true})))return;close();});area.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();cancel.click();}if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))ok.click();};
  ok.onclick=()=>perform(async()=>{const value=area.value.trim();if(!value){area.focus();return;}if(value===text){close();return;}ok.disabled=cancel.disabled=true;try{await save(value);editorDirty.clear('inline-edit');}finally{ok.disabled=cancel.disabled=false;}});
- editorDirty.set('inline-edit',true);node.replaceWith(form);area.focus();
+ editorDirty.set('inline-edit',true);node.replaceWith(form);
+ // The field shows the whole text at once: it grows to its content, up to the CSS limit.
+ area.style.height=area.scrollHeight+2+'px';area.focus();
 }
 // Rare and destructive actions wait in a small menu; the row keeps its main action in view.
 function rowMenu(label,...buttons){

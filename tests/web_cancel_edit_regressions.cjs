@@ -2,7 +2,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const source=fs.readFileSync('web/app.js','utf8');
 function setup(){const answers=[],questions=[],dirty=new Set();let active,closed=false,saved=0,finish;
  const original={isConnected:true,replaceWith(form){active=form;}};
- function el(tag){return {tag,children:[],value:'',disabled:false,append(...nodes){this.children.push(...nodes);},setAttribute(){},focus(){},replaceWith(node){assert.equal(node,original);closed=true;},click(){if(!this.disabled)return this.onclick();}};}
+ function el(tag){return {tag,children:[],value:'',style:{},scrollHeight:60,disabled:false,append(...nodes){this.children.push(...nodes);},setAttribute(){},focus(){},replaceWith(node){assert.equal(node,original);closed=true;},click(){if(!this.disabled)return this.onclick();}};}
  const c=vm.createContext({el,editorDirty:{keys:()=>[...dirty],set:key=>dirty.add(key),clear:key=>dirty.delete(key)},perform:fn=>fn(),ask:async message=>{questions.push(message);return answers.shift();},original,save:()=>{saved++;return new Promise(r=>finish=r);}});
  vm.runInContext(source.slice(source.indexOf('function inlineEdit('),source.indexOf('function editDeleteButtons(')),c);vm.runInContext("inlineEdit(original,'Original',save)",c);
  return {answers,questions,area:active.children[0],cancel:active.children[1].children[0],save:active.children[1].children[1],closed:()=>closed,saved:()=>saved,finish:()=>finish()};}

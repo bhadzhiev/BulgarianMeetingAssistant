@@ -68,6 +68,20 @@ class ChangeTests(unittest.TestCase):
         self.assertEqual(found['decisions', 'changed']['current_index'], 0)
         self.assertEqual(found['decisions', 'removed']['current']['text'], 'Купуваме нов принтер')
 
+    def test_a_reworded_statement_of_the_same_moment_is_changed_not_added(self):
+        # A new run rewords a task and names its owner; it is the same task 4 seconds later in the recording.
+        current = minutes(tasks=[task('Прекарване на кабела до точката.', evidence_timestamp='00:01:20')],
+                          summary=[item('Покритието в склада е слабо.', '00:00:04')])
+        proposed = minutes(tasks=[task('Иван да прекара кабела от шкафа до склада.', owner='Иван', evidence_timestamp='00:01:24')],
+                           summary=[item('Складът няма добро покритие, защото няма точка наблизо.', '00:00:05')])
+        kinds = sorted((change['field'], change['kind']) for change in notes.changes(current, proposed))
+        self.assertEqual(kinds, [('summary', 'changed'), ('tasks', 'changed')])
+        # Far apart in time, or with different words, they stay new and removed.
+        far = minutes(tasks=[task('Иван да прекара кабела от шкафа до склада.', owner='Иван', evidence_timestamp='00:05:00')])
+        self.assertEqual(sorted(c['kind'] for c in notes.changes(minutes(tasks=current['tasks']), far)), ['added', 'removed'])
+        other = minutes(summary=[item('Отлагаме миграцията.', '00:00:04')])
+        self.assertEqual(sorted(c['kind'] for c in notes.changes(minutes(summary=current['summary']), other)), ['added', 'removed'])
+
     def test_task_details_change_only_when_the_ai_found_a_value(self):
         current = minutes(tasks=[task('Провери VPN', owner='Иван', status='done')])
         self.assertEqual(notes.changes(current, minutes(tasks=[task('Провери VPN')])), [])

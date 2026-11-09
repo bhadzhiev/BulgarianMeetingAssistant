@@ -884,7 +884,7 @@ class MeetingService:
                     self.library.update(meeting_id, correction_error=message)
             if action in {'summarize','correct_summarize'} or action == 'all' and settings['summarizer'] != 'none':
                 with job.step('Meeting notes'):
-                    self._execute('summarize', directory, settings, progress, step_key(settings.get('summarizer')), self.library.speakers())
+                    self._execute('summarize', directory, settings, progress, step_key(settings.get('summarizer')), self.note_names())
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
                 # Matching the notes to existing tasks is a step of the same job. Its failure never stops the notes.
                 try:
@@ -1486,6 +1486,11 @@ class MeetingService:
             return dict(repositories=result, projects=self.projects.data)
 
     # People ------------------------------------------------------------------------------------------
+    def note_names(self):
+        """The people for the notes prompt, with the other names (aliases) that people use for them in speech."""
+        return [dict(name=p['name'], aliases=[a for a in p.get('aliases') or [] if a.casefold() != p['name'].casefold()])
+                for p in self.people.list() if not re.fullmatch(r'SPEAKER[ _-]?\d+', p['name'], re.I)]
+
     def save_person(self, body):
         return dict(person=self.people.save(body), people=self.people.list(), speakers=self.library.speakers())
 

@@ -444,13 +444,21 @@ function editTaskDraft(source,preview){
     try{localStorage.removeItem(cacheKey);}catch{}createdTaskId=created.item_id;editorDirty.clear('task-draft');dialog.close();
     if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
     showCreatedTask(created.item_id,!!link.value);
-    try{await refreshAfterItemChange();}catch(e){error('Task created. The list could not refresh. Use Open task or Refresh; do not create it again.');}
+    try{await refreshAfterItemChange();revealTask(created.item_id);}catch(e){error('Task created. The list could not refresh. Use Open task or Refresh; do not create it again.');}
    }catch(e){if(e.status>=400&&e.status<500)submitted=null;showError(note,e.message);}
    finally{saving=false;controls();}
   };
   dialog.querySelector('form').onsubmit=event=>event.preventDefault();
   controls();dialog.showModal();area.focus();
  });
+}
+// A new task is never hidden: My Work clears the filters that hide it, then scrolls to it.
+function revealTask(id){
+ if(view!=='tasks'||itemKind!=='task'||!itemsData)return;
+ const item=itemsData.items.find(i=>i.id===id);if(!item||item.acceptance_state==='proposed')return;
+ if(!taskVisibleRows.some(i=>i.id===id)){resetTaskFilters({all:true});toast('Filters cleared to show the new task');}
+ const row=[...$('task-list').querySelectorAll('[data-item-id]')].find(node=>node.dataset.itemId===id);if(!row)return;
+ row.scrollIntoView({block:'center'});row.classList.add('just-created');setTimeout(()=>row.classList.remove('just-created'),2500);
 }
 function showCreatedTask(id,linked=false){const box=$('toast');box.replaceChildren(document.createTextNode(linked?'Evidence linked. ':'Task created. '));const open=el('button','quiet','Open task');open.onclick=()=>perform(()=>openTaskPanel(id));box.append(open);box.hidden=false;setTimeout(()=>{if(box.contains(open))box.hidden=true;},15000);}
 function contextProject(){if(view==='projects'){const key=$('workspace-project').value;return key&&key!=='__none__'?key:'';}return view==='detail'?detail?.project_id||'':$('record-project').value||'';}
@@ -1626,7 +1634,7 @@ function taskPeopleNames(item){return [item.owner,...taskCoAssignees(item).map(p
 const openTaskFields=new Set();
 function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={}) {
  let compactMenu=null;
- const [kind,label]=dueInfo(item,today), row=el('div','tracked-task entity-card task-card '+kind), main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+ const [kind,label]=dueInfo(item,today), row=el('div','tracked-task entity-card task-card '+kind);row.dataset.itemId=item.id;const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  // The shared card: title with its project, one metadata row, a one-line last update, the source and the actions.
  const projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
  if(projects.length===1&&projects[0].color){row.classList.add('has-project-line');row.style.setProperty('--project-color',projects[0].color);}
@@ -2289,7 +2297,8 @@ function renderTasks() {
  const owner=$('task-owner').value||stored('tasks-owner')||'', owners=[...new Set(tasks.flatMap(taskPeopleNames))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
  $('task-owner').value=[...$('task-owner').options].some(o=>o.value===owner)?owner:'';
- const latest=item=>item.links.map(link=>meetings[link.meeting_id]?.date||'').sort().at(-1)||'';
+ // The newest meeting of a task, or its creation time: a manual task sorts with recent work, not last.
+ const latest=item=>[...item.links.map(link=>meetings[link.meeting_id]?.date||''),(item.created||'').slice(0,10)].sort().at(-1)||'';
  let rows;
  const personal=item=>filter==='snoozed'?!!item.snoozed_until&&item.snoozed_until>today&&!item.dismissed:filter==='dismissed'?!!item.dismissed:filter==='all'||!item.dismissed&&(!item.snoozed_until||item.snoozed_until<=today);
  if(itemKind==='task') rows=tasks.filter(personal).filter(t=>['all','snoozed','dismissed'].includes(filter)||(filter==='done'?t.status==='done':t.status==='open'&&(filter==='open'&&t.workflow_state!=='cancelled'||t.workflow_state!=='cancelled'&&t.due_date&&t.due_date<today)))
@@ -3663,8 +3672,8 @@ async function openManualTask(meetingId=null,{text:startText='',owner:startOwner
   if(submitted&&JSON.stringify(body)!==JSON.stringify(submitted))throw new Error('The previous result is uncertain. Retry with the same fields or check My Work before creating another task.');
   submitted=body;
   let item;await withEditorSave(box,async()=>{try{item=await api('/api/items/create',body);}catch(e){if(e.status>=400&&e.status<500&&e.status!==409)submitted=null;throw e;}});
-  editorDirty.clear('dialog:manual-task-dialog');dialog.close();toast('Task saved on this Mac');
-  try{await refreshAfterItemChange();}catch{error('Task saved. Refresh My Work to see it.');}
+  editorDirty.clear('dialog:manual-task-dialog');dialog.close();showCreatedTask(item.id);
+  try{await refreshAfterItemChange();revealTask(item.id);}catch{error('Task saved. Refresh My Work to see it.');}
  }));
  dialog.showModal();text.focus();
 }

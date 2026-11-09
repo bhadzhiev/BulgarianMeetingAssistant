@@ -1413,3 +1413,5 @@ label.required-label:has(.date-part-label)::after{content:none}
 /* An inline edit takes the place and the width of the title it replaces, next to the project chips. */
 .entity-top>.inline-editor{flex:1 1 0;min-width:0}
 .inline-editor>.tracked-edit{display:block;width:100%;max-height:60vh}
+/* A task that was just created shows a short outline, so the eye finds it in the list. */
+.tracked-task.just-created{outline:2px solid var(--green);outline-offset:2px;transition:outline-color .6s}

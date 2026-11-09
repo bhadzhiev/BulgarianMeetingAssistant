@@ -938,24 +938,85 @@ class MeetingService:
         if is_remote(base_url) and settings.get('task_matching_target') != base_url:
             return self._save_matching(directory, dict(status='needs_permission', notes=path.name,
                 reason='Allow task context for this API in Settings → AI to match tasks.'))
+        from .transcripts import segment_at
+        rows = read_json(directory / 'transcript.json', [])
+
+        def speaker_at(stamp):
+            # The speaker of the cited words, and the person in People with exactly that name.
+            segment = segment_at(rows, stamp) if stamp and rows else None
+            name = (segment or {}).get('speaker')
+            person = self.people.match(name) if name else None
+            return (person['name'] if person else name), (person['id'] if person else None)
         with self.lock, self.items.lock:
             meeting = self.library.get(meeting_id)
             meetings = self._meeting_refs()
             tasks = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings)) for item in self.items.items.values() if item['kind'] == 'task']
             names = {p['id']: p['name'] for p in self.projects.data['projects']}
-            data = task_matching.select(tasks, minutes, meeting, names, self.people.list())
+            data = task_matching.select(tasks, minutes, meeting, names, self.people.list(), speaker_at)
         if not data:
             return self._save_matching(directory, dict(status='no_candidates', notes=path.name))
         sign = task_matching.signature(data, settings)
         previous = read_json(directory / 'task-matching.json', {})
         if previous.get('signature') == sign and previous.get('status') == 'complete':
-            return  # a retry with the same input and target: the saved answer stands
+            return self._add_meeting_updates(meeting_id, directory, previous)  # a retry: the saved answer stands
         progress(f"Matching tasks with existing work · {len(data['existing_tasks'])} candidates")
         result = self._execute('task_matching', directory, dict(settings, task_matching_input=data), progress, key)
         self._save_matching(directory, dict(status='complete', signature=sign, notes=path.name,
             target=dict(base_url=base_url, model=settings.get('local_ai_model')),
             candidates={c['id']: c['revision'] for c in data['existing_tasks']},
-            mentions=data['mentions'], matches=result['matches'], rejected=result['rejected']))
+            mentions=data['mentions'], speaker_ids=data.get('speaker_ids', {}), matches=result['matches'], rejected=result['rejected']))
+        self._add_meeting_updates(meeting_id, directory, read_json(directory / 'task-matching.json', {}))
+
+    def _add_meeting_updates(self, meeting_id, directory, record):
+        """Add what a speaker said about their own open task to that task. Running it again adds nothing new.
+        The added mentions are kept in the record, so For review does not show them again."""
+        from . import task_matching
+        with self.lock, self.items.lock:
+            rows = task_matching.automatic(record, self.items.items)
+            applied, added = list(record.get('applied') or []), 0
+            for row in rows:
+                task = self.items.items[row['task_id']]
+                same = any(e.get('event') == 'progress_update' and e.get('meeting_id') == meeting_id
+                           and e.get('evidence_timestamp') == row['evidence_timestamp'] and e.get('text') == row['text']
+                           for e in task.get('history', []))
+                if not same:
+                    task['history'].append(dict(at=items.now(), event='progress_update', by='ai', changes={}, text=row['text'],
+                                                meeting_id=meeting_id, evidence_timestamp=row['evidence_timestamp'],
+                                                quote=(row['quote'] or '')[:500] or None, mention_id=row['mention_id']))
+                    added += 1
+                if row['mention_id'] not in applied:
+                    applied.append(row['mention_id'])
+            if added:
+                self.items.save()
+            if applied != list(record.get('applied') or []):
+                self._save_matching(directory, {**{k: v for k, v in record.items() if k not in ('version', 'at')}, 'applied': applied})
+            return added
+
+    def remove_meeting_update(self, item_id, body):
+        """Remove one update that a meeting added by itself. The history keeps a record of the removal."""
+        if not isinstance(body, dict):
+            raise ValueError('Choose the update to remove')
+        with self.lock, self.items.lock:
+            task = self.items.items.get(item_id)
+            if not task or task['kind'] != 'task':
+                raise ValueError('Choose an existing task')
+            history = task['history']
+            index = next((i for i, e in enumerate(history) if e.get('event') == 'progress_update' and e.get('by') == 'ai'
+                          and e.get('meeting_id') == body.get('meeting_id') and e.get('text') == body.get('text')
+                          and e.get('evidence_timestamp') == body.get('evidence_timestamp')), None)
+            if index is None:
+                raise items.WorkItemConflict('This update is no longer in the task. Reload the task.')
+            removed = history.pop(index)
+            history.append(dict(at=items.now(), event='meeting_update_removed', by='user', changes={}, meeting_id=removed.get('meeting_id'),
+                                text=removed['text']))
+            try:
+                self.items.save()
+            except items.WorkItemConflict:
+                raise
+            except Exception:
+                history.pop();history.insert(index, removed)
+                raise
+            return dict(self.items.items[item_id])
 
     def _run_diarization(self, meeting_id, directory, progress):
         from meeting_assistant import TranscriptSegment, save_transcript

@@ -53,6 +53,8 @@ def suggestions(service, meeting_id):
     record = read_json(directory / 'task-matching.json', {})
     ai = record.get('status') == 'complete' and record.get('notes') == 'minutes.json'
     matches = {m['mention_id']: m for m in record.get('matches', [])} if ai else {}
+    # An update that was added to the speaker's own task needs no review.
+    applied = set(record.get('applied') or []) if ai else set()
     sent = {m['id']: m for m in record.get('mentions', [])} if ai else {}
     source = _source(meeting_id, rows)
     found = []
@@ -65,6 +67,8 @@ def suggestions(service, meeting_id):
                 if mention.get('item_id') and not own:
                     continue  # a task that a person already accepted or linked
             key = prefix + str(index)
+            if key in applied and key in sent and sent[key].get('text') == _cut(text, 200):
+                continue
             # The answer counts only for the same mention: notes that changed since are matched again later.
             match = matches.get(key) if key in sent and sent[key].get('text') == _cut(text, 200) else None
             local = [c['item_id'] for c in (mention.get('link') or {}).get('candidates', []) if c.get('item_id') in service.items.items]

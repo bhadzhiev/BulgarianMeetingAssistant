@@ -10,6 +10,21 @@ dates** opens the owner, state, due date and next check fields, with **Add updat
 The fields stay open after a save. An owner name that matches one person in People shows as that
 person. A name without a People entry shows as "· not in People".
 
+In every owner list, the people in your team come first, in alphabetical order. The other people
+come next, also in alphabetical order. The typed owner suggestions use the same order.
+
+### Send tasks by email
+
+Choose **Send by email…** in the **...** menu of a task or in the task editor. To send several tasks
+in one email, select them and choose **Send by email…** in the selection bar. The text comes from the
+task fields: title, details, expected result, owner, due date and meeting. The end of the text has
+the note "Генерирано от Atlanta". A saved draft always has this note.
+
+The owners and the others on the tasks are preselected as recipients. Choose **Save Gmail draft**.
+Atlanta saves a Gmail draft and never sends email. Each task then shows an envelope (**Emailed**),
+and its history has an entry with the recipients and the subject. Saving again for the same tasks
+updates the same draft. This needs the `gmail.compose` permission, the same as **Follow-up email**.
+
 Projects shows tasks and decisions with the same rows as My Work. The overview shows five of each kind;
 **All tasks in Work →** opens the full list. **Delete** and other rare actions of a task, a decision or a
 notes line are in its **...** menu, so the row keeps its main action in view.
@@ -28,8 +43,8 @@ reload) are in the **⋯** menu. Explanations and cache clearing are under **Abo
 
 ## Gmail: local read-only pilot
 
-Gmail sync is read-only. The only Gmail write is a follow-up email draft, with its own `gmail.compose`
-permission (see **Follow-up email**).
+Gmail sync is read-only. The only Gmail writes are email drafts: the follow-up email and tasks by
+email. They use their own `gmail.compose` permission (see **Follow-up email**).
 
 Open **My Work → Gmail → Connect Gmail read-only**. Use the shared Google connection and approve
 `gmail.readonly`. Calendar permission is requested only if already used or separately connected.

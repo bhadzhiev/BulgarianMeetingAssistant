@@ -1042,13 +1042,13 @@ button:has(.icon),a:has(.icon){display:inline-flex;align-items:center;gap:6px}
 .mode-icon .icon,.small-icon .icon{width:22px;height:22px;display:block}
 
 /* Follow-up email: recipients as a short checklist above the editable draft. */
-#followup-dialog{width:min(720px,95vw)}
-#followup-dialog textarea{width:100%;line-height:1.6;resize:vertical}
+#followup-dialog,#task-email-dialog{width:min(720px,95vw)}
+#followup-dialog textarea,#task-email-dialog textarea{width:100%;line-height:1.6;resize:vertical}
 .followup-recipients{margin:12px 0}
 .followup-people{display:grid;gap:6px;max-height:180px;overflow:auto;margin-bottom:10px}
 .followup-person{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;font-weight:400}
 .followup-person .hint{margin:0}
-#followup-result a{font-weight:600}
+#followup-result a,#task-email-result a{font-weight:600}
 
 .consolidation-proof{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:10px;overflow-wrap:anywhere}
 .consolidation-proof>summary{cursor:pointer;font-weight:600}.consolidation-group{padding:12px 0;border-top:1px solid var(--line)}
@@ -1405,3 +1405,5 @@ label.required-label:has(.date-part-label)::after{content:none}
 .meeting-match .match-target{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:500;font-size:13px;margin:0}
 .meeting-match .match-target>.hint{margin:0}
 .meeting-match label>textarea{width:100%;margin-top:4px}
+/* A task with a saved Gmail draft shows an envelope beside its state. */
+.email-mark{display:inline-flex;align-items:center;gap:4px;color:var(--green);font-size:11px;font-weight:600;white-space:nowrap}

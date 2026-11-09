@@ -21,9 +21,16 @@ function actionBtn(className, label, fn, title) { return btn(className, label, (
 function openMeetingBtn(title, id, className='quiet') { return btn(className, title, () => perform(() => openMeeting(id)), 'Open the meeting'); }
 function emptyNote(text) { return el('p', 'hint empty-note', text); }
 // Inline SVG icons on a 24px grid in the nav-icon style: 2px stroke, currentColor, no fill.
-const ICON_PATHS={close:'M6 6l12 12M18 6L6 18',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
+const ICON_PATHS={close:'M6 6l12 12M18 6L6 18',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('icon');const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',ICON_PATHS[name]||ICON_PATHS.sparkle);svg.append(path);return svg;}
 function option(text, value) { const node = el('option', '', text); node.value = value; return node; }
+// People for an owner choice: my team first, then the others. Each group is in alphabetical order.
+function inTeam(person,day=AtlantaUX.iso(new Date())){return (person.team||[]).some(p=>p.start<=day&&(!p.end||day<p.end));}
+function peopleByTeam(people=state.people||[]){const byName=(a,b)=>a.name.localeCompare(b.name,'bg',{sensitivity:'base'});
+ return {team:people.filter(p=>inTeam(p)).sort(byName),others:people.filter(p=>!inTeam(p)).sort(byName)};}
+function personOptions(people){const {team,others}=peopleByTeam(people);if(!team.length)return others.map(p=>option(p.name,p.id));
+ const group=(label,rows)=>{const node=el('optgroup');node.label=label;node.append(...rows.map(p=>option(p.name,p.id)));return node;};
+ return [group('My team',team),...(others.length?[group('Others',others)]:[])];}
 // Imported titles often contain the date already; do not show it two times.
 function withDate(title, value) { const day = date(value); return title.includes(day) ? title : title + ' · ' + day; }
 function time(seconds) { seconds=Math.max(0,Math.floor(seconds||0)); return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(x=>String(x).padStart(2,'0')).join(':'); }
@@ -57,7 +64,8 @@ function speakerBadge(target,name) {
 }
 function syncSpeakers() {
  const signature=JSON.stringify([state.speakers||[],state.people||[]]); if(signature===lastSpeakers) return; lastSpeakers=signature;
- $('known-speakers').replaceChildren(...(state.speakers||[]).map(name=>{const option=document.createElement('option');option.value=name;return option;}));
+ {const {team,others}=peopleByTeam(),names=[...team,...others].map(p=>p.name),known=new Set(names.map(n=>n.toLowerCase()));
+ $('known-speakers').replaceChildren(...[...names,...(state.speakers||[]).filter(n=>!known.has(String(n).toLowerCase()))].map(name=>{const option=document.createElement('option');option.value=name;return option;}));}
  if($('settings-dialog').open){ renderSpeakerSettings(); renderPeople(); }
  // Re-annotate the open meeting unless that would discard typing.
  if(view==='detail'&&detail&&!hasEdits()) renderDetail();
@@ -1356,7 +1364,7 @@ function decisionState(item){
 }
 function decisionBadge(item){const s=decisionState(item),badge=el('span','decision-status '+s.cls,s.label);if(s.title)badge.title=s.title;return badge;}
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update'};
+const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update',email_draft:'Email draft saved in Gmail'};
 // An event without a label reads as words, never as its code name.
 const eventLabel=name=>EVENT_LABELS[name]||String(name||'Event').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
@@ -1494,6 +1502,7 @@ function itemActions(item,row) {
  const snooze=el('button','quiet',item.snoozed_until?'Unsnooze':'Snooze'),dismiss=el('button','quiet',item.dismissed?'Restore to My Work':'Hide item');
  snooze.onclick=()=>perform(async()=>{if(item.snoozed_until){await changeItem(item,{snoozed_until:null});return;}const day=new Date();day.setDate(day.getDate()+1);const value=await askDate('Snooze in My Work until dd.mm.yyyy. The item status and sources stay unchanged.',AtlantaUX.iso(day));if(value!==null)await changeItem(item,{snoozed_until:value});});
  dismiss.title='Hides this item in My Work and every linked meeting. Undo is available.';dismiss.onclick=()=>perform(()=>item.dismissed?changeItem(item,{dismissed:false}):changeWithUndo(item,{dismissed:true},'Dismissed: '+item.text,{dismissed:false}));
+ if(item.kind==='task'&&item.acceptance_state!=='proposed'){const mail=el('button','quiet','Send by email…');mail.onclick=()=>perform(()=>openTaskEmail(item.id));actions.append(mail);}
  actions.append(edit,snooze,dismiss,merge,remove); return actions;
 }
 // GitHub, without writing to it: copy a draft, open GitHub prefilled, or link an existing issue on this Mac.
@@ -1631,6 +1640,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  meta.append(who,el('span','task-state',stateName),el('span','due-label '+kind,label),workReviewBadge(item.review_state,item));
+ const mailed=emailMark(item);if(mailed)meta.append(mailed);
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
  const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
@@ -1643,7 +1653,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
-  const owner=el('select');owner.setAttribute('aria-label','Owner for '+item.text);owner.append(option('No owner',''),...people.map(p=>option(p.name,p.id)));let oldOwner=item.owner_person_id||'';
+  const owner=el('select');owner.setAttribute('aria-label','Owner for '+item.text);owner.append(option('No owner',''),...personOptions(people));let oldOwner=item.owner_person_id||'';
   // An owner name that matches one person shows as that person, not as a second entry with the same name.
   const ownerPerson=!oldOwner&&item.owner?personFor(item.owner):null;
   if(!oldOwner&&item.owner&&!ownerPerson){owner.append(option(item.owner+' · not in People','__current__'));oldOwner='__current__';}owner.value=oldOwner||ownerPerson?.id||'';const shownOwner=owner.value;
@@ -1675,6 +1685,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
    if(['overdue','today'].includes(kind))flags.append(el('span','due-label '+kind,dueInfo(item,today)[1]));
    const review=workReviewBadge(item.review_state,item);if(review)flags.append(review);
    if(co.length)flags.append(el('span','badge shared-badge','Shared · +'+co.length));
+   const mailedFlag=emailMark(item,{compact:true});if(mailedFlag)flags.append(mailedFlag);
    main.replaceChildren(head,...(flags.childNodes.length?[flags]:[]),quick);
    for(const b of [addUpdate,timeline]){b.classList.remove('secondary','small-action');b.classList.add('quiet');}
    compactMenu=[addUpdate,timeline,nextCheck];
@@ -2219,7 +2230,7 @@ function renderBulkTasks(){
  const action=el('select');action.setAttribute('aria-label','Bulk field');action.append(option('Change state','workflow_state'),option('Change owner','owner_person_id'),option('Set due date','due_date'),option('Set next follow-up','follow_up_date'));
  const input=el('span'),apply=el('button','secondary','Apply to '+AtlantaUX.count(count,'selected task')),note=el('span','hint','Only the selected tasks on this list. Saved locally; nothing is sent.');apply.type='button';let value;
  function editor(){input.replaceChildren();if(action.value==='workflow_state'){value=el('select');value.append(...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));}
- else if(action.value==='owner_person_id'){value=el('select');value.append(option('No owner',''),...(state.people||[]).map(p=>option(p.name,p.id)));}
+ else if(action.value==='owner_person_id'){value=el('select');value.append(option('No owner',''),...personOptions());}
  else{value=el('input');value.type='date';}value.setAttribute('aria-label','Bulk value');input.append(value);}
  action.onchange=editor;editor();
  apply.onclick=()=>perform(async()=>{
@@ -2232,7 +2243,10 @@ function renderBulkTasks(){
   if(!(await ask(summary+' for '+body.items.length+' selected tasks?\n'+taskVisibleRows.filter(t=>taskSelection.has(t.id)).slice(0,6).map(t=>'• '+t.text).join('\n')+(body.items.length>6?'\n…':''),{ok:'Apply to '+body.items.length,cancel:'Cancel'})))return;
   bulkPending=body;bulkSaving=false;await sendBulkTasks(body);
   }finally{bulkSaving=false;apply.disabled=false;}
- });box.append(action,input,apply,note);
+ });
+ const mail=btn('secondary','Send by email…');mail.type='button';mail.title='One Gmail draft with all selected tasks. Each task gets the envelope mark.';
+ mail.onclick=()=>perform(()=>openTaskEmail([...taskSelection.keys()]));
+ box.append(action,input,apply,mail,note);
 }
 // Only the Tasks and Decisions tabs show task counts; the other tabs keep their own subtitle.
 function taskSummary(text){if(['task','decision'].includes(workTab))$('tasks-summary').textContent=text;}
@@ -3686,11 +3700,11 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=3;details.setAttribute('aria-label','Details');
  const criterion=el('textarea');criterion.value=item.completion_criteria||'';criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');
  const project=el('select');project.setAttribute('aria-label','Project');project.append(option('Keep current project links','keep'),option('No project','none'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));project.value='keep';
- const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...(state.people||[]).map(p=>option(p.name,p.id)));let ownerStart=item.owner_person_id||'';
+ const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...personOptions());let ownerStart=item.owner_person_id||'';
  if(!ownerStart&&item.owner){owner.append(option(item.owner+' · current name','__current__'));ownerStart='__current__';}owner.value=ownerStart;
  // The others who work on the task. The owner stays accountable; adding people is a manual choice.
  const coStart=(item.assignee_person_ids||[]).slice(1),coBox=el('div','assignee-choices');coBox.setAttribute('role','group');coBox.setAttribute('aria-label','Also working on it');
- const coChecks=(state.people||[]).map(p=>{const l=el('label','project-choice'),c=el('input');c.type='checkbox';c.value=p.id;c.checked=coStart.includes(p.id);l.append(c,document.createTextNode(p.name));coBox.append(l);return c;});
+ const coChecks=(({team,others})=>[...team,...others])(peopleByTeam()).map(p=>{const l=el('label','project-choice'),c=el('input');c.type='checkbox';c.value=p.id;c.checked=coStart.includes(p.id);l.append(c,document.createTextNode(p.name));coBox.append(l);return c;});
  const personSelect=(value,name)=>{const field=el('select');field.setAttribute('aria-label',name);field.append(option('Not specified',''),...(state.people||[]).map(p=>option(p.name,p.id)));field.value=value||'';return field;};
  const requester=personSelect(item.requester_person_id,'Received from'),assigner=personSelect(item.assigned_by_person_id,'Assigned by'),follower=personSelect(item.follower_person_id,'Followed by');
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');
@@ -3743,6 +3757,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
   await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});editing=false;editorDirty.clear('task-panel');dialog.close();toast(accept?'Task accepted':'Task saved');await refreshAfterItemChange();
  }));save.onclick=()=>persist(false);footer.append(close,save);
  if(item.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(item))){const cancelTask=btn('danger-action','Cancel task…');cancelTask.onclick=()=>{workflow.value='cancelled';dirty();workflow.focus();cancelTask.textContent='Cancellation selected · Save changes to apply';};footer.prepend(cancelTask);}
+ if(item.acceptance_state!=='proposed'){const mail=btn('secondary','Send by email…');mail.type='button';mail.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before you send the task by email.');dialog.close();await openTaskEmail(item.id);});footer.prepend(mail);}
  if(item.acceptance_state==='proposed'){const accept=btn('primary','Accept task');accept.onclick=()=>persist(true);footer.append(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
  box.append(label('Task',area),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),label('Add an update',update),label('Evidence for this update',updateEvidence),detailsSection,peopleSection,sourcesSection,historySection,footer);
  placeFollow();placeCriterion();sectionNotes();
@@ -3809,6 +3824,49 @@ $('followup-save').onclick=()=>perform(async()=>{
   box.replaceChildren(document.createTextNode('Draft saved in Gmail for '+AtlantaUX.count(to.length,'recipient')+'. Check it and send it from Gmail. '),link);box.hidden=false;box.scrollIntoView({block:'nearest'});}
  finally{button.disabled=false;}
 });
+// One task by email: Atlanta saves a Gmail draft and marks the task; the person sends it from Gmail.
+function emailMark(item,{compact=false}={}){
+ const draft=item.email_draft;if(!draft)return null;
+ const mark=el('span','email-mark'),count=(draft.to||[]).length;
+ mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
+ mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));if(!compact)mark.append(document.createTextNode('Emailed'));return mark;
+}
+let taskEmailItems=[];
+function taskEmailStatus(text,warning=false){const box=$('task-email-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}
+function taskEmailRecipients(){const chosen=[...$('task-email-people').querySelectorAll('input:checked')].map(input=>input.value);
+ const extra=$('task-email-extra').value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean);return [...new Set([...chosen,...extra].map(v=>v.toLowerCase()))];}
+function renderTaskEmail(data){
+ const people=$('task-email-people');people.replaceChildren();
+ if(!data.recipients.length)people.append(emptyNote('No people with an email address yet.'));
+ const before=new Set(data.draft?.to||[]);
+ for(const row of data.recipients){const label=el('label','checkbox followup-person'),check=el('input');check.type='checkbox';check.value=row.email;check.checked=before.size?before.has(row.email):row.involved;
+  label.append(check,el('span','',row.name),el('span','hint',row.email+(row.involved?' · on this task':'')));people.append(label);}
+ $('task-email-extra').value=[...before].filter(email=>!data.recipients.some(row=>row.email===email)).join(', ');
+ $('task-email-subject').value=data.subject;$('task-email-body').value=data.body;
+ $('task-email-title').textContent=data.tasks.length>1?'Send '+data.tasks.length+' tasks in one email':'Send the task by email';
+ const drafts=data.gmail.drafts;$('task-email-connect').hidden=drafts;$('task-email-save').hidden=!drafts;
+ $('task-email-save').textContent=data.draft?'Update Gmail draft':'Save Gmail draft';
+ taskEmailStatus(drafts?(data.draft?(data.tasks.length>1?'These tasks already share':'This task already has')+' a Gmail draft from '+dateTime(data.draft.saved_at)+'. Saving updates it. If you sent it, saving makes a new draft.':''):'Gmail drafts need one more Google permission: compose drafts. Atlanta never sends email.');
+ $('task-email-result').hidden=true;$('task-email-auth-link').hidden=true;
+}
+async function openTaskEmail(ids){
+ ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids});taskEmailItems=ids;
+ renderTaskEmail(data);editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').showModal();$('task-email-subject').focus();
+}
+$('task-email-close').onclick=()=>$('task-email-dialog').close();
+$('task-email-copy').onclick=()=>perform(async()=>{await copyText($('task-email-subject').value+'\n\n'+$('task-email-body').value);toast('Copied the subject and text');});
+$('task-email-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail_compose'});$('task-email-auth-link').href=result.authorization_url;$('task-email-auth-link').hidden=false;
+ taskEmailStatus('Approve Gmail drafts in your browser. Then close this window and choose Send by email again; your text here is not kept.');});
+$('task-email-save').onclick=()=>perform(async()=>{
+ const to=taskEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');
+ const button=$('task-email-save');button.disabled=true;
+ try{const result=await api('/api/task-email/draft',{item_ids:taskEmailItems,to,subject:$('task-email-subject').value,body:$('task-email-body').value});
+  editorDirty.clear('dialog:task-email-dialog');button.textContent='Update Gmail draft';
+  const box=$('task-email-result'),link=el('a','','Open the draft in Gmail');link.href=result.url;link.target='_blank';link.rel='noopener noreferrer';
+  box.replaceChildren(document.createTextNode('Draft '+(result.updated?'updated':'saved')+' in Gmail for '+AtlantaUX.count(to.length,'recipient')+'. '+(taskEmailItems.length>1?'Each of the '+taskEmailItems.length+' tasks shows':'The task shows')+' an envelope and has a new history entry. Check the draft and send it from Gmail. '),link);box.hidden=false;box.scrollIntoView({block:'nearest'});
+  await refreshAfterItemChange();}
+ finally{button.disabled=false;}
+});
 const dialogPolicies={
  'manual-task-dialog':{dismiss:()=>$('manual-task-dialog').close()},
  'excerpt-dialog':{close:'excerpt-cancel',form:'excerpt-form'},
@@ -3831,6 +3889,7 @@ const dialogPolicies={
  'conversation-reader':{close:'conversation-reader-close',transient:true},
  'draft-review-dialog':{close:'draft-review-cancel',transient:true},
  'followup-dialog':{close:'followup-close',cancel:'followup-cancel'},
+ 'task-email-dialog':{close:'task-email-close',cancel:'task-email-cancel'},
  'ask-dialog':{transient:true},// A typed project name is an edit: Cancel and Escape ask before they discard it.
  'project-dialog':{cancel:'project-cancel',dismiss:()=>$('project-dialog').close()}
 };

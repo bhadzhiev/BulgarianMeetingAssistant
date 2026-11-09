@@ -6,11 +6,12 @@ import tempfile
 import unittest
 
 PROJECT=Path(__file__).resolve().parents[1]
-APP='Bulgarian Meeting Assistant.app'
+APP='Atlanta.app'
+LEGACY='Bulgarian Meeting Assistant.app'
 
 
 class DesktopInstallerTests(unittest.TestCase):
-    def run_install(self, failure='', options=()):
+    def run_install(self, failure='', options=(), legacy=False):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         root=Path(self.tmp.name);project=root/'project';(project/'scripts').mkdir(parents=True)
         shutil.copy2(PROJECT/'scripts/install_desktop.sh',project/'scripts/install_desktop.sh')
@@ -35,6 +36,7 @@ esac
 exec /bin/mv "$@"
 ''')
         install=root/'installed';(install/APP).mkdir(parents=True);(install/APP/'payload').write_text('old\n')
+        if legacy:(install/LEGACY).mkdir();(install/LEGACY/'payload').write_text('legacy\n')
         env=dict(os.environ,PATH=str(tools)+os.pathsep+os.environ['PATH'],BMA_BUILD_VENV=str(venv.parent),BMA_INSTALL_DIR=str(install),
                  INSTALL_TEST_LOG=str(root/'commands'),INSTALL_TEST_BUILT=str(project/'desktop/src-tauri/target/release/bundle/macos'/APP),INSTALL_TEST_FAILURE=failure)
         result=subprocess.run(['sh',str(project/'scripts/install_desktop.sh'),*options],env=env,capture_output=True,text=True,timeout=10)
@@ -51,6 +53,15 @@ exec /bin/mv "$@"
         self.assertEqual(len(backups),1)
         self.assertEqual(backups[0].read_text(),'old\n')
         self.assertEqual(list(install.glob('.bma-install.*')),[])
+
+    def test_the_old_name_is_replaced_and_kept_as_previous(self):
+        self.tmp_legacy=True
+        result,install,_=self.run_install(legacy=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse((install/LEGACY).exists())
+        self.assertEqual((install/APP/'payload').read_text(),'new\n')
+        self.assertEqual([p.read_text() for p in install.glob('.bma-previous.*/'+LEGACY+'/payload')],['legacy\n'])
+        self.assertIn('The app is now named Atlanta.',result.stdout)
 
     def test_explicit_small_build_omits_speaker_dependencies(self):
         result,install,commands=self.run_install(options=('--without-diarization',))

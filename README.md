@@ -1,4 +1,8 @@
-# Bulgarian Meeting Assistant (Atlanta)
+# Atlanta
+
+<img src="desktop/src-tauri/icons/icon.png" width="96" alt="Atlanta icon: a Greek huntress with a laurel wreath and a bow">
+
+Atlanta was named Bulgarian Meeting Assistant before.
 
 A meeting workspace for a Mac. It records in-person and online meetings and transcribes
 Bulgarian speech. It also makes notes, tasks and decisions that you can edit and review.
@@ -20,7 +24,7 @@ You need macOS 13 or later on Apple Silicon, Python 3.11 or later, Rust, Node.js
 ```sh
 brew install ffmpeg
 scripts/install_desktop.sh
-open "/Applications/Bulgarian Meeting Assistant.app"
+open "/Applications/Atlanta.app"
 ```
 
 The script builds the app and installs it in `/Applications`. It also replaces an older copy.

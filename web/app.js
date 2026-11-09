@@ -407,6 +407,7 @@ function editTaskDraft(source,preview){
   const sourceKey=JSON.stringify(source),cacheKey='atlanta-task-draft';
   area.value='';area.disabled=false;keep.checked=false;note.hidden=true;status.textContent='Review the source, generate a draft or write it yourself.';
   $('task-draft-source').textContent=preview.source_excerpt||'';const target=preview.target;
+  if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
   $('task-draft-target').textContent=preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+target.local_ai_model+' · '+target.local_ai_base_url+' · '+preview.characters+' source characters';
   fillProjects(project,Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject(),'No project');
   try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;extra.value=cached.details||'';criterion.value=cached.completion_criteria||'';owner.value=cached.owner||'';due.value=cached.due_date||'';requester.value=cached.requester_person_id||'';project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
@@ -421,7 +422,8 @@ function editTaskDraft(source,preview){
    if(preparing||generating||saving||closed)return;preparing=true;controls();
    try{
    if(area.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
-   const current=await api('/api/task-draft/preview',source);if(closed)return;
+   // An error here shows in this dialog: the page behind the dialog is not in view.
+   let current;try{current=await api('/api/task-draft/preview',source);}catch(e){if(!closed){showError(note,e.message);status.textContent='The draft could not start.';}return;}if(closed)return;
    if(current.ai_available===false){preview=current;note.textContent=current.ai_unavailable_reason;note.hidden=false;return;}
    if(!(await ask('Send the selected source to '+current.target.local_ai_model+' at '+current.target.local_ai_base_url+'? '+current.characters+' characters. The result stays an editable draft.',{ok:'Generate draft'})))return;
    if(closed)return;preview=current;generating=true;note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();

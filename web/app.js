@@ -567,7 +567,7 @@ async function applyRoute(){
   if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){
    try{await openMeeting(meeting);}catch(e){if(e.status!==404)throw e;await openConversations();error('This meeting is no longer on this Mac. It may have been deleted.');return;}
    const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','analytics'].includes(tab))switchTab(tab);}
-  else if(target==='work'){if(WORK_PANELS[q.get('tab')])workTab=q.get('tab');await $('open-tasks').onclick();const source=q.get('source');if(workTab==='gmail'&&source)await openMail(source);else if(workTab==='chat'&&source){chatSpace=source;await loadChat();}else if(workTab==='github'){if(q.get('section')==='reports'){showGitHubSection('reports');if(q.get('report'))await openRepoReport(q.get('report'));}else if(source&&/^\d+$/.test(source))await openGitHubItem(Number(source));}}
+  else if(target==='work'){if(q.get('tab')==='suggested')await openTaskInbox();else{if(WORK_PANELS[q.get('tab')])workTab=q.get('tab');await $('open-tasks').onclick();}const source=q.get('source');if(workTab==='gmail'&&source)await openMail(source);else if(workTab==='chat'&&source){chatSpace=source;await loadChat();}else if(workTab==='github'){if(q.get('section')==='reports'){showGitHubSection('reports');if(q.get('report'))await openRepoReport(q.get('report'));}else if(source&&/^\d+$/.test(source))await openGitHubItem(Number(source));}}
   else if(target==='projects'){
    const project=q.get('project')||'',select=$('workspace-project');
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
@@ -1148,7 +1148,7 @@ function proposalBanner(busy) {
  banner.append(button); return banner;
 }
 function taskRow(task,index,busy,mentions=[task]) {
- if(task.link&&!task.item_id){const box=el('div','link-card');box.append(el('p','link-text',task.task),el('p','hint','This may be an existing task. It waits in My Work → Proposed.'));const go=btn('secondary small-action','Open Proposed');go.onclick=()=>perform(async()=>{workTab='suggested';await $('open-tasks').onclick();});box.append(go);return box;}
+ if(task.link&&!task.item_id){const box=el('div','link-card');box.append(el('p','link-text',task.task),el('p','hint','This may be an existing task. It waits in My Work → Inbox.'));const go=btn('secondary small-action','Open Inbox');go.onclick=()=>perform(openTaskInbox);box.append(go);return box;}
  // The persistent task holds the current state; the mention holds what this meeting said.
  const item=detail.items?.[task.item_id], current=item||{text:task.task,owner:task.owner,deadline:task.deadline,due_date:task.due_date,status:task.status};
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(current,today);
@@ -1884,7 +1884,7 @@ function renderMailAI(){
   note.hidden=!selected;if(!selected)continue;
   const complete=['complete','reused'].includes(mailAIStatus.status);
   note.replaceChildren(document.createTextNode(mailAIStatus.running?'Analyzing the approved message…':mailAIStatus.error|| (complete?mailAIResultText(mailAIStatus):mailAIStatus.status||'')));
-  if(complete&&mailAIStatus.proposal_ids?.length){const open=btn('quiet small-action','View suggestions');open.onclick=()=>showWorkTab('suggested');note.append(' ',open);}
+  if(complete&&mailAIStatus.proposal_ids?.length){const open=btn('quiet small-action','Open Inbox');open.onclick=()=>perform(openTaskInbox);note.append(' ',open);}
  }
 }
 async function analyzeMail(thread,message,button,note){
@@ -2107,7 +2107,7 @@ function renderRepoReport(){
  const actions=el('div','work-actions');
  if(!r.collection_complete){const resume=btn('secondary','Continue collection');resume.disabled=busy;resume.onclick=()=>perform(async()=>{await api('/api/github/reports/collect',{id:r.id});await loadRepoReports();});actions.append(resume);}
  else {const ai=btn('primary',r.analysis?.complete?'Analyze / use cached result':'Analyze with AI');ai.disabled=busy||!r.evidence.length;ai.onclick=()=>perform(analyzeRepoReport);actions.append(ai);}
- const suggested=btn('quiet','View suggestions');suggested.onclick=()=>showWorkTab('suggested');actions.append(suggested);box.append(actions);
+ const inbox=btn('quiet','Open Inbox');inbox.onclick=()=>perform(openTaskInbox);actions.append(inbox);box.append(actions);
  const coverage=el('details','report-coverage'),omitted=r.coverage?.omitted||[],warnings=r.coverage?.warnings||[];
  const count=Object.values(r.changes||{}).filter(c=>!c.skipped).length,partial=omitted.length||warnings.length||r.evidence.length>80;
  coverage.append(el('summary','',(partial?'Partial coverage':'Collected coverage')+' · '+count+' logical changes · '+(r.coverage?.files||0)+' files · '+r.evidence.length+' evidence parts'));
@@ -2142,6 +2142,8 @@ function evidenceQuote(quote){const block=el('blockquote','',quote);if(quote.len
  more.onclick=()=>{if(block.textContent===quote){clamp();more.textContent='Show more';more.setAttribute('aria-expanded','false');}else{block.textContent=quote;more.textContent='Show less';more.setAttribute('aria-expanded','true');}};
  return[block,more];}
 let proposalFilter='pending';
+// The proposal lists render inside the Inbox view; the nodes are captured once because renderTasks re-parents them on every render.
+const proposalFiltersEl=$('proposal-filters'),proposalListEl=$('proposal-list'),meetingProposalListEl=$('meeting-proposal-list');
 // A meeting mention that may be an existing task: what was said, the suggested task, why, and the result of each choice.
 const MATCH_PRIMARY={existing_mention:['link','Link to this task'],existing_update:['update','Add the update'],proposed_change:['change','Apply the checked changes'],uncertain:['link','Link to the chosen task']};
 function meetingMatchCard(p,ev){
@@ -2185,14 +2187,13 @@ function renderWorkGraph(){
  proposalCursor=-1;
  const graph=itemsData.graph||{},today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
  const sources=Object.fromEntries((graph.sources||[]).map(s=>[s.id,s])),evidence=Object.fromEntries((graph.source_evidence||[]).map(e=>[e.id,e]));
- const filters=$('proposal-filters');filters.replaceChildren();
- for(const value of ['pending','stale','snoozed','dismissed','all']){const b=el('button',proposalFilter===value?'selected':'',value[0].toUpperCase()+value.slice(1));b.onclick=()=>{proposalFilter=value;renderTasks();};filters.append(b);}
- const list=$('proposal-list');list.replaceChildren();
- const waiting=(graph.proposals||[]).filter(p=>p.state==='stale'||(p.state==='pending'&&(!p.snoozed_until||p.snoozed_until<=today))).length;$('work-tabs').querySelector('[data-work-tab=suggested]').textContent='Suggestions'+(waiting?' · '+waiting:'');
+ proposalFiltersEl.replaceChildren();
+ for(const value of ['pending','stale','snoozed','dismissed','all']){const b=el('button',proposalFilter===value?'selected':'',value[0].toUpperCase()+value.slice(1));b.onclick=()=>{proposalFilter=value;renderTasks();};proposalFiltersEl.append(b);}
+ meetingProposalListEl.replaceChildren();proposalListEl.replaceChildren();
  const proposals=(graph.proposals||[]).filter(p=>proposalFilter==='all'||(proposalFilter==='dismissed'?p.state==='dismissed':proposalFilter==='stale'?p.state==='stale':p.state==='pending'&&(proposalFilter==='snoozed'?p.snoozed_until>today:!p.snoozed_until||p.snoozed_until<=today)));
  for(const p of proposals){
   if(itemKind==='task'&&managerView==='inbox'&&stored('task-search')&&!p.text.toLowerCase().includes(stored('task-search').toLowerCase()))continue;
-  if(p.origin==='meeting_match'&&p.match){list.append(meetingMatchCard(p,evidence[p.evidence_id]));continue;}
+  if(p.origin==='meeting_match'&&p.match){meetingProposalListEl.append(meetingMatchCard(p,evidence[p.evidence_id]));continue;}
   const card=el('div','work-proposal'),ev=evidence[p.evidence_id],source=sources[ev?.source_id];
   const top=el('div','proposal-top');top.append(source?originChip(source.provider,sourceLabel(source),()=>openSource(source)):originChip('','Unavailable source'),el('span','hint',(['gmail_ai','repo_ai'].includes(p.origin)?'AI suggestion · ':'')+p.kind+' · '+(p.state==='stale'?'stale · the source changed':p.state)+(p.snoozed_until?' · snoozed until '+p.snoozed_until:'')));
   card.append(top,el('strong','proposal-text',p.text));
@@ -2211,9 +2212,8 @@ function renderWorkGraph(){
   }else if(p.state==='stale'){if(source)button('Open source',()=>openSource(source));button('Dismiss',()=>review('dismiss'),'dismiss');}
   else if(p.state==='dismissed')button('Restore',()=>review('restore'),'restore');
   if(p.result_id)actions.append(el('span','hint','Item '+p.result_id));
-  card.append(actions);list.append(card);
+  card.append(actions);proposalListEl.append(card);
  }
- if(!proposals.length)list.append(el('p','hint','No source proposals match this filter.'));
  const questions=$('work-questions');questions.replaceChildren();
  renderMeetingQuestions(questions);
  const tracked=itemsData.items.filter(i=>i.kind==='question');
@@ -2221,12 +2221,12 @@ function renderWorkGraph(){
  for(const q of tracked)questions.append(trackedQuestionCard(q));
  if(!questions.children.length)questions.append(el('p','hint','No questions yet. Questions from meeting notes appear here. You can also add one.'));
 }
-// Single keys review the proposal list once a card is chosen: j/k move, a accept, s snooze, d dismiss, r restore.
+// Single keys review the Inbox once a card is chosen: j/k move, a accept, s snooze, d dismiss, r restore.
 let proposalCursor=-1;
 function proposalKeys(event){
  if(event.ctrlKey||event.metaKey||event.altKey||event.target?.closest?.('input,textarea,select,[contenteditable]')||document.querySelector('dialog[open]'))return;
- if(view!=='tasks'||(workTab!=='suggested'&&!(workTab==='task'&&managerView==='inbox')))return;
- const cards=$('proposal-list')?[...$('proposal-list').querySelectorAll('.work-proposal')]:[];
+ if(view!=='tasks'||workTab!=='task'||managerView!=='inbox')return;
+ const cards=[...meetingProposalListEl.querySelectorAll('.work-proposal'),...proposalListEl.querySelectorAll('.work-proposal')];
  if(!cards.length)return;
  if(event.key==='j'||event.key==='k'){const delta=event.key==='j'?1:-1;proposalCursor=Math.min(cards.length-1,Math.max(0,(proposalCursor<0?delta>0?-1:0:proposalCursor)+delta));cards.forEach((card,index)=>card.classList.toggle('kb-focus',index===proposalCursor));cards[proposalCursor].scrollIntoView({block:'nearest'});event.preventDefault();return;}
  const action=proposalCursor>=0&&proposalCursor<cards.length?{a:'accept',s:'snooze',d:'dismiss',r:'restore'}[event.key]:null;
@@ -2270,9 +2270,9 @@ function renderManagerControls(){
  for(const [field,value] of [['requester',taskRequester],['follower',taskFollower]])if(value&&value!=='__none__'&&!(state.people||[]).some(p=>p.id===value)){if(field==='requester')taskRequester='';else taskFollower='';store('tasks-'+field,'');}
  if(managerSelf&&!(state.people||[]).some(p=>p.id===managerSelf)){managerSelf='';store('manager-self','');}
  const controls=$('manager-controls');controls.replaceChildren();const person=el('select');person.setAttribute('aria-label','This is me');person.append(option('Choose who you are',''),...(state.people||[]).map(p=>option(p.name,p.id)));person.value=managerSelf;
- person.onchange=()=>{managerSelf=person.value;store('manager-self',managerSelf);renderTasks();};const label=el('label','hint manager-identity','This is me');label.append(person);controls.append(label);
+ person.onchange=()=>{managerSelf=person.value;store('manager-self',managerSelf);renderTasks();};const label=el('label','hint manager-identity','This is me');label.append(person);label.hidden=managerView==='inbox';controls.append(label);
  const views=el('div','manager-views');views.setAttribute('role','group');views.setAttribute('aria-label','Task views');
- for(const [key,title] of [['inbox','Proposed'],['mine','My tasks'],['delegated','Assigned by me'],['followup','Follow-up'],['all','All tasks']]){const button=btn('manager-view-button'+(managerView===key?' selected':''),title);button.setAttribute('aria-pressed',String(managerView===key));button.onclick=()=>{managerView=key;store('manager-view',key);renderTasks();};views.append(button);}controls.append(views);
+ for(const [key,title] of [['inbox','Inbox'],['mine','My tasks'],['delegated','Assigned by me'],['followup','Follow-up'],['all','All tasks']]){const button=btn('manager-view-button'+(managerView===key?' selected':''),title);button.setAttribute('aria-pressed',String(managerView===key));button.onclick=()=>{managerView=key;store('manager-view',key);renderTasks();};views.append(button);}controls.append(views);
  const search=el('input');search.type='search';search.placeholder='Search tasks';search.setAttribute('aria-label','Search tasks');search.value=stored('task-search')||'';search.oninput=()=>{clearTimeout(taskSearchTimer);taskSearchTimer=setTimeout(()=>{store('task-search',search.value);renderTasks();const fresh=$('manager-controls')?.querySelector('input[type=search]');if(fresh){fresh.focus();fresh.setSelectionRange(fresh.value.length,fresh.value.length);}},200);};controls.append(search);
  const filters=$('manager-person-filters');filters.replaceChildren();filters.hidden=itemKind!=='task';
  if(managerView!=='inbox'){
@@ -2330,8 +2330,6 @@ function renderBulkTasks(){
 function taskSummary(text){if(['task','decision'].includes(workTab))$('tasks-summary').textContent=text;}
 function renderTasks() {
  if(itemEditing||bulkSaving)return;
- if($('proposal-filters').parentElement!==$('work-suggested').querySelector('.work-content'))$('work-suggested').querySelector('.work-content').append($('proposal-filters'));
- if($('proposal-list').parentElement!==$('work-suggested').querySelector('.work-content'))$('work-suggested').querySelector('.work-content').append($('proposal-list'));
  renderWorkGraph();renderManagerControls();$('manager-controls').hidden=itemKind!=='task';
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
  const project=$('work-project'), oldProject=project.value||stored('tasks-project')||'';
@@ -2345,7 +2343,7 @@ function renderTasks() {
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
  const noWork=!itemsData.items.length&&!itemsData.pending.length;
  taskSummary(noWork?'Your tasks and decisions from every meeting and source.':open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':''));
- if(itemKind==='task'&&managerView==='inbox'&&!noWork)taskSummary(AtlantaUX.count(tasks.length,'meeting action')+' · '+AtlantaUX.count((itemsData.graph?.proposals||[]).filter(p=>p.state==='pending').length,'source proposal'));
+ if(itemKind==='task'&&managerView==='inbox'&&!noWork)taskSummary((meetingProposalListEl.children.length+tasks.length)+' from meetings · '+proposalListEl.children.length+' from sources');
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','These mentions have wording close to existing items (text similarity). Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
@@ -2373,13 +2371,20 @@ function renderTasks() {
  taskVisibleRows=itemKind==='task'&&!inbox?rows:[];taskSelection=AtlantaTasks.visibleSelection(taskSelection,taskVisibleRows);renderBulkTasks();
  if(itemKind==='task'&&!inbox&&!noWork){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));taskSummary(rows.length+' shown · '+active.length+' open · '+active.filter(t=>t.due_date&&t.due_date<today).length+' overdue');}
  $('task-list').replaceChildren();
- if(inbox&&rows.length&&$('proposal-list').querySelector('.empty-content'))$('proposal-list').replaceChildren();
- if(itemKind==='task'&&managerView==='inbox')$('task-list').append(el('h2','','Proposed actions'),el('p','hint','Review actions from every source. Project filters apply to tasks after acceptance.'),$('proposal-filters'),$('proposal-list'));
+ // The Inbox groups what waits for a decision in two queues: actions and matches from meetings first, then suggestions from connected sources.
+ let rowTarget=$('task-list');
+ if(inbox){
+  const meetingCount=meetingProposalListEl.children.length+rows.length,sourceCount=proposalListEl.children.length,list=$('task-list');
+  list.append(el('h2','','Inbox'),el('p','hint','Everything the AI proposed and waits for your decision. Accept, link or skip each one — nothing changes until you decide.'),proposalFiltersEl);
+  if(meetingCount)list.append(el('h3','work-section','From meetings · '+meetingCount),meetingProposalListEl);
+  if(sourceCount)list.append(el('h3','work-section','From connected sources · '+sourceCount),proposalListEl);
+  if(!meetingCount&&!sourceCount){const box=el('div','empty-content no-match');box.append(el('p','','Nothing to review for this filter.'),el('p','hint','New proposals arrive after each meeting and each source sync.'));if(proposalFilter!=='pending')box.append(actionBtn('secondary small-action','Show pending',()=>{proposalFilter='pending';renderTasks();}));list.append(box);}
+  rowTarget=el('div','task-rows');list.append(rowTarget);
+ }
 
- const empty=itemKind==='task'?'No tasks yet. Generate notes for a meeting to collect its tasks here.':'No decisions yet. Generate notes for a meeting to collect its decisions here.';
- if(!rows.length){if(noKindItems&&!inbox){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else if(!(itemKind==='task'&&managerView==='inbox'&&$('proposal-list').children.length)){
+ if(!rows.length&&!inbox){if(noKindItems){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else{
   // 0 results: the conditions that are active, and an action for each scope.
-  const search=itemKind==='task'?stored('task-search')||'':'',view=itemKind==='task'&&managerView!=='all'?{inbox:'Proposed',mine:'My tasks',delegated:'Assigned by me',followup:'Follow-up'}[managerView]:'';
+  const search=itemKind==='task'?stored('task-search')||'':'',view=itemKind==='task'&&managerView!=='all'?{inbox:'Inbox',mine:'My tasks',delegated:'Assigned by me',followup:'Follow-up'}[managerView]:'';
   const conditions=[view&&'View: '+view,...activeFilters,search&&'Search: “'+search+'”'].filter(Boolean),box=el('div','empty-content no-match');
   box.append(el('p','',itemKind==='task'?'No tasks match.':'No decisions match.'));
   if(conditions.length)box.append(el('p','hint','Active: '+conditions.join(' · ')));
@@ -2389,17 +2394,18 @@ function renderTasks() {
   if(filtered&&search)actions.append(actionBtn('secondary small-action','Reset filters and search',()=>resetTaskFilters({all:true})));
   if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
  }}
- const compact=taskDensity==='compact';$('task-list').classList.toggle('compact-list',itemKind==='task'&&compact);
+ const compact=taskDensity==='compact';if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
  // The compact list has one header row with the column names; it lines up with the rows.
  if(itemKind==='task'&&compact&&rows.length){const selecting=taskSelecting||taskSelection.size>0,head=el('div','tracked-task task-card compact-task compact-head'),cols=el('div','tracked-main');head.setAttribute('aria-hidden','true');
-  cols.append(el('span','compact-col-task','Task'),el('span','','Owner'),el('span','','State'),el('span','','Due'));head.append(...(selecting?[el('div','task-row-marks')]:[]),cols,el('span','compact-col-more'));$('task-list').append(head);}
- for(const item of rows) $('task-list').append(itemKind==='task'?globalTaskRow(item,today,{compact,select:!compact||taskSelecting||taskSelection.size>0,showProject:!project.value}):decisionRow(item,byId));
+  cols.append(el('span','compact-col-task','Task'),el('span','','Owner'),el('span','','State'),el('span','','Due'));head.append(...(selecting?[el('div','task-row-marks')]:[]),cols,el('span','compact-col-more'));rowTarget.append(head);}
+ for(const item of rows) rowTarget.append(itemKind==='task'?globalTaskRow(item,today,{compact,select:!compact||taskSelecting||taskSelection.size>0,showProject:!project.value}):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
-const WORK_PANELS={task:'items-panel',decision:'items-panel',suggested:'work-suggested',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
+const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
 let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?localStorage.getItem('work-tab'):'task';}catch{}
+// The Inbox is the Inbox view of the Tasks tab: everything that waits for a decision in one place.
+function openTaskInbox(){managerView='inbox';store('manager-view','inbox');workTab='task';return $('open-tasks').onclick();}
 function showWorkTab(tab){
- if(tab==='suggested'){managerView='inbox';store('manager-view',managerView);tab='task';}
  if(tab==='sources')tab=stored('last-source-tab')||'gmail';if(['gmail','chat','github'].includes(tab))store('last-source-tab',tab);
  if(tab!==workTab)readers.invalidate();workTab=tab;syncRoute(true);try{localStorage.setItem('work-tab',tab);}catch{}
  for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab||button.dataset.workTab==='sources'&&['gmail','chat','github'].includes(tab);button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}

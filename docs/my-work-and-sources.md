@@ -25,7 +25,7 @@ the history keeps a record of the removal.
 Only the speaker's own open tasks get an update at once, and only when the AI is sure (confidence high)
 that the words are about the same work and result. A speaker must be a person in People.
 Updates about tasks of other people, closed tasks and proposed changes (owner, due date, state) wait
-in For review. This uses task matching, so it needs the configured API and its permission in
+in the Inbox (Tasks → Inbox). This uses task matching, so it needs the configured API and its permission in
 Settings → AI.
 
 ### Send tasks by email

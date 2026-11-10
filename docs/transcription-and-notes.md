@@ -341,6 +341,9 @@ task has a **source moment** and a **review state**:
 After you review a meeting, open **More → Follow-up email…**. The draft uses only reviewed content:
 accepted decisions, accepted tasks with their owners and due dates, and checked summary, open-question
 and next-step statements. Open questions get their own section only when there are checked ones. Private observations and AI proposals stay out.
+When the notes wait for an update (the transcript or the AI notes changed after your review), the
+follow-up email is not available. Update or review the notes first. An open draft keeps your text
+and shows a warning.
 
 - The editor opens with a plain draft. **Write with AI** rewrites it with the Notes & AI provider.
   Edit the instructions in **Settings → AI instructions → Follow-up email**.
@@ -353,7 +356,13 @@ and next-step statements. Open questions get their own section only when there a
 **Generate new AI notes** never replaces saved notes. The new result waits as a proposal, and
 **Review changes** lists each new, changed, or missing statement or task. New and changed items are
 preselected; removals and changes to checked statements are not. **Apply selected** keeps task status
-and saves the previous notes in `versions/`. A changed statement needs a new check.
+and saves the previous notes in `versions/`. A changed statement needs a new check. A changed
+statement takes its new quote, or none: the old quote proved the old words. **Source changed** shows a
+statement with the same words and a new moment or quote; it needs a new check when you apply it.
+
+A quote counts only when its words are at the moment of its statement: the cited segment, the segment
+just before it, and the next segments of the same turn (or up to 3 segments within 20 seconds). A
+quote of another moment is removed; the statement stays.
 
 Notes made before this version still open. A source written in the text, such as "(00:12:03)",
 becomes the source moment. Other old statements show "No source moment" until you generate new notes.

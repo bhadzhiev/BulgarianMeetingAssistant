@@ -527,11 +527,53 @@ def _plain(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.casefold()))
 
 
-def verify_quotes(minutes: dict[str, Any], segments: list) -> int:
-    """Keep a quote only when its words are in the transcript. A quote that the model rewrote is not evidence.
+# A quote is checked at its moment: the cited segment, the segment just before it (a sentence can start there), and
+# the segments after it while one speaker goes on, as transcript_for_llm joins them. Short recognition segments
+# also count up to QUOTE_SEGMENTS segments within QUOTE_SECONDS of the moment, so a quote of two sentences fits.
+QUOTE_SEGMENTS = 3
+QUOTE_SECONDS = 20
+QUOTE_WINDOW_CHARS = 2000
+# Seconds between two segments that still belong to one sentence or one turn.
+QUOTE_GAP = 2
 
-    The statement stays; only the quote goes. A long quote is cut at a word boundary. Returns how many quotes went."""
-    source = _plain(" ".join(getattr(s, "text", "") if not isinstance(s, dict) else s.get("text", "") for s in segments))
+
+def _segment_text(segment) -> str:
+    return segment.get("text", "") if isinstance(segment, dict) else getattr(segment, "text", "")
+
+
+def _segment_value(segment, name):
+    return segment.get(name) if isinstance(segment, dict) else getattr(segment, name, None)
+
+
+def quote_window(segments: list, stamp: str) -> str | None:
+    """The words near one moment, for a quote check. None when no segment starts at that moment."""
+    index = next((i for i, s in enumerate(segments) if timestamp(_segment_value(s, "start") or 0) == stamp), None)
+    if index is None:
+        return None
+    end, size = index + 1, len(_segment_text(segments[index]))
+    while end < len(segments) and size < QUOTE_WINDOW_CHARS:
+        before, after = segments[end - 1], segments[end]
+        same_turn = (_segment_value(after, "speaker") and _segment_value(after, "speaker") == _segment_value(before, "speaker")
+                     and 0 <= (_segment_value(after, "start") or 0) - (_segment_value(before, "end") or 0) <= QUOTE_GAP)
+        close = (end < index + QUOTE_SEGMENTS
+                 and (_segment_value(after, "start") or 0) - (_segment_value(segments[index], "start") or 0) <= QUOTE_SECONDS)
+        if not same_turn and not close:
+            break
+        size += len(_segment_text(after))
+        end += 1
+    first = index
+    if index and 0 <= (_segment_value(segments[index], "start") or 0) - (_segment_value(segments[index - 1], "end") or 0) <= QUOTE_GAP:
+        first = index - 1
+    return _plain(" ".join(_segment_text(s) for s in segments[first:end]))
+
+
+def verify_quotes(minutes: dict[str, Any], segments: list) -> int:
+    """Keep a quote only when its words are in the transcript at the moment of its statement.
+
+    A quote that the model rewrote is not evidence, and neither is a quote of another moment: a person who opens the
+    moment hears other words. The statement stays; only the quote goes. A statement without a moment is checked
+    against the whole transcript. A long quote is cut at a word boundary. Returns how many quotes went."""
+    source = _plain(" ".join(_segment_text(s) for s in segments))
     removed = 0
     for field in ("tasks", *ITEM_FIELDS):
         for mention in minutes.get(field, []) if isinstance(minutes, dict) else []:
@@ -546,7 +588,10 @@ def verify_quotes(minutes: dict[str, Any], segments: list) -> int:
             if len(quote) > QUOTE_LIMIT:
                 quote = quote[:QUOTE_LIMIT].rsplit(" ", 1)[0]
             words = _plain(quote)
-            if not words or f" {words} " not in f" {source} ":
+            stamp = mention.get("evidence_timestamp")
+            near = quote_window(segments, stamp) if isinstance(stamp, str) else None
+            where = near if near is not None else source
+            if not words or f" {words} " not in f" {where} ":
                 mention["quote"] = None
                 removed += 1
             else:

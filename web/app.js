@@ -849,7 +849,10 @@ function renderDetail() {
  $('generate-title').disabled=busy||d.title_status==='generating'||(!d.transcript.length&&!d.live?.segments?.length);
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
  $('sync-calendar').textContent=sync?.status==='synced'?'Update calendar event':'Sync to Google Calendar';
- $('followup-email').hidden=!d.minutes;$('followup-email').disabled=busy;
+ $('followup-email').hidden=!d.minutes;$('followup-email').disabled=busy||!!d.notes_need_refresh;
+ $('followup-email').title=d.notes_need_refresh?'Update or review the notes first: they changed after your review.':'';
+ // An open draft keeps its text; it only says that its source changed.
+ if($('followup-dialog').open&&followupEmailMeeting===d.id&&d.notes_need_refresh)followupEmailStatus('The notes changed after this draft was made. Update the notes, then check this text before you save it.',true);
  // The status badge already says Ready; the bar is only for progress and extra advice.
  $('cancel-processing').hidden=d.status!=='processing';
  $('cancel-processing').disabled=!!d.processing_cancel_requested;
@@ -1099,10 +1102,17 @@ function openReview() {
    // Additions and AI-only edits are preselected; edits of checked statements are not. A removal is preselected only
    // for an unchecked AI statement that is no task or decision: otherwise a reworded statement stayed next to the new one.
    // Removing a task or decision can delete its item, so a person chooses it.
-   box.type='checkbox'; box.checked=change.kind==='added'||change.kind==='changed'&&!checked||change.kind==='removed'&&!checked&&!['tasks','decisions'].includes(field); choices.set(change.id,box);
-   main.append(el('span','change-kind',{added:'New',changed:'Changed',removed:'Not in the new notes'}[change.kind]+(checked?' · you checked the saved version':'')));
-   if(change.current) main.append(el(change.kind==='removed'||change.kind==='changed'?'del':'p','',changeText(field,change.current)));
-   if(change.proposed) main.append(el('ins','',changeText(field,change.proposed)));
+   box.type='checkbox'; box.checked=change.kind==='added'||['changed','source'].includes(change.kind)&&!checked||change.kind==='removed'&&!checked&&!['tasks','decisions'].includes(field); choices.set(change.id,box);
+   main.append(el('span','change-kind',{added:'New',changed:'Changed',source:'Source changed',removed:'Not in the new notes'}[change.kind]+(checked?' · you checked the saved version':'')));
+   if(change.kind==='source'){
+    // The same words with another moment or quote: show the old and the new proof.
+    main.append(el('p','',changeText(field,change.current)));
+    const proof=item=>[item.evidence_timestamp,item.quote&&'„'+item.quote+'“'].filter(Boolean).join(' · ')||'no source';
+    main.append(el('del','',proof(change.current)),el('ins','',proof(change.proposed)));
+   } else {
+    if(change.current) main.append(el(change.kind==='removed'||change.kind==='changed'?'del':'p','',changeText(field,change.current)));
+    if(change.proposed) main.append(el('ins','',changeText(field,change.proposed)));
+   }
    const stamp=(change.proposed||change.current).evidence_timestamp; if(stamp) main.append(sourceBlock(stamp));
    row.append(box,main); section.append(row);
   }

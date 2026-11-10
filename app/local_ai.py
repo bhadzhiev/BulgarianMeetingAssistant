@@ -77,11 +77,21 @@ def migrate_settings(settings):
     return settings
 
 
-def list_models(base_url):
+def list_models(base_url, api_key=''):
+    """The model IDs of an OpenAI-compatible API. The key goes only with the address it was saved for (the caller checks)."""
+    import urllib.error
+    from urllib.request import Request
     base_url = validate_base_url(base_url)
+    request = Request(base_url + '/models', headers={'Authorization': 'Bearer ' + api_key} if api_key else {})
     try:
-        with urlopen(base_url + '/models', timeout=15) as response:
+        with urlopen(request, timeout=15) as response:
             payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            hint = (' The saved key was refused.' if api_key else
+                    ' Save the API key for this address in Settings first, or type the model name.')
+            raise ValueError('The AI endpoint asks for authentication to list its models.' + hint + server_reason(exc)) from exc
+        raise ValueError('Cannot read models from the configured AI endpoint. Check its URL and that the server is running.' + server_reason(exc)) from exc
     except Exception as exc:
         raise ValueError('Cannot read models from the configured AI endpoint. Check its URL and that the server is running.') from exc
     if not isinstance(payload, dict) or not isinstance(payload.get('data'), list):

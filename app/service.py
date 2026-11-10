@@ -190,6 +190,11 @@ class MeetingService:
             values['task_matching_target'] = ''
         if type(values['local_ai_context']) is not int or not 4096 <= values['local_ai_context'] <= 2_000_000:
             raise ValueError('The model context must be between 4096 and 2000000 tokens')
+        from .processing import CHARS_PER_TOKEN, MIN_PART_CHARS, PROMPT_TOKENS
+        # The output limit and the notes instructions must leave room for some transcript in the context.
+        if values['local_ai_context'] - values['local_ai_max_tokens'] < PROMPT_TOKENS + MIN_PART_CHARS / CHARS_PER_TOKEN:
+            raise ValueError(f"The output limit leaves no room for the transcript: keep it at least "
+                             f"{int(PROMPT_TOKENS + MIN_PART_CHARS / CHARS_PER_TOKEN)} tokens below the model context.")
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid API response format')
         if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai', 'elevenlabs'} or values['summarizer'] not in {'none', 'local', 'openai'}
@@ -560,8 +565,10 @@ class MeetingService:
         if settings.get('auto_process') and (settings['summarizer'] != 'none' or settings.get('transcript_correction', 'none') != 'none'):
             try:
                 self.process(meeting['id'], 'all')
-            except ValueError:
-                pass  # For example, a missing API key. The user can generate notes later.
+            except ValueError as exc:
+                # For example, a missing API key. The imported transcript is kept and ready; the notes wait.
+                self.library.update(meeting['id'], notes_refresh_error='Notes were not made automatically: ' + self.redact(str(exc))
+                                    + ' Fix this in Settings, then choose Update notes & tasks.')
         else:
             self._queue_metadata(meeting['id'], enrich=True)
         return self.detail(meeting['id'])

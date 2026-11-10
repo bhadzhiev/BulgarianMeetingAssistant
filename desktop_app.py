@@ -354,8 +354,11 @@ class Handler(BaseHTTPRequestHandler):
             service = self.server.service
             path = urlsplit(self.path).path
             if path == '/api/local-ai/models':
-                from app.local_ai import list_models
-                result = {'models': list_models(body.get('base_url', service.settings['local_ai_base_url']))}
+                from app.local_ai import list_models, validate_base_url
+                requested = validate_base_url(body.get('base_url', service.settings['local_ai_base_url']))
+                # The saved key goes only to the address it was saved for. A new address gets no key.
+                saved = requested == validate_base_url(service.settings['local_ai_base_url'])
+                result = {'models': list_models(requested, service.local_ai_api_key if saved else '')}
             elif path == '/api/calendar/credentials':
                 result = service.google.configure(body['credentials'])
             elif path == '/api/calendar/connect':

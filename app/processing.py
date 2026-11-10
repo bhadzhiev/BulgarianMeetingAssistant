@@ -283,20 +283,45 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
 NOTES_PART_CHARS = 10000
 # Measured with Qwen on Bulgarian: about 2.4 characters per token and 2,500 tokens of instructions.
 CHARS_PER_TOKEN = 2.0
-PROMPT_TOKENS = 3000
+# The notes request without the transcript: about 4,700 tokens by the 2-characters-per-token estimate on
+# 10.11.2026 (instructions and schema). The real size is measured for each run (prompt_tokens); this value is the Settings check.
+PROMPT_TOKENS = 5000
 MAX_PART_CHARS = 400000
 
 
-def notes_part_chars(settings: dict) -> int:
-    """Characters of transcript per notes part. A 16k local model keeps the measured 10,000; a larger
-    context, for example a cloud model, takes a long meeting in one part and needs no consolidation."""
+# A part smaller than this is not worth a request: the context is too small for the notes prompt.
+MIN_PART_CHARS = 2000
+
+
+def notes_part_chars(settings: dict, prompt_tokens: int = PROMPT_TOKENS) -> int:
+    """Characters of transcript per notes part: what the context leaves after the answer and the prompt.
+
+    A 16k local model keeps the measured 10,000 at most; a larger context, for example a cloud model, takes a long
+    meeting in one part and needs no consolidation. prompt_tokens is the size of the instructions, the schema and the
+    saved instruction layers. Raises when the context leaves too little room for any transcript."""
     if settings.get('summarizer') != 'local':
         return NOTES_PART_CHARS
     context = settings.get('local_ai_context') or 16384
-    if context <= 16384:
-        return NOTES_PART_CHARS
-    free = context - (settings.get('local_ai_max_tokens') or 4096) - PROMPT_TOKENS
-    return max(NOTES_PART_CHARS, min(MAX_PART_CHARS, int(free * CHARS_PER_TOKEN)))
+    free = int((context - (settings.get('local_ai_max_tokens') or 4096) - prompt_tokens) * CHARS_PER_TOKEN)
+    if free < MIN_PART_CHARS:
+        raise ValueError(f'The model context ({context} tokens) leaves no room for the transcript after the output limit and '
+                         f'the notes instructions (about {prompt_tokens} tokens). Increase the context or lower the output '
+                         'limit in Settings → Notes & AI.')
+    return min(NOTES_PART_CHARS if context <= 16384 else MAX_PART_CHARS, free)
+
+
+def prompt_tokens(args) -> int:
+    """The tokens of the notes request without the transcript: instructions, names, vocabulary, schema and layers."""
+    from meeting_assistant import llm_prompt, minutes_schema
+    from . import meeting_types
+    from .local_ai import schema_hint
+    text = llm_prompt('', getattr(args, 'speakers', None), getattr(args, 'meeting_date', None), getattr(args, 'markers', None),
+                      getattr(args, 'meeting_type', meeting_types.DEFAULT), getattr(args, 'whisper_vocabulary', ''), (0, 0, None))
+    text += json.dumps(schema_hint(minutes_schema(meeting_types.sections(getattr(args, 'meeting_type', meeting_types.DEFAULT)))), ensure_ascii=False)
+    snapshot = getattr(args, '_prompt_snapshot', None) or {}
+    text += ((snapshot.get('stages') or {}).get('meeting_minutes') or {}).get('effective') or ''
+    # The long list of timestamps in the schema is described, not repeated (schema_hint). A margin covers the policy text.
+    return int(len(text) / CHARS_PER_TOKEN) + 500
 
 
 def canonical_notes(minutes: dict, vocabulary: str, people=()) -> dict:
@@ -346,7 +371,6 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     from .transcripts import group_by_length
     # About 4,000 tokens of Bulgarian per part. With the prompt and a 4,096-token answer it fits a
     # 16k context. Smaller parts split one meeting into many partial summaries.
-    groups = group_by_length(segments, lambda segment: segment.text, notes_part_chars(settings), overhead=15)
     args = SimpleNamespace(summarizer=settings['summarizer'], llm_model=settings['llm_model'],
         local_ai_base_url=settings.get('local_ai_base_url', 'http://localhost:1235/v1'),
         local_ai_model=settings.get('local_ai_model', 'qwen3.5-9b'),
@@ -370,6 +394,8 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     args.meeting_type = meeting_types.of(meeting)
     from .live import read_json
     args.markers = [m for m in read_json(directory / 'markers.json', []) if isinstance(m, dict) and isinstance(m.get('time'), (int, float))]
+    # The part size follows the real size of the request without the transcript, so a small context fails clearly.
+    groups = group_by_length(segments, lambda segment: segment.text, notes_part_chars(settings, prompt_tokens(args)), overhead=15)
     # Cache only validated parts of an unfinished run. Settings, sources and
     # prompts must match exactly before a retry can reuse them. No API key is saved.
     from .prompts import select_stages

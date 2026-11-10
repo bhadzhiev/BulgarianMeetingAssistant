@@ -184,4 +184,15 @@ class LocalAITests(unittest.TestCase):
         with patch('app.local_ai.urlopen') as request:
             request.return_value.__enter__.return_value.read.return_value=json.dumps({'data':[{'id':'chat-model'},{'id':'chat-model'},{'id':'embedding-model'},{}]}).encode()
             self.assertEqual(list_models('http://localhost:1235/v1'),['chat-model','embedding-model'])
-            self.assertEqual(request.call_args.args[0],'http://localhost:1235/v1/models')
+            self.assertEqual(request.call_args.args[0].full_url,'http://localhost:1235/v1/models')
+            self.assertIsNone(request.call_args.args[0].get_header('Authorization'))
+
+    def test_model_discovery_sends_the_saved_key_and_explains_a_refusal(self):
+        import urllib.error
+        with patch('app.local_ai.urlopen') as request:
+            request.return_value.__enter__.return_value.read.return_value=json.dumps({'data':[{'id':'kimi'}]}).encode()
+            self.assertEqual(list_models('https://api.example.invalid/v1','secret-key'),['kimi'])
+            self.assertEqual(request.call_args.args[0].get_header('Authorization'),'Bearer secret-key')
+        refused=urllib.error.HTTPError('https://api.example.invalid/v1/models',401,'Unauthorized',{},None)
+        with patch('app.local_ai.urlopen',side_effect=refused),self.assertRaisesRegex(ValueError,'asks for authentication'):
+            list_models('https://api.example.invalid/v1')

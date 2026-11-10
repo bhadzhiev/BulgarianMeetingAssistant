@@ -374,6 +374,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/work/meeting-review':
                 from app import meeting_proposals
                 result = meeting_proposals.review(service, body)
+            elif path == '/api/task-matching/allow':
+                result = service.allow_task_matching(body['id'])
             elif path in {'/api/work/ingest', '/api/work/review', '/api/work/question', '/api/work/relate', '/api/work/availability', '/api/work/project'}:
                 result = service.work_graph_action(path.rsplit('/', 1)[-1], body)
             elif path == '/api/editor-state':
@@ -681,10 +683,11 @@ def main():
     service = MeetingService(args.library, PROJECT, backup_dir=args.backups, step_runner=ProcessingWorker(PROJECT))
     service.desktop_mode = args.desktop_control
     if control is not None:
-        from app.desktop import activity, microphone_health, editor_state
+        from app.desktop import activity, microphone_health, editor_state, review_ready
         service.activity_changed = lambda active: activity(active, control)
         service.health_changed = lambda missing: microphone_health(missing, control)
         service.editor_changed = lambda dirty: editor_state(dirty, control)
+        service.review_notify = lambda meeting_id, title: review_ready(meeting_id, title, control)
     if args.models:
         service.models_dir = args.models
     server = Server(('127.0.0.1', args.port), service)

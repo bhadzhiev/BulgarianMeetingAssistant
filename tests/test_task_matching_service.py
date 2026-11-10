@@ -87,6 +87,44 @@ class MatchingStepTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Invalid task matching permission'):
             self.service.save_settings(dict(task_matching_target=True))
 
+    def test_allow_and_match_now_grants_the_permission_and_runs_matching(self):
+        self.accepted_task()
+        later = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Подготви офертата за клиента до петък', 'Иван')]))
+        self.service.save_settings(dict(local_ai_base_url=REMOTE, summarizer='local'))
+        directory = self.service.library.directory(later)
+        self.service._save_matching(directory, dict(status='needs_permission', notes='minutes.json', reason='Synthetic'))
+        self.assertEqual(self.service.allow_task_matching(later)['status'], 'matching')
+        self.assertEqual(self.service.settings['task_matching_target'], REMOTE)
+        import time
+        for _ in range(100):
+            record = json.loads((directory / 'task-matching.json').read_text())
+            if record.get('status') == 'complete':
+                break
+            time.sleep(0.05)
+        self.assertEqual(record['status'], 'complete')
+        self.assertEqual(record['target']['base_url'], REMOTE)
+
+    def test_allow_and_match_now_refuses_without_notes_or_a_remote_api(self):
+        meeting = self.service.library.create('Без бележки', 'in_person', {})
+        self.service.save_settings(dict(local_ai_base_url=REMOTE, summarizer='local'))
+        with self.assertRaisesRegex(ValueError, 'notes first'):
+            self.service.allow_task_matching(meeting['id'])
+        ready = self.meeting('2026-10-23T10:00:00+03:00', notes([task('Смени батериите на UPS')]))
+        self.service.save_settings(dict(local_ai_base_url='http://localhost:1235/v1', summarizer='local'))
+        with self.assertRaisesRegex(ValueError, 'needs no matching permission'):
+            self.service.allow_task_matching(ready)
+
+    def test_review_pending_reflects_what_waits(self):
+        empty = self.service.library.create('Празна', 'in_person', {})
+        self.assertFalse(self.service._review_pending(empty['id'], self.service.library.get(empty['id'])))
+        ready = self.meeting('2026-10-19T10:00:00+03:00', notes([task('Подготви офертата за клиента', 'Иван')]))
+        self.assertTrue(self.service._review_pending(ready, self.service.library.get(ready)))
+        [item] = self.service.tasks()
+        self.service.update_item(item['id'], item['text'], {'acceptance_state': 'accepted'})
+        self.assertFalse(self.service._review_pending(ready, self.service.library.get(ready)))
+        atomic_json(self.service.library.directory(ready) / 'transcript.json', [dict(start=0, end=5, text='Да.', speaker='SPEAKER_00')])
+        self.assertTrue(self.service._review_pending(ready, self.service.library.get(ready)))
+
 
 if __name__ == '__main__':
     unittest.main()

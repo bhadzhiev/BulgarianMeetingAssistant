@@ -130,6 +130,12 @@ def review(service, body):
         proposal = data['proposals'].get(body.get('id'))
         if not proposal or proposal.get('origin') != ORIGIN or proposal.get('revision') != body.get('revision'):
             raise WorkItemConflict('This proposal changed or was reviewed. Reload the For review list.')
+        if proposal['state'] == 'stale' and action == 'reject':
+            proposal.update(state='dismissed')
+            proposal['revision'] += 1
+            WorkGraph._activity(data, 'proposal_reject', proposal_id=proposal['id'], result_id=None)
+            service.items.save()
+            return dict(proposal)
         if proposal['state'] != 'pending':
             raise WorkItemConflict('This proposal was already reviewed.')
         meta = proposal['match']

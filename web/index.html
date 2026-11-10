@@ -123,7 +123,7 @@
   </section>
   <section id="tasks" hidden>
     <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading">Your tasks and decisions from every meeting and source.</p><button id="new-task" type="button" class="primary">＋ New task</button></div>
-    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested" hidden>Suggested</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
+    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested" hidden>Suggestions</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
     <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
     <div class="card work-panel" id="items-panel" role="tabpanel">
       <div class="work-messages"><p class="hint">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p></div>
@@ -132,7 +132,7 @@
         <details id="manager-all-filters" class="manager-all-filters"><summary id="manager-filter-summary">Filters</summary><div id="manager-person-filters"></div>
         <div id="source-filter" class="segmented source-filter" role="group" aria-label="Filter by source"></div>
         <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><div class="work-actions"><select id="work-project" aria-label="Project"><option value="">All projects</option></select><select id="task-owner" aria-label="Filter tasks by owner"></select></div></div>
-        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button><button id="task-clear-all" class="quiet" type="button">Clear all</button></details>
+        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button><button id="task-clear-all" class="quiet" type="button">Reset filters and search</button></details>
         <div id="task-bulk-bar" class="task-bulk-bar" aria-label="Selected task actions" hidden></div>
         <div id="link-review" class="card link-review" hidden></div>
         <div id="task-list" class="task-list"></div>

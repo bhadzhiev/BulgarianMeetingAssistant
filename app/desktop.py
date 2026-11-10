@@ -56,3 +56,11 @@ def editor_state(dirty, output):
     with _output_lock:
         try:print(json.dumps(dict(event='ui',dirty=bool(dirty))),file=output,flush=True)
         except (BrokenPipeError,OSError):pass
+
+
+def review_ready(meeting_id, title, output):
+    with _output_lock:
+        try:
+            print(json.dumps({'event': 'review', 'id': meeting_id, 'title': title}), file=output, flush=True)
+        except (BrokenPipeError, OSError):
+            pass

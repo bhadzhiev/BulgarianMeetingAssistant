@@ -97,6 +97,15 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
                         let _ = window.set_title(if missing { "Microphone unavailable — recording has gaps" } else { "Atlanta" });
                         let _ = window.request_user_attention(if missing { Some(tauri::UserAttentionType::Critical) } else { None });
                     }
+                } else if value["event"] == "review" {
+                    if let Some(window) = control_app.get_webview_window("main") {
+                        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+                        if !window.is_focused().unwrap_or(true) {
+                            let title = value["title"].as_str().unwrap_or("A meeting").replace('"', "'");
+                            let script = format!("display notification \"{title} is ready for review.\" with title \"Atlanta\"");
+                            let _ = std::process::Command::new("osascript").arg("-e").arg(script).spawn();
+                        }
+                    }
                 }
             }
         }

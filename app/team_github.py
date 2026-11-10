@@ -20,7 +20,7 @@ import time
 
 from .github_source import GitHubError, repo_name
 from .storage import atomic_json
-from .team_facts import TZ, _time
+from .team_facts import _time
 from .work_items import WorkItemConflict
 
 SEARCH_PAGES = 3

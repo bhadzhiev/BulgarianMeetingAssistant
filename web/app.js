@@ -1850,7 +1850,7 @@ function renderMailList(){
 $('gmail-search').oninput=renderMailList;listKeys($('gmail-threads'));
 async function openMail(key){
  const request=readers.start('mail'),thread=await api('/api/gmail/thread?id='+encodeURIComponent(key));if(!readers.current(request)||view!=='tasks'||workTab!=='gmail')return;const box=$('gmail-detail');mailThread=key;syncRoute(true);renderMailList();
- const head=el('div','reader-head'),attach=actionBtn('secondary small-action','Attach to project',()=>attachExternal('gmail',thread.id));
+ const head=el('div','reader-head'),attach=actionBtn('secondary small-action','Attach to project',()=>attachExternal('gmail',thread.id));showReaderProjects('gmail',thread.id,attach,request);
  head.append(attach,el('h3','',thread.subject),el('p','hint',AtlantaUX.count(thread.messages.length,'message')+' · cached '+relTime(thread.fetched_at*1000)+(thread.omitted?' · '+AtlantaUX.count(thread.omitted,'message')+' too large to load':thread.partial?' · only the latest 100 messages':'')));
  const body=el('div','reader-body');
  for(const message of thread.messages){
@@ -1938,7 +1938,7 @@ function renderChatList(){
 $('chat-search').oninput=renderChatList;listKeys($('chat-spaces'));
 async function renderConversation(sync){
  const key=chatSpace,request=readers.start('chat-conversation'),space=chatSpaces.find(s=>s.name===key),messages=await api('/api/chat/conversation?space='+encodeURIComponent(key));if(!readers.current(request)||chatSpace!==key||view!=='tasks'||workTab!=='chat'||!space)return;const box=$('chat-detail');syncRoute(true);
- const head=el('div','reader-head'),attach=btn('secondary small-action','Attach to project');attach.disabled=!messages.some(m=>m.available&&m.body);attach.onclick=()=>perform(()=>attachExternal('google_chat',key));head.append(attach,el('h3','',chatLabel(space)),el('p','hint',[space.participants.join(', '),(sync.last_sync?'synced '+relTime(sync.last_sync*1000):'not synced yet'),sync.limited&&'200-message limit'].filter(Boolean).join(' · ')));
+ const head=el('div','reader-head'),attach=btn('secondary small-action','Attach to project');attach.disabled=!messages.some(m=>m.available&&m.body);attach.onclick=()=>perform(()=>attachExternal('google_chat',key));showReaderProjects('google_chat',key,attach,null);head.append(attach,el('h3','',chatLabel(space)),el('p','hint',[space.participants.join(', '),(sync.last_sync?'synced '+relTime(sync.last_sync*1000):'not synced yet'),sync.limited&&'200-message limit'].filter(Boolean).join(' · ')));
  const body=el('div','reader-body chat-body');let previous=null,day='';
  for(const m of messages){
   const stamp=m.date*1000,today=dayLabel(stamp);
@@ -3092,8 +3092,8 @@ function renderWorkspace(){
  const cards=$('workspace-cards');cards.replaceChildren();$('workspace-browser').hidden=!!data.project_id;
  for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));const head=el('div','project-card-head');head.append(projectDot(project),el('strong','',project.name));const counts=[[project.open_tasks,'open task'],[project.open_questions,'open question'],[project.meetings,'meeting'],[project.linked_conversations,'conversation']].filter(([n])=>n).map(([n,label])=>AtlantaUX.count(n,label));if(project.color){b.classList.add('has-project-line');b.style.setProperty('--project-color',project.color);}b.append(head,el('span','hint',counts.join(' · ')||'No meetings or work yet'));b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
  const activeSection=['task','decision','question'].includes(workspaceSection)?'work':workspaceSection;
- for(const b of $('workspace-tabs').querySelectorAll('button')){const on=b.dataset.section===activeSection;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));const count=b.dataset.section==='meetings'?data.meetings.length:b.dataset.section==='work'?data.items.length:0;const title={overview:'Overview',work:'Work',meetings:'Meetings',timeline:'Timeline'}[b.dataset.section];b.textContent=title+(count?' · '+count:'');}
- const extraSection={sources:'Sources',conversations:'Conversations'}[activeSection];$('workspace-more-label').textContent='...';$('workspace-more-label').setAttribute('aria-label','More project sections'+(extraSection?' · '+extraSection+' selected':''));$('workspace-more-label').title='More project sections'+(extraSection?' · '+extraSection+' selected':'');$('workspace-more-label').classList.toggle('selected',!!extraSection);
+ for(const b of $('workspace-tabs').querySelectorAll('button')){const on=b.dataset.section===activeSection;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));const count=b.dataset.section==='meetings'?data.meetings.length:b.dataset.section==='work'?data.items.length:b.dataset.section==='conversations'?(data.conversations||[]).length:0;const title={overview:'Overview',work:'Work',meetings:'Meetings',timeline:'Timeline',conversations:'Conversations'}[b.dataset.section];b.textContent=title+(count?' · '+count:'');}
+ const extraSection={sources:'Sources'}[activeSection];$('workspace-more-label').textContent='...';$('workspace-more-label').setAttribute('aria-label','More project sections'+(extraSection?' · '+extraSection+' selected':''));$('workspace-more-label').title='More project sections'+(extraSection?' · '+extraSection+' selected':'');$('workspace-more-label').classList.toggle('selected',!!extraSection);
  const box=$('workspace-content');box.replaceChildren();
  const today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
  const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today));
@@ -3587,6 +3587,24 @@ function meetingCard(m,{variant='list',participants=null,select=null,onChange=nu
  main.append(top,meta);
  card.append(main);return card;
 }
+// The open Gmail or Chat reader says which projects hold its thread, so a saved link is visible where it was made.
+let readerProjects=null;
+async function showReaderProjects(provider,id,button,request){
+ readerProjects={provider,id,button,request};
+ let row;try{row=await api('/api/conversations/external?provider='+provider+'&id='+encodeURIComponent(id));}catch{return;}
+ if(readerProjects?.button!==button||(request&&!readers.current(request)))return;
+ const projects=(row.project_ids||[]).map(key=>projectList().find(p=>p.id===key)).filter(Boolean);
+ button.textContent=projects.length?'Projects: '+projects.map(p=>p.name).join(', ')+' · Change…':'Attach to project';
+ button.nextElementSibling?.classList.contains('reader-projects')&&button.nextElementSibling.remove();
+ if(projects.length){const chips=el('span','reader-projects');for(const project of projects){const chip=btn('quiet small-action','Open '+project.name,()=>perform(()=>openProjectConversations(project.id)));chip.prepend(projectDot(project));chips.append(chip);}button.after(chips);}
+}
+function refreshReaderProjects(){const r=readerProjects;if(r&&r.button.isConnected)showReaderProjects(r.provider,r.id,r.button,r.request);}
+// A project's saved conversations, from anywhere.
+async function openProjectConversations(projectId){
+ if($('conversation-reader').open)$('conversation-reader').close();
+ const select=$('workspace-project');if(![...select.options].some(o=>o.value===projectId))select.append(option(projectId,projectId));
+ select.value=projectId;workspaceSection='conversations';await $('open-projects').onclick();
+}
 // A whole email thread or Chat conversation can join a project before any task exists.
 async function attachExternal(provider,id){
  const row=await api('/api/conversations/external?provider='+provider+'&id='+encodeURIComponent(id)),box=$('conversation-reader-body');
@@ -3594,16 +3612,20 @@ async function attachExternal(provider,id){
  box.replaceChildren(el('h2','',row.title),el('p','hint',(CONVERSATION_LABELS[provider]||provider)+' · '+row.participants.join(', ')),
   el('p','hint','Atlanta saves a snapshot of the cached '+(provider==='gmail'?'messages of this thread':'messages of this conversation')+' with the project. No task is created and no AI request is sent. A later sync does not change the snapshot; attach again to save the new version.'),choices.box,save);
  if(!projectList().length)box.append(el('p','notice','Create a project in Projects first.'));
- save.onclick=()=>perform(async()=>{const ids=choices.value();if(!ids.length){toast('Choose at least one project');return;}const saved=await api('/api/conversations/attach',{provider,external_id:row.external_id,account:row.account,revision:row.revision,attachment_revision:row.attachment_revision,project_ids:ids});toast('Attached to '+ids.length+(ids.length===1?' project':' projects'));await openAttachment(saved.id);});
+ save.onclick=()=>perform(async()=>{const ids=choices.value();if(!ids.length){toast('Choose at least one project');return;}const saved=await api('/api/conversations/attach',{provider,external_id:row.external_id,account:row.account,revision:row.revision,attachment_revision:row.attachment_revision,project_ids:ids});toast('Attached to '+projectNames(ids));refreshReaderProjects();await openAttachment(saved.id);});
  if(!$('conversation-reader').open)$('conversation-reader').showModal();
 }
+function projectNames(ids){const names=ids.map(key=>projectList().find(p=>p.id===key)?.name).filter(Boolean);return names.length?names.join(', '):AtlantaUX.count(ids.length,'project');}
 async function openAttachment(id){
  const request=readers.start('attachment');const row=await api('/api/conversations/attachment?id='+encodeURIComponent(id));if(!readers.current(request))return;const box=$('conversation-reader-body');box.replaceChildren(el('h2','',row.title),el('p','hint',(CONVERSATION_LABELS[row.kind]||row.kind)+' · saved '+dateTime(row.created)));
  if(row.kind!=='excerpt')box.append(el('p','hint','Saved local snapshot. It does not update automatically and current remote state is not checked.'));
  if(row.partial)box.append(el('p','notice','This is a snapshot of cached text, not the full remote conversation.'));
  if(row.stale)box.append(el('p','notice','The original transcript or source revision has changed or is unavailable. This saved quotation is preserved.'));
  box.append(el('pre','conversation-snapshot',row.text));const choices=conversationProjectChoices(row.project_ids),save=el('button','secondary','Save project links');box.append(choices.box,save);
- save.onclick=()=>perform(async()=>{await api('/api/conversations/projects',{id:row.id,revision:row.revision,project_ids:choices.value()});if(view==='conversations')await loadConversations();if(view==='projects')await loadWorkspace();await openAttachment(row.id);});
+ save.onclick=()=>perform(async()=>{const ids=choices.value();await api('/api/conversations/projects',{id:row.id,revision:row.revision,project_ids:ids});toast(ids.length?'Project links saved · '+projectNames(ids):'Project links removed');refreshReaderProjects();if(view==='conversations')await loadConversations();if(view==='projects')await loadWorkspace();await openAttachment(row.id);});
+ // Where the snapshot is: each project opens on its Conversations section.
+ const places=(row.project_ids||[]).map(key=>projectList().find(p=>p.id===key)).filter(Boolean);
+ if(places.length){const go=el('div','action-group');for(const project of places)go.append(btn('quiet small-action','Open in '+project.name,()=>perform(()=>openProjectConversations(project.id))));box.append(go);}
  if(row.kind==='excerpt'){const jump=el('button','quiet','Open original meeting at '+time(row.locator.start));jump.onclick=()=>perform(async()=>{$('conversation-reader').close();await openMeeting(row.locator.meeting_id);showSeconds(row.locator.start);if(row.stale)toast('Saved excerpt differs from the current transcript');});box.append(jump,listenButton(row.locator.meeting_id,row.locator.start,{label:'Listen to the excerpt',until:row.locator.end,className:'secondary'}));
   box.append(githubActions({kind:'attachment',id:row.id},await api('/api/github/links?kind=attachment&id='+encodeURIComponent(row.id))));}
  if(!$('conversation-reader').open)$('conversation-reader').showModal();

@@ -143,7 +143,10 @@ tasks, decisions, updates or questions. A task title has 6–12 words (at most 1
 and object. Conditions, lists and context stay in the quote. A guess ("може би ще го дам на Иван") is an open question,
 not a task. A first-person commitment ("ще изпратя Иван при Мария") is a task of the speaker, not a
 decision. The sections of the meeting type and the updates do not repeat a decision or a task. The
-summary holds only points that are in no other section. Observations are at most three work risks; they never judge a person. Known participant
+summary holds only points that are in no other section; it may be empty. A wish without an agreed
+action ("искам някой ден да говоря с Иван") is not a task. The summary limit (one point for each 2
+minutes) uses the length of the part, not its last timestamp. Observations say what was said, not
+why; a guess about disagreement is only a neutral question. Observations are at most three work risks; they never judge a person. Known participant
 names keep their exact spelling in every statement. Another name of a person in People (for
 example a short name) becomes the People name in the statements, task text and owner.
 Vocabulary variants (`PacketFence | PacketFancy`) become the preferred

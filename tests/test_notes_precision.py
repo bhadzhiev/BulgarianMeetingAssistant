@@ -45,7 +45,32 @@ class PromptRulesTests(unittest.TestCase):
     def test_type_sections_and_summary_do_not_repeat_other_sections(self):
         self.assertIn('Секциите на типа срещата и updates не повтарят решение или задача.', self.prompt)
         self.assertIn('summary се пише последно. То съдържа само изводи, които не са записани в друга секция.', self.prompt)
-        self.assertIn('върни една точка за целта или резултата на срещата', self.prompt)
+        self.assertIn('summary е празен списък. Цел или резултат на срещата пиши само ако текстът ги казва.', self.prompt)
+        self.assertNotIn('върни една точка за целта', self.prompt)
+
+    def test_a_wish_is_not_a_commitment(self):
+        self.assertNotIn('„искам да говоря с него“', self.prompt)
+        self.assertIn('Желание или намерение без договорено действие', self.prompt)
+        self.assertIn('не е ангажимент и не е задача', self.prompt)
+
+    def test_the_summary_limit_follows_the_length_of_the_part(self):
+        part = meeting_assistant.llm_prompt('[00:50:00] Иван: Да.', span=(3000, 3250, 3600))
+        self.assertIn('Този текст е от 00:50:00 до 00:54:10 (4 мин.) от среща с продължителност 60 мин.', part)
+        self.assertIn('Лимитът за summary е за тези 4 мин.', part)
+        whole = meeting_assistant.llm_prompt('[00:00:00] Иван: Да.', span=(0, 250, 250))
+        self.assertIn('(4 мин.). Лимитът', whole)
+        self.assertNotIn('продължителност 60', self.prompt)
+        self.assertIn('2 минути от\nпродължителността на този текст', self.prompt)
+
+    def test_observations_report_what_was_said_not_why(self):
+        self.assertNotIn('скрито несъгласие', self.prompt)
+        self.assertIn('не приписвай мотиви и не тълкувай тон', self.prompt)
+        self.assertIn('пиши само като неутрален въпрос', self.prompt)
+
+    def test_generation_passes_the_span_of_the_part(self):
+        self.assertIn('(segments[0].start, segments[-1].end, getattr(args, "meeting_duration", None))',
+                      inspect.getsource(meeting_assistant.generate_minutes))
+        self.assertIn("args.meeting_duration = meeting.get('duration')", inspect.getsource(processing.summarize))
 
     def test_a_task_title_is_short_and_holds_one_fact(self):
         self.assertIn('обикновено 6–12 думи, най-много 15', self.prompt)

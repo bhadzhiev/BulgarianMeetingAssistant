@@ -364,6 +364,8 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     meeting = json.loads((directory / 'meeting.json').read_text()) if (directory / 'meeting.json').exists() else {}
     from datetime import date
     args.meeting_date = (meeting.get('started_at') or meeting.get('created') or '')[:10] or date.today().isoformat()
+    # The summary limit of a part follows the part; the whole meeting length is context for the model.
+    args.meeting_duration = meeting.get('duration') if isinstance(meeting.get('duration'), (int, float)) else None
     from . import meeting_types
     args.meeting_type = meeting_types.of(meeting)
     from .live import read_json

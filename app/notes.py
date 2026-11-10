@@ -40,6 +40,12 @@ def _key(text: str) -> str:
     return ' '.join(re.sub(r'[^\w\s]', ' ', text.casefold()).split())
 
 
+def _source_differs(old: dict, new: dict) -> bool:
+    """The same statement with another moment or another exact quote. A quote the AI did not find changes nothing."""
+    return (new.get('evidence_timestamp') is not None and new.get('evidence_timestamp') != old.get('evidence_timestamp')
+            or new.get('quote') is not None and new.get('quote') != old.get('quote'))
+
+
 def _task_details_differ(old: dict, new: dict) -> bool:
     # A detail the AI did not find is no reason to replace one that a person entered.
     return any(new.get(name) is not None and new.get(name) != old.get(name) for name in TASK_DETAILS)
@@ -51,7 +57,7 @@ def _change(field, kind, old_index, new_index, old, new):
 
 
 def changes(current: dict | None, proposed: dict) -> list[dict]:
-    """Each difference as added, changed or removed. Items with the same text are unchanged."""
+    """Each difference as added, changed, source (same words, new moment or quote) or removed."""
     result = []
     for field in FIELDS:
         old, new = (current or {}).get(field, []), proposed.get(field, [])
@@ -64,6 +70,9 @@ def changes(current: dict | None, proposed: dict) -> list[dict]:
             new_left.remove(j)
             if field == 'tasks' and _task_details_differ(old[match], new[j]):
                 result.append(_change(field, 'changed', match, j, old[match], new[j]))
+            elif _source_differs(old[match], new[j]):
+                # The words stay; the moment or the quote that proves them is new. A person sees it and chooses.
+                result.append(_change(field, 'source', match, j, old[match], new[j]))
         pairs = sorted(((difflib.SequenceMatcher(None, _key(_text(field, old[i])), _key(_text(field, new[j]))).ratio(), i, j)
                         for i in old_left for j in new_left), reverse=True)
         for ratio, i, j in pairs:
@@ -105,8 +114,14 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
             result.setdefault(field, []).append(dict(new, review='ai'))
         elif change['kind'] == 'removed':
             removed[field].append(change['current_index'])
+        elif change['kind'] == 'source':
+            item = result[field][change['current_index']]
+            item.update(evidence_timestamp=new.get('evidence_timestamp', item.get('evidence_timestamp')), quote=new.get('quote', item.get('quote')))
+            item['review'] = 'ai'
         else:
             item = result[field][change['current_index']]
+            # The quote proves the statement: a new statement takes its own quote, or none. The old quote proved the old words.
+            item['quote'] = new.get('quote')
             if field == 'tasks':
                 item.update(task=new['task'], evidence_timestamp=new['evidence_timestamp'],
                             **{name: new[name] for name in TASK_DETAILS if new.get(name) is not None})

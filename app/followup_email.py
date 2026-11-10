@@ -32,6 +32,10 @@ A person edits this draft and sends it from Gmail, so leave a section out rather
 Write the subject and the body in Bulgarian. Keep English technical terms, product names and personal names as supplied."""
 
 
+STALE = ('The notes wait for an update: the transcript or the AI notes changed after your review. '
+         'Choose Update notes & tasks or Review updated notes, then write the follow-up email.')
+
+
 def _date(value):
     try:
         return dt.datetime.fromisoformat(value).astimezone().strftime('%d.%m.%Y')
@@ -50,6 +54,9 @@ def _owner(service, item):
 def source(service, meeting_id):
     """The reviewed content of one meeting. Raises when nothing is reviewed yet."""
     meeting = service.detail(meeting_id)
+    # Notes that wait for an update may still hold a decision that the transcript no longer says.
+    if meeting.get('notes_need_refresh'):
+        raise ValueError(STALE)
     minutes = meeting.get('minutes') or {}
     items = meeting.get('items') or {}
     checked = lambda field: [m['text'] for m in minutes.get(field) or [] if m.get('review') == 'verified' and m.get('text')]

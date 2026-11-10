@@ -154,3 +154,9 @@ these local recovery copies are not automatically removed. If the original canno
 read for preservation, recovery fails instead of overwriting it. No new archive is
 created while metadata needs recovery, avoiding a misleading verified backup of the
 broken data. Existing recording and transcript files are unaffected by metadata repair.
+
+A damaged `settings.json` (not valid JSON, or not an object) does not stop the app. The app
+starts with safe defaults: no automatic processing, no calendar and no cloud AI. It copies
+the original bytes to `settings.corrupt-<id>.json` and does not write `settings.json` until
+you save Settings. The same warning names the copy and opens **Settings**. Saving valid
+settings ends the safe mode; the copy stays.

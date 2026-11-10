@@ -7,6 +7,7 @@ from .work_items import COLLECTIONS, normalize
 import copy
 import json
 import re
+import secrets
 import shutil
 import hashlib
 import datetime as dt
@@ -76,8 +77,26 @@ class MeetingService:
         self.library.recover()
         self.settings_path = root / 'settings.json'
         self.settings = dict(DEFAULTS)
+        self.settings_error = None
         if self.settings_path.exists():
-            self.settings.update(migrate_settings(json.loads(self.settings_path.read_text())))
+            try:
+                saved = json.loads(self.settings_path.read_text())
+                if not isinstance(saved, dict):
+                    raise ValueError('not an object')
+                self.settings.update(migrate_settings(saved))
+            except (ValueError, OSError, UnicodeDecodeError):
+                # A damaged settings file must not lock the person out of the library. The app starts with safe
+                # defaults: no automatic processing, no calendar, no cloud AI. The original bytes stay in a copy.
+                copy_path = None
+                try:
+                    copy_path = self.settings_path.with_name('settings.corrupt-' + secrets.token_hex(8) + '.json')
+                    copy_path.write_bytes(self.settings_path.read_bytes())
+                except OSError:
+                    copy_path = None
+                self.settings = dict(DEFAULTS, auto_process=False, calendar_enabled=False)
+                self.settings_error = ('Settings could not be read, so the app uses safe defaults: no automatic processing, '
+                                       'no calendar and no cloud AI.' + (f' The damaged file is kept as {copy_path.name}.' if copy_path else '')
+                                       + ' Check Settings and save them to replace the damaged file.')
         self.google = google or GoogleCalendar(root, builtin=bundled_client(project))
         self.base_url = 'http://127.0.0.1:8765'
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
@@ -258,6 +277,8 @@ class MeetingService:
         with self.lock:
             atomic_json(self.settings_path, settings)
             self.settings = settings
+            # Valid settings replace a damaged file; its copy stays.
+            self.settings_error = None
             if key is not None:
                 self.api_key = key.strip()
             if elevenlabs_key is not None:
@@ -353,7 +374,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
-                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
+                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), settings_error=self.settings_error, desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
                 speakers=self.library.speakers(), people_migration=self.library.people_migration, voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, api_key_configured=bool(self.api_key), **self.local_ai_key_status(), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,

@@ -645,7 +645,9 @@ async function openMeeting(id,force=false) {
 function renderState() {
  // The meetings changed: the job registry gives the new state of their processing.
  if(typeof refreshJobs==='function')refreshJobs();
- const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length;$('metadata-warning-text').textContent=metadataErrors.join('\n');
+ const metadataErrors=Object.values(state.storage_errors||{});$('metadata-warning').hidden=!metadataErrors.length&&!state.settings_error;$('metadata-warning-text').textContent=[state.settings_error,...metadataErrors].filter(Boolean).join('\n');
+ // A settings error leads to Settings; a store error leads to Backup.
+ $('metadata-recover').textContent=metadataErrors.length?'Open Backup settings':'Open Settings';
  syncSpeakers();
  if($('settings-dialog').open)renderVoiceStatus();
  syncProjects();
@@ -4038,7 +4040,7 @@ document.addEventListener('cancel',event=>{
 // Expose only safe runtime metadata for support, never tokens or conversation text.
 $('copy-diagnostics').onclick=()=>perform(async()=>{const info={desktop:!!state?.desktop_mode,view,active_recording:!!state?.active,connection:$('connection').textContent,transcription:state?.settings?.transcription,notes_provider:state?.settings?.summarizer,ui_version:'ux-flow-2'};await navigator.clipboard.writeText(JSON.stringify(info,null,2));toast('Safe diagnostics copied');});
 
-$('metadata-recover').onclick=()=>openSettings('backup');
+$('metadata-recover').onclick=()=>openSettings(Object.keys(state.storage_errors||{}).length?'backup':undefined);
 
 
 async function openImport(){

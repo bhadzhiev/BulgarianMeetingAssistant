@@ -6,9 +6,7 @@ The draft and final transcript have separate files and lifecycles.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import json
-import math
 from pathlib import Path
 import subprocess
 import sys

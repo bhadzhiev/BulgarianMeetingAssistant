@@ -13,7 +13,6 @@ Only finalized reviews move the next period; a draft, an error or a discarded dr
 """
 from __future__ import annotations
 
-import copy
 import datetime as dt
 import json
 from pathlib import Path

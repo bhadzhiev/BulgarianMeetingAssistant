@@ -156,7 +156,7 @@ select:disabled{opacity:.55;cursor:default}input::placeholder,textarea::placehol
 
 .work-evidence{padding:10px 0;border-top:1px solid var(--line)}.work-evidence p{margin:5px 0;line-height:1.5;overflow-wrap:anywhere}.work-evidence button{text-align:left;white-space:normal;font-size:12px}
 
-.work-proposal{padding:16px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.work-proposal blockquote{margin:10px 0;padding:8px 12px;border-left:3px solid var(--line);white-space:pre-wrap}.work-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
+.work-proposal{padding:16px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.work-proposal blockquote{margin:10px 0;padding:8px 12px;border-left:3px solid var(--line);white-space:pre-wrap}.work-proposal.kb-focus{border-radius:9px;outline:2px solid var(--focus);outline-offset:4px}.work-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
 .work-actions select{flex:1 1 180px;width:auto;max-width:320px}
 .work-actions input{flex:1 1 220px;width:auto}
 .work-actions button{height:40px;padding:0 15px;font-size:12px;white-space:nowrap}

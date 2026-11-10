@@ -7,7 +7,7 @@ assert.match(app,/const MATCH_PRIMARY=\{existing_mention:\['link','Link to this 
 for(const label of ["'Link only'","'Other task…'","'New task'","'Reject'"])assert.ok(card.includes(label),label);
 assert.match(card,/if\(m\.field==='tasks'\)actions\.append\(actionBtn\('secondary small-action','New task'/);
 // What was said, the evidence, the suggested task with its facts, and why.
-assert.match(card,/el\('p','hint','Said in the meeting'\)/);assert.match(card,/el\('blockquote','',ev\.quote\)/);assert.match(card,/'Why: '\+m\.reason/);
+assert.match(card,/el\('p','hint','Said in the meeting'\)/);assert.match(card,/\.\.\.evidenceQuote\(ev\.quote\)/);assert.match(card,/'Why: '\+m\.reason/);
 // Field changes: unchecked boxes with the current and the proposed value; only the checked ones go.
 assert.match(card,/document\.createTextNode\(\(\{owner:'Owner',due_date:'Due date',workflow_state:'State'\}\)\[c\.field\]\+': '\+show\(c\.field,now\)\+' → '\+show\(c\.field,c\.value\)\)/);
 assert.doesNotMatch(card,/check\.checked=true/);
@@ -19,6 +19,6 @@ assert.match(card,/task_id:t\.id,task_revision:t\.revision/);
 assert.match(app,/if\(p\.origin==='meeting_match'&&p\.match\)\{list\.append\(meetingMatchCard\(p,evidence\[p\.evidence_id\]\)\);continue;\}/);
 assert.match(card,/graphAction\('meeting-review',/);
 // A task in the meeting notes points to For review instead of the old link review.
-assert.match(app,/This may be an existing task\. It waits in My Work → For review\./);
+assert.match(app,/This may be an existing task\. It waits in My Work → Proposed\./);
 assert.match(fs.readFileSync('desktop_app.py','utf8'),/elif path == '\/api\/work\/meeting-review':/);
 console.log('Meeting match PASS: one main action per type, evidence and reason, unchecked changes, editable update, revision, own endpoint.');

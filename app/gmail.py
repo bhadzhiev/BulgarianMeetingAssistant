@@ -25,6 +25,8 @@ RETRY_DELAYS = (2, 5, 15, 30)
 MAX_STEPS = 100
 # History pages read before the threads; the rest stays for the next pass.
 MAX_HISTORY_PAGES = 50
+# The text of one thread is at most this long. Older message bodies go first when it is longer.
+MAX_THREAD_TEXT = 900000
 
 
 class _Text(HTMLParser):
@@ -74,20 +76,36 @@ def thread_record(thread, cutoff):
     relevant = any(int(m.get('internalDate', 0)) >= cutoff * 1000 and set(m.get('labelIds', [])) & {'INBOX', 'SENT'} for m in ordered)
     if not ordered or not relevant:
         return None
-    saved, texts = [], []
+    # A message that is too large keeps its sender, subject and date; its body is left out, and the thread says so.
+    # One large message used to stop the whole Gmail sync at this thread on every run.
+    saved = []
     for message in ordered[-100:]:
         headers = {h['name'].lower(): h.get('value','') for h in message.get('payload', {}).get('headers', [])}
-        body = message_text(message.get('payload', {}))
+        omitted = bool(message.get('_omitted'))
+        try:
+            body = '' if omitted else message_text(message.get('payload', {}))
+        except ValueError:
+            body, omitted = '', True
         saved.append(dict(id=message['id'], sender=headers.get('from',''), subject=headers.get('subject',''),
-                          date=int(message.get('internalDate', 0)), sent='SENT' in message.get('labelIds', []), body=body))
-        texts.append(f"Message {message['id']}\nFrom: {headers.get('from','')}\nDate: {message.get('internalDate',0)}\nSubject: {headers.get('subject','')}\n{body}")
-    content = '\n\n'.join(texts)
-    if len(content) > 900000:
+                          date=int(message.get('internalDate', 0)), sent='SENT' in message.get('labelIds', []), body=body,
+                          **({'omitted': True} if omitted else {})))
+    text = lambda row: (f"Message {row['id']}\nFrom: {row['sender']}\nDate: {row['date']}\nSubject: {row['subject']}\n"
+                        + (row['body'] if not row.get('omitted') else '[The message is too large; open it in Gmail.]'))
+    content = '\n\n'.join(text(row) for row in saved)
+    for row in saved:
+        if len(content) <= MAX_THREAD_TEXT:
+            break
+        if row['body']:
+            row.update(body='', omitted=True)
+            content = '\n\n'.join(text(row) for row in saved)
+    if len(content) > MAX_THREAD_TEXT:
         raise ValueError('Gmail thread exceeds the local text limit')
     last = saved[-1]
+    omitted = sum(1 for row in saved if row.get('omitted'))
     return dict(id=thread['id'], subject=last['subject'] or '(No subject)', sender=last['sender'], date=last['date'],
                 view='waiting' if last['sent'] else 'needs_reply', messages=saved, text=content,
-                revision=hashlib.sha256(content.encode()).hexdigest(), partial=len(ordered)>100, fetched_at=time.time())
+                revision=hashlib.sha256(content.encode()).hexdigest(), partial=len(ordered)>100 or bool(omitted),
+                **({'omitted': omitted} if omitted else {}), fetched_at=time.time())
 
 
 class GmailSync:
@@ -164,6 +182,23 @@ class GmailSync:
     def stop(self):
         self.cancel.set()
         return self.status()
+    def _thread(self, account, key):
+        """One thread with its message bodies. A thread too large to read at once is read message by message."""
+        try:
+            return self._get(account,'/threads/'+key,{'format':'full'})
+        except CalendarError as exc:
+            if not getattr(exc,'too_large',False): raise
+        # The headers of every message are small. Then each message alone; a message still too large keeps its headers.
+        thread = self._get(account,'/threads/'+key,{'format':'metadata'})
+        messages = []
+        for message in thread.get('messages') or []:
+            try:
+                messages.append(self._get(account,'/messages/'+message['id'],{'format':'full'}))
+            except (CalendarError, ValueError) as exc:
+                # Too large, or an ID that the read-only adapter does not accept: the headers stay.
+                if isinstance(exc, CalendarError) and not getattr(exc,'too_large',False): raise
+                messages.append(dict(message, _omitted=True))
+        return dict(thread, messages=messages)
     def _check(self):
         if self.cancel.is_set(): raise InterruptedError('cancelled')
         if self.priority(): raise InterruptedError('paused for recording or processing')
@@ -234,7 +269,7 @@ class GmailSync:
             state.update(pending=ids,next_page=page.get('nextPageToken'))
             self._save(account,state)
         for key in list(state['pending'])[:PAGE_SIZE]:
-            try: record = thread_record(self._get(account,'/threads/'+key,{'format':'full'}), state['cutoff'])
+            try: record = thread_record(self._thread(account,key), state['cutoff'])
             except CalendarError as exc:
                 if getattr(exc,'status',None)!=404: raise
                 record = None

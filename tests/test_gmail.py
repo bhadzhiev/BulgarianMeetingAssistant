@@ -288,3 +288,60 @@ class GmailHTTPTests(unittest.TestCase):
         self.service.gmail.thread.join(5)
         status,body,_=self.request('/api/gmail/threads?view=needs_reply')
         self.assertEqual(status,200);self.assertEqual(len(json.loads(body)),1)
+
+
+class LargeThreadTests(unittest.TestCase):
+    """A thread larger than the response limit is read message by message; a large message keeps its headers."""
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.google=FakeMailGoogle()
+        self.sync=GmailSync(Path(self.tmp.name),self.google)
+        self.addCleanup(self.sync.close)
+
+    def message(self, key, content):
+        return dict(id=key,threadId='t1',internalDate=str(int(time.time()*1000)),labelIds=['INBOX'],
+                    payload=dict(mimeType='text/plain',headers=[dict(name='From',value='synthetic@example.invalid'),dict(name='Subject',value='Synthetic')],
+                                 body=dict(data=encoded(content))))
+
+    def test_a_too_large_thread_is_read_message_by_message(self):
+        small, large = self.message('00000000000000a1','Please check the backup.'), self.message('00000000000000b2','x')
+        def handler(path, query):
+            if path=='/profile':return dict(emailAddress=self.google.account,historyId='100')
+            if path=='/threads':return dict(threads=[dict(id='t1')])
+            if path=='/history':return dict(historyId='100',history=[])
+            if path=='/threads/t1' and query['format']=='full':
+                error=CalendarError('Google response exceeds the local response limit.');error.too_large=True;raise error
+            if path=='/threads/t1':
+                return dict(id='t1',messages=[dict(m,payload=dict(headers=m['payload']['headers'])) for m in (small,large)])
+            if path=='/messages/00000000000000a1':return small
+            error=CalendarError('Google response exceeds the local response limit.');error.too_large=True;raise error
+        self.google.handler=handler
+        self.sync.start();self.sync.thread.join(5)
+        status=self.sync.status()
+        self.assertIsNone(status['job']['error'])
+        self.assertEqual(status['sync']['pending'],[])
+        record=self.sync.detail('t1')
+        self.assertEqual([m['body'] for m in record['messages']],['Please check the backup.',''])
+        self.assertTrue(record['messages'][1]['omitted'])
+        self.assertEqual((record['omitted'],record['partial']),(1,True))
+        self.assertIn('[The message is too large; open it in Gmail.]',record['text'])
+
+    def test_a_too_large_body_no_longer_stops_the_thread(self):
+        huge=self.message('00000000000000c3','y'*160000)
+        record=thread_record(dict(id='t1',messages=[self.message('00000000000000a1','Short.'),huge]),0)
+        rows={m['id']:m for m in record['messages']}
+        self.assertEqual(rows['00000000000000a1']['body'],'Short.')
+        self.assertEqual((rows['00000000000000c3']['body'],rows['00000000000000c3'].get('omitted')),('',True))
+
+    def test_older_bodies_go_first_when_the_thread_text_is_too_long(self):
+        rows=[dict(self.message(f'{i:016x}','z'*90000),internalDate=str(1000+i)) for i in range(1,12)]
+        record=thread_record(dict(id='t1',messages=rows),0)
+        self.assertLessEqual(len(record['text']),900000)
+        self.assertTrue(record['messages'][0].get('omitted'))
+        self.assertFalse(record['messages'][-1].get('omitted'))
+
+    def test_the_adapter_reads_one_message_by_its_hex_id_only(self):
+        import re
+        pattern=r'/(profile|threads|history|threads/[A-Za-z0-9_-]{1,128}|messages/[0-9a-f]{8,32})'
+        self.assertTrue(re.fullmatch(pattern,'/messages/197f43307f737877'))
+        self.assertIsNone(re.fullmatch(pattern,'/messages/send'))

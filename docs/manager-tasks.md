@@ -2,7 +2,7 @@
 
 Meetings remain the source of notes. A proposed action is not yet an accepted commitment.
 
-- Open **My Work → For review** to review proposed meeting actions and source proposals together. Edit and accept, accept, link to an existing task, or skip.
+- Open **My Work → Tasks → Inbox** to review proposed meeting actions and source suggestions together: two queues, *From meetings* and *From connected sources*. Edit and accept, accept, link to an existing task, or skip.
 - Use **New task** for work received outside an imported source. Manual tasks are accepted locally; no AI or external message is sent.
 - Open a task title anywhere to edit the same task card: wording, details, expected result, owner, received from, assigned by, project, dates and progress updates.
 - Set **This is me** to an existing People profile. **My tasks** uses a confirmed owner identity or a manually assigned matching name/alias. **Assigned by me** uses the explicit assigner, not an AI guess. These roles do not mean the recipient has accepted externally.

@@ -7,7 +7,7 @@
 | Decision | Source |
 | --- | --- |
 | "Same task" links the meeting as evidence only. A field changes only when a person checks it. | PR 1 (#154) |
-| Meeting proposals go into the existing proposals (`app/work_graph.py`) and the one For review queue. | Brief §1 |
+| Meeting proposals go into the existing proposals (`app/work_graph.py`) and the one Inbox queue (My Work → Tasks → Inbox). | Brief §1 |
 | The AI receives only **accepted, visible, open** tasks, plus accepted tasks closed in the last 14 days. Proposed (not accepted) and hidden (dismissed) tasks never go to the AI. | Decision of 8 November 2026 |
 | The local sieve still compares with proposed tasks, so a repeated pending task does not become a second proposal. This costs no tokens. | Same decision |
 | Automatic notes and a remote API: the extra task context waits for approval, or a standing permission in Settings. | Open: product decision (brief remark 4) |
@@ -91,7 +91,7 @@ Measure apart:
 
 Done:
 - PR 1 (#154), PR 2 (#156) and PR 3 (#157) are merged.
-- In PR 4, meeting tasks and updates become proposals in For review.
+- In PR 4, meeting tasks and updates become proposals in the Inbox.
 
 Known limits of the first version:
 - **Decisions** keep the old link review. Task matching covers tasks and updates only.
@@ -99,4 +99,4 @@ Known limits of the first version:
 - **Automatic updates of the speaker's own tasks** (decision of 9 November 2026). The open tasks of the speaker of a
   mention are always candidates. An `existing_update` about an open, accepted task that the speaker owns or works on is
   added to that task at once when the AI gives `confidence: high`, as an update by AI with the meeting, the time and the quote. The task timeline has
-  **Remove this update**. Every other answer still waits for a person in For review. An unknown speaker adds nothing.
+  **Remove this update**. Every other answer still waits for a person in the Inbox. An unknown speaker adds nothing.

@@ -545,8 +545,8 @@ def _segment_value(segment, name):
     return segment.get(name) if isinstance(segment, dict) else getattr(segment, name, None)
 
 
-def quote_window(segments: list, stamp: str) -> str | None:
-    """The words near one moment, for a quote check. None when no segment starts at that moment."""
+def quote_span(segments: list, stamp: str) -> tuple[int, int] | None:
+    """The segments near one moment, as (first, end) indexes. None when no segment starts at that moment."""
     index = next((i for i, s in enumerate(segments) if timestamp(_segment_value(s, "start") or 0) == stamp), None)
     if index is None:
         return None
@@ -564,7 +564,13 @@ def quote_window(segments: list, stamp: str) -> str | None:
     first = index
     if index and 0 <= (_segment_value(segments[index], "start") or 0) - (_segment_value(segments[index - 1], "end") or 0) <= QUOTE_GAP:
         first = index - 1
-    return _plain(" ".join(_segment_text(s) for s in segments[first:end]))
+    return first, end
+
+
+def quote_window(segments: list, stamp: str) -> str | None:
+    """The words near one moment, for a quote check. None when no segment starts at that moment."""
+    span = quote_span(segments, stamp)
+    return _plain(" ".join(_segment_text(s) for s in segments[span[0]:span[1]])) if span else None
 
 
 def verify_quotes(minutes: dict[str, Any], segments: list) -> int:

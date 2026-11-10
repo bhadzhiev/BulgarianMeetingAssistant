@@ -36,7 +36,9 @@ python scripts/build_desktop.py
 
 To build and install (or reinstall) in one step, run `scripts/install_desktop.sh`. The script makes
 a packaging environment in `.venv-build`, installs the Tauri CLI, and builds the app. It then quits a
-running copy and replaces `/Applications/Atlanta.app`. A copy with the old name
+running copy and replaces `/Applications/Atlanta.app`. Only one install runs at a time: a second
+run stops with "Another install is running", because two builds in the same folders make an app
+that does not start. A lock left by a stopped install (`build/install.lock`) is taken over. A copy with the old name
 (`Bulgarian Meeting Assistant.app`) moves to the previous copies. The identifier, the library and
 the Keychain item stay the same. `BMA_INSTALL_DIR` selects
 another folder. The script accepts the same options as `build_desktop.py`. It also installs

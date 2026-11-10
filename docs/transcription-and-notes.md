@@ -89,7 +89,13 @@ the settings it started with for automatic processing.
   starts. `LOCAL_AI_API_KEY`, if set before the app starts, is used instead and is not saved.
 - **Model context** (advanced; always shown for a cloud API) is the context of the served model. Up to 16,384 tokens, a long
   meeting goes in parts of 10,000 characters. A larger context takes the meeting in larger parts, up
-  to 400,000 characters, so a cloud model usually reads the whole meeting at once.
+  to 400,000 characters, so a cloud model usually reads the whole meeting at once. A part is never
+  larger than what the context leaves after the output limit and the notes instructions (their size is
+  measured for each run, with your saved instructions). Settings refuse an output limit that leaves less
+  than 6,000 tokens of the context.
+- **Load models** sends the saved API key only when the address is the saved address. A new address
+  gets no key: save the key first, or type the model name. A refused request says that the endpoint
+  asks for authentication.
 - **Temperature** (advanced; always shown for a cloud API): **0** gives the same answer for the same input. Kimi K3 models accept
   only their own value; choose **Server default** for them. Keep reasoning on **Automatic** for Kimi.
   With thinking on, Kimi K3 models used the full 16,384-token output limit and returned no notes.

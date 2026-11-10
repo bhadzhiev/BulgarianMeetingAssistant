@@ -95,14 +95,27 @@ class PartSizeTests(unittest.TestCase):
     def test_parts_hold_about_ten_thousand_characters(self):
         # 4,000 characters split a 22-minute meeting into five partial summaries.
         self.assertEqual(processing.NOTES_PART_CHARS, 10000)
-        self.assertIn('notes_part_chars(settings), overhead=15', inspect.getsource(processing.summarize))
+        self.assertIn('notes_part_chars(settings, prompt_tokens(args)), overhead=15', inspect.getsource(processing.summarize))
 
     def test_a_large_context_takes_a_long_meeting_in_one_part(self):
         local = dict(DEFAULTS, summarizer='local')
         self.assertEqual(processing.notes_part_chars(local), 10000)
-        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=8192)), 10000)
         self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=262144, local_ai_max_tokens=16384)), 400000)
-        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 108688)
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 104688)
+        # A small context gets a smaller part: what is left after the answer and the prompt.
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=12288, local_ai_max_tokens=4096), 5000), 6384)
+
+    def test_a_context_without_room_for_the_transcript_fails_clearly(self):
+        local = dict(DEFAULTS, summarizer='local', local_ai_context=4096, local_ai_max_tokens=4096)
+        with self.assertRaisesRegex(ValueError, 'leaves no room for the transcript'):
+            processing.notes_part_chars(local)
+
+    def test_the_real_prompt_size_is_measured(self):
+        import types
+        size = processing.prompt_tokens(types.SimpleNamespace())
+        self.assertTrue(3000 < size <= processing.PROMPT_TOKENS, size)
+        longer = processing.prompt_tokens(types.SimpleNamespace(_prompt_snapshot=dict(stages=dict(meeting_minutes=dict(effective='x' * 4000)))))
+        self.assertEqual(longer - size, 2000)
         # OpenAI keeps the measured part size until it is measured with a larger one.
         self.assertEqual(processing.notes_part_chars(dict(DEFAULTS, summarizer='openai', local_ai_context=262144)), 10000)
 

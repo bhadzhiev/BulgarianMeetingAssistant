@@ -85,7 +85,10 @@ flight can take up to its 30-second timeout; it does not hold recording controls
 These are direction-based candidates, not AI judgments that someone owes a reply. Open a thread to
 read its cached text and fetch time. HTML becomes plain text; remote images, scripts and attachments
 are not fetched or rendered. A thread includes at most its latest 100 non-draft messages and local
-size limits apply. Matching threads can contain older messages. This version does not send, modify,
+size limits apply. A thread larger than the Google response limit (8 MB) is read message by message.
+A message that is still too large, or a body over the local limit, keeps its sender, subject and date;
+the reader says "too large to load" and the sync goes on. When the thread text is too long, the
+oldest bodies are left out first. Matching threads can contain older messages. This version does not send, modify,
 label or draft email. Email content reaches an AI endpoint only through the selected-message approval below.
 
 **Suggest a task** previews the AI provider and generates an editable task draft from this message.

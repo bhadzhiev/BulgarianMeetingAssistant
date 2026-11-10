@@ -1849,13 +1849,13 @@ $('gmail-search').oninput=renderMailList;listKeys($('gmail-threads'));
 async function openMail(key){
  const request=readers.start('mail'),thread=await api('/api/gmail/thread?id='+encodeURIComponent(key));if(!readers.current(request)||view!=='tasks'||workTab!=='gmail')return;const box=$('gmail-detail');mailThread=key;syncRoute(true);renderMailList();
  const head=el('div','reader-head'),attach=actionBtn('secondary small-action','Attach to project',()=>attachExternal('gmail',thread.id));
- head.append(attach,el('h3','',thread.subject),el('p','hint',AtlantaUX.count(thread.messages.length,'message')+' · cached '+relTime(thread.fetched_at*1000)+(thread.partial?' · only the latest 100 messages':'')));
+ head.append(attach,el('h3','',thread.subject),el('p','hint',AtlantaUX.count(thread.messages.length,'message')+' · cached '+relTime(thread.fetched_at*1000)+(thread.omitted?' · '+AtlantaUX.count(thread.omitted,'message')+' too large to load':thread.partial?' · only the latest 100 messages':'')));
  const body=el('div','reader-body');
  for(const message of thread.messages){
   const card=el('article','mail-message'+(message.sent?' sent':'')),top=el('div','message-top');card.dataset.threadId=thread.id;card.dataset.messageId=message.id;
   top.append(avatar(personName(message.sender)),el('strong','',personName(message.sender)),el('span','hint',dateTime(message.date)));
   if(message.identity)top.append(senderIdentityButton(message.identity,message.sender));
-  card.append(top,el('p','message-text',message.body||'No inline text body. Attachments are not fetched.'));
+  card.append(top,el('p','message-text',message.body||(message.omitted?'This message is too large to load here. Open it in Gmail.':'No inline text body. Attachments are not fetched.')));
   if(message.body){
    const actions=el('div','message-actions'),suggest=el('button','secondary small-action','Suggest a task'),analyze=el('button','quiet small-action','Analyze with AI');
    suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'gmail',id:thread.id,revision:thread.revision,message_id:message.id}));

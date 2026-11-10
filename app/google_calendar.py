@@ -168,7 +168,10 @@ def http_json(url: str, method='GET', payload=None, token=None, form=False):
         with urllib.request.urlopen(request,timeout=30) as response:
             raw = response.read(8 * 1024 * 1024 + 1)
             if len(raw) > 8 * 1024 * 1024:
-                raise CalendarError('Google response exceeds the local response limit.')
+                error = CalendarError('Google response exceeds the local response limit.')
+                # A caller can ask for a smaller answer, for example one Gmail message instead of a whole thread.
+                error.too_large = True
+                raise error
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
         # Keep authorization codes, tokens, response bodies, and client secrets out of errors.
@@ -378,7 +381,8 @@ class GoogleCalendar:
 
     def gmail_get(self, path, query=None, expected_account=None):
         # This adapter has no write method and accepts only the endpoints it uses.
-        if not re.fullmatch(r'/(profile|threads|history|threads/[A-Za-z0-9_-]{1,128})', path):
+        # One message by its ID is read only when its thread is too large to read at once.
+        if not re.fullmatch(r'/(profile|threads|history|threads/[A-Za-z0-9_-]{1,128}|messages/[0-9a-f]{8,32})', path):
             raise ValueError('Unsupported Gmail endpoint')
         with self.lock:
             if GMAIL_SCOPE not in self._scopes():

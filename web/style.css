@@ -1454,3 +1454,9 @@ label.required-label:has(.date-part-label)::after{content:none}
 .task-row-actions .task-timeline{margin-left:auto}
 .task-row-actions .quiet{color:var(--ink)}
 @media(max-width:600px){.task-meeting{grid-template-columns:auto minmax(0,1fr) auto}.task-meeting-date{display:none}.task-row-actions .task-timeline{margin-left:0}}
+/* Add titles: one row per task, the new title above the old text that becomes the description. */
+.task-titles-list{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto;margin:12px 0}
+.task-title-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:10px 4px;margin:0;border-top:1px solid var(--line);font-weight:400}
+.task-title-row>input[type=checkbox]{margin-top:9px}
+.task-title-fields{display:flex;flex-direction:column;gap:6px;min-width:0}
+.task-title-fields .task-description{margin:0}

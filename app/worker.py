@@ -22,6 +22,9 @@ def execute(action, directory, settings, progress, key='', speakers=(), trackers
     if action == 'task_draft':
         from .task_draft import generate
         return generate(settings['task_draft_source'], settings, key)
+    if action == 'task_titles':
+        from .task_titles import generate
+        return generate(settings['task_titles_input'], settings, key, progress)
     if action == 'task_matching':
         from .task_matching import generate
         return generate(settings['task_matching_input'], settings, key)

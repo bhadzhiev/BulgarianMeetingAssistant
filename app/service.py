@@ -177,6 +177,8 @@ class MeetingService:
         self.repo_reports = RepoReports(self)
         from .task_draft import DraftJobs
         self.task_drafts = DraftJobs(self)
+        from .task_titles import TitleJobs
+        self.task_titles = TitleJobs(self)
         from .team_ai import ReviewAI
         self.team_ai = ReviewAI(self)
         from .team_github import TeamGitHub
@@ -3312,6 +3314,7 @@ class MeetingService:
         self.closed.set()
         self.prompt_lab.close()
         self.task_drafts.close()
+        self.task_titles.close()
         self.team_ai.close()
         self.team_github.close()
         self.repo_reports.close()

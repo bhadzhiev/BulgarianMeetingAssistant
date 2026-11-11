@@ -149,7 +149,10 @@ tasks, decisions, updates or questions. A task title has 6–12 words (at most 1
 and object. Each task also has a description (`details`): 1–3 short sentences with the scope,
 conditions, contacts or expected result that the transcript says, or null when it says nothing more.
 A person edits the title and the description in the task panel. "Update notes" offers a new
-description of an existing task as a change; an empty one never clears it. A guess ("може би ще го дам на Иван") is an open question,
+description of an existing task as a change; an empty one never clears it.
+Older tasks that are only one line get titles in My Work → **Add titles**: the dialog names the
+AI endpoint and the number of tasks first (accepted, visible tasks only), the AI writes a short title
+for each, the old text becomes the description, and only the titles a person keeps are saved. A guess ("може би ще го дам на Иван") is an open question,
 not a task. A first-person commitment ("ще изпратя Иван при Мария") is a task of the speaker, not a
 decision. The sections of the meeting type and the updates do not repeat a decision or a task. The
 summary holds only points that are in no other section; it may be empty. A wish without an agreed

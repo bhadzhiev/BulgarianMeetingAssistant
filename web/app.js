@@ -1076,6 +1076,47 @@ function noteSection(minutes,field,title,busy,hint) {
  const add=el('button','secondary','＋ Add'); add.type='button'; add.disabled=busy; add.onclick=()=>{items.push({text:'',evidence_timestamp:null,review:'verified'});markNotes();draw();list.lastElementChild?.querySelector('textarea').focus();};
  section.append(list,add); return section;
 }
+// Old one-line tasks: the AI writes a title, the text becomes the description, and only the titles a person keeps are saved.
+// The same rule as the server: accepted, visible tasks without a description. Proposals and hidden tasks are never sent.
+function untitledTask(item){return item.kind==='task'&&item.acceptance_state!=='proposed'&&!item.dismissed&&!String(item.details||'').trim()&&!!String(item.text||'').trim();}
+let taskTitleRun=null,taskTitlePreview=null;
+async function openTaskTitles(){
+ const preview=await api('/api/task-titles/preview',{});taskTitlePreview=preview;taskTitleRun=null;
+ $('task-titles-list').replaceChildren();$('task-titles-status').hidden=true;$('task-titles-apply').hidden=$('task-titles-stop').hidden=true;
+ $('task-titles-target').textContent=!preview.count?'Every task already has a description.':preview.ai_available?'Atlanta sends the text of '+AtlantaUX.count(preview.count,'task')+' ('+preview.characters+' characters) to '+preview.target.model+(preview.target.base_url?' at '+preview.target.base_url:'')+'. Proposals and hidden tasks are not sent.':preview.ai_unavailable_reason;
+ $('task-titles-generate').hidden=false;$('task-titles-generate').disabled=!preview.ai_available||!preview.count;
+ editorDirty.clear('dialog:task-titles-dialog');$('task-titles-dialog').showModal();
+}
+async function pollTaskTitles(id){
+ while(taskTitleRun===id&&$('task-titles-dialog').open){
+  const job=await api('/api/task-titles/status?id='+encodeURIComponent(id));if(taskTitleRun!==id)return;
+  $('task-titles-status').hidden=false;$('task-titles-status').textContent=job.error?job.status+' · '+job.error:job.status;
+  if(!job.running){taskTitleRun=null;$('task-titles-stop').hidden=true;if(job.proposals?.length)renderTaskTitles(job.proposals);else{$('task-titles-generate').hidden=false;if(!job.error&&job.status!=='Cancelled')$('task-titles-status').textContent='The AI returned no new titles.';}return;}
+  await new Promise(resolve=>setTimeout(resolve,1500));
+ }
+}
+function renderTaskTitles(rows){
+ const list=$('task-titles-list');list.replaceChildren(el('p','hint',AtlantaUX.count(rows.length,'title')+' to review. Edit a title, or clear its check box to keep the task as it is.'));
+ for(const row of rows){
+  const line=el('label','task-title-row'),check=el('input'),title=el('input'),fields=el('div','task-title-fields');
+  check.type='checkbox';check.checked=true;check.setAttribute('aria-label','Apply the title for: '+row.text);
+  title.value=row.title;title.maxLength=200;title.setAttribute('aria-label','Title for: '+row.text);title.oninput=()=>{check.checked=!!title.value.trim();};
+  fields.append(title,el('p','task-description',row.text));line.append(check,fields);line.taskTitle={row,check,title};list.append(line);
+ }
+ $('task-titles-apply').hidden=false;
+}
+$('task-titles-open').onclick=()=>perform(openTaskTitles);
+$('task-titles-generate').onclick=()=>perform(async()=>{const job=await api('/api/task-titles/start',{approved:true,preview_token:taskTitlePreview.preview_token});taskTitleRun=job.id;$('task-titles-generate').hidden=true;$('task-titles-stop').hidden=false;pollTaskTitles(job.id);});
+$('task-titles-stop').onclick=()=>perform(async()=>{if(taskTitleRun)await api('/api/task-titles/cancel',{id:taskTitleRun});});
+$('task-titles-close').onclick=()=>$('task-titles-dialog').close();
+$('task-titles-dialog').addEventListener('close',()=>{if(taskTitleRun)api('/api/task-titles/cancel',{id:taskTitleRun}).catch(()=>{});taskTitleRun=null;});
+$('task-titles-apply').onclick=()=>perform(async()=>{
+ const changes=[...$('task-titles-list').querySelectorAll('.task-title-row')].map(line=>line.taskTitle).filter(t=>t.check.checked&&t.title.value.trim()).map(t=>({id:t.row.id,revision:t.row.revision,text:t.row.text,title:t.title.value.trim()}));
+ if(!changes.length){toast('Choose at least one title');return;}
+ const result=await api('/api/task-titles/apply',{changes});
+ editorDirty.clear('dialog:task-titles-dialog');$('task-titles-dialog').close();await refreshAfterItemChange();
+ toast(AtlantaUX.count(result.applied,'task')+' updated'+(result.skipped?' · '+result.skipped+' changed meanwhile and stayed as they were':''));
+});
 function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):item.text; }
 async function reviewNotes(action,accept) {
  detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
@@ -1161,7 +1202,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
  const description=String((item?item.details:task.details)||'').trim();if(description)main.append(taskDescription(description));
- if(item&&item.text!==task.task) main.append(el('p','hint said-here','Said here: '+task.task));
+ if(item&&item.text!==task.task&&String(item.details||'').trim()!==task.task.trim()) main.append(el('p','hint said-here','Said here: '+task.task));
  main.append(meta);
  if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions){const citation=el('div','meeting-task-citation');citation.append(el('p','',mention.task),sourceBlock(mention.evidence_timestamp));evidence.append(citation);}main.append(evidence);}
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
@@ -2345,6 +2386,7 @@ function renderBulkTasks(){
 function taskSummary(text){if(['task','decision'].includes(workTab))$('tasks-summary').textContent=text;}
 function renderTasks() {
  if(itemEditing||bulkSaving)return;
+ const untitled=(itemsData.items||[]).filter(untitledTask).length;$('task-titles-open').hidden=!untitled;$('task-titles-open').textContent='Add titles · '+untitled;
  renderWorkGraph();renderManagerControls();$('manager-controls').hidden=itemKind!=='task';
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
  const project=$('work-project'), oldProject=project.value||stored('tasks-project')||'';
@@ -4018,6 +4060,7 @@ const dialogPolicies={
  'conversation-reader':{close:'conversation-reader-close',transient:true},
  'draft-review-dialog':{close:'draft-review-cancel',transient:true},
  'followup-dialog':{close:'followup-close',cancel:'followup-cancel'},
+ 'task-titles-dialog':{close:'task-titles-close',cancel:'task-titles-cancel'},
  'task-email-dialog':{close:'task-email-close',cancel:'task-email-cancel'},
  'ask-dialog':{transient:true},// A typed project name is an edit: Cancel and Escape ask before they discard it.
  'project-dialog':{cancel:'project-cancel',dismiss:()=>$('project-dialog').close()}

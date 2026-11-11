@@ -54,6 +54,15 @@ class ReviewQueueTests(unittest.TestCase):
         self.s.library.update(self.mid, notes_need_refresh=True)
         self.assertEqual(self.row()['notes'], 'refresh')
 
+    def test_items_review_is_blocked_while_the_notes_wait_for_an_update(self):
+        self.s.library.update(self.mid, notes_need_refresh=True)
+        row = self.row()
+        self.assertEqual((row['items'], row['review_blocked']), (1, True))
+
+    def test_items_review_is_actionable_when_the_notes_are_current(self):
+        row = self.row()
+        self.assertEqual((row['items'], row['review_blocked']), (1, False))
+
     def test_named_meeting_without_notes_is_not_listed(self):
         named = self.meeting('Retro', [dict(start=0, end=5, speaker='Мария', text='Готово.')])
         self.assertIsNone(self.row(named))

@@ -83,6 +83,6 @@ def build(service):
                 continue
             rows.append(dict(id=meeting['id'], title=meeting['title'], created=meeting['created'],
                              speakers=transcript['speakers'], notes=notes,
-                             items=len(pending), repair=repair))
+                             items=len(pending), review_blocked=bool(meeting.get('notes_need_refresh')), repair=repair))
         return dict(meetings=rows, totals=dict(meetings=len(rows), speakers=sum(r['speakers'] for r in rows),
                                                items=sum(r['items'] for r in rows), notes=sum(bool(r['notes']) for r in rows)))

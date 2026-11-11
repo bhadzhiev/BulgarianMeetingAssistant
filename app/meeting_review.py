@@ -201,7 +201,7 @@ def snapshot(service, meeting_id):
                      destination_repository=item.get('destination_repository'),repositories=service.project_repositories(projects) if item['kind']=='task' else [])
         guard=dismissal(item,meeting_id,sources.get(meeting_id,source),sources)
         guard['confirmed_in']=[dict(meeting_id=mid,title=refs.get(mid,{}).get('title') or 'Confirmed meeting') for mid in guard['confirmed_in']]
-        rows.append(dict(routing,**guard,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],owner=item.get('owner'),state=state,closed=closed(item),
+        rows.append(dict(routing,**guard,evidence=evidence,id=item['id'],kind=item['kind'],text=item['text'],details=item.get('details') or '',owner=item.get('owner'),state=state,closed=closed(item),
                          revision=item.get('revision'),content=digest,receipt=copy.deepcopy(receipt),
                          links=copy.deepcopy(item.get('links',[]))))
     rows.sort(key=lambda row:ORDER[row['state']])

@@ -326,13 +326,14 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
         "type": "object",
         "properties": {
             "task": {"type": "string"},
+            "details": {"type": ["string", "null"]},
             "owner": {"type": ["string", "null"]},
             "deadline": {"type": ["string", "null"]},
             "due_date": {"type": ["string", "null"]},
             "evidence_timestamp": {"type": "string"},
             "quote": {"type": ["string", "null"]},
         },
-        "required": ["task", "owner", "deadline", "due_date", "evidence_timestamp", "quote"],
+        "required": ["task", "details", "owner", "deadline", "due_date", "evidence_timestamp", "quote"],
         "additionalProperties": False,
     }
     item = {
@@ -419,7 +420,10 @@ task: „<отговорник> да <глагол> <обект>“, ако от
 „Да <глагол> <обект>“. Една работа е една задача: не записвай същата работа втори път с други думи.
 task е кратко заглавие: обикновено 6–12 думи, най-много 15, с глагол в началото на действието.
 Заглавието съдържа само отговорника, действието и обекта. Без условия, списъци, фон или контакти и без „;“:
-подробностите остават в quote. Друг факт (например кой е контактът по темата) е отделен запис в своята секция.
+подробностите остават в details и quote. Друг факт (например кой е контактът по темата) е отделен запис в своята секция.
+details: описание на задачата в 1–3 кратки изречения, само от казаното: какво точно трябва да се направи, обхват,
+условия, контакти или резултат, по който се разбира, че е готово. Не повтаряй заглавието с други думи и не измисляй.
+Ако текстът не казва нищо повече от заглавието, върни null.
 Всеки елемент в summary, decisions, next_steps, needs_decision, open_questions и observations е обект:
 text е твърдението, evidence_timestamp е timestamp на сегмента, който го доказва. Не пиши timestamp в text.
 Човек проверява всяко твърдение, като отваря неговия момент в записа; неточен evidence_timestamp прави проверката невъзможна.
@@ -653,7 +657,7 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
                 raise ValueError(f"Timestamp {stamp} does not reference a transcript segment")
     for task in minutes["tasks"]:
         core = {"task", "owner", "deadline", "evidence_timestamp"}
-        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"due_date", "status", "review", "quote", *REGISTRY_KEYS}:
+        if not isinstance(task, dict) or not core <= set(task) or set(task) - core - {"details", "due_date", "status", "review", "quote", *REGISTRY_KEYS}:
             raise ValueError("Invalid task fields")
         _check_quote(task)
         task.setdefault("due_date", None)
@@ -662,6 +666,8 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
         if task["review"] not in REVIEW_STATES:
             raise ValueError("Review state must be ai or verified")
         _check_registry_keys(task)
+        if task.get("details") is not None and not isinstance(task["details"], str):
+            raise ValueError("Task details must be text or null")
         if task["status"] not in {"open", "done"}:
             raise ValueError("Task status must be open or done")
         if task["due_date"] is not None:
@@ -739,7 +745,7 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
             lines.extend(line(item) for item in minutes[field])
     lines.extend(["", "## Задачи", "", "| Задача | Отговорник | Краен срок | Дата | Статус | Източник |", "|---|---|---|---|---|---|"])
     for task in minutes.get("tasks", []):
-        values = [task.get("task", ""), task.get("owner") or "Не е посочен", task.get("deadline") or "Не е посочен",
+        values = [task.get("task", "") + (" — " + task["details"].strip() if (task.get("details") or "").strip() else ""), task.get("owner") or "Не е посочен", task.get("deadline") or "Не е посочен",
                   task.get("due_date") or "—", "Изпълнена" if task.get("status") == "done" else "Отворена", task.get("evidence_timestamp") or "Ръчно добавена"]
         lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in values) + " |")
     if not minutes.get("tasks"):

@@ -1426,7 +1426,8 @@ label.required-label:has(.date-part-label)::after{content:none}
 .tracked-task.task-card .entity-top{align-items:flex-start;gap:12px}
 .tracked-task.task-card:not(.decision) .entity-top .tracked-text{font-size:16px;font-weight:700;line-height:1.35;color:var(--ink);padding:0}
 .tracked-task.task-card .entity-chips .project-chip{padding:5px 12px;font-size:12px}
-.task-subtitle{margin:-6px 0 0;color:var(--muted);font-size:13px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-description{margin:-4px 0 0;color:var(--muted);font-size:13px;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tracked-task:not(.task-card) .task-description,.review-card .task-description{margin:2px 0 4px}
 .tracked-task.task-card .tracked-meta{gap:8px 0}
 .tracked-task.task-card .tracked-meta>*+*{padding-left:14px;margin-left:14px;border-left:1px solid var(--line)}
 .tracked-task.task-card .tracked-meta>.due-label.overdue,.tracked-task.task-card .tracked-meta>.due-label.today{border-left:0;margin-left:14px;padding:3px 10px}

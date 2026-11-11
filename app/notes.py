@@ -12,7 +12,8 @@ import re
 from .meeting_types import SECTION_FIELDS
 
 FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *SECTION_FIELDS)
-TASK_DETAILS = ('owner', 'deadline', 'due_date')
+# A new description is a change a person can accept; an empty one never clears what the task has.
+TASK_DETAILS = ('details', 'owner', 'deadline', 'due_date')
 SIMILAR = 0.6
 # Two statements of the same moment (within NEAR seconds) need less similar words to be one statement.
 SAME_MOMENT = 0.4

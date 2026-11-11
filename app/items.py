@@ -19,7 +19,8 @@ from .work_items import WorkItemStore, WorkItemConflict
 
 FIELD = {'task': 'tasks', 'decision': 'decisions'}
 # Item field -> mention field. The mention fields are what one meeting said.
-MENTION = {'task': {'text': 'task', 'owner': 'owner', 'deadline': 'deadline', 'due_date': 'due_date', 'status': 'status'},
+# details: the description that the notes give under the task title; a person edits it like the title.
+MENTION = {'task': {'text': 'task', 'details': 'details', 'owner': 'owner', 'deadline': 'deadline', 'due_date': 'due_date', 'status': 'status'},
            'decision': {'text': 'text'}}
 TASK_STATES = ('open', 'done')
 DECISION_STATES = ('proposed', 'accepted', 'superseded')
@@ -237,7 +238,7 @@ class Registry:
             for item in self.items.values():
                 if item['kind'] != 'task' or item['id'] in present_ids:continue
                 if any(l['meeting_id'] == meeting_id and l.get('manual_task') for l in item['links']):
-                    minutes.setdefault('tasks', []).append(dict(task=item['text'], owner=item.get('owner'),
+                    minutes.setdefault('tasks', []).append(dict(task=item['text'], details=item.get('details') or None, owner=item.get('owner'),
                         deadline=item.get('deadline'), due_date=item.get('due_date'), status=item['status'],
                         evidence_timestamp=None, review='verified', item_id=item['id']))
                     changed = True

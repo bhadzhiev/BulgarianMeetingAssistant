@@ -1076,7 +1076,7 @@ function noteSection(minutes,field,title,busy,hint) {
  const add=el('button','secondary','＋ Add'); add.type='button'; add.disabled=busy; add.onclick=()=>{items.push({text:'',evidence_timestamp:null,review:'verified'});markNotes();draw();list.lastElementChild?.querySelector('textarea').focus();};
  section.append(list,add); return section;
 }
-function changeText(field,item) { return field==='tasks'?[item.task,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):item.text; }
+function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):item.text; }
 async function reviewNotes(action,accept) {
  detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
@@ -1160,6 +1160,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  if(item&&!current.due_date&&current.deadline){const suggested=AtlantaTasks.suggestDueDate(current.deadline,(detail.created||'').slice(0,10));if(suggested){const applyDue=btn('secondary small-action','Set due '+date(suggested));applyDue.title='Apply the date said in the meeting as the due date';applyDue.onclick=()=>perform(()=>changeItem(item,{due_date:suggested}));meta.append(applyDue);}}
  const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
+ const description=String((item?item.details:task.details)||'').trim();if(description)main.append(taskDescription(description));
  if(item&&item.text!==task.task) main.append(el('p','hint said-here','Said here: '+task.task));
  main.append(meta);
  if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions){const citation=el('div','meeting-task-citation');citation.append(el('p','',mention.task),sourceBlock(mention.evidence_timestamp));evidence.append(citation);}main.append(evidence);}
@@ -1704,9 +1705,9 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
  const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
  const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));head.append(title,chips);
- // The details line under the title is the first line of the task details; the panel shows all of them.
- const subtitle=String(item.details||'').split('\n').map(line=>line.trim()).find(Boolean);
- main.append(head,...(subtitle?[el('p','task-subtitle',subtitle)]:[]),meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));
+ // A task is a title and a description; the card shows up to three lines of it, the panel shows all.
+ const description=String(item.details||'').trim();
+ main.append(head,...(description?[taskDescription(description)]:[]),meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));
  // The last update is a short box; Timeline holds the full text.
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(el('span','task-update-label','Last update'),el('span','task-last-when',dateTime(update.at)),last);if(mailed)box.append(mailed);main.append(box);}
@@ -1759,6 +1760,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  // A card without bulk selection (Projects, Prepare me) has no empty selection column.
  row.append(...(select?[marks]:[]),main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';const actions=itemActions(item,row);if(compactMenu)actions.prepend(...compactMenu);more.append(trigger,actions);row.append(more);}return row;
 }
+function taskDescription(text){const node=el('p','task-description',text);node.title=text;return node;}
 function decisionRow(item,byId) {
  const row=el('div','tracked-task decision entity-card task-card '+item.status), main=el('div','tracked-main'), meta=el('div','tracked-meta');
  // The shared card: wording with its project, the state, only the action that waits for a person, the source.
@@ -4232,7 +4234,7 @@ async function openMeetingReview(){
  if(data.source_changed){const notice=el('div','notice warning'),update=btn('secondary small-action','Update notes');notice.append(el('span','',AtlantaStatus.label('verification','changed')+' · update the notes before confirming.'),update);update.onclick=()=>perform(async()=>{switchTab('transcript');$('primary-action').scrollIntoView({block:'center'});});box.append(notice);}
  for(const item of data.items){
   const row=el('section','entity-card review-card'+(waiting(item)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
-  const head=el('div','entity-top');head.append(el('p','review-text',item.text),state);row.append(head);
+  const head=el('div','entity-top');head.append(el('p','review-text',item.text),state);row.append(head);if(item.details)row.append(taskDescription(item.details));
   row.append(el('p','entity-meta',(item.kind==='decision'?'Decision':'Task')+(item.owner?' · Owner: '+item.owner:'')));
   row.append(reviewRouting(item));
   // A short quote with its moment; the full quote shows on request and plays in place.

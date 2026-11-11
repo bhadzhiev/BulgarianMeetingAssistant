@@ -146,7 +146,10 @@ Each statement goes into one section only, in this order: decisions, tasks, upda
 of the meeting type, needs decision, open questions, next steps, observations, summary. The model
 writes the sections in this order too, so the summary comes last. The summary does not repeat
 tasks, decisions, updates or questions. A task title has 6–12 words (at most 15): owner, action
-and object. Conditions, lists and context stay in the quote. A guess ("може би ще го дам на Иван") is an open question,
+and object. Each task also has a description (`details`): 1–3 short sentences with the scope,
+conditions, contacts or expected result that the transcript says, or null when it says nothing more.
+A person edits the title and the description in the task panel. "Update notes" offers a new
+description of an existing task as a change; an empty one never clears it. A guess ("може би ще го дам на Иван") is an open question,
 not a task. A first-person commitment ("ще изпратя Иван при Мария") is a task of the speaker, not a
 decision. The sections of the meeting type and the updates do not repeat a decision or a task. The
 summary holds only points that are in no other section; it may be empty. A wish without an agreed

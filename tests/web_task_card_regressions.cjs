@@ -4,11 +4,11 @@ const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function
 // The quick fields start closed, open with one button, and stay open after the refresh that a save causes.
 assert.match(app,/const openTaskFields=new Set\(\);\nfunction globalTaskRow\(/);
 assert.match(row,/quick\.hidden=!openTaskFields\.has\(item\.id\)/);
-assert.match(row,/toggle\.textContent=open\?'Hide fields':'Change owner or dates'/);
+assert.match(row,/toggle\.textContent=open\?'Hide fields':'Edit'/);
 assert.match(row,/toggle\.setAttribute\('aria-expanded',String\(open\)\)/);
 assert.match(row,/if\(open\)openTaskFields\.add\(item\.id\);else openTaskFields\.delete\(item\.id\)/);
-// Mark done, Add update and Timeline stay on the card; only the fields open with the toggle.
-assert.match(row,/rowActions\.append\(doneButton\(item\),addUpdate,timeline,toggle\)/);
+// Mark done, Add update, Timeline and Edit stay on the card; only the fields open with Edit.
+assert.match(row,/rowActions\.append\(done,addUpdate,timeline,toggle\)/);
 assert.doesNotMatch(row,/fieldActions/);
 // An owner name without a People entry says so in plain words.
 assert.match(row,/' · not in People'/);assert.doesNotMatch(row,/current name/);

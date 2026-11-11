@@ -76,6 +76,58 @@ class TaskEmailTests(unittest.TestCase):
         third = self.task('Third', None, None, 'c')
         self.assertIsNone(task_email.prepare(self.s, dict(item_ids=ids + [third['id']]))['draft'])
 
+    def test_the_text_has_the_project_the_state_the_quotes_and_the_history(self):
+        project = self.s.create_project('Labels')
+        item = self.s.items.items[self.first['id']]
+        self.s.update_item(item['id'], item['text'], dict(due_date='2026-11-14', workflow_state='in_progress',
+                                                         project_ids=[project['id']], update_note='Готов е първият раздел'))
+        # A saved quote from Gmail, as a task draft from a message saves it.
+        with self.s.items.lock:
+            data = self.s.items.data
+            data.setdefault('sources', {})['s1'] = dict(id='s1', provider='gmail', account='me@example.test')
+            data.setdefault('source_evidence', {})['e1'] = dict(id='e1', source_id='s1', quote='Моля, обновете   ръководството', locator={})
+            self.s.items.items[item['id']]['source_evidence'] = ['e1']
+        body = task_email.prepare(self.s, dict(item_id=item['id']))['body']
+        self.assertIn('Статус: в процес', body)
+        self.assertIn('Проект: Labels', body)
+        self.assertIn('Цитати:\n- „Моля, обновете ръководството“ (Gmail)', body)
+        self.assertIn('История:\n- ', body)
+        self.assertIn('Създадена', body)
+        self.assertIn('Срок: 12.11.2026 → 14.11.2026', body)
+        self.assertIn('Статус: в процес', body.split('История:')[1])
+        self.assertIn('Напредък: Готов е първият раздел', body)
+        # Internal review steps are not history for the reader.
+        self.assertNotIn('project_ids', body);self.assertNotIn('dismissed', body)
+        self.assertTrue(body.endswith('—\nГенерирано от Atlanta'))
+
+    def test_the_history_starts_with_the_creation_and_skips_a_repeated_meeting(self):
+        with self.s.items.lock:
+            history = self.s.items.items[self.first['id']]['history']
+            history += [dict(at=f'2026-11-09T10:{n:02d}:00+02:00', event='progress_update', by='user', changes={}, text=f'Стъпка {n}')
+                        for n in range(12)]
+            history.append(dict(at='2026-11-09T11:00:00+02:00', event='discussed', by='ai', changes={}, meeting_id='missing'))
+        body = task_email.prepare(self.s, dict(item_id=self.first['id']))['body']
+        lines = body.split('История:\n')[1].split('\n\n')[0].splitlines()
+        self.assertEqual(len(lines), task_email.MAX_HISTORY)
+        self.assertIn('Създадена', lines[0]);self.assertIn('Стъпка 11', lines[-1]);self.assertNotIn('Стъпка 0', body)
+        self.assertNotIn('Обсъдена', body)
+
+    def test_a_task_without_quotes_or_changes_has_no_empty_sections(self):
+        body = task_email.prepare(self.s, dict(item_id=self.second['id']))['body']
+        self.assertIn('Статус: за изпълнение', body)
+        self.assertNotIn('Цитати:', body);self.assertNotIn('Проект', body)
+
+    def test_a_long_email_keeps_the_task_fields_and_drops_quotes_and_history(self):
+        ids = [self.s.create_task(dict(text=f'Task {n}', request_id=f'{n + 4096:032x}'))['id'] for n in range(40)]
+        with self.s.items.lock:
+            for key in ids:
+                self.s.items.items[key]['details'] = 'x' * 300
+                self.s.items.items[key]['history'] += [dict(at='2026-11-09T10:00:00+02:00', event='progress_update', by='user',
+                                                            changes={}, text='y' * 280)] * 8
+        body = task_email.prepare(self.s, dict(item_ids=ids))['body']
+        self.assertLessEqual(len(body), 20000)
+        self.assertNotIn('История:', body);self.assertIn('40. Task 39', body)
+
     def test_invalid_input_is_refused_before_gmail(self):
         for body in [dict(item_ids=[]), dict(item_ids=['missing']), dict(item_ids=[self.first['id']] * 2)]:
             with self.assertRaises(ValueError):

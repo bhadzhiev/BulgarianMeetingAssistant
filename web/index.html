@@ -109,7 +109,7 @@
   </section>
   <section id="projects" hidden>
     <div class="heading"><h1>Projects</h1><p class="subheading">Meetings, work and sources, grouped by project.</p></div>
-    <div class="project-navigation"><div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="work">Work</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="timeline">Timeline</button></div><details class="menu" id="workspace-more"><summary id="workspace-more-label" class="overflow-trigger" aria-label="More project sections" title="More project sections">...</summary><div class="menu-items"><button type="button" data-project-section="conversations">Conversations</button><button type="button" data-project-section="sources">Sources</button></div></details></div>
+    <div class="project-navigation"><div class="tabs" id="workspace-tabs" role="tablist" aria-label="Project sections"><button role="tab" data-section="overview">Overview</button><button role="tab" data-section="work">Work</button><button role="tab" data-section="meetings">Meetings</button><button role="tab" data-section="timeline">Timeline</button><button role="tab" data-section="conversations">Conversations</button></div><details class="menu" id="workspace-more"><summary id="workspace-more-label" class="overflow-trigger" aria-label="More project sections" title="More project sections">...</summary><div class="menu-items"><button type="button" data-project-section="sources">Sources</button></div></details></div>
     <div class="work-actions"><select id="workspace-project" aria-label="Project workspace"></select><button id="workspace-prepare" class="secondary" type="button">Prepare me</button><button id="workspace-refresh" class="secondary">Refresh</button><button id="workspace-new" class="primary">＋ New project</button></div>
     <details id="workspace-browser"><summary>Browse projects</summary><div id="workspace-cards" class="project-cards"></div></details>
     <div id="workspace-content" class="card"></div>
@@ -123,7 +123,7 @@
   </section>
   <section id="tasks" hidden>
     <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading">Your tasks and decisions from every meeting and source.</p><button id="new-task" type="button" class="primary">＋ New task</button></div>
-    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="suggested" hidden>Suggested</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
+    <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
     <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
     <div class="card work-panel" id="items-panel" role="tabpanel">
       <div class="work-messages"><p class="hint">Each task and decision appears once, with every meeting that discussed it. The AI never changes a status or a field that you edited.</p></div>
@@ -132,15 +132,11 @@
         <details id="manager-all-filters" class="manager-all-filters"><summary id="manager-filter-summary">Filters</summary><div id="manager-person-filters"></div>
         <div id="source-filter" class="segmented source-filter" role="group" aria-label="Filter by source"></div>
         <div class="task-filters"><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div><div class="work-actions"><select id="work-project" aria-label="Project"><option value="">All projects</option></select><select id="task-owner" aria-label="Filter tasks by owner"></select></div></div>
-        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button><button id="task-clear-all" class="quiet" type="button">Clear all</button></details>
+        <button id="task-reset-filters" class="quiet" type="button">Reset filters</button><button id="task-clear-all" class="quiet" type="button">Reset filters and search</button></details>
         <div id="task-bulk-bar" class="task-bulk-bar" aria-label="Selected task actions" hidden></div>
         <div id="link-review" class="card link-review" hidden></div>
-        <div id="task-list" class="task-list"></div>
+        <div id="task-list" class="task-list"><div id="proposal-filters" class="segmented"></div><div id="meeting-proposal-list"></div><div id="proposal-list"></div></div>
       </div>
-    </div>
-    <div class="card work-panel" id="work-suggested" role="tabpanel" hidden>
-      <div class="work-messages"><p class="hint">Source-backed proposals from all sources. The meeting project filter does not apply here. Nothing changes until you accept or link.</p></div>
-      <div class="work-content"><div id="proposal-filters" class="segmented"></div><div id="proposal-list"></div></div>
     </div>
     <div class="card work-panel" id="review-queue-panel" role="tabpanel" hidden>
       <div class="work-messages"><p class="hint">Meetings that still wait for you: speakers to name, items to confirm or dismiss, and notes to update. Open a meeting to resolve each step.</p></div>
@@ -391,7 +387,7 @@
 <a id="followup-auth-link" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in in your browser</a>
 <p id="followup-result" class="notice" role="status" hidden></p></dialog>
 <dialog id="task-email-dialog" aria-labelledby="task-email-title"><div class="card-heading"><div><p class="eyebrow">TASK BY EMAIL</p><h2 id="task-email-title">Send the task by email</h2></div><button id="task-email-close" class="quiet dialog-close" type="button" aria-label="Close task email"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-<p class="hint">The text comes from the task: the title, details, expected result, owner and due date. A note at the end says that Atlanta made the draft. Atlanta saves a Gmail draft and marks the task. You check the draft and send it from Gmail.</p>
+<p class="hint">The text comes from the task: the title, details, expected result, owner, due date, state and project. It also has the saved quotes and the main changes from the task history. Remove what the recipients must not see. A note at the end says that Atlanta made the draft. Atlanta saves a Gmail draft and marks the task. You check the draft and send it from Gmail.</p>
 <p id="task-email-status" class="notice" role="status" hidden></p>
 <fieldset class="followup-recipients"><legend>Recipients</legend><div id="task-email-people" class="followup-people"></div><label for="task-email-extra">Other addresses</label><input id="task-email-extra" type="text" autocomplete="off" placeholder="name@example.com, other@example.com"><p class="hint">Add email addresses to people in Settings → People &amp; sources → People.</p></fieldset>
 <label for="task-email-subject">Subject</label><input id="task-email-subject" maxlength="200">
@@ -509,7 +505,7 @@
 <div class="prompt-grid"><label>AI operation<select id="prompt-stage"></select></label><label>Apply to<select id="prompt-scope"></select></label></div>
 <p id="prompt-context" class="hint" role="status"></p>
 <label for="prompt-text">Your instructions · optional additional layer</label><textarea id="prompt-text" rows="8" maxlength="8000" spellcheck="true" placeholder="Inherit the default instructions, or add your language, style and focus here…"></textarea>
-<p class="hint">Layers: default → global → meeting type → individual meeting. Later instructions take precedence for style and focus. Available literal placeholders: {meeting_type}, {language}. Leave blank and save to inherit.</p>
+<p class="hint">Layers: global → meeting type → individual meeting. They add to the built-in instructions of the app. Later instructions take precedence for style and focus. Choose Preview test request to see the exact messages. Available literal placeholders: {meeting_type}, {language}. Leave blank and save to inherit.</p>
 <div class="work-actions"><button id="prompt-save" type="button" class="primary">Save instructions</button><button id="prompt-reset" type="button" class="quiet">Reset to inherited</button><button id="prompt-reprocess" type="button" class="secondary" hidden>Generate new notes for this meeting</button></div>
 <div class="prompt-grid"><label>Saved versions<select id="prompt-history"></select></label><button id="prompt-restore" type="button" class="secondary">Load version into editor</button></div>
 <details><summary>Effective task instructions and protected contract</summary><pre id="prompt-effective" class="prompt-preview"></pre><pre id="prompt-policy" class="prompt-preview"></pre></details>

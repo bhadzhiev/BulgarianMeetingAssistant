@@ -81,6 +81,8 @@ The file name is the meeting name until an AI title replaces it. The meeting app
 the conversion succeeds; an interrupted upload leaves nothing behind.
 
 A transcript file (.md, .txt, .srt) skips the audio steps: transcription and speaker identification.
+If the automatic notes cannot start (for example, the API key is missing), the imported transcript stays
+ready, and the meeting says why the notes were not made. Fix the setting, then choose **Update notes & tasks**.
 The meeting date comes from a date in the text. Without one, it comes from the date of the file: the file
 is saved when the meeting ends, so the meeting starts its duration earlier. Pasted text gets today's date.
 With **Process automatically** on, it then runs the same text steps as a recording: AI correction

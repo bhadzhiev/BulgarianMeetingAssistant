@@ -22,9 +22,64 @@ class PromptRulesTests(unittest.TestCase):
 
     def test_each_statement_goes_to_one_section_in_a_fixed_order(self):
         self.assertIn('Всяко нещо записвай само в една секция', self.prompt)
-        self.assertIn('decisions, tasks, секциите на типа\nсрещата, needs_decision, open_questions, next_steps, observations, summary', self.prompt)
+        self.assertIn('decisions, tasks, updates, секциите\nна типа срещата, needs_decision, open_questions, next_steps, observations, summary', self.prompt)
         self.assertIn('Един въпрос е или в needs_decision, или в open_questions, не и в двете.', self.prompt)
-        self.assertIn('не преразказва\nзадачите, решенията и въпросите', self.prompt)
+        self.assertIn('не преразказва\nзадачите, решенията, актуализациите и въпросите', self.prompt)
+
+    def test_the_schema_has_the_order_of_the_section_rule(self):
+        # The model writes the fields in schema order. Summary last: it does not repeat what comes after it.
+        order = list(meeting_assistant.minutes_schema(('today', 'blockers'))['properties'])
+        self.assertEqual(order, ['decisions', 'tasks', 'updates', 'today', 'blockers', 'needs_decision',
+                                 'open_questions', 'next_steps', 'observations', 'summary'])
+        self.assertEqual(meeting_assistant.minutes_schema()['required'], list(meeting_assistant.minutes_schema()['properties']))
+
+    def test_a_guess_is_not_a_task(self):
+        self.assertIn('Предположение не е ангажимент', self.prompt)
+        self.assertIn('не правят задача и\nне правят отговорник. Запиши ги в open_questions.', self.prompt)
+
+    def test_a_first_person_commitment_is_a_task_not_a_passive_decision(self):
+        self.assertIn('Ангажимент в първо лице („ще изпратя Иван при Мария“, „ще го дам на Иван“) е задача на говорещия, не решение.', self.prompt)
+        self.assertIn('Не го пиши в страдателен залог', self.prompt)
+        self.assertIn('запиши всички в задачата', self.prompt)
+
+    def test_type_sections_and_summary_do_not_repeat_other_sections(self):
+        self.assertIn('Секциите на типа срещата и updates не повтарят решение или задача.', self.prompt)
+        self.assertIn('summary се пише последно. То съдържа само изводи, които не са записани в друга секция.', self.prompt)
+        self.assertIn('summary е празен списък. Цел или резултат на срещата пиши само ако текстът ги казва.', self.prompt)
+        self.assertNotIn('върни една точка за целта', self.prompt)
+
+    def test_a_wish_is_not_a_commitment(self):
+        self.assertNotIn('„искам да говоря с него“', self.prompt)
+        self.assertIn('Желание или намерение без договорено действие', self.prompt)
+        self.assertIn('не е ангажимент и не е задача', self.prompt)
+
+    def test_the_summary_limit_follows_the_length_of_the_part(self):
+        part = meeting_assistant.llm_prompt('[00:50:00] Иван: Да.', span=(3000, 3250, 3600))
+        self.assertIn('Този текст е от 00:50:00 до 00:54:10 (4 мин.) от среща с продължителност 60 мин.', part)
+        self.assertIn('Лимитът за summary е за тези 4 мин.', part)
+        whole = meeting_assistant.llm_prompt('[00:00:00] Иван: Да.', span=(0, 250, 250))
+        self.assertIn('(4 мин.). Лимитът', whole)
+        self.assertNotIn('продължителност 60', self.prompt)
+        self.assertIn('2 минути от\nпродължителността на този текст', self.prompt)
+
+    def test_observations_report_what_was_said_not_why(self):
+        self.assertNotIn('скрито несъгласие', self.prompt)
+        self.assertIn('не приписвай мотиви и не тълкувай тон', self.prompt)
+        self.assertIn('пиши само като неутрален въпрос', self.prompt)
+
+    def test_generation_passes_the_span_of_the_part(self):
+        self.assertIn('(segments[0].start, segments[-1].end, getattr(args, "meeting_duration", None))',
+                      inspect.getsource(meeting_assistant.generate_minutes))
+        self.assertIn("args.meeting_duration = meeting.get('duration')", inspect.getsource(processing.summarize))
+
+    def test_a_task_title_is_short_and_holds_one_fact(self):
+        self.assertIn('обикновено 6–12 думи, най-много 15', self.prompt)
+        self.assertIn('Без условия, списъци, фон или контакти и без „;“', self.prompt)
+        self.assertIn('Друг факт (например кой е контактът по темата) е отделен запис в своята секция.', self.prompt)
+        self.assertNotIn('до около 20 думи', self.prompt)
+
+    def test_a_due_date_needs_a_stated_deadline(self):
+        self.assertIn('Ако deadline е null, due_date също е null: не избирай дата сам.', self.prompt)
 
     def test_known_names_are_used_in_every_statement(self):
         self.assertIn('навсякъде: в отговорника и в текста на всяко твърдение', self.prompt)
@@ -40,14 +95,27 @@ class PartSizeTests(unittest.TestCase):
     def test_parts_hold_about_ten_thousand_characters(self):
         # 4,000 characters split a 22-minute meeting into five partial summaries.
         self.assertEqual(processing.NOTES_PART_CHARS, 10000)
-        self.assertIn('notes_part_chars(settings), overhead=15', inspect.getsource(processing.summarize))
+        self.assertIn('notes_part_chars(settings, prompt_tokens(args)), overhead=15', inspect.getsource(processing.summarize))
 
     def test_a_large_context_takes_a_long_meeting_in_one_part(self):
         local = dict(DEFAULTS, summarizer='local')
         self.assertEqual(processing.notes_part_chars(local), 10000)
-        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=8192)), 10000)
         self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=262144, local_ai_max_tokens=16384)), 400000)
-        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 108688)
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 104688)
+        # A small context gets a smaller part: what is left after the answer and the prompt.
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=12288, local_ai_max_tokens=4096), 5000), 6384)
+
+    def test_a_context_without_room_for_the_transcript_fails_clearly(self):
+        local = dict(DEFAULTS, summarizer='local', local_ai_context=4096, local_ai_max_tokens=4096)
+        with self.assertRaisesRegex(ValueError, 'leaves no room for the transcript'):
+            processing.notes_part_chars(local)
+
+    def test_the_real_prompt_size_is_measured(self):
+        import types
+        size = processing.prompt_tokens(types.SimpleNamespace())
+        self.assertTrue(3000 < size <= processing.PROMPT_TOKENS, size)
+        longer = processing.prompt_tokens(types.SimpleNamespace(_prompt_snapshot=dict(stages=dict(meeting_minutes=dict(effective='x' * 4000)))))
+        self.assertEqual(longer - size, 2000)
         # OpenAI keeps the measured part size until it is measured with a larger one.
         self.assertEqual(processing.notes_part_chars(dict(DEFAULTS, summarizer='openai', local_ai_context=262144)), 10000)
 
@@ -73,7 +141,31 @@ class VocabularySpellingTests(unittest.TestCase):
         self.assertEqual(plain['summary'][0]['text'], 'PacketFancy')
 
     def test_summarize_applies_the_vocabulary_before_saving(self):
-        self.assertIn('result = canonical_notes(result, args.whisper_vocabulary)', inspect.getsource(processing.summarize))
+        self.assertIn('result = clear_unstated_due_dates(canonical_notes(result, args.whisper_vocabulary, args.speakers))',
+                      inspect.getsource(processing.summarize))
+
+    PEOPLE = [dict(name='Maria Petrova', aliases=['Мими', 'Maria']), dict(name='Ivan Ivanov', aliases=[]), 'Plain Name']
+
+    def test_another_name_of_a_person_becomes_the_people_name_also_in_the_owner(self):
+        notes = minutes(summary=[dict(text='Мими и Maria Petrova говориха с Maria.', evidence_timestamp=None)],
+                        tasks=[dict(task('Мими да провери PacketFancy'), owner='мими')])
+        processing.canonical_notes(notes, self.VOCABULARY, self.PEOPLE)
+        # The full name stays one name: an alias inside it is not replaced again.
+        self.assertEqual(notes['summary'][0]['text'], 'Maria Petrova и Maria Petrova говориха с Maria Petrova.')
+        self.assertEqual(notes['tasks'][0]['task'], 'Maria Petrova да провери PacketFence')
+        self.assertEqual(notes['tasks'][0]['owner'], 'Maria Petrova')
+
+    def test_people_without_aliases_change_nothing(self):
+        notes = minutes(summary=[dict(text='Ivan каза.', evidence_timestamp=None)])
+        processing.canonical_notes(notes, '', [dict(name='Ivan Ivanov', aliases=[]), 'Plain Name'])
+        self.assertEqual(notes['summary'][0]['text'], 'Ivan каза.')
+
+    def test_a_task_without_a_deadline_has_no_due_date(self):
+        notes = minutes(tasks=[dict(task('Да провери'), deadline=None, due_date='2026-11-13'),
+                               dict(task('Да пусне'), deadline='  ', due_date='2026-11-13'),
+                               dict(task('Да прати'), deadline='в петък', due_date='2026-11-13')])
+        processing.clear_unstated_due_dates(notes)
+        self.assertEqual([t['due_date'] for t in notes['tasks']], [None, None, '2026-11-13'])
 
 
 class ConsolidationRepairTests(unittest.TestCase):

@@ -1,0 +1,25 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('web/task-model.js','utf8');
+const context=vm.createContext({module:{exports:{}},console});
+vm.runInContext(source,context);
+const {suggestDueDate}=context.module.exports;
+assert.equal(typeof suggestDueDate,'function','task-model exports suggestDueDate');
+const day='2026-11-10'; // Tuesday
+assert.equal(suggestDueDate('до 2026-11-13',day),'2026-11-13','explicit ISO date');
+assert.equal(suggestDueDate('трябва да е до 2026-11-01',day),null,'a past ISO date is not a deadline');
+assert.equal(suggestDueDate('готово до 13.11',day),'2026-11-13','day.month this year');
+assert.equal(suggestDueDate('до 13.11.2027',day),'2027-11-13','day.month.year');
+assert.equal(suggestDueDate('до 13.11.26',day),'2026-11-13','two-digit year');
+assert.equal(suggestDueDate('15.01',day),'2027-01-15','a past day.month rolls to next year');
+assert.equal(suggestDueDate('20 ноември',day),'2026-11-20','day and month name');
+assert.equal(suggestDueDate('до 20-и ноември',day),'2026-11-20','ordinal suffix');
+assert.equal(suggestDueDate('до 31 февруари',day),null,'an impossible date is rejected');
+assert.equal(suggestDueDate('до петък',day),'2026-11-13','weekday later this week');
+assert.equal(suggestDueDate('до вторник','2026-11-08'),'2026-11-10','weekday after a Sunday meeting');
+assert.equal(suggestDueDate('до сряда','2026-11-11'),'2026-11-18','the same weekday rolls to next week');
+assert.equal(suggestDueDate('до сряда',day),'2026-11-11','the next day');
+assert.equal(suggestDueDate('скоро',day),null,'no date in the words');
+assert.equal(suggestDueDate('до 40.11',day),null,'impossible numeric date');
+assert.equal(suggestDueDate('',day),null,'empty text');
+assert.equal(suggestDueDate('до 13.11',''),null,'no meeting day, no suggestion');
+console.log('Due suggestion PASS: ISO, numeric, named and weekday deadlines suggest one due date; impossible and past dates stay text.');

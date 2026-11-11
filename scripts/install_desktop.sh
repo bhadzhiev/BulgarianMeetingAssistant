@@ -13,6 +13,32 @@ app_id="io.github.bhadzhiev.meeting-assistant"
 install_dir="${BMA_INSTALL_DIR:-/Applications}"
 build_venv="${BMA_BUILD_VENV:-$task_root/.venv-build}"
 
+# One install at a time. Two builds share build/ and desktop/src-tauri/target/, and a bundle made of
+# both does not start (missing base_library.zip, or "PYZ archive entry not found in the TOC").
+lock="$task_root/build/install.lock"
+locked=false
+release_lock() {
+  if [ "$locked" = true ]; then rm -rf "$lock"; locked=false; fi
+}
+mkdir -p "$task_root/build"
+if ! mkdir "$lock" 2>/dev/null; then
+  holder=$(cat "$lock/pid" 2>/dev/null || true)
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    echo "Another install is running (process $holder). Wait until it ends, then run this script again." >&2
+    exit 1
+  fi
+  # The last install stopped without removing its lock.
+  rm -rf "$lock"
+  if ! mkdir "$lock" 2>/dev/null; then
+    echo "Another install started just now. Wait until it ends, then run this script again." >&2
+    exit 1
+  fi
+fi
+locked=true
+echo $$ > "$lock/pid"
+trap release_lock 0
+trap 'exit 1' HUP INT TERM
+
 profile=release
 diarization=yes
 parakeet=no
@@ -100,6 +126,7 @@ cleanup_install() {
   fi
   if [ -n "$staging" ] && [ -d "$staging" ]; then rm -rf "$staging"; fi
   if [ -n "$previous" ]; then rmdir "$previous" 2>/dev/null || true; fi
+  release_lock
 }
 trap cleanup_install 0
 trap 'exit 1' HUP INT TERM

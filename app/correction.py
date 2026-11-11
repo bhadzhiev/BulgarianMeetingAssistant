@@ -51,6 +51,29 @@ def schema(count):
             'required': ['segments'], 'additionalProperties': False}
 
 
+# A misspelled name is at least this similar to the name. A short name has no misspelling check:
+# "Иване" is a correct form of "Иван", not an error.
+NAME_SIMILARITY = 0.8
+NAME_MIN_CHARS = 6
+
+
+def near_names(text: str, name: str) -> int:
+    """How many places in the text are the name or a close misspelling of it, with the same number of words."""
+    name = ' '.join(name.casefold().split())
+    words = re.findall(r'\w+', text.casefold())
+    size = len(name.split())
+    count = index = 0
+    while index + size <= len(words):
+        window = ' '.join(words[index:index + size])
+        if window == name or (len(name) >= NAME_MIN_CHARS
+                              and difflib.SequenceMatcher(None, window, name).ratio() >= NAME_SIMILARITY):
+            count += 1
+            index += size
+        else:
+            index += 1
+    return count
+
+
 def accept(original: str, corrected, protected=(), spellings=()) -> bool:
     if not isinstance(corrected, str) or not corrected.strip():
         return False
@@ -61,7 +84,10 @@ def accept(original: str, corrected, protected=(), spellings=()) -> bool:
     for name in protected:
         if isinstance(name, str) and name.strip():
             pattern = r'(?<!\w)' + re.escape(name.strip().casefold()) + r'(?!\w)'
-            if len(re.findall(pattern, original.casefold())) != len(re.findall(pattern, corrected.casefold())):
+            before, after = len(re.findall(pattern, original.casefold())), len(re.findall(pattern, corrected.casefold()))
+            # A name may not go away and may not come from nowhere. It may replace its own misspelling
+            # ("Боджидар Хаджиев" → "Божидар Хаджиев"): the prompt asks for that spelling.
+            if not before <= after <= near_names(original, name):
                 return False
     # Both a normal punctuation fix and an explicit alias replacement may pass.
     # Alias normalization only affects comparison, never the saved source text.

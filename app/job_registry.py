@@ -1,7 +1,7 @@
 """One list of the background jobs: the single source for their status in the app.
 
 Each job family keeps its own job record (the 1:1 AI run, the GitHub collection, the prompt test,
-email AI, repository reports, meeting processing). This registry reads them and gives one
+email AI, repository reports, task drafts, meeting processing). This registry reads them and gives one
 lifecycle to all: queued, running, completed, failed or cancelled. A failed job stays in the list
 until the person dismisses it; a completed or cancelled job stays for a short time.
 """
@@ -9,6 +9,8 @@ import threading
 import time
 
 KEEP_ENDED = 10 * 60  # seconds that a completed or cancelled job stays in the list
+# The My Work tab of the source of a task draft.
+DRAFT_TABS = {'gmail': 'gmail', 'chat': 'chat', 'github': 'github', 'report': 'github-reports'}
 
 
 def _state(job):
@@ -72,6 +74,15 @@ class Jobs:
         reports = getattr(s, 'repo_reports', None)
         if reports:
             add('repo_report', dict(reports.job), 'Repository report', dict(view='work', id='github-reports'))
+        # A task draft uses the shared processing slot: while it runs, the list says why other AI work waits.
+        drafts = getattr(s, 'task_drafts', None)
+        if drafts:
+            with drafts.lock:
+                job, body = dict(drafts.job), dict(getattr(drafts, 'body', None) or {})
+            provider = body.get('provider')
+            target = (dict(view='meeting', id=body['id']) if provider == 'meeting' and body.get('id') else
+                      dict(view='work', id=DRAFT_TABS[provider]) if provider in DRAFT_TABS else {})
+            add('task_draft', job, 'Task draft with AI', target)
         # Meeting processing and AI titles: running jobs only. Their results and errors show on the meeting.
         for meeting in s.library.list():
             title = meeting.get('title') or 'Untitled meeting'

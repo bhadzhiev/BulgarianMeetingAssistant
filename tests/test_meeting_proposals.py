@@ -145,6 +145,36 @@ class MeetingProposalTests(unittest.TestCase):
             self.review(proposal, 'link')
         self.assertEqual(self.service.items.items[item['id']]['links'][0]['meeting_id'] != second, True)
 
+    def test_a_stale_match_proposal_can_be_dismissed_without_touching_the_notes(self):
+        item = self.accepted()
+        second = self.meeting('2026-10-23T10:00:00+03:00', dict(tasks=[task('Подготви офертата за клиента до петък', 'Мария')]))
+        [proposal] = self.proposals()
+        directory = self.service.library.directory(second)
+        atomic_json(directory / 'transcript.json', ROWS + [dict(start=10, end=14, text='Да я финализираме до петък.', speaker='Мария')])
+        self.service._sync_items(second)
+        stale = self.service.items.data['proposals'][proposal['id']]
+        self.assertEqual(stale['state'], 'stale')
+        result = self.review(stale, 'reject')
+        self.assertEqual(result['state'], 'dismissed')
+        minutes = json.loads((directory / 'minutes.json').read_text())
+        self.assertNotIn('item_id', minutes['tasks'][0])
+        self.assertNotIn(second, {link['meeting_id'] for link in self.service.items.items[item['id']]['links']})
+        self.assertEqual(sorted(p['state'] for p in self.proposals()), ['dismissed', 'pending'])
+
+    def test_task_summary_counts_source_proposals_that_need_a_decision(self):
+        from app.work_graph import WorkGraph
+        self.accepted()
+        graph = WorkGraph(self.service.items)
+        first = graph.ingest(dict(provider='fixture', account='synthetic', external_id='mail', revision='1', text='Renew the certificate'),
+                             [dict(kind='task', text='Renew the certificate', quote='Renew the certificate')])
+        self.assertEqual(self.service.task_summary()['suggested'], 1)
+        graph.review(first['proposals'][0], 1, 'snooze', snoozed_until='2099-12-01')
+        self.assertEqual(self.service.task_summary()['suggested'], 0)
+        graph.ingest(dict(provider='fixture', account='synthetic', external_id='mail', revision='2', text='Renew the certificate soon'),
+                     [dict(kind='task', text='Renew the certificate soon', quote='Renew the certificate soon')])
+        # The source change staled the snoozed one and added a new pending proposal; each needs a decision.
+        self.assertEqual(self.service.task_summary()['suggested'], 2)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -89,7 +89,13 @@ the settings it started with for automatic processing.
   starts. `LOCAL_AI_API_KEY`, if set before the app starts, is used instead and is not saved.
 - **Model context** (advanced; always shown for a cloud API) is the context of the served model. Up to 16,384 tokens, a long
   meeting goes in parts of 10,000 characters. A larger context takes the meeting in larger parts, up
-  to 400,000 characters, so a cloud model usually reads the whole meeting at once.
+  to 400,000 characters, so a cloud model usually reads the whole meeting at once. A part is never
+  larger than what the context leaves after the output limit and the notes instructions (their size is
+  measured for each run, with your saved instructions). Settings refuse an output limit that leaves less
+  than 6,000 tokens of the context.
+- **Load models** sends the saved API key only when the address is the saved address. A new address
+  gets no key: save the key first, or type the model name. A refused request says that the endpoint
+  asks for authentication.
 - **Temperature** (advanced; always shown for a cloud API): **0** gives the same answer for the same input. Kimi K3 models accept
   only their own value; choose **Server default** for them. Keep reasoning on **Automatic** for Kimi.
   With thinking on, Kimi K3 models used the full 16,384-token output limit and returned no notes.
@@ -136,10 +142,20 @@ Long transcripts are extracted in parts of about 10,000 characters, then consoli
 selected AI provider. A part fits a 16k-token local model context with its answer.
 The global summary has at most six points; tasks and decisions have no fixed count limit. If the
 model keeps skipping one source, that source stays as its own point instead of failing the merge.
-Each statement goes into one section only, in this order: decisions, tasks, the sections of the
-meeting type, needs decision, open questions, next steps, observations, summary. Observations are
-at most three work risks; they never judge a person. Known participant names keep their exact
-spelling in every statement. Vocabulary variants (`PacketFence | PacketFancy`) become the preferred
+Each statement goes into one section only, in this order: decisions, tasks, updates, the sections
+of the meeting type, needs decision, open questions, next steps, observations, summary. The model
+writes the sections in this order too, so the summary comes last. The summary does not repeat
+tasks, decisions, updates or questions. A task title has 6–12 words (at most 15): owner, action
+and object. Conditions, lists and context stay in the quote. A guess ("може би ще го дам на Иван") is an open question,
+not a task. A first-person commitment ("ще изпратя Иван при Мария") is a task of the speaker, not a
+decision. The sections of the meeting type and the updates do not repeat a decision or a task. The
+summary holds only points that are in no other section; it may be empty. A wish without an agreed
+action ("искам някой ден да говоря с Иван") is not a task. The summary limit (one point for each 2
+minutes) uses the length of the part, not its last timestamp. Observations say what was said, not
+why; a guess about disagreement is only a neutral question. Observations are at most three work risks; they never judge a person. Known participant
+names keep their exact spelling in every statement. Another name of a person in People (for
+example a short name) becomes the People name in the statements, task text and owner.
+Vocabulary variants (`PacketFence | PacketFancy`) become the preferred
 spelling in the generated notes; the transcript keeps the recognized text.
 Consolidation selects an existing task or decision instead of rewriting its owner or deadline.
 Different owners, dates, negations, numbers and environments veto a proposed merge. Similarity
@@ -279,7 +295,9 @@ optional diarization, AI correction, notes, analytics, then any calendar automat
 transcription**: **Configured API** (default), **Cloud · OpenAI**, or **Off**.
 
 - The model fixes spelling, punctuation, capital letters, and words that were heard wrong.
-  It uses the known speakers for the spelling of names.
+  It uses the known speakers for the spelling of names. A misspelled name may become the name
+  ("Мариа Петрова" → "Мария Петрова"). A name may not go away, may not appear from other words,
+  and may not become another person. A short name (under 6 letters) keeps its form.
 - Timestamps and speaker labels never change. The model gets numbered segments and must return
   the same segments. If it does not, the correction stops and the Whisper text stays.
 - A segment that changes too much keeps the Whisper text. The limit is a similarity below 60 %
@@ -308,7 +326,8 @@ your decision, private observations), and **Analytics**. Generated notes contain
 - **Questions for your decision:** items that wait for a decision and were not decided.
 - **Tasks:** task, owner, deadline as said, due date, status (open or done), and source timestamp.
   The model receives the meeting date. It converts a deadline such as "до петък" into a due
-  date when the date is clear. Otherwise the due date stays empty. You can set it yourself.
+  date when the date is clear. Otherwise the due date stays empty. A task without a deadline in the
+  words of the meeting gets no due date from AI. You can set it yourself.
 - **Open questions.**
 - **Private observations:** risks, promises that look unrealistic, and signs of disagreement.
   This is an AI interpretation. Check it against the recording. It is not in `minutes.md`,
@@ -328,6 +347,9 @@ task has a **source moment** and a **review state**:
 After you review a meeting, open **More → Follow-up email…**. The draft uses only reviewed content:
 accepted decisions, accepted tasks with their owners and due dates, and checked summary, open-question
 and next-step statements. Open questions get their own section only when there are checked ones. Private observations and AI proposals stay out.
+When the notes wait for an update (the transcript or the AI notes changed after your review), the
+follow-up email is not available. Update or review the notes first. An open draft keeps your text
+and shows a warning.
 
 - The editor opens with a plain draft. **Write with AI** rewrites it with the Notes & AI provider.
   Edit the instructions in **Settings → AI instructions → Follow-up email**.
@@ -340,7 +362,13 @@ and next-step statements. Open questions get their own section only when there a
 **Generate new AI notes** never replaces saved notes. The new result waits as a proposal, and
 **Review changes** lists each new, changed, or missing statement or task. New and changed items are
 preselected; removals and changes to checked statements are not. **Apply selected** keeps task status
-and saves the previous notes in `versions/`. A changed statement needs a new check.
+and saves the previous notes in `versions/`. A changed statement needs a new check. A changed
+statement takes its new quote, or none: the old quote proved the old words. **Source changed** shows a
+statement with the same words and a new moment or quote; it needs a new check when you apply it.
+
+A quote counts only when its words are at the moment of its statement: the cited segment, the segment
+just before it, and the next segments of the same turn (or up to 3 segments within 20 seconds). A
+quote of another moment is removed; the statement stays.
 
 Notes made before this version still open. A source written in the text, such as "(00:12:03)",
 becomes the source moment. Other old statements show "No source moment" until you generate new notes.

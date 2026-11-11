@@ -11,7 +11,7 @@ LEGACY='Bulgarian Meeting Assistant.app'
 
 
 class DesktopInstallerTests(unittest.TestCase):
-    def run_install(self, failure='', options=(), legacy=False):
+    def run_install(self, failure='', options=(), legacy=False, lock_pid=None):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         root=Path(self.tmp.name);project=root/'project';(project/'scripts').mkdir(parents=True)
         shutil.copy2(PROJECT/'scripts/install_desktop.sh',project/'scripts/install_desktop.sh')
@@ -35,12 +35,37 @@ esac
 esac
 exec /bin/mv "$@"
 ''')
+        if lock_pid is not None:
+            (project/'build/install.lock').mkdir(parents=True);(project/'build/install.lock/pid').write_text(f'{lock_pid}\n')
+        self.project=project
         install=root/'installed';(install/APP).mkdir(parents=True);(install/APP/'payload').write_text('old\n')
         if legacy:(install/LEGACY).mkdir();(install/LEGACY/'payload').write_text('legacy\n')
         env=dict(os.environ,PATH=str(tools)+os.pathsep+os.environ['PATH'],BMA_BUILD_VENV=str(venv.parent),BMA_INSTALL_DIR=str(install),
                  INSTALL_TEST_LOG=str(root/'commands'),INSTALL_TEST_BUILT=str(project/'desktop/src-tauri/target/release/bundle/macos'/APP),INSTALL_TEST_FAILURE=failure)
         result=subprocess.run(['sh',str(project/'scripts/install_desktop.sh'),*options],env=env,capture_output=True,text=True,timeout=10)
-        return result,install,(root/'commands').read_text()
+        commands=root/'commands'
+        return result,install,commands.read_text() if commands.exists() else ''
+
+    def test_a_second_install_stops_while_one_runs(self):
+        # This test process is alive, so its PID stands for a running install.
+        result,install,commands=self.run_install(lock_pid=os.getpid())
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(f'Another install is running (process {os.getpid()})',result.stderr)
+        self.assertEqual(commands,'')
+        self.assertEqual((install/APP/'payload').read_text(),'old\n')
+        self.assertTrue((self.project/'build/install.lock').is_dir())  # the lock of the running install stays
+
+    def test_a_lock_left_by_a_stopped_install_is_taken_and_released(self):
+        dead=subprocess.Popen(['true']);dead.wait()
+        result,install,_=self.run_install(lock_pid=dead.pid)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((install/APP/'payload').read_text(),'new\n')
+        self.assertFalse((self.project/'build/install.lock').exists())
+
+    def test_a_failed_install_releases_its_lock(self):
+        result,_,_=self.run_install('verify')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((self.project/'build/install.lock').exists())
 
     def test_installs_speaker_dependencies_and_keeps_previous_app(self):
         result,install,commands=self.run_install()

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from contextlib import contextmanager
 from .work_graph import WorkGraph, validate_graph
 from .work_items import COLLECTIONS, normalize
 import copy
 import json
 import re
+import secrets
 import shutil
 import hashlib
 import datetime as dt
@@ -15,13 +15,12 @@ from pathlib import Path
 import threading
 import time
 import uuid
-import wave
 
 import numpy as np
 import sounddevice as sd
 
 from .capture import Recorder, audio_created, convert_audio, devices, ffmpeg_path, render_recording
-from .storage import Library, atomic_json, atomic_text
+from .storage import Library, atomic_json
 from .transcripts import segment_at, stamp_seconds, time_stamp
 from .meeting_review import review_state
 from . import voices
@@ -76,8 +75,26 @@ class MeetingService:
         self.library.recover()
         self.settings_path = root / 'settings.json'
         self.settings = dict(DEFAULTS)
+        self.settings_error = None
         if self.settings_path.exists():
-            self.settings.update(migrate_settings(json.loads(self.settings_path.read_text())))
+            try:
+                saved = json.loads(self.settings_path.read_text())
+                if not isinstance(saved, dict):
+                    raise ValueError('not an object')
+                self.settings.update(migrate_settings(saved))
+            except (ValueError, OSError, UnicodeDecodeError):
+                # A damaged settings file must not lock the person out of the library. The app starts with safe
+                # defaults: no automatic processing, no calendar, no cloud AI. The original bytes stay in a copy.
+                copy_path = None
+                try:
+                    copy_path = self.settings_path.with_name('settings.corrupt-' + secrets.token_hex(8) + '.json')
+                    copy_path.write_bytes(self.settings_path.read_bytes())
+                except OSError:
+                    copy_path = None
+                self.settings = dict(DEFAULTS, auto_process=False, calendar_enabled=False)
+                self.settings_error = ('Settings could not be read, so the app uses safe defaults: no automatic processing, '
+                                       'no calendar and no cloud AI.' + (f' The damaged file is kept as {copy_path.name}.' if copy_path else '')
+                                       + ' Check Settings and save them to replace the damaged file.')
         self.google = google or GoogleCalendar(root, builtin=bundled_client(project))
         self.base_url = 'http://127.0.0.1:8765'
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
@@ -122,6 +139,7 @@ class MeetingService:
         self.activity_changed = lambda active: None
         self.health_changed = lambda missing: None
         self.editor_changed = lambda dirty: None
+        self.review_notify = None
         self.task_cache = {}
         self.analytics_cache = {}
         self.preview = None
@@ -190,6 +208,11 @@ class MeetingService:
             values['task_matching_target'] = ''
         if type(values['local_ai_context']) is not int or not 4096 <= values['local_ai_context'] <= 2_000_000:
             raise ValueError('The model context must be between 4096 and 2000000 tokens')
+        from .processing import CHARS_PER_TOKEN, MIN_PART_CHARS, PROMPT_TOKENS
+        # The output limit and the notes instructions must leave room for some transcript in the context.
+        if values['local_ai_context'] - values['local_ai_max_tokens'] < PROMPT_TOKENS + MIN_PART_CHARS / CHARS_PER_TOKEN:
+            raise ValueError(f"The output limit leaves no room for the transcript: keep it at least "
+                             f"{int(PROMPT_TOKENS + MIN_PART_CHARS / CHARS_PER_TOKEN)} tokens below the model context.")
         if values['local_ai_format'] not in {'json_schema', 'json_object', 'text'}:
             raise ValueError('Invalid API response format')
         if (values['transcription'] not in {'local', 'parakeet', 'parakeet_sherpa', 'openai', 'elevenlabs'} or values['summarizer'] not in {'none', 'local', 'openai'}
@@ -258,6 +281,8 @@ class MeetingService:
         with self.lock:
             atomic_json(self.settings_path, settings)
             self.settings = settings
+            # Valid settings replace a damaged file; its copy stays.
+            self.settings_error = None
             if key is not None:
                 self.api_key = key.strip()
             if elevenlabs_key is not None:
@@ -353,7 +378,7 @@ class MeetingService:
                 active['live'] = live.snapshot() if live else None
                 active['markers'] = read_json(self.library.directory(self.active) / 'markers.json', [])
             return dict(meetings=[dict(m, has_audio=self._has_audio(m['id'])) for m in self.library.list()], active=active, google=self.google.status(),
-                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
+                capture_setup=self.capture_setup.public(), storage_errors=self.metadata_errors(), settings_error=self.settings_error, desktop_mode=self.desktop_mode, diarization=diarization.availability(), parakeet=parakeet.availability(), parakeet_sherpa=parakeet_sherpa.availability(),
                 speakers=self.library.speakers(), people_migration=self.library.people_migration, voices=dict(self.voice_job), people=self.people.list(), meeting_types=meeting_types.public(self.templates.list()), trackers=self.library.trackers(), task_summary=self.task_summary(), projects=self.projects.data,
                 settings=self.settings, elevenlabs_api_key_configured=bool(self.elevenlabs_api_key), elevenlabs_key_error=self.elevenlabs_key_error, api_key_configured=bool(self.api_key), **self.local_ai_key_status(), devices=inputs, readiness=self.readiness(),
                 device_error=device_error, preview_level=self.preview_level,
@@ -408,6 +433,9 @@ class MeetingService:
             meeting['github_links'] = [link for i in meeting['items'] for link in self.github_links.for_resource('item', i)]
             meeting['live'] = read_json(directory / 'live.json', None)
             meeting['input_gaps'] = read_json(directory / 'capture.json', {}).get('input_gaps', [])
+            matching = read_json(directory / 'task-matching.json', None)
+            meeting['task_matching'] = (dict(status=matching.get('status'), reason=matching.get('reason'))
+                                        if isinstance(matching, dict) and matching.get('status') == 'needs_permission' else None)
             meeting['markers'] = read_json(directory / 'markers.json', [])
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
@@ -560,8 +588,10 @@ class MeetingService:
         if settings.get('auto_process') and (settings['summarizer'] != 'none' or settings.get('transcript_correction', 'none') != 'none'):
             try:
                 self.process(meeting['id'], 'all')
-            except ValueError:
-                pass  # For example, a missing API key. The user can generate notes later.
+            except ValueError as exc:
+                # For example, a missing API key. The imported transcript is kept and ready; the notes wait.
+                self.library.update(meeting['id'], notes_refresh_error='Notes were not made automatically: ' + self.redact(str(exc))
+                                    + ' Fix this in Settings, then choose Update notes & tasks.')
         else:
             self._queue_metadata(meeting['id'], enrich=True)
         return self.detail(meeting['id'])
@@ -840,6 +870,7 @@ class MeetingService:
         cancel = self.cancel_events.setdefault(meeting_id, threading.Event())
         job = Job(cancel, lambda **changes: self.library.update(meeting_id, **changes))
         acquired = False
+        completed = False
         try:
             with job.step('Queued'):
                 while not self.processing_slot.acquire(timeout=.1):
@@ -900,6 +931,7 @@ class MeetingService:
             job.check()
             self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
                                 error=None, progress='Ready', processing_stage='Complete')
+            completed = True
         except JobCancelled:
             directory = self.library.directory(meeting_id)
             self.library.update(meeting_id, status='ready' if (directory / 'transcript.json').exists() else 'recorded',
@@ -920,9 +952,58 @@ class MeetingService:
                 self.cancel_events.pop(meeting_id, None)
                 self.processing_threads.pop(meeting_id, None)
             self._queue_metadata(meeting_id, enrich=not cancel.is_set())
+        if completed and self.review_notify:
+            try:
+                meeting = self.library.get(meeting_id)
+                if meeting.get('status') == 'ready' and self._review_pending(meeting_id, meeting):
+                    self.review_notify(meeting_id, meeting['title'])
+            except Exception:
+                pass
 
     def _save_matching(self, directory, record):
         atomic_json(directory / 'task-matching.json', dict(version=1, at=items.now(), **record))
+
+    def allow_task_matching(self, meeting_id):
+        """Grant the one-address task matching permission and match this meeting's notes in the background."""
+        from .local_ai import is_remote
+        directory = self.library.directory(meeting_id)
+        if not (directory / 'minutes.json').exists():
+            raise ValueError('Generate the notes first; matching compares them with the existing tasks.')
+        settings = copy.deepcopy(self.settings)
+        if settings.get('summarizer') != 'local':
+            raise ValueError('Task matching uses the configured API. Choose that API for notes first.')
+        base_url = settings.get('local_ai_base_url')
+        if not is_remote(base_url):
+            raise ValueError('This API runs on this Mac or your network; it needs no matching permission.')
+        with self.lock:
+            if self.closed.is_set() or self.active or self.busy:
+                raise ValueError('Wait until recording or processing finishes.')
+            self.save_settings(dict(task_matching_target=base_url))
+            threading.Thread(target=self._run_task_matching, args=(meeting_id,), name='task-matching', daemon=True).start()
+        return {'id': meeting_id, 'status': 'matching'}
+
+    def _run_task_matching(self, meeting_id):
+        try:
+            directory = self.library.directory(meeting_id)
+            self._match_tasks(meeting_id, directory, copy.deepcopy(self.settings), lambda message: None, self.ai_key('local'))
+            self._queue_metadata(meeting_id)
+        except Exception as exc:
+            print(f'Task matching: {exc}', flush=True)
+
+    def _review_pending(self, meeting_id, meeting):
+        # What the Review banner counts: unnamed speakers, notes to check, proposed items.
+        directory = self.library.directory(meeting_id)
+        try:
+            speakers = {row.get('speaker') for row in json.loads((directory / 'transcript.json').read_text())}
+        except (OSError, ValueError):
+            speakers = set()
+        unnamed = any(name and re.fullmatch(r'SPEAKER[ _-]?\d+', name, re.I) for name in speakers)
+        with self.items.lock:
+            proposed = any(item.get('acceptance_state') == 'proposed'
+                           and any(link['meeting_id'] == meeting_id for link in item.get('links', []))
+                           for item in self.items.items.values())
+        return bool(unnamed or proposed or (directory / 'minutes.proposed.json').exists()
+                    or meeting.get('notes_need_refresh') or meeting.get('notes_refresh_error'))
 
     def _match_tasks(self, meeting_id, directory, settings, progress, key):
         """Suggest which existing task each task or update of the notes belongs to. Nothing changes a task here."""
@@ -2699,7 +2780,10 @@ class MeetingService:
                       and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
                     today=today, review=sum(1 for p in self.items.data.get('proposals', {}).values()
-                                            if p.get('origin') == 'meeting_match' and p.get('state') == 'pending'))
+                                            if p.get('origin') == 'meeting_match' and p.get('state') == 'pending'),
+                    suggested=sum(1 for p in self.items.data.get('proposals', {}).values()
+                                  if p.get('origin') != 'meeting_match' and (p.get('state') == 'stale' or (
+                                      p.get('state') == 'pending' and (not p.get('snoozed_until') or p['snoozed_until'] <= today)))))
 
     def _linked_minutes(self, item):
         """Each meeting that mentions the item, with its notes; busy meetings must wait."""

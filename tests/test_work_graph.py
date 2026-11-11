@@ -34,9 +34,25 @@ class GraphTests(unittest.TestCase):
         item = self.registry.items[accepted['result_id']]
         self.assertEqual(item['text'], 'Review backup and report the result')
         self.assertIn('text', item['manual'])
+        edit = [event for event in item['history'] if event['event'] == 'edited_on_accept']
+        self.assertEqual(len(edit), 1)
+        self.assertEqual(edit[0]['changes']['text'], ['Review backup', 'Review backup and report the result'])
+        self.assertEqual(edit[0]['by'], 'user')
         self.assertEqual(self.registry.data['proposals'][proposal['id']]['text'], 'Review backup')
         self.assertEqual(self.registry.data['source_evidence'][item['source_evidence'][0]]['quote'], 'review the backup')
         self.assertEqual(Registry(self.path).items[item['id']]['text'], item['text'])
+
+    def test_decision_proposal_can_be_edited_on_accept(self):
+        result = self.graph.ingest(self.source, [dict(kind='decision', text='Use the small backup window', quote='Which retention period?')])
+        key = result['proposals'][0]
+        accepted = self.graph.review(key, 1, 'accept', edited_text='Keep the small backup window')
+        item = self.registry.items[accepted['result_id']]
+        self.assertEqual((item['kind'], item['text'], item['status']), ('decision', 'Keep the small backup window', 'proposed'))
+        edit = [event for event in item['history'] if event['event'] == 'edited_on_accept']
+        self.assertEqual(edit[0]['changes']['text'], ['Use the small backup window', 'Keep the small backup window'])
+        other = self.graph.ingest(self.source, [dict(kind='decision', text='Second decision', quote='Which retention period?')])
+        with self.assertRaisesRegex(ValueError, 'decision text'):
+            self.graph.review(other['proposals'][0], 1, 'accept', edited_text='   ')
 
     def test_idempotent_ingestion_survives_restart_and_dismissal(self):
         result = self.ingest()
@@ -86,6 +102,46 @@ class GraphTests(unittest.TestCase):
         self.source['text'] = 'Please review the backup. Which retention period?'
         with self.assertRaises(WorkItemConflict):
             self.ingest()
+
+    def test_stale_proposal_can_be_dismissed_but_not_accepted_or_snoozed(self):
+        old = self.proposal(self.ingest())
+        self.source.update(revision='r2', text='Please review the backup next month.')
+        self.ingest()
+        stale = self.registry.data['proposals'][old['id']]
+        self.assertEqual(stale['state'], 'stale')
+        with self.assertRaisesRegex(WorkItemConflict, 'source changed'):
+            self.graph.review(old['id'], stale['revision'], 'accept')
+        with self.assertRaisesRegex(WorkItemConflict, 'source changed'):
+            self.graph.review(old['id'], stale['revision'], 'snooze', snoozed_until='2026-12-01')
+        dismissed = self.graph.review(old['id'], stale['revision'], 'dismiss')
+        self.assertEqual(dismissed['state'], 'dismissed')
+        self.assertEqual(self.registry.items, {})
+
+    def test_a_supersedes_relation_retires_the_older_decision(self):
+        first = self.graph.ingest(self.source, [dict(kind='decision', text='Keep the small window', quote='Which retention period?')])
+        second = self.graph.ingest(self.source, [dict(kind='decision', text='Use a monthly window', quote='Please review the backup')])
+        old = self.graph.review(first['proposals'][0], 1, 'accept')['result_id']
+        new = self.graph.review(second['proposals'][0], 1, 'accept')['result_id']
+        self.graph.relate(new, old, 'supersedes', self.registry.items[new]['revision'], self.registry.items[old]['revision'])
+        retired = self.registry.items[old]
+        self.assertEqual((retired['status'], retired['superseded_by']), ('superseded', new))
+        self.assertIn(old, self.registry.items[new]['supersedes'])
+        event = [entry for entry in retired['history'] if entry['event'] == 'superseded']
+        self.assertEqual(event[0]['changes']['status'], ['proposed', 'superseded'])
+        # A second replacement of the same decision is refused.
+        third = self.graph.ingest(self.source, [dict(kind='decision', text='Review the window yearly', quote='Please review the backup')])
+        newest = self.graph.review(third['proposals'][0], 1, 'accept')['result_id']
+        with self.assertRaisesRegex(ValueError, 'already replaced'):
+            self.graph.relate(newest, old, 'supersedes', self.registry.items[newest]['revision'], self.registry.items[old]['revision'])
+
+    def test_only_decisions_can_supersede(self):
+        result = self.ingest()
+        accepted = self.graph.review(result['proposals'][0], 1, 'accept')
+        decision = self.graph.ingest(self.source, [dict(kind='decision', text='A decision', quote='Please review the backup')])
+        decision_id = self.graph.review(decision['proposals'][0], 1, 'accept')['result_id']
+        with self.assertRaisesRegex(ValueError, 'Only a decision'):
+            self.graph.relate(decision_id, accepted['result_id'], 'supersedes',
+                              self.registry.items[decision_id]['revision'], self.registry.items[accepted['result_id']]['revision'])
 
     def test_same_external_revision_cannot_change_content(self):
         self.ingest()

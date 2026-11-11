@@ -22,7 +22,7 @@ async function renderPromptEffective(){
  const seq=++promptSequence,body=promptBody();
  if(!promptCatalog)return;
  try{const result=await api('/api/prompts/resolve',body);if(seq!==promptSequence)return;
-  $('prompt-effective').textContent=result.stages[body.stage].effective;
+  $('prompt-effective').textContent=result.stages[body.stage].effective||'Built-in instructions only. Choose Preview test request to see the exact messages.';
   $('prompt-context').textContent='Library revision '+result.revision+' · '+(result.stages[body.stage].layers.map(v=>v.scope+' (v'+v.revision+')').join(' → ')||'Built-in defaults')+(promptDirty()?' · unsaved preview':'');
  }catch(error){if(seq===promptSequence)promptError(error);}
 }

@@ -242,7 +242,10 @@ class WorkGraph:
             proposal = data['proposals'].get(key)
             if not proposal or type(revision) is not int or proposal['revision'] != revision:
                 raise WorkItemConflict('This proposal changed. Reload the For review list.')
-            if proposal['state'] not in {'pending', 'dismissed'}:
+            if proposal['state'] == 'stale':
+                if action != 'dismiss':
+                    raise WorkItemConflict('The source changed after this proposal. Open the current source, or dismiss it.')
+            elif proposal['state'] not in {'pending', 'dismissed'}:
                 raise WorkItemConflict('This proposal is no longer available for review.')
             evidence = data['source_evidence'][proposal['evidence_id']]
             source = data['sources'][evidence['source_id']]
@@ -252,7 +255,7 @@ class WorkGraph:
                 if proposal['state'] != 'pending':
                     raise ValueError('Restore the proposal before accepting it')
                 if action == 'accept':
-                    accepted_text = text(edited_text,'task text') if edited_text is not None else proposal['text']
+                    accepted_text = text(edited_text, proposal['kind'] + ' text') if edited_text is not None else proposal['text']
                     target_id_value = uuid.uuid4().hex[:16]
                     item = dict(id=target_id_value, kind=proposal['kind'], text=accepted_text, status=KINDS[proposal['kind']],
                         managed_by='work_graph', links=[], source_evidence=[], created=now(), manual=[], history=[],
@@ -266,7 +269,10 @@ class WorkGraph:
                     if item['kind'] != proposal['kind']:
                         raise ValueError('Link to an item of the same kind')
                     target_id_value = target_id
-                if edited_text is not None and action=='accept':item['manual'].append('text')
+                if edited_text is not None and action=='accept':
+                    item['manual'].append('text')
+                    item['history'].append(dict(at=now(), event='edited_on_accept', by='user', meeting_id=None,
+                                                evidence_id=evidence['id'], changes={'text': [proposal['text'], accepted_text]}))
                 item.setdefault('source_evidence', [])
                 if evidence['id'] not in item['source_evidence']:
                     item['source_evidence'].append(evidence['id'])
@@ -342,7 +348,26 @@ class WorkGraph:
             body = dict(kind=kind, from_id=left, to_id=right)
             key = digest(body)
             if key not in data['relationships']:
+                if kind == 'supersedes':
+                    self._supersede(data, left, right)
                 data['relationships'][key] = dict(body, id=key)
                 self._activity(data, 'relationship_added', relationship_id=key)
             return data['relationships'][key]
         return self._write(apply)
+
+    @staticmethod
+    def _supersede(data, new_id, old_id):
+        # The newer decision (from) replaces the older one (to): it leaves force,
+        # and removing the newer one restores the previous status.
+        new, old = data['items'][new_id], data['items'][old_id]
+        if new['kind'] != 'decision' or old['kind'] != 'decision':
+            raise ValueError('Only a decision can supersede a decision')
+        if old['status'] == 'superseded':
+            raise ValueError('This decision was already replaced. Reload and choose the current decision.')
+        old['superseded_previous_status'] = old['status']
+        old['superseded_by'] = new_id
+        if old_id not in new.setdefault('supersedes', []):
+            new['supersedes'].append(old_id)
+        old['history'].append(dict(at=now(), event='superseded', by='user', meeting_id=None,
+                                   changes={'status': [old['status'], 'superseded']}, by_item=new_id))
+        old['status'] = 'superseded'

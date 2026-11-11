@@ -2438,7 +2438,8 @@ async function loadReviewQueue(){
   if(row.speakers)add('warn','Name '+AtlantaUX.count(row.speakers,'speaker'),'Name speakers',async()=>{switchTab('transcript');$('speaker-review-container').open=true;$('speaker-review').scrollIntoView({block:'center'});});
   if(row.notes==='proposal')add('info','New AI notes are ready','Review changes',async()=>openReview());
   else if(row.notes)add('info','The transcript changed after the notes were made','Review update',async()=>{switchTab('transcript');$('primary-action').scrollIntoView({block:'center'});});
-  if(row.items)add('warn',AtlantaUX.count(row.items,'item')+' to confirm or dismiss','Review items',async()=>switchTab('review'));
+  if(row.items&&!row.review_blocked)add('warn',AtlantaUX.count(row.items,'item')+' to confirm or dismiss','Review items',async()=>switchTab('review'));
+  else if(row.items){const line=el('div','attention-item info');line.append(el('i'),el('span','',AtlantaUX.count(row.items,'item')+' wait for review after the notes update'));card.append(line);}
   box.append(card);
  }
 }
@@ -4215,7 +4216,7 @@ async function openMeetingReview(){
  // A closed task is not asked again: it shows its state, but does not count as waiting for a review.
  const waiting=item=>['needs_review','edited'].includes(item.state)&&!item.closed,open=data.items.filter(waiting).length;
  if(data.items.length)box.append(el('h3','',open?open+' of '+data.items.length+' need your review':'All '+data.items.length+' reviewed'));
- if(data.source_changed)box.append(el('p','notice warning',AtlantaStatus.label('verification','changed')+' · update the notes before confirming.'));
+ if(data.source_changed){const notice=el('div','notice warning'),update=btn('secondary small-action','Update notes');notice.append(el('span','',AtlantaStatus.label('verification','changed')+' · update the notes before confirming.'),update);update.onclick=()=>perform(async()=>{switchTab('transcript');$('primary-action').scrollIntoView({block:'center'});});box.append(notice);}
  for(const item of data.items){
   const row=el('section','entity-card review-card'+(waiting(item)?' review-pending':'')),state=statusBadge(AtlantaStatus.status('review',item.state));
   const head=el('div','entity-top');head.append(el('p','review-text',item.text),state);row.append(head);

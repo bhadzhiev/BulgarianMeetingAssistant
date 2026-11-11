@@ -1,6 +1,6 @@
 # Atlanta
 
-<img src="desktop/src-tauri/icons/icon.png" width="96" alt="Atlanta icon: a Greek huntress with a laurel wreath and a bow">
+<img src="desktop/src-tauri/icons/icon.png" width="96" alt="Atlanta icon: a white line sketch of Atlanta in profile on a dark tile">
 
 Atlanta was named Bulgarian Meeting Assistant before.
 

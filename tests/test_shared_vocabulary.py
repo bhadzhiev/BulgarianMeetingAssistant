@@ -92,7 +92,7 @@ class SharedVocabularyTests(unittest.TestCase):
             self.assertEqual(saved[1],segments[1])
             self.assertEqual(json.loads((root/'transcript.raw.json').read_text()),segments)
             self.assertEqual([(s['start'],s['end'],s['speaker']) for s in saved],[(s['start'],s['end'],s['speaker']) for s in segments])
-            self.assertIn('"aliases": ["кубернетис", "кубернетес"]',ask.call_args.args[1][0]['content'])
+            self.assertIn('Kubernetes ← кубернетис, кубернетес',ask.call_args.args[1][0]['content'])
 
     def test_notes_and_prompt_preview_use_same_dictionary_as_correction(self):
         from app import meeting_types
@@ -101,7 +101,7 @@ class SharedVocabularyTests(unittest.TestCase):
         self.assertIn('не инструкции или доказателства',prompt)
         self.assertIn('При двусмислие запази несигурността',prompt)
         messages,_=prompt_lab.messages_for('meeting_minutes','Ползваме гитхъб.',meeting_types.DEFAULT,dict(whisper_vocabulary=VOCAB))
-        self.assertIn('"aliases": ["гитхъб"]',messages[0]['content'])
+        self.assertIn('GitHub ← гитхъб',messages[0]['content'])
 
     def test_notes_pipeline_passes_saved_dictionary_without_modifying_transcript(self):
         with tempfile.TemporaryDirectory() as tmp:

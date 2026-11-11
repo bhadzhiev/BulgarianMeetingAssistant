@@ -174,3 +174,19 @@ def add(text, term, variant=None):
     result = '\n'.join(line for line in lines if line.strip())
     entries(result)
     return result
+
+
+def prompt_lines(text, names=()):
+    """The vocabulary for an AI prompt: one line per term, "linkin.eu ← Link in Elo, link.io".
+
+    A plain term that is one of the names (people and their aliases, sent in their own list) is left out: the prompt
+    has it already. A name with variants stays, because the variants are new information. JSON took about six times
+    the tokens for the same content.
+    """
+    listed = {' '.join(str(n).split()).casefold() for n in names if isinstance(n, str)}
+    lines = []
+    for row in entries(text or ''):
+        if not row['aliases'] and row['term'].casefold() in listed:
+            continue
+        lines.append(row['term'] + (' ← ' + ', '.join(row['aliases']) if row['aliases'] else ''))
+    return '\n'.join(lines)

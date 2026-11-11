@@ -21,7 +21,7 @@ function actionBtn(className, label, fn, title) { return btn(className, label, (
 function openMeetingBtn(title, id, className='quiet') { return btn(className, title, () => perform(() => openMeeting(id)), 'Open the meeting'); }
 function emptyNote(text) { return el('p', 'hint empty-note', text); }
 // Inline SVG icons on a 24px grid in the nav-icon style: 2px stroke, currentColor, no fill.
-const ICON_PATHS={close:'M6 6l12 12M18 6L6 18',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
+const ICON_PATHS={close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('icon');const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',ICON_PATHS[name]||ICON_PATHS.sparkle);svg.append(path);return svg;}
 function option(text, value) { const node = el('option', '', text); node.value = value; return node; }
 // People for an owner choice: my team first, then the others. Each group is in alphabetical order.
@@ -1416,6 +1416,15 @@ const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to tas
 // An event without a label reads as words, never as its code name.
 const eventLabel=name=>EVENT_LABELS[name]||String(name||'Event').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
+// The task card lists its meetings as rows: the meeting, its date, and the moment the task was said.
+function taskMeetingList(item,meetings){
+ const links=[...item.links].sort((a,b)=>(meetings[a.meeting_id]?.date||'').localeCompare(meetings[b.meeting_id]?.date||''));if(!links.length)return null;
+ const box=el('div','task-meetings');box.append(el('p','task-meetings-title','Linked meetings · '+links.length));
+ for(const link of links){const meeting=meetings[link.meeting_id],row=el('div','task-meeting');
+  row.append(icon('calendar'),meeting?actionBtn('quiet task-meeting-title',meeting.title,async()=>{await openMeeting(link.meeting_id);switchTab('outcomes');}):el('span','task-meeting-title hint','A deleted meeting'),el('span','task-meeting-date',meeting?date(meeting.date):''));
+  row.append(link.evidence_timestamp?listenButton(link.meeting_id,stampSeconds(link.evidence_timestamp),{label:link.evidence_timestamp.replace(/^00:(?=\d\d:)/,''),className:'task-meeting-listen'}):el('span'));box.append(row);}
+ return box;
+}
 function meetingChips(item,meetings,except) {
  const box=el('div','item-meetings');
  for(const link of item.links.filter(link=>link.meeting_id!==except).sort((a,b)=>(meetings[a.meeting_id]?.date||'').localeCompare(meetings[b.meeting_id]?.date||''))) {
@@ -1428,7 +1437,7 @@ function meetingChips(item,meetings,except) {
 function itemSources(item){const graph=itemsData.graph||{},ids=new Set(item.source_evidence||[]),evidence=(graph.source_evidence||[]).filter(e=>ids.has(e.id));return [...new Map(evidence.map(e=>[e.source_id,(graph.sources||[]).find(s=>s.id===e.source_id)])).values()].filter(Boolean);}
 function sourceLabel(source){return source.remote?.authority==='github_code'?source.remote.repository+' · code':source.remote?.authority==='github'?source.remote.repository+' #'+source.remote.number:'';}
 function itemProviders(item){return new Set([...(item.created_by==='user'?['manual']:[]),...(item.links.length?['meeting']:[]),...itemSources(item).map(s=>s.provider)]);}
-function sourceChips(item,meetings){const box=meetingChips(item,meetings);if(item.created_by==='user')box.append(el('span','badge','Manually added'));for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
+function sourceChips(item,meetings,{withMeetings=true}={}){const box=withMeetings?meetingChips(item,meetings):el('div','item-meetings');if(item.created_by==='user')box.append(el('span','badge','Manually added'));for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
  // The same event right after itself (for example a confirmation that was repeated) shows once, with how many times.
@@ -1690,16 +1699,19 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  meta.append(who,el('span','task-state',stateName),el('span','due-label '+kind,label),workReviewBadge(item.review_state,item));
- const mailed=emailMark(item);if(mailed)meta.append(mailed);
+ const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item);if(mailed&&!update)meta.append(mailed);
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
  const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
- const update=AtlantaTasks.lastUpdate(item);
  const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));head.append(title,chips);
- main.append(head,meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));
- // The last update is one line; Timeline holds the full text.
- if(update){const last=el('p','task-last-line');last.title=update.text;last.append(el('span','task-last-when','Last update · '+dateTime(update.at)+' · '),document.createTextNode(String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim()));main.append(last);}
- main.append(sourceChips(item,itemsData.meetings));
+ // The details line under the title is the first line of the task details; the panel shows all of them.
+ const subtitle=String(item.details||'').split('\n').map(line=>line.trim()).find(Boolean);
+ main.append(head,...(subtitle?[el('p','task-subtitle',subtitle)]:[]),meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));
+ // The last update is a short box; Timeline holds the full text.
+ if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
+  box.append(el('span','task-update-label','Last update'),el('span','task-last-when',dateTime(update.at)),last);if(mailed)box.append(mailed);main.append(box);}
+ const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
+ if(linked)main.append(linked);if(others.childNodes.length)main.append(others);
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
@@ -1717,14 +1729,15 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
   due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null},dayText('Due date',due.value),{due_date:item.due_date||null});
   follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null},dayText('Next follow-up',follow.value),{follow_up_date:item.follow_up_date||null});
   const addUpdate=actionBtn('secondary small-action','Add update',()=>openTaskPanel(item.id,{focusUpdate:true}));
-  const timeline=actionBtn('secondary small-action','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow));
+  const timeline=actionBtn('quiet small-action task-timeline','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow));
   // The card shows the task; the fields open on request and stay open across a refresh after a save.
   quick.id='task-fields-'+item.id;quick.hidden=!openTaskFields.has(item.id);
-  const toggle=btn('secondary small-action task-fields-toggle','');toggle.type='button';toggle.setAttribute('aria-controls',quick.id);
-  const showFields=open=>{quick.hidden=!open;toggle.textContent=open?'Hide fields':'Change owner or dates';toggle.setAttribute('aria-expanded',String(open));if(open)openTaskFields.add(item.id);else openTaskFields.delete(item.id);};
+  const toggle=btn('quiet small-action task-fields-toggle','');toggle.type='button';toggle.setAttribute('aria-controls',quick.id);
+  const showFields=open=>{quick.hidden=!open;toggle.textContent=open?'Hide fields':'Edit';toggle.setAttribute('aria-expanded',String(open));if(open)openTaskFields.add(item.id);else openTaskFields.delete(item.id);};
   toggle.onclick=()=>showFields(quick.hidden);showFields(!quick.hidden);
   // Add update and Timeline stay on the card: a progress note and the history are not fields to change.
-  const rowActions=el('div','task-row-actions');rowActions.append(doneButton(item),addUpdate,timeline,toggle);main.append(rowActions,quick);
+  const done=doneButton(item);if(item.status!=='done'){done.classList.replace('secondary','primary');done.prepend(icon('check'));}
+  const rowActions=el('div','task-row-actions');rowActions.append(done,addUpdate,timeline,toggle);main.append(rowActions,quick);
   if(compact){
    // The compact row: the title, then owner, state and due date that change in place.
    // Add update, Timeline, the next check and the rare actions are in "…".

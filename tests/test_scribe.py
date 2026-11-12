@@ -63,7 +63,7 @@ class ScribeTests(unittest.TestCase):
         self.assertEqual(request.full_url, scribe.ENDPOINT)
         self.assertEqual(request.get_header('Xi-api-key'), 'synthetic-key')
         self.assertEqual(request.data.count(b'name="keyterms"'), 2)
-        self.assertIn(b'scribe_v2', request.data)
+        self.assertIn(b'scribe_v3', request.data)
         self.assertNotIn(b'language_code', request.data)
         self.assertEqual((units[0]['start'], units[0]['end']), (60, 60.7))
 
@@ -106,7 +106,7 @@ class ScribeTests(unittest.TestCase):
             self.assertEqual([u['start'] for u in units], [1, 61])
             self.assertFalse((path/'speaker-turns.json').exists())
             metadata = json.loads((path/'transcript.metadata.json').read_text())
-            self.assertEqual((metadata['model'], metadata['speaker_recognition']), ('scribe_v2', 'local'))
+            self.assertEqual((metadata['model'], metadata['speaker_recognition']), ('scribe_v3', 'local'))
             self.assertEqual((path/'recording.wav').read_bytes(), original)
             self.assertNotIn('scribe-key', ''.join(p.read_text() for p in path.glob('*.json')))
 

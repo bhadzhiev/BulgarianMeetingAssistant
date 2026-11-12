@@ -343,7 +343,7 @@ class MeetingService:
         """What the next recording needs, checked without downloading or opening devices."""
         provider = self.settings['transcription']
         if provider == 'elevenlabs':
-            model = dict(ready=bool(self.elevenlabs_api_key), label='Scribe v2 key set' if self.elevenlabs_api_key else 'Add an ElevenLabs key in Settings')
+            model = dict(ready=bool(self.elevenlabs_api_key), label='Scribe v3 key set' if self.elevenlabs_api_key else 'Add an ElevenLabs key in Settings')
         elif provider == 'openai':
             model = dict(ready=bool(self.api_key), label='OpenAI key set' if self.api_key else 'Add an OpenAI key in Settings')
         elif provider == 'parakeet_sherpa':

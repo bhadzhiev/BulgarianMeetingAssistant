@@ -570,9 +570,9 @@ Compare the same representative Bulgarian recording with MLX and Sherpa, with/wi
 dictionary, before changing your default: Bulgarian accuracy, speed and memory have not been
 benchmarked on your meetings.
 
-### ElevenLabs Scribe v2
+### ElevenLabs Scribe v3
 
-In **Settings → Recording → Transcription**, choose **Cloud · ElevenLabs Scribe v2**.
+In **Settings → Recording → Transcription**, choose **Cloud · ElevenLabs Scribe v3**.
 Create a key at https://elevenlabs.io/app/api/api-keys with Speech to Text access,
 paste it into **ElevenLabs API key**, then save settings. The app saves the key in the shared
 Atlanta Keychain item, so it is available after a restart. **Forget ElevenLabs key** removes it.
@@ -581,7 +581,7 @@ Alternatively, set `ELEVENLABS_API_KEY` before launching; the app uses it and do
 The app shows whether a key is present; this does not validate credits or API access.
 
 The app uploads the whole recording to ElevenLabs in one request for final transcription.
-The model is `scribe_v2`; language detection is automatic for Bulgarian and English.
+The model is `scribe_v3` (since 2026-11-12; it replaced `scribe_v2` at the same price). Language detection is automatic for Bulgarian and English.
 The original recording is kept. A failed request is retried with the whole recording.
 Words retain the API timestamps for playback.
 

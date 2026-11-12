@@ -77,7 +77,9 @@ def meeting_docs(meeting: dict, directory: Path) -> list[dict]:
                 continue  # the registry row holds the current text and status
             docs.append(dict(kind=doc_kind, text=entry['task'] if field == 'tasks' else entry['text'], speaker=entry.get('owner'),
                              start=seconds(entry.get('evidence_timestamp')), ref=index, field=field,
-                             status=entry.get('status') if field == 'tasks' else 'pending' if entry.get('link') else None))
+                             status=entry.get('status') if field == 'tasks' else 'pending' if entry.get('link') else
+                             # A decision that is text in the notes (2026-11-12): checked by a person means accepted.
+                             ('accepted' if entry.get('review') == 'verified' else 'proposed') if field == 'decisions' else None))
     labels = {'important': 'Important', 'decision': 'Decision', 'check': 'Check later'}
     for marker in _read(directory / 'markers.json', []):
         if isinstance(marker, dict) and isinstance(marker.get('time'), (int, float)):

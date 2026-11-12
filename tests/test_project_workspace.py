@@ -5,6 +5,7 @@ from app.service import MeetingService
 from app.work_graph import WorkGraph
 from app.work_items import WorkItemConflict
 from tests.test_calendar import FakeGoogle
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 PROJECT=Path(__file__).resolve().parents[1]
 
 class ProjectWorkspaceTests(unittest.TestCase):

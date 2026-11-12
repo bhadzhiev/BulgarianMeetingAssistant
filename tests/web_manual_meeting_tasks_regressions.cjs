@@ -3,7 +3,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const app=fs.readFileSync('web/app.js','utf8'),html=fs.readFileSync('web/index.html','utf8');
 const slice=(start,end)=>{const i=app.indexOf(start);assert(i>=0,start);return app.slice(i,end?app.indexOf(end,i):undefined);};
 // Settings: one switch, off unless saved on; task matching shows only with it.
-assert.match(html,/<input id="meeting-task-ai" type="checkbox"> Let AI propose tasks from meeting notes and match them with existing tasks<\/label>/);
+assert.match(html,/<input id="meeting-task-ai" type="checkbox"> Let AI propose tasks and decisions from meeting notes and match them with existing tasks<\/label>/);
 assert.match(app,/\$\('meeting-task-ai'\)\.checked=!!s\.meeting_task_ai;/);
 assert.match(app,/meeting_task_ai:\$\('meeting-task-ai'\)\.checked,/);
 assert.match(slice('function renderTaskMatching(){'),/\$\('task-matching-field'\)\.hidden=!\$\('meeting-task-ai'\)\.checked;/);
@@ -17,6 +17,18 @@ assert.match(row,/openManualTask\(detail\.id,\{text:task\.task\|\|'',details:tas
 const attention=slice('function renderAttention(busy){');
 assert.match(attention,/if\(d\.task_matching\?\.status==='needs_permission'&&state\.settings\?\.meeting_task_ai\)/);
 assert.match(attention,/if\(tasks&&state\.settings\?\.meeting_task_ai\)add\('info','Give an owner/);
+// Notes editor: a task line is text with Remove; no owner, dates, state or a second way to add a task.
+const notes=slice('function renderNotes(busy=false) {','\nfunction ');
+assert.doesNotMatch(notes,/'＋ Add task'|'Deadline as said'|' Done'\)/);
+// No review badges on hand-made tasks and task lines; no Manually added badge.
+assert.match(row,/meta\.append\(item\?workReviewBadge\(item\.review_state,item\):handMade\?'':reviewBadge\(task,busy\),/);
+assert.doesNotMatch(app,/'Manually added'/);
+// Decisions are text: no registry card, link card, review checklist or My Work tab without AI meeting items.
+assert.match(app,/decision=field==='decisions'&&state\.settings\?\.meeting_task_ai&&detail\.items\?\.\[item\.item_id\]/);
+assert.match(app,/if\(\(proposedDecisions\|\|recheckDecisions\)&&state\.settings\?\.meeting_task_ai\)add\(/);
+assert.match(slice('function showWorkTab(tab){'),/decisionsTab\.hidden=!state\?\.settings\?\.meeting_task_ai;if\(tab==='decision'&&decisionsTab\.hidden\)tab='task';/);
+// Unused roles: no Assigned by me view, no Received from or Followed by filters, no requester in the source editor.
+assert.doesNotMatch(app,/'Assigned by me'|managerPersonFilter|task-draft-requester/);assert.doesNotMatch(html,/task-draft-requester/);
 // The editor for a line: prefilled, fixed to its meeting, no AI draft, and the request names the line.
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
 const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:''}},requests=[];

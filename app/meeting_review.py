@@ -124,6 +124,9 @@ def review_state(item, sources=None):
     """The item's review across meetings: confirmed, edited, needs_review, or None without a meeting."""
     digest=fingerprint(item);states={r['state'] for mid,r in item.get('meeting_reviews',{}).items() if r['content']==digest and (sources is None or source_matches(r,sources.get(mid)))}
     if 'confirmed' in states and not (item['kind']=='decision' and item.get('status')!='accepted'):return 'confirmed'
+    # A task that a person wrote needs no check against the meeting (2026-11-12): only AI wording asks for review.
+    # A confirmation that a person once gave still goes stale when its source changes.
+    if item.get('created_by')=='user' and not item.get('meeting_reviews'):return None
     if 'edited' in states:return 'edited'
     return 'needs_review' if any(not link.get('detached') for link in item.get('links',[])) else None
 

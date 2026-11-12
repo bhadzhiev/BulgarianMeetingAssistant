@@ -15,6 +15,8 @@
   step that resolves it: a processing error, speakers to name, new AI notes to review, notes to update
   after transcript edits, mentions that look like existing work, AI-proposed decisions to confirm, and
   tasks without an owner or a due date. When nothing is left, it offers **Prepare the next meeting**.
+- **Decisions are text in the notes** when AI meeting items are off (the default since 2026-11-12).
+  Check a decision in the notes to mark it as agreed. The rest of this point applies only when the setting is on.
 - **One decision state:** a decision shows one badge. **Proposed** waits for **Accept decision**.
   **Accepted** needs nothing. **Accepted · check again** means that the notes or the transcript changed
   after it was accepted; **Confirm decision** checks it again. **Hidden in My Work** asks for nothing.

@@ -8,7 +8,7 @@ import uuid
 
 from .credentials import CredentialStore
 
-MODEL = 'scribe_v2'
+MODEL = 'scribe_v3'
 ALIGNMENT_METHOD = 'ElevenLabs Scribe word timestamps'
 ENDPOINT = 'https://api.elevenlabs.io/v1/speech-to-text'
 

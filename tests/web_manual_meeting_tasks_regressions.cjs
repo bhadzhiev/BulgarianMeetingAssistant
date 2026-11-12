@@ -28,7 +28,7 @@ assert.match(app,/decision=field==='decisions'&&state\.settings\?\.meeting_task_
 assert.match(app,/if\(\(proposedDecisions\|\|recheckDecisions\)&&state\.settings\?\.meeting_task_ai\)add\(/);
 assert.match(slice('function showWorkTab(tab){'),/decisionsTab\.hidden=!state\?\.settings\?\.meeting_task_ai;if\(tab==='decision'&&decisionsTab\.hidden\)tab='task';/);
 // Unused roles: no Assigned by me view, no Received from or Followed by filters, no requester in the source editor.
-assert.doesNotMatch(app,/'Assigned by me'|managerPersonFilter|task-draft-requester/);assert.doesNotMatch(html,/task-draft-requester/);
+assert.doesNotMatch(app,/'Assigned by me'|managerPersonFilter|task-draft-requester|taskRequester|taskFollower/i);assert.doesNotMatch(html,/task-draft-requester/);
 // The editor for a line: prefilled, fixed to its meeting, no AI draft, and the request names the line.
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
 const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:''}},requests=[];

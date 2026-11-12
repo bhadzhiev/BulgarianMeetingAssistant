@@ -352,7 +352,14 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
     }
     # The model writes the fields in this order. It is the order of the section rule in the prompt, with summary
     # last: a statement that is already a decision or a task is then not written again in a later section.
-    order = ("decisions", "tasks", "updates", *sections, "needs_decision", "open_questions", "next_steps", "observations", "summary")
+    order = ("decisions", "tasks", "updates", *sections, "needs_decision", "open_questions", "next_steps", "discussion", "observations", "summary")
+    # The details of the meeting by topic (2026-11-13): what was said that is no decision, task or question.
+    topic = {
+        "type": "object",
+        "properties": {"topic": {"type": "string"}, "points": {"type": "array", "items": item}},
+        "required": ["topic", "points"],
+        "additionalProperties": False,
+    }
     # A decision keeps why it was taken, and an open question what is known and what is unclear (2026-11-13):
     # written notes that say only "decided X" or "X is open" do not tell a later reader enough.
     reasoned = copy.deepcopy(quoted)
@@ -361,7 +368,7 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
     question = copy.deepcopy(item)
     question["properties"]["context"] = {"type": ["string", "null"]}
     question["required"].append("context")
-    shapes = {"decisions": reasoned, "updates": quoted, "tasks": task, "open_questions": question}
+    shapes = {"decisions": reasoned, "updates": quoted, "tasks": task, "open_questions": question, "discussion": topic}
     return {
         "type": "object",
         "properties": {name: {"type": "array", "items": shapes.get(name, item)} for name in order},
@@ -388,7 +395,7 @@ def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date:
         minutes = max(1, round((end - start) / 60))
         length = (f"\nТози текст е от {timestamp(start)} до {timestamp(end)} ({minutes} мин.)"
                   + (f" от среща с продължителност {max(1, round(total / 60))} мин." if total and total > end - start + 1 else ".")
-                  + f" Лимитът за summary е за тези {minutes} мин.")
+                  + f" Лимитите за summary и discussion са за тези {minutes} мин.")
     kind = f"\n<atlanta-meeting-type-instructions>{kind}</atlanta-meeting-type-instructions>\n"
     marked = ""
     if markers:
@@ -439,7 +446,7 @@ rationale: за всяко решение 1–3 кратки изречения:
 context: за всеки отворен въпрос 1–2 кратки изречения: кой го повдигна, какво вече е казано и какво остава неясно.
 Ако текстът не казва повече от самия въпрос, върни null.
 Когато важно място в записа е неразбираемо, кажи това („в записа не се чува ясно кой е вторият адрес“), вместо да гадаеш.
-Всеки елемент в summary, decisions, next_steps, needs_decision, open_questions и observations е обект:
+Всеки елемент в summary, decisions, next_steps, needs_decision, open_questions, observations и всяка точка в discussion е обект:
 text е твърдението, evidence_timestamp е timestamp на сегмента, който го доказва. Не пиши timestamp в text.
 Човек проверява всяко твърдение, като отваря неговия момент в записа; неточен evidence_timestamp прави проверката невъзможна.
 Пример за един елемент: {{"text": "Решихме да мигрираме базата до края на месеца", "evidence_timestamp": "00:12:41"}}
@@ -456,13 +463,19 @@ updates: напредък, пречка или уточнение по рабо�
 (например „миграцията е готова наполовина“, „чакаме достъп от клиента“). Нова работа е задача, не актуализация.
 Не измисляй към коя съществуваща задача се отнася актуализацията.
 Всяко нещо записвай само в една секция — в първата подходяща по този ред: decisions, tasks, updates, секциите
-на типа срещата, needs_decision, open_questions, next_steps, observations, summary. Не повтаряй едно и също в две секции
+на типа срещата, needs_decision, open_questions, next_steps, discussion, observations, summary. Не повтаряй едно и също в две секции
 с други думи. Секциите на типа срещата и updates не повтарят решение или задача. Един въпрос е или в needs_decision, или в open_questions, не и в двете.
-summary се пише последно. То съдържа само изводи, които не са записани в друга секция. Ако всичко вече е
-записано другаде, summary е празен списък. Цел или резултат на срещата пиши само ако текстът ги казва.
-summary: до 6 съществени извода, без задължителен минимум, и не повече от един на всеки 2 минути от
-продължителността на този текст (за кратък текст — 1 или 2). Обобщава контекста и резултатите; не преразказва
-задачите, решенията, актуализациите и въпросите. Не пиши една мисъл два пъти с други думи. Пиши какво е установено или какъв е
+discussion: подробностите на срещата по теми: факти, числа, ограничения, разгледани варианти, аргументи и кой
+какво каза, които не са решение, задача, актуализация или въпрос. Всяка тема има кратко име (topic) и 2–8 точки
+(points). Точката е едно кратко изречение със своя evidence_timestamp. Когато е важно кой го каза, започни с
+името („Иван: …“). Не повече от една тема на всеки 5 минути от продължителността на този текст. Не повтаряй
+решенията, задачите и въпросите. Ако няма такива подробности, върни празен списък.
+summary се пише последно. То е обзорът на срещата за човек, който не е бил на нея: до 4 абзаца, по един на
+основна линия на срещата, и не повече от един на всеки 5 минути от продължителността на този текст (за кратък
+текст — 1). Всеки абзац е 1–3 изречения: кой какво разгледа, до какво стигна и какво остава. Абзацът може да
+назове накратко основно решение или задача, но не ги изброява поотделно и не преразказва
+задачите, решенията, актуализациите и въпросите: те са в своите секции. Цел или резултат на срещата пиши
+само ако текстът ги казва. Не пиши една мисъл два пъти с други думи. Пиши какво е установено или какъв е
 резултатът, а не че нещо е обсъдено: „Складът няма покритие, защото няма точка наблизо“, не „Обсъдено е покритието“.
 Кратки потвърждения, откази и промени на договореното са съществени. Не ги премахвай като шум.
 Пропускай поздрави и странични разговори само когато нямат отношение към целта и типа на срещата.
@@ -512,7 +525,8 @@ def extract_json(text: str) -> dict[str, Any]:
         return json.loads(match.group(0))
 
 
-MINUTES_OPTIONAL = ("next_steps", "needs_decision", "observations", "updates")
+MINUTES_OPTIONAL = ("next_steps", "needs_decision", "observations", "updates", "discussion")
+TOPIC_LIMIT = 200
 # The words that were said, kept for a statement: at most this many characters.
 QUOTE_LIMIT = 500
 # Sections of a meeting type. Notes have only the sections of their type, so they are never filled in.
@@ -650,7 +664,7 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
     for field in MINUTES_OPTIONAL:
         # Older notes stay as they were saved: an empty "updates" list is not added, because the
         # content of the notes is the evidence of a person's confirmation (app/meeting_review.py).
-        if field != "updates":
+        if field not in {"updates", "discussion"}:
             minutes.setdefault(field, [])
     fields |= (set(MINUTES_OPTIONAL) | set(SECTION_FIELDS)) & set(minutes)
     for field in fields:
@@ -676,6 +690,24 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
                 raise ValueError("Review state must be ai or verified")
             _check_registry_keys(item)
             stamp = item["evidence_timestamp"]
+            if stamp is not None and (not isinstance(stamp, str) or not re.fullmatch(r"\d{2,}:\d{2}:\d{2}", stamp)):
+                raise ValueError("Invalid evidence timestamp")
+            if stamp is not None and evidence is not None and stamp not in evidence:
+                raise ValueError(f"Timestamp {stamp} does not reference a transcript segment")
+    for topic in minutes.get("discussion", []):
+        if not isinstance(topic, dict) or set(topic) != {"topic", "points"} or not isinstance(topic["points"], list):
+            raise ValueError("discussion topics need a topic and points")
+        if not isinstance(topic["topic"], str) or not topic["topic"].strip() or len(topic["topic"]) > TOPIC_LIMIT:
+            raise ValueError(f"A discussion topic needs a name of at most {TOPIC_LIMIT} characters")
+        for point in topic["points"]:
+            if not isinstance(point, dict) or not {"text", "evidence_timestamp"} <= set(point) or set(point) - {"text", "evidence_timestamp", "review"}:
+                raise ValueError("discussion points need text and a source timestamp field")
+            point.setdefault("review", "ai")
+            if not isinstance(point["text"], str) or not point["text"].strip():
+                raise ValueError("discussion points need text")
+            if point["review"] not in REVIEW_STATES:
+                raise ValueError("Review state must be ai or verified")
+            stamp = point["evidence_timestamp"]
             if stamp is not None and (not isinstance(stamp, str) or not re.fullmatch(r"\d{2,}:\d{2}:\d{2}", stamp)):
                 raise ValueError("Invalid evidence timestamp")
             if stamp is not None and evidence is not None and stamp not in evidence:
@@ -731,6 +763,7 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
     for field in ITEM_FIELDS:
         if field in schema["properties"]:
             schema["properties"][field]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
+    schema["properties"]["discussion"]["items"]["properties"]["points"]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
     if args.summarizer in {"local", "ollama"}:
         from app.local_ai import complete_json
         return complete_json(vars(args), [{"role": "user", "content": prompt}], schema, "meeting_minutes", api_key=getattr(args, "api_key", "") or "")
@@ -762,6 +795,11 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
         titles = meeting_types.TITLES_BG
     lines = ["# Бележки от срещата", "", "## Резюме"]
     lines.extend(line(item) for item in minutes.get("summary", []))
+    if minutes.get("discussion"):
+        lines.extend(["", "## Обсъждане"])
+        for topic in minutes["discussion"]:
+            lines.extend(["", f"### {topic['topic']}"])
+            lines.extend(line(point) for point in topic["points"])
     for field in SECTION_FIELDS:
         if minutes.get(field):
             lines.extend(["", f"## {titles.get(field) or 'Раздел ' + field.rsplit('_', 1)[-1]}"])

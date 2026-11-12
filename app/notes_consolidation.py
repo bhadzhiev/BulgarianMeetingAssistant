@@ -73,7 +73,8 @@ def candidates(parts, segments):
     facts = []
     for part_index, part in enumerate(parts):
         for field, rows in part.items():
-            if not isinstance(rows, list):
+            # Discussion topics are merged by name without AI (merge_topics): a point is detail, not a commitment.
+            if not isinstance(rows, list) or field == 'discussion':
                 continue
             for index, item in enumerate(rows):
                 value = core(field, item)
@@ -351,11 +352,30 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
                 audit['groups'][key] = dict(field=field, members=leaf[node['id']], evidence=evidence[node['id']])
             if field == 'summary':
                 audit['summary_sources'].append(leaf[node['id']])
+    if 'discussion' in result:
+        result['discussion'] = merge_topics(parts)
     audit['requests'] = calls
     audit['merged'] = sum(max(0, len(g['members']) - 1) for g in audit['groups'].values() if g['field'] != 'summary')
     audit['input_count'] = len(facts)
     audit['output_count'] = sum(len(rows) for rows in result.values())
     return result, audit
+
+
+def merge_topics(parts):
+    """The discussion topics of all parts: one topic for one name (any letter case), in the order of first
+    appearance, with the points of every part. A point said twice in the same words is kept once."""
+    topics = {}
+    for part in parts:
+        for topic in part.get('discussion') or []:
+            if not isinstance(topic, dict) or not isinstance(topic.get('topic'), str):
+                continue
+            merged = topics.setdefault(' '.join(topic['topic'].casefold().split()), dict(topic=topic['topic'].strip(), points=[]))
+            seen = {' '.join(p['text'].casefold().split()) for p in merged['points']}
+            for point in topic.get('points') or []:
+                if isinstance(point, dict) and isinstance(point.get('text'), str) and ' '.join(point['text'].casefold().split()) not in seen:
+                    seen.add(' '.join(point['text'].casefold().split()))
+                    merged['points'].append(copy.deepcopy(point))
+    return [topic for topic in topics.values() if topic['points']]
 
 
 def failed_audit(parts, segments, error):

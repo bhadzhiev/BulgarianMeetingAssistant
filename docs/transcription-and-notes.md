@@ -142,8 +142,10 @@ Long transcripts are extracted in parts of about 10,000 characters, then consoli
 selected AI provider. A part fits a 16k-token local model context with its answer.
 The global summary has at most six points; tasks and decisions have no fixed count limit. If the
 model keeps skipping one source, that source stays as its own point instead of failing the merge.
+Discussion topics of the parts merge by name without AI: one topic for one name, with the points of
+every part.
 Each statement goes into one section only, in this order: decisions, tasks, updates, the sections
-of the meeting type, needs decision, open questions, next steps, observations, summary. The model
+of the meeting type, needs decision, open questions, next steps, discussion, observations, summary. The model
 writes the sections in this order too, so the summary comes last. The summary does not repeat
 tasks, decisions, updates or questions. A task title has 6–12 words (at most 15): owner, action
 and object. Each task also has a description (`details`): 1–4 short sentences with the scope,
@@ -154,10 +156,12 @@ Older tasks that are only one line get titles in My Work → **Add titles**: the
 AI endpoint and the number of tasks first (accepted, visible tasks only), the AI writes a short title
 for each, the old text becomes the description, and only the titles a person keeps are saved. A guess ("може би ще го дам на Иван") is an open question,
 not a task. A first-person commitment ("ще изпратя Иван при Мария") is a task of the speaker, not a
-decision. The sections of the meeting type and the updates do not repeat a decision or a task. The
-summary holds only points that are in no other section; it may be empty. A wish without an agreed
-action ("искам някой ден да говоря с Иван") is not a task. The summary limit (one point for each 2
-minutes) uses the length of the part, not its last timestamp. Observations say what was said, not
+decision. The sections of the meeting type and the updates do not repeat a decision or a task.
+Since 13.11.2026 the summary is an overview for a person who was not at the meeting: up to four
+paragraphs, one for each main line of the meeting, of 1–3 sentences each. A paragraph can name a main
+decision or task, but it does not list them. A wish without an agreed
+action ("искам някой ден да говоря с Иван") is not a task. The summary and discussion limits (one
+paragraph or topic for each 5 minutes) use the length of the part, not its last timestamp. Observations say what was said, not
 why; a guess about disagreement is only a neutral question. Observations are at most three work risks; they never judge a person. Known participant
 names keep their exact spelling in every statement. Another name of a person in People (for
 example a short name) becomes the People name in the statements, task text and owner.
@@ -336,6 +340,11 @@ an owner come last. A note at the end of the **Notes** tab says that the AI wrot
 recording, and that each point links to its source moment.
 
 - **Summary** and **Decisions**.
+- **Discussion:** the details of the meeting by topic, in the **Notes** tab after the summary: facts,
+  numbers, limits, options and who said what, which are no decision, task or question. Each topic has
+  2–8 points; each point has its source moment. Edit, add or remove topics and points in the notes
+  editor. A new AI run offers each changed topic as one change. Search finds a point by its words or its
+  topic. Notes from before 13.11.2026 have no discussion.
 - **Next steps:** agreed process steps, for example a follow-up meeting.
 - **Questions for your decision:** items that wait for a decision and were not decided.
 - **Tasks:** task, owner, deadline as said, due date, status (open or done), and source timestamp.

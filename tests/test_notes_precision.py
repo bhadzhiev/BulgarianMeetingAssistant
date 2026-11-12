@@ -22,7 +22,7 @@ class PromptRulesTests(unittest.TestCase):
 
     def test_each_statement_goes_to_one_section_in_a_fixed_order(self):
         self.assertIn('Всяко нещо записвай само в една секция', self.prompt)
-        self.assertIn('decisions, tasks, updates, секциите\nна типа срещата, needs_decision, open_questions, next_steps, observations, summary', self.prompt)
+        self.assertIn('decisions, tasks, updates, секциите\nна типа срещата, needs_decision, open_questions, next_steps, discussion, observations, summary', self.prompt)
         self.assertIn('Един въпрос е или в needs_decision, или в open_questions, не и в двете.', self.prompt)
         self.assertIn('не преразказва\nзадачите, решенията, актуализациите и въпросите', self.prompt)
 
@@ -30,7 +30,7 @@ class PromptRulesTests(unittest.TestCase):
         # The model writes the fields in schema order. Summary last: it does not repeat what comes after it.
         order = list(meeting_assistant.minutes_schema(('today', 'blockers'))['properties'])
         self.assertEqual(order, ['decisions', 'tasks', 'updates', 'today', 'blockers', 'needs_decision',
-                                 'open_questions', 'next_steps', 'observations', 'summary'])
+                                 'open_questions', 'next_steps', 'discussion', 'observations', 'summary'])
         self.assertEqual(meeting_assistant.minutes_schema()['required'], list(meeting_assistant.minutes_schema()['properties']))
 
     def test_a_guess_is_not_a_task(self):
@@ -44,8 +44,10 @@ class PromptRulesTests(unittest.TestCase):
 
     def test_type_sections_and_summary_do_not_repeat_other_sections(self):
         self.assertIn('Секциите на типа срещата и updates не повтарят решение или задача.', self.prompt)
-        self.assertIn('summary се пише последно. То съдържа само изводи, които не са записани в друга секция.', self.prompt)
-        self.assertIn('summary е празен списък. Цел или резултат на срещата пиши само ако текстът ги казва.', self.prompt)
+        # Since 2026-11-13 the summary is an overview in paragraphs for a person who was not there.
+        self.assertIn('summary се пише последно. То е обзорът на срещата за човек, който не е бил на нея: до 4 абзаца', self.prompt)
+        self.assertIn('Абзацът може да\nназове накратко основно решение или задача, но не ги изброява поотделно', self.prompt)
+        self.assertIn('Цел или резултат на срещата пиши\nсамо ако текстът ги казва.', self.prompt)
         self.assertNotIn('върни една точка за целта', self.prompt)
 
     def test_a_wish_is_not_a_commitment(self):
@@ -56,11 +58,12 @@ class PromptRulesTests(unittest.TestCase):
     def test_the_summary_limit_follows_the_length_of_the_part(self):
         part = meeting_assistant.llm_prompt('[00:50:00] Иван: Да.', span=(3000, 3250, 3600))
         self.assertIn('Този текст е от 00:50:00 до 00:54:10 (4 мин.) от среща с продължителност 60 мин.', part)
-        self.assertIn('Лимитът за summary е за тези 4 мин.', part)
+        self.assertIn('Лимитите за summary и discussion са за тези 4 мин.', part)
         whole = meeting_assistant.llm_prompt('[00:00:00] Иван: Да.', span=(0, 250, 250))
-        self.assertIn('(4 мин.). Лимитът', whole)
+        self.assertIn('(4 мин.). Лимитите', whole)
         self.assertNotIn('продължителност 60', self.prompt)
-        self.assertIn('2 минути от\nпродължителността на този текст', self.prompt)
+        self.assertIn('не повече от един на всеки 5 минути от продължителността на този текст', self.prompt)
+        self.assertIn('Не повече от една тема на всеки 5 минути от продължителността на този текст.', self.prompt)
 
     def test_observations_report_what_was_said_not_why(self):
         self.assertNotIn('скрито несъгласие', self.prompt)

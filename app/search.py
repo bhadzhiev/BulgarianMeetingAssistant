@@ -26,7 +26,7 @@ STOP_WORDS = {'какво', 'кога', 'кой', 'коя', 'кое', 'кои', 
 STAMP = re.compile(r'(\d{2,}):(\d{2}):(\d{2})')
 DECISION_QUESTION = re.compile(r'реш|договор|прие|decid|agree', re.IGNORECASE)
 MARK_START, MARK_END = '\x02', '\x03'
-INDEX_VERSION = 2  # 2: a registry row for each linked meeting
+INDEX_VERSION = 3  # 2: a registry row for each linked meeting; 3: discussion points
 
 
 def seconds(stamp):
@@ -80,6 +80,11 @@ def meeting_docs(meeting: dict, directory: Path) -> list[dict]:
                              status=entry.get('status') if field == 'tasks' else 'pending' if entry.get('link') else
                              # A decision that is text in the notes (2026-11-12): checked by a person means accepted.
                              ('accepted' if entry.get('review') == 'verified' else 'proposed') if field == 'decisions' else None))
+    # The details by topic (2026-11-13) are found like the summary; the topic name helps a search find its points.
+    points = [(topic, point) for topic in (minutes or {}).get('discussion', []) for point in topic['points']]
+    for index, (topic, point) in enumerate(points):
+        docs.append(dict(kind='summary', text=topic['topic'] + ': ' + point['text'], start=seconds(point.get('evidence_timestamp')),
+                         ref=index, field='discussion'))
     labels = {'important': 'Important', 'decision': 'Decision', 'check': 'Check later'}
     for marker in _read(directory / 'markers.json', []):
         if isinstance(marker, dict) and isinstance(marker.get('time'), (int, float)):

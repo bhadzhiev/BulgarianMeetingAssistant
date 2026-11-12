@@ -48,11 +48,13 @@ class NoteItemTests(unittest.TestCase):
 
     def test_ai_schema_asks_for_a_source_on_every_statement(self):
         schema = minutes_schema()
-        for field in ['summary', 'next_steps', 'needs_decision', 'open_questions', 'observations']:
+        for field in ['summary', 'next_steps', 'needs_decision', 'observations']:
             self.assertEqual(schema['properties'][field]['items']['required'], ['text', 'evidence_timestamp'])
+        # An open question also keeps what is known about it; a decision why it was taken (2026-11-13).
+        self.assertEqual(schema['properties']['open_questions']['items']['required'], ['text', 'evidence_timestamp', 'context'])
         # Decisions, updates and tasks also keep the words that were said.
-        for field in ['decisions', 'updates']:
-            self.assertEqual(schema['properties'][field]['items']['required'], ['text', 'evidence_timestamp', 'quote'])
+        self.assertEqual(schema['properties']['updates']['items']['required'], ['text', 'evidence_timestamp', 'quote'])
+        self.assertEqual(schema['properties']['decisions']['items']['required'], ['text', 'evidence_timestamp', 'quote', 'rationale'])
         self.assertIn('quote', schema['properties']['tasks']['items']['required'])
         self.assertIn('updates', schema['required'])
 

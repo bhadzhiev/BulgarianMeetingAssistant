@@ -19,7 +19,7 @@ class TaskDetailsTests(unittest.TestCase):
         self.assertEqual(task['properties']['details'], {'type': ['string', 'null']})
         self.assertIn('details', task['required'])
         prompt = ma.llm_prompt('[00:00:01] Мария: ще проверя бекъпа на сървъра до петък.')
-        self.assertIn('details: описание на задачата в 1–3 кратки изречения', prompt)
+        self.assertIn('details: описание на задачата в 1–4 кратки изречения', prompt)
 
     def test_validation_accepts_text_or_null_and_old_notes_without_it(self):
         for value in ('Пълен бекъп на базата и проверка на възстановяването.', None):

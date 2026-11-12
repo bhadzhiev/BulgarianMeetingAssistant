@@ -40,6 +40,8 @@ deadlines); "Deploy on Friday" said twice by two speakers merges into one group 
 representative is the more complete wording.
 """
 CORE_TASK = ('task', 'owner', 'deadline', 'due_date', 'evidence_timestamp')
+# Text that explains a statement rides with it, like the quote: it is not part of its identity (2026-11-13).
+EXPLAINING = ('details', 'rationale', 'context')
 
 
 def digest(value):
@@ -78,6 +80,7 @@ def candidates(parts, segments):
                 key = digest([part_index, field, index, value])[:24]
                 # The quote rides with the fact; it is not part of its identity and does not go to the AI.
                 facts.append(dict(id=key, field=field, value=value, quote=item.get('quote'),
+                    extra={name: item[name] for name in EXPLAINING if name in item},
                     evidence=copy.deepcopy(source.get(value.get('evidence_timestamp'), []))))
     if len(facts) > MAX_FACTS:
         raise ValueError('Too many extracted statements to consolidate in one run. Completed parts were kept.')
@@ -336,6 +339,8 @@ def consolidate(parts, segments, settings, directory, progress, api_key=''):
             item = copy.deepcopy(node['value'])
             if field != 'summary' and node.get('quote'):
                 item['quote'] = node['quote']
+            if field != 'summary':
+                item.update(copy.deepcopy(node.get('extra') or {}))
             key = fact_key(field, item)
             if key in audit['groups']:
                 previous = audit['groups'][key]

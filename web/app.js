@@ -1046,6 +1046,15 @@ function noteButtons(items,index,textNode,busy,title){
  remove.onclick=()=>perform(async()=>{if(!(await ask('Delete this statement from '+title+'?\n\n'+item.text,{ok:'Delete',danger:true})))return;await commit(()=>items.splice(index,1));toast('Deleted');});
  return [edit,rowMenu('More actions for this statement',remove)];
 }
+// A decision keeps why it was taken, an open question what is known about it (2026-11-13). Null means that the
+// meeting gave none; notes from before these fields have no key and show nothing.
+const EXPLANATIONS={decisions:'rationale',open_questions:'context'};
+function noteExplanation(field,item){
+ const name=EXPLANATIONS[field];if(!name||!(name in item))return null;
+ const text=String(item[name]||'').trim();
+ if(!text)return name==='rationale'?el('p','note-explanation empty','No reason was given in the meeting.'):null;
+ return linkedText(el('p','note-explanation'),text);
+}
 function noteSection(minutes,field,title,busy,hint) {
  const section=el('section','note-section'+(field==='observations'?' private-notes':''));
  section.append(el('h3','',title)); if(hint) section.append(el('p','hint',hint));
@@ -1055,7 +1064,7 @@ function noteSection(minutes,field,title,busy,hint) {
   else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&state.settings?.meeting_task_ai&&detail.items?.[item.item_id];
    if(decision) meta.append(decisionBadge(decision));
    const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions){action.disabled=busy;for(const inner of action.querySelectorAll?.('button')||[])inner.disabled=busy||inner.disabled;}meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
-   if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText,meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
+   if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText);const why=noteExplanation(field,item);if(why)li.append(why);li.append(meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
    if(field==='decisions'&&state.settings?.meeting_task_ai&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
    list.append(li); }); section.append(list); }
@@ -1070,7 +1079,9 @@ function noteSection(minutes,field,title,busy,hint) {
   select.setAttribute('aria-label','Source for '+title+' '+(index+1)); select.disabled=busy; select.append(option('No source moment',''),...stamps.map(stamp=>option(stamp,stamp)));
   select.value=item.evidence_timestamp||''; select.onchange=()=>{item.evidence_timestamp=select.value||null;markNotes();};
   remove.type='button'; remove.disabled=busy; remove.onclick=()=>{items.splice(index,1);markNotes();draw();};
-  bottom.append(el('label','','Source'),select,remove); row.append(area,bottom); list.append(row); }); }
+  bottom.append(el('label','','Source'),select,remove); row.append(area);
+  const name=EXPLANATIONS[field];if(name){const label=el('label','note-explanation-editor'),why=el('textarea');why.value=item[name]||'';why.rows=2;why.disabled=busy;why.placeholder=name==='rationale'?'Why it was decided, and how people reacted':'Who asked, what is known, what is unclear';why.oninput=()=>{if(why.value.trim())item[name]=why.value;else delete item[name];markNotes();};label.append(el('span','',name==='rationale'?'Reason':'Context'),why);row.append(label);}
+  row.append(bottom); list.append(row); }); }
  draw();
  // A statement that you write yourself needs no AI check.
  const add=el('button','secondary','＋ Add'); add.type='button'; add.disabled=busy; add.onclick=()=>{items.push({text:'',evidence_timestamp:null,review:'verified'});markNotes();draw();list.lastElementChild?.querySelector('textarea').focus();};
@@ -1117,7 +1128,7 @@ $('task-titles-apply').onclick=()=>perform(async()=>{
  editorDirty.clear('dialog:task-titles-dialog');$('task-titles-dialog').close();await refreshAfterItemChange();
  toast(AtlantaUX.count(result.applied,'task')+' updated'+(result.skipped?' · '+result.skipped+' changed meanwhile and stayed as they were':''));
 });
-function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):item.text; }
+function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):[item.text,item.rationale&&'Reason: '+item.rationale,item.context&&'Context: '+item.context].filter(Boolean).join(' · '); }
 async function reviewNotes(action,accept) {
  detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();

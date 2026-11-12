@@ -101,7 +101,7 @@ class PartSizeTests(unittest.TestCase):
         local = dict(DEFAULTS, summarizer='local')
         self.assertEqual(processing.notes_part_chars(local), 10000)
         self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=262144, local_ai_max_tokens=16384)), 400000)
-        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 104688)
+        self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=65536, local_ai_max_tokens=8192)), 102688)
         # A small context gets a smaller part: what is left after the answer and the prompt.
         self.assertEqual(processing.notes_part_chars(dict(local, local_ai_context=12288, local_ai_max_tokens=4096), 5000), 6384)
 

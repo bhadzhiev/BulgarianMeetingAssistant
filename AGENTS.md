@@ -67,7 +67,7 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   responses. Changes touching AI sending must keep these boundaries (see
   `tests/test_ai_budget_and_errors.py`, `docs/work-assistant-contract.md`).
 - **AI meeting tasks are off by default** (setting `meeting_task_ai`, since 2026-11-12): the AI stops at the
-  notes; the person makes tasks with **Create task** on a notes line. Test modules that cover AI proposals
+  notes; tasks and decisions are text there, and the person makes tasks with **Create task** on a notes line. Test modules that cover AI proposals
   or matching import `setUpModule`/`tearDownModule` from `tests/ai_meeting_tasks.py`.
 - **Nothing changes until the person decides:** AI proposals stay proposals until accepted or
   linked; meetings, owners, states the person edited are never overwritten by AI

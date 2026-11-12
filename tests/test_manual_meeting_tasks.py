@@ -103,6 +103,35 @@ class ManualMeetingTaskTests(unittest.TestCase):
         self.assertNotIn(proposed[0]['id'], self.service.items.items)
         self.assertEqual(self.notes(meeting_id)['tasks'][0]['item_id'], task['id'])
 
+    def test_decisions_stay_text_and_search_reads_the_check(self):
+        notes = minutes('Изпрати оферта')
+        notes['decisions'] = [dict(text='Резервният интернет ще е LTE рутер', evidence_timestamp='00:00:00', review='verified'),
+                              dict(text='Офертата е до петък', evidence_timestamp='00:00:00', review='ai')]
+        meeting_id = self.meeting(notes)
+        listed = self.service.item_list()
+        self.assertEqual([i for i in listed['items'] if i['kind'] == 'decision'], [])
+        self.assertEqual(listed['pending'], [])
+        self.assertTrue(all('item_id' not in d for d in self.notes(meeting_id)['decisions']))
+        answer = self.service.ask('LTE рутер', ai=False)
+        self.assertEqual([r['text'] for r in answer['confirmed']], ['Резервният интернет ще е LTE рутер'])
+
+    def test_old_ai_decisions_are_hidden_not_deleted(self):
+        self.service.save_settings(dict(meeting_task_ai=True))
+        notes = minutes('Изпрати оферта')
+        notes['decisions'] = [dict(text='Офертата е до петък', evidence_timestamp='00:00:00', review='ai')]
+        self.meeting(notes)
+        decisions = [i['id'] for i in self.service.item_list()['items'] if i['kind'] == 'decision']
+        self.assertEqual(len(decisions), 1)
+        self.service.save_settings(dict(meeting_task_ai=False))
+        self.assertEqual([i for i in self.service.item_list()['items'] if i['kind'] == 'decision'], [])
+        self.assertIn(decisions[0], self.service.items.items)
+
+    def test_a_task_that_a_person_wrote_needs_no_review(self):
+        meeting_id = self.meeting(minutes('Изпрати оферта'))
+        task = self.create(meeting_id, 0)
+        row = next(i for i in self.service.item_list()['items'] if i['id'] == task['id'])
+        self.assertIsNone(row['review_state'])
+
 
 if __name__ == '__main__':
     unittest.main()

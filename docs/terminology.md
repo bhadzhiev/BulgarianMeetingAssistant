@@ -13,7 +13,7 @@ These four are different things. Do not use one word for another.
 | **Task** | A piece of work that one person owns and that has a state. Others can also work on it. | My Work, Projects, task editor | action item, to-do, ticket, issue | "Task saved" |
 | **Action** (1:1) | An agreed step in a 1:1 review. It is not a task until you create one from it with "Make a task…". | 1:1 review, actions and goals | task (before you create the task) | "＋ Action" |
 | **Goal** (1:1) | A change that a person wants to reach. It has the states Open, Done and Dropped. It has no owner workflow. | 1:1 review, actions and goals | task, objective, OKR | "＋ Goal" |
-| **Decision** | Something that the meeting agreed. It has a status (proposed, accepted, superseded). It has no owner and no due date. | My Work → Decisions, meeting notes | task, agreement, resolution | "Accepted decision" |
+| **Decision** | Something that the meeting agreed. By default (since 2026-11-12) it is text in the meeting notes; a checked decision counts as agreed. With AI meeting items on, it has a status (proposed, accepted, superseded). It has no owner and no due date. | Meeting notes; My Work → Decisions only with AI meeting items on | task, agreement, resolution | "Accepted decision" |
 | **Question** | An open question from a meeting that someone tracks until it has an answer. | My Work → Questions | task, issue | "New question" |
 
 ## People: person, participant, speaker
@@ -23,7 +23,7 @@ These four are different things. Do not use one word for another.
 | **Person** | A confirmed profile in Settings → People. It has a name, and can have emails, aliases and a GitHub login. | People, Team, task owner | contact, user, member (outside Team) | "Delete person" |
 | **Participant** | A person who took part in one meeting. | Library filters, meeting header | attendee, speaker | "Participant: Ana" |
 | **Speaker** | A voice in one transcript, for example "SPEAKER_01", before or after you connect it to a person. | Transcript, analytics | person (before you connect it), participant | "This is Ana" (connects a speaker to a person) |
-| **This is me** | Your own person, to filter My tasks and Assigned by me. It is not a login and gives no access. | My Work | user, account, login | "This is me" |
+| **This is me** | Your own person, to filter My tasks. It is not a login and gives no access. | My Work | user, account, login | "This is me" |
 | **Team member** | A person in your team, with membership periods. | Team | employee, report | "Leave the team…" |
 
 ## Task roles
@@ -32,9 +32,9 @@ These four are different things. Do not use one word for another.
 | --- | --- | --- |
 | **Owner** | The person who is accountable for the task. One owner per task. | assignee (alone), responsible |
 | **Also working on it** | The other people who share the task and its state. The owner stays accountable. | co-owner, owner |
-| **Received from** | The person who asked for the task. | requester (in the UI), reporter |
-| **Assigned by** | The person who gave the task to the owner. | creator |
-| **Followed by** | The person who checks that the task moves. | watcher, follower (in the UI) |
+| **Received from** | The person who asked for the task. Not shown in the editor since 2026-11-12; saved values stay. | requester (in the UI), reporter |
+| **Assigned by** | The person who gave the task to the owner. Not shown in the editor since 2026-11-12; saved values stay. | creator |
+| **Followed by** | The person who checks that the task moves. Not shown in the editor since 2026-11-12; saved values stay. | watcher, follower (in the UI) |
 
 ## States
 

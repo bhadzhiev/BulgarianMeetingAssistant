@@ -205,7 +205,7 @@ def review(service, body):
             proposal['revision'] += 1
             key = WorkGraph._activity(data, 'proposal_' + action, proposal_id=proposal['id'], result_id=result_id)
             if meta['field'] == 'tasks':
-                service.items.sync(meeting_id, minutes, create_tasks=service.meeting_task_ai())
+                service.items.sync(meeting_id, minutes, create_items=service.meeting_task_ai())
                 save_minutes(directory, minutes)
             service.items.save()
         except WorkItemConflict:

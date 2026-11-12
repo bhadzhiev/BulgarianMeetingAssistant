@@ -24,7 +24,10 @@ match them with existing tasks, and does not add updates to tasks. You decide wh
 - The new task links to the meeting and to the line. The line then shows the task card.
 - Change the state of a task by hand in My Work. Use the **Updates on work in progress** section
   of the notes as the source.
-- Task proposals that the AI made before stay hidden. They are not deleted.
+- Decisions are text in the notes too. Check a decision in the notes to mark it as agreed. My Work has no
+  Decisions tab then.
+- In Edit of the notes, a task line is text only. Owner, dates and state belong to the task card.
+- Task proposals and decisions that the AI made before stay hidden. They are not deleted.
 
 To get the old behaviour back, turn on **Settings → AI → Let AI propose tasks from meeting notes and
 match them with existing tasks**. The hidden proposals then show again, and the sections below apply.

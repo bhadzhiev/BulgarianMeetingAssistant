@@ -99,7 +99,7 @@ function renderAttention(busy){
  // The same state as the decision badges, so the count and the list agree.
  const decisionStates=AtlantaTasks.meetingGroups(minutes.decisions||[]).map(group=>group.task).filter(m=>!m.link).map(m=>{const item=d.items?.[m.item_id];return item?decisionState(item).cls:m.review==='verified'?'accepted':'proposed';});
  const proposedDecisions=decisionStates.filter(s=>s==='proposed').length,recheckDecisions=decisionStates.filter(s=>s==='recheck').length;
- if(proposedDecisions||recheckDecisions)add('warn',[proposedDecisions&&'Accept '+AtlantaUX.count(proposedDecisions,'decision')+' that the AI proposed',recheckDecisions&&'Check '+AtlantaUX.count(recheckDecisions,'accepted decision')+' again after a change'].filter(Boolean).join(' · '),'Review decisions',async()=>toOutcomes());
+ if((proposedDecisions||recheckDecisions)&&state.settings?.meeting_task_ai)add('warn',[proposedDecisions&&'Accept '+AtlantaUX.count(proposedDecisions,'decision')+' that the AI proposed',recheckDecisions&&'Check '+AtlantaUX.count(recheckDecisions,'accepted decision')+' again after a change'].filter(Boolean).join(' · '),'Review decisions',async()=>toOutcomes());
  const tasks=AtlantaTasks.meetingGroups(minutes.tasks||[]).map(group=>group.task).filter(t=>!d.items?.[t.item_id]?.dismissed&&t.status!=='done'&&!t.link&&(!t.owner||!t.due_date)).length;
  if(tasks&&state.settings?.meeting_task_ai)add('info','Give an owner and a due date to '+tasks+(tasks===1?' task':' tasks'),'Add owners and dates',async()=>toOutcomes());
  // Each meeting type asks its own review questions, for example to confirm the hypotheses of an incident.
@@ -410,7 +410,7 @@ function editTaskDraft(source,preview){
   const dialog=$('task-draft-dialog'),area=$('task-draft-text'),submit=$('task-draft-save'),cancel=$('task-draft-cancel'),generate=$('task-draft-generate'),note=$('task-draft-error'),status=$('task-draft-status'),project=$('task-draft-project'),keep=$('task-draft-keep');
   let createdTaskId=null,submitted=null,jobId='',poll=null,generating=false,preparing=false,saving=false,closed=false,operation=crypto.randomUUID().replaceAll('-','');
   const extra=$('task-draft-details'),criterion=$('task-draft-criterion'),link=$('task-draft-link');
-  const owner=$('task-draft-owner'),due=$('task-draft-due'),requester=$('task-draft-requester');owner.value=source.capture_owner||'';due.value=source.capture_due_date||'';requester.replaceChildren(option('Not specified',''),...(state.people||[]).map(p=>option(p.name,p.id)));requester.value='';
+  const owner=$('task-draft-owner'),due=$('task-draft-due');owner.value=source.capture_owner||'';due.value=source.capture_due_date||'';
   extra.value=criterion.value='';link.replaceChildren(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));link.value=source.capture_target&&itemsData.items.some(i=>i.id===source.capture_target&&i.acceptance_state!=='proposed')?source.capture_target:source.link_only?'__choose__':'';
   const sourceKey=JSON.stringify(source),cacheKey='atlanta-task-draft';
   area.value='';area.disabled=false;keep.checked=false;note.hidden=true;status.textContent='Review the source, generate a draft or write it yourself.';
@@ -418,10 +418,10 @@ function editTaskDraft(source,preview){
   if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
   $('task-draft-target').textContent=preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+target.local_ai_model+' · '+target.local_ai_base_url+' · '+preview.characters+' source characters';
   fillProjects(project,Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject(),'No project');
-  try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;extra.value=cached.details||'';criterion.value=cached.completion_criteria||'';owner.value=cached.owner||'';due.value=cached.due_date||'';requester.value=cached.requester_person_id||'';project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
-  function persist(){if(keep.checked){store(cacheKey,JSON.stringify({at:Date.now(),source:sourceKey,text:area.value,details:extra.value,completion_criteria:criterion.value,owner:owner.value,due_date:due.value,requester_person_id:requester.value,project:project.value}));}else{try{localStorage.removeItem(cacheKey);}catch{}}}
-  function controls(){submit.textContent=link.value?'Link evidence':'Create task';submit.disabled=saving||generating||link.value==='__choose__'||(!link.value&&!area.value.trim());owner.disabled=due.disabled=requester.disabled=extra.disabled=criterion.disabled=!!link.value||saving||generating;link.disabled=saving||generating;area.disabled=!!link.value||saving||generating;generate.disabled=!!link.value||saving||generating||preparing||preview.ai_available===false;cancel.disabled=saving;area.disabled=!!link.value||saving||generating;project.disabled=saving||!!link.value;}
-  owner.oninput=due.onchange=requester.onchange=extra.oninput=criterion.oninput=()=>{editorDirty.set('task-draft',true);persist();};link.onchange=()=>{editorDirty.set('task-draft',true);controls();};
+  try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;extra.value=cached.details||'';criterion.value=cached.completion_criteria||'';owner.value=cached.owner||'';due.value=cached.due_date||'';project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
+  function persist(){if(keep.checked){store(cacheKey,JSON.stringify({at:Date.now(),source:sourceKey,text:area.value,details:extra.value,completion_criteria:criterion.value,owner:owner.value,due_date:due.value,project:project.value}));}else{try{localStorage.removeItem(cacheKey);}catch{}}}
+  function controls(){submit.textContent=link.value?'Link evidence':'Create task';submit.disabled=saving||generating||link.value==='__choose__'||(!link.value&&!area.value.trim());owner.disabled=due.disabled=extra.disabled=criterion.disabled=!!link.value||saving||generating;link.disabled=saving||generating;area.disabled=!!link.value||saving||generating;generate.disabled=!!link.value||saving||generating||preparing||preview.ai_available===false;cancel.disabled=saving;area.disabled=!!link.value||saving||generating;project.disabled=saving||!!link.value;}
+  owner.oninput=due.onchange=extra.oninput=criterion.oninput=()=>{editorDirty.set('task-draft',true);persist();};link.onchange=()=>{editorDirty.set('task-draft',true);controls();};
   area.oninput=()=>{area.setCustomValidity('');editorDirty.set('task-draft',true);persist();controls();};project.onchange=()=>{editorDirty.set('task-draft',true);persist();};keep.onchange=persist;
   async function stop(){closed=true;if(poll)clearTimeout(poll);if(jobId&&generating){try{await api('/api/task-draft/cancel',{id:jobId});}catch{}}}
   async function discard(){if(saving)return;if(editorDirty.keys().includes('task-draft')&&!keep.checked&&!(await ask('Discard this task draft?',{ok:'Discard',cancel:'Keep editing'})))return;await stop();if(!keep.checked){try{localStorage.removeItem(cacheKey);}catch{}}dialog.close();}
@@ -448,7 +448,7 @@ function editTaskDraft(source,preview){
    if(!validDates(dialog))return;
    saving=true;note.hidden=true;controls();
    try{
-    const payload={...source,preview_token:preview.preview_token,operation_id:operation,title:area.value.trim()||'Link source evidence',details:extra.value,completion_criteria:criterion.value,owner:owner.value.trim()||null,due_date:due.value||null,requester_person_id:requester.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
+    const payload={...source,preview_token:preview.preview_token,operation_id:operation,title:area.value.trim()||'Link source evidence',details:extra.value,completion_criteria:criterion.value,owner:owner.value.trim()||null,due_date:due.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
     if(submitted&&JSON.stringify(submitted)!==JSON.stringify(payload))throw new Error('Previous result uncertain. Retry unchanged or check My Work.');submitted=payload;
     const created=await api('/api/task-draft/create',payload);
     try{localStorage.removeItem(cacheKey);}catch{}createdTaskId=created.item_id;editorDirty.clear('task-draft');dialog.close();
@@ -1052,12 +1052,12 @@ function noteSection(minutes,field,title,busy,hint) {
  const items=minutes[field]=minutes[field]||[];
  if(!notesEditing) {
   if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
-  else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&detail.items?.[item.item_id];
+  else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&state.settings?.meeting_task_ai&&detail.items?.[item.item_id];
    if(decision) meta.append(decisionBadge(decision));
    const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions){action.disabled=busy;for(const inner of action.querySelectorAll?.('button')||[])inner.disabled=busy||inner.disabled;}meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
    if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText,meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
-   if(field==='decisions'&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
+   if(field==='decisions'&&state.settings?.meeting_task_ai&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
    list.append(li); }); section.append(list); }
   return section;
  }
@@ -1199,7 +1199,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  const row=el('div','tracked-task '+kind);
  const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(avatar(current.owner||''),el('span','',current.owner||'No owner'));
- meta.append(item?.created_by==='user'?el('span','badge','Manually added'):item?workReviewBadge(item.review_state,item):reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
+ meta.append(item?workReviewBadge(item.review_state,item):handMade?'':reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
  if(current.deadline) meta.append(el('span','hint','Said: '+current.deadline));
  if(item&&!current.due_date&&current.deadline){const suggested=AtlantaTasks.suggestDueDate(current.deadline,(detail.created||'').slice(0,10));if(suggested){const applyDue=btn('secondary small-action','Set due '+date(suggested));applyDue.title='Apply the date said in the meeting as the due date';applyDue.onclick=()=>perform(()=>changeItem(item,{due_date:suggested}));meta.append(applyDue);}}
  const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp));
@@ -1236,19 +1236,17 @@ function renderNotes(busy=false) {
  const taskList=el('div');section.append(taskList);
  function drawTasks() { taskList.replaceChildren(); AtlantaTasks.meetingGroups(minutes.tasks).forEach(({task,index,mentions})=>{
   if(detail.items?.[task.item_id]){taskList.append(taskRow(task,index,true,mentions));return;}
-  const box=el('div','task-editor'+(task.status==='done'?' done':''));const text=el('textarea');text.value=task.task;text.disabled=busy;text.setAttribute('aria-label','Task '+(index+1));text.oninput=()=>{task.task=text.value;markNotes();};box.append(text);
-  const row=el('div','task-row');
-  for(const [field,label] of [['owner','Owner'],['deadline','Deadline as said']]){const input=el('input');input.placeholder=label+' · not specified';input.setAttribute('aria-label',label+' for task '+(index+1));input.value=task[field]||'';input.disabled=busy;if(field==='owner'){input.setAttribute('list','known-speakers');input.classList.toggle('known-owner',!!knownSpeaker(input.value));}input.oninput=()=>{task[field]=input.value.trim()||null;if(field==='owner')input.classList.toggle('known-owner',!!knownSpeaker(input.value));markNotes();};row.append(input);}
-  const due=el('input');due.type='date';due.value=task.due_date||'';due.disabled=busy;due.setAttribute('aria-label','Due date for task '+(index+1));due.oninput=()=>{task.due_date=due.value||null;markNotes();};row.append(due);box.append(row);
-  const bottom=el('div','task-bottom');const doneLabel=el('label','checkbox');const done=el('input');done.type='checkbox';done.checked=task.status==='done';done.disabled=busy;done.onchange=()=>{task.status=done.checked?'done':'open';box.classList.toggle('done',done.checked);markNotes();};doneLabel.append(done,document.createTextNode(' Done'));
-  bottom.append(doneLabel,el('label','','Source'));const select=el('select');select.setAttribute('aria-label','Evidence for task '+(index+1));select.disabled=busy;for(const stamp of [...new Set(detail.transcript.map(s=>time(s.start)))]){const option=el('option','',stamp);option.value=stamp;select.append(option);}select.value=task.evidence_timestamp;select.onchange=()=>{task.evidence_timestamp=select.value;markNotes();};
-  const remove=el('button','quiet','Remove');remove.disabled=busy;remove.onclick=()=>{minutes.tasks.splice(index,1);markNotes();drawTasks();};bottom.append(select,remove);box.append(bottom);taskList.append(box);}); }
+  // A task line of the notes is text (2026-11-12). Owner, dates and state belong to the task, set in its card.
+  const box=el('div','task-editor');const text=el('textarea');text.value=task.task;text.disabled=busy;text.setAttribute('aria-label','Task '+(index+1));text.oninput=()=>{task.task=text.value;markNotes();};
+  const remove=el('button','quiet','Remove');remove.type='button';remove.disabled=busy;remove.onclick=()=>{minutes.tasks.splice(index,1);markNotes();drawTasks();};
+  const bottom=el('div','task-bottom');bottom.append(remove);box.append(text,bottom);taskList.append(box);}); }
  if(!notesEditing) {
   if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
   AtlantaTasks.meetingGroups(minutes.tasks).forEach(({task,index,mentions})=>{if(!detail.items?.[task.item_id]?.dismissed)taskList.append(taskRow(task,index,busy,mentions));});
  } else {
   if(minutes.tasks.some(task=>detail.items?.[task.item_id]))section.append(el('p','hint','Linked tasks are edited in their task card. Save or cancel these note edits first.'));
-  drawTasks();const add=el('button','secondary','＋ Add task');add.disabled=busy||!detail.transcript.length;add.onclick=()=>{minutes.tasks.push({task:'',owner:null,deadline:null,due_date:null,status:'open',evidence_timestamp:time(detail.transcript[0].start)});markNotes();drawTasks();};section.append(add);
+  // New tasks come from Add task or Create task, not from the notes editor: one way to add a task.
+  drawTasks();
  }
  $('outcomes').append(section,noteSection(minutes,'open_questions','Unresolved questions',busy),noteSection(minutes,'next_steps','Agreed next steps',busy));
  $('notes').append(
@@ -1483,7 +1481,7 @@ function meetingChips(item,meetings,except) {
 function itemSources(item){const graph=itemsData.graph||{},ids=new Set(item.source_evidence||[]),evidence=(graph.source_evidence||[]).filter(e=>ids.has(e.id));return [...new Map(evidence.map(e=>[e.source_id,(graph.sources||[]).find(s=>s.id===e.source_id)])).values()].filter(Boolean);}
 function sourceLabel(source){return source.remote?.authority==='github_code'?source.remote.repository+' · code':source.remote?.authority==='github'?source.remote.repository+' #'+source.remote.number:'';}
 function itemProviders(item){return new Set([...(item.created_by==='user'?['manual']:[]),...(item.links.length?['meeting']:[]),...itemSources(item).map(s=>s.provider)]);}
-function sourceChips(item,meetings,{withMeetings=true}={}){const box=withMeetings?meetingChips(item,meetings):el('div','item-meetings');if(item.created_by==='user')box.append(el('span','badge','Manually added'));for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
+function sourceChips(item,meetings,{withMeetings=true}={}){const box=withMeetings?meetingChips(item,meetings):el('div','item-meetings');for(const source of itemSources(item))box.append(originChip(source.provider,sourceLabel(source),()=>openSource(source)));return box;}
 function historyBlock(item,meetings) {
  const box=el('details','item-history'), list=el('ol'); box.append(el('summary','','History · '+item.history.length));
  // The same event right after itself (for example a confirmation that was repeated) shows once, with how many times.
@@ -1748,11 +1746,11 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item);if(mailed&&!update)meta.append(mailed);
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
- const roleText=[item.requester_person_id&&'Received from: '+whoName(item.requester_person_id),item.assigned_by_person_id&&'Assigned by: '+whoName(item.assigned_by_person_id)].filter(Boolean).join(' · ');
+
  const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));head.append(title,chips);
  // A task is a title and a description; the card shows up to three lines of it, the panel shows all.
  const description=String(item.details||'').trim();
- main.append(head,...(description?[taskDescription(description)]:[]),meta);if(roleText)main.append(el('p','hint task-responsibilities',roleText));
+ main.append(head,...(description?[taskDescription(description)]:[]),meta);
  // The last update is a short box; Timeline holds the full text.
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(el('span','task-update-label','Last update'),el('span','task-last-when',dateTime(update.at)),last);if(mailed)box.append(mailed);main.append(box);}
@@ -2326,24 +2324,22 @@ function renderMeetingQuestions(target){
 }
 $('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New question',{ok:'Add question',value:''});if(value!==null)await graphAction('question',{text:value});});
 
-let bulkSaving=false,taskSelection=new Map(),taskVisibleRows=[],bulkPending=null,taskRequester=stored('tasks-requester')||'',taskFollower=stored('tasks-follower')||'',taskWorkflow=stored('tasks-workflow')||'',taskSearchTimer=null;
-let managerView=stored('manager-view')||'all',managerSelf=stored('manager-self')||'';
+let bulkSaving=false,taskSelection=new Map(),taskVisibleRows=[],bulkPending=null,taskWorkflow=stored('tasks-workflow')||'',taskSearchTimer=null;
+// Assigned by me is gone (2026-11-12): nobody sets Assigned by now. A saved choice of it shows All tasks.
+let managerView=['inbox','mine','followup','all'].includes(stored('manager-view'))?stored('manager-view'):'all',managerSelf=stored('manager-self')||'';
 function renderManagerControls(){
- for(const [field,value] of [['requester',taskRequester],['follower',taskFollower]])if(value&&value!=='__none__'&&!(state.people||[]).some(p=>p.id===value)){if(field==='requester')taskRequester='';else taskFollower='';store('tasks-'+field,'');}
  if(managerSelf&&!(state.people||[]).some(p=>p.id===managerSelf)){managerSelf='';store('manager-self','');}
  const controls=$('manager-controls');controls.replaceChildren();const person=el('select');person.setAttribute('aria-label','This is me');person.append(option('Choose who you are',''),...(state.people||[]).map(p=>option(p.name,p.id)));person.value=managerSelf;
  person.onchange=()=>{managerSelf=person.value;store('manager-self',managerSelf);renderTasks();};const label=el('label','hint manager-identity','This is me');label.append(person);label.hidden=managerView==='inbox';controls.append(label);
  const views=el('div','manager-views');views.setAttribute('role','group');views.setAttribute('aria-label','Task views');
- for(const [key,title] of [['inbox','Inbox'],['mine','My tasks'],['delegated','Assigned by me'],['followup','Follow-up'],['all','All tasks']]){const button=btn('manager-view-button'+(managerView===key?' selected':''),title);button.setAttribute('aria-pressed',String(managerView===key));button.onclick=()=>{managerView=key;store('manager-view',key);renderTasks();};views.append(button);}controls.append(views);
+ for(const [key,title] of [['inbox','Inbox'],['mine','My tasks'],['followup','Follow-up'],['all','All tasks']]){const button=btn('manager-view-button'+(managerView===key?' selected':''),title);button.setAttribute('aria-pressed',String(managerView===key));button.onclick=()=>{managerView=key;store('manager-view',key);renderTasks();};views.append(button);}controls.append(views);
  const search=el('input');search.type='search';search.placeholder='Search tasks';search.setAttribute('aria-label','Search tasks');search.value=stored('task-search')||'';search.oninput=()=>{clearTimeout(taskSearchTimer);taskSearchTimer=setTimeout(()=>{store('task-search',search.value);renderTasks();const fresh=$('manager-controls')?.querySelector('input[type=search]');if(fresh){fresh.focus();fresh.setSelectionRange(fresh.value.length,fresh.value.length);}},200);};controls.append(search);
  const filters=$('manager-person-filters');filters.replaceChildren();filters.hidden=itemKind!=='task';
  if(managerView!=='inbox'){
-  filters.append(managerPersonFilter('Received from',taskRequester,value=>{taskRequester=value;store('tasks-requester',value);renderTasks();}),managerPersonFilter('Followed by',taskFollower,value=>{taskFollower=value;store('tasks-follower',value);renderTasks();}));
   const field=el('select');field.setAttribute('aria-label','Task state filter');field.append(option('Any state',''),...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));field.value=taskWorkflow;field.onchange=()=>{taskWorkflow=field.value;store('tasks-workflow',taskWorkflow);if(taskWorkflow){statusFilter.task=taskWorkflow==='done'?'done':taskWorkflow==='cancelled'?'all':'open';store('tasks-status',statusFilter.task);}renderTasks();};filters.append(field);
  }
 }
 
-function managerPersonFilter(label,value,onchange){const select=el('select');select.setAttribute('aria-label',label);select.append(option('All',''),option('Not specified','__none__'),...(state.people||[]).map(p=>option(p.name,p.id)));select.value=[...select.options].some(o=>o.value===value)?value:'';select.onchange=()=>onchange(select.value);const box=el('label','hint',label);box.append(select);return box;}
 async function sendBulkTasks(body){
  if(bulkSaving)return;bulkSaving=true;
  try{
@@ -2427,9 +2423,9 @@ function renderTasks() {
   .filter(t=>inbox||!$('task-owner').value||($('task-owner').value==='__none__'?!t.owner:taskPeopleNames(t).includes($('task-owner').value)))
   .sort((a,b)=>(a.status===b.status?0:a.status==='open'?-1:1)||(a.due_date||'9999').localeCompare(b.due_date||'9999')||latest(b).localeCompare(latest(a)));
  else rows=decisions.filter(personal).filter(d=>['all','snoozed','dismissed'].includes(filter)||(filter==='current'?d.status==='accepted':d.status===filter)).sort((a,b)=>latest(b).localeCompare(latest(a)));
- if(itemKind==='task'&&['mine','delegated'].includes(managerView)&&!managerSelf)taskSummary('Choose “This is me” to show your responsibilities.');
+ if(itemKind==='task'&&managerView==='mine'&&!managerSelf)taskSummary('Choose “This is me” to show your responsibilities.');
  if(sourceFilter&&!inbox)rows=rows.filter(item=>itemProviders(item).has(sourceFilter));
- if(itemKind==='task'&&!inbox)rows=rows.filter(item=>AtlantaTasks.personMatches(item,{requester:taskRequester,follower:taskFollower})&&(!taskWorkflow||AtlantaTasks.workflow(item)===taskWorkflow));
+ if(itemKind==='task'&&!inbox)rows=rows.filter(item=>!taskWorkflow||AtlantaTasks.workflow(item)===taskWorkflow);
  const activeFilters=[sourceFilter&&SOURCES[sourceFilter]?.[0],project.value&&project.selectedOptions[0]?.textContent,$('task-owner').value&&'Owner: '+$('task-owner').selectedOptions[0]?.textContent,itemKind==='task'&&taskRequester&&'From: '+((state.people||[]).find(p=>p.id===taskRequester)?.name||'Not specified'),itemKind==='task'&&taskFollower&&'Following: '+((state.people||[]).find(p=>p.id===taskFollower)?.name||'Not specified'),itemKind==='task'&&taskWorkflow&&AtlantaTasks.STATES[taskWorkflow],filter!==(itemKind==='task'?'open':'current')&&filter].filter(Boolean);$('manager-filter-summary').textContent='Filters'+(activeFilters.length?' · '+activeFilters.join(' · '):'');
  taskVisibleRows=itemKind==='task'&&!inbox?rows:[];taskSelection=AtlantaTasks.visibleSelection(taskSelection,taskVisibleRows);renderBulkTasks();
  if(itemKind==='task'&&!inbox&&!noWork){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));taskSummary(rows.length+' shown · '+active.length+' open · '+active.filter(t=>t.due_date&&t.due_date<today).length+' overdue');}
@@ -2447,7 +2443,7 @@ function renderTasks() {
 
  if(!rows.length&&!inbox){if(noKindItems){const box=el('div','empty-work');box.append(el('h2','',itemKind==='task'?'No tasks yet':'No decisions yet'),el('p','',itemKind==='task'?'Add a task from your day, or collect actions from a meeting.':'Open a meeting and generate notes to review its decisions.'));if(itemKind!=='task'){const next=el('button','secondary','Open library');next.onclick=()=>perform(openConversations);box.append(next);}$('task-list').append(box);}else{
   // 0 results: the conditions that are active, and an action for each scope.
-  const search=itemKind==='task'?stored('task-search')||'':'',view=itemKind==='task'&&managerView!=='all'?{inbox:'Inbox',mine:'My tasks',delegated:'Assigned by me',followup:'Follow-up'}[managerView]:'';
+  const search=itemKind==='task'?stored('task-search')||'':'',view=itemKind==='task'&&managerView!=='all'?{inbox:'Inbox',mine:'My tasks',followup:'Follow-up'}[managerView]:'';
   const conditions=[view&&'View: '+view,...activeFilters,search&&'Search: “'+search+'”'].filter(Boolean),box=el('div','empty-content no-match');
   box.append(el('p','',itemKind==='task'?'No tasks match.':'No decisions match.'));
   if(conditions.length)box.append(el('p','hint','Active: '+conditions.join(' · ')));
@@ -2468,6 +2464,8 @@ let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?loc
 // The Inbox is the Inbox view of the Tasks tab: everything that waits for a decision in one place.
 function openTaskInbox(){managerView='inbox';store('manager-view','inbox');workTab='task';return $('open-tasks').onclick();}
 function showWorkTab(tab){
+ // Decisions are text in the meeting notes unless AI meeting items are on (2026-11-12); My Work then has no Decisions tab.
+ const decisionsTab=$('work-tabs').querySelector('[data-work-tab=decision]');decisionsTab.hidden=!state?.settings?.meeting_task_ai;if(tab==='decision'&&decisionsTab.hidden)tab='task';
  if(tab==='sources')tab=stored('last-source-tab')||'gmail';if(['gmail','chat','github'].includes(tab))store('last-source-tab',tab);
  if(tab!==workTab)readers.invalidate();workTab=tab;syncRoute(true);try{localStorage.setItem('work-tab',tab);}catch{}
  for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab||button.dataset.workTab==='sources'&&['gmail','chat','github'].includes(tab);button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
@@ -2869,8 +2867,8 @@ $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-f
 // Reset filters: every filter and the task view (they change the results); the search stays.
 // Clear all: also the search, back to the first state. "This is me" is who you are, not a filter: neither clears it.
 function resetTaskFilters({all=false}={}){
- taskRequester=taskFollower=taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';
- for(const key of ['tasks-requester','tasks-follower','tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');
+ taskWorkflow=sourceFilter='';$('work-project').value=$('task-owner').value='';statusFilter.task='open';statusFilter.decision='current';
+ for(const key of ['tasks-workflow','tasks-source','tasks-project','tasks-owner'])store(key,'');store('tasks-status','open');
  managerView='all';store('manager-view','all');
  if(all){store('task-search','');taskSelecting=false;taskSelection.clear();}
  renderTasks();

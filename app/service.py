@@ -968,8 +968,8 @@ class MeetingService:
         atomic_json(directory / 'task-matching.json', dict(version=1, at=items.now(), **record))
 
     def meeting_task_ai(self) -> bool:
-        """Whether AI makes task proposals and matches from meeting notes. Off by default since 2026-11-12:
-        the AI stops at the notes, and the person creates tasks and changes their state by hand."""
+        """Whether AI makes task and decision proposals and matches from meeting notes. Off by default since 2026-11-12:
+        the AI stops at the notes, tasks and decisions are text there, and the person creates tasks by hand."""
         return bool(self.settings.get('meeting_task_ai'))
 
     def allow_task_matching(self, meeting_id):
@@ -2406,7 +2406,7 @@ class MeetingService:
             if (directory / 'minutes.json').exists():
                 minutes = json.loads((directory / 'minutes.json').read_text())
                 validate_minutes(minutes)
-                if self.items.sync(meeting_id, minutes, create_tasks=self.meeting_task_ai()):
+                if self.items.sync(meeting_id, minutes, create_items=self.meeting_task_ai()):
                     save_minutes(directory, minutes)
             else:
                 # Processing again removes the notes; the items wait for the new notes, which replace them.
@@ -2593,11 +2593,12 @@ class MeetingService:
                 pass  # another writer won; the next refresh links again
             meetings = self._meeting_refs()
             sources=self.review_sources()
-            # Without AI meeting tasks, the proposals that the AI made from meetings stay hidden, not deleted:
-            # turning the setting on shows them again.
+            # Without AI meeting items, the task proposals and the decisions that the AI made from meetings stay hidden,
+            # not deleted: decisions are text in the notes. Turning the setting on shows them again.
             manual = not self.meeting_task_ai()
             rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item,sources))
-                    for item in self.items.items.values() if not (manual and item.get('acceptance_state') == 'proposed')]
+                    for item in self.items.items.values()
+                    if not (manual and (item.get('acceptance_state') == 'proposed' or item['kind'] == 'decision'))]
             graph = WorkGraph(self.items).snapshot()
             if manual:
                 graph['proposals'] = [p for p in graph['proposals'] if p.get('origin') != 'meeting_match']
@@ -2611,7 +2612,7 @@ class MeetingService:
                 link.pop('observations',None)
                 if link.get('progress'):link['progress']={k:v for k,v in link['progress'].items() if k!='events'}
             # Tasks wait in For review as proposals; decisions keep the link review until they have proposals too.
-            return dict(items=rows, pending=[entry for entry in self.pending_links() if entry['kind'] == 'decision'], meetings=meetings, graph=graph, github_links=github_rows,
+            return dict(items=rows, pending=[entry for entry in self.pending_links() if entry['kind'] == 'decision' and not manual], meetings=meetings, graph=graph, github_links=github_rows,
                         meeting_questions=self.meeting_questions(meetings))
 
     def meeting_questions(self, meetings):
@@ -3187,7 +3188,7 @@ class MeetingService:
                 if kind == 'task':
                     mention['status'] = target['status']
             mention.pop('link')
-            self.items.sync(meeting_id, minutes, create_tasks=self.meeting_task_ai())
+            self.items.sync(meeting_id, minutes, create_items=self.meeting_task_ai())
             save_minutes(directory, minutes)
             self.items.save()
             return self.detail(meeting_id)

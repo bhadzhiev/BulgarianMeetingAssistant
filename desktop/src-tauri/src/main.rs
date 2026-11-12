@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{io::{BufRead, BufReader, Write}, path::PathBuf, process::{Child, Command, Stdio},
+use std::{io::{BufRead, BufReader, Write}, path::{Path, PathBuf}, process::{Child, Command, Stdio},
     sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}, thread, time::{Duration, Instant}};
 use std::os::unix::process::CommandExt;
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -39,11 +39,14 @@ fn open_pending(app: &tauri::AppHandle, state: &Backend) {
     }
 }
 
-fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
-    let data = std::env::var_os("BMA_DATA_DIR").map(PathBuf::from)
-        .unwrap_or(app.path().app_data_dir().map_err(|e| e.to_string())?);
-    std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
-    let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
+enum StartupFailure { Died, Failed(String) }
+
+fn spawn_backend(app: &tauri::AppHandle, state: &Arc<Backend>, data: &Path, resources: &Path) -> Result<String, StartupFailure> {
+    let log_path = data.join("backend.log");
+    if log_path.metadata().map(|m| m.len() > 10_000_000).unwrap_or(false) {
+        std::fs::rename(&log_path, data.join("backend.previous.log")).map_err(|e| StartupFailure::Failed(e.to_string()))?;
+    }
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(log_path).map_err(|e| StartupFailure::Failed(e.to_string()))?;
     let mut command;
     if let Some(root) = std::env::var_os("BMA_DEV_ROOT") {
         let root = PathBuf::from(root);
@@ -53,19 +56,14 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
     } else {
         command = Command::new(resources.join("backend/meeting-backend/meeting-backend"));
     }
-    let log_path = data.join("backend.log");
-    if log_path.metadata().map(|m| m.len() > 10_000_000).unwrap_or(false) {
-        std::fs::rename(&log_path, data.join("backend.previous.log")).map_err(|e| e.to_string())?;
-    }
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(log_path).map_err(|e| e.to_string())?;
     // A private pipe controls only this child. EOF also shuts it down if the native process dies.
     command.args(["--desktop-control", "--no-browser", "--port", "8765", "--library"])
         .arg(data.join("meetings")).arg("--models").arg(data.join("models"))
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(log).process_group(0);
     let mut owned = state.child.lock().unwrap();
-    if state.quitting.load(Ordering::SeqCst) { return Ok(()); }
-    let mut child = command.spawn().map_err(|e| format!("Cannot start the local server: {e}"))?;
-    let stdout = child.stdout.take().ok_or("Cannot read server startup")?;
+    if state.quitting.load(Ordering::SeqCst) { return Err(StartupFailure::Failed("Quitting".into())); }
+    let mut child = command.spawn().map_err(|e| StartupFailure::Failed(format!("Cannot start the local server: {e}")))?;
+    let stdout = child.stdout.take().ok_or_else(|| StartupFailure::Failed("Cannot read server startup".into()))?;
     *owned = Some(child);
     drop(owned);
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -110,18 +108,52 @@ fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
             }
         }
     });
-    let url = receiver.recv_timeout(Duration::from_secs(40)).map_err(|_| "The local server did not start. Check backend.log in Application Support. Another app may be using port 8765.")?;
-    let url: tauri::Url = url.parse().map_err(|_| "Invalid server address")?;
+    // A dead child drops the sender and disconnects the channel; a live-but-slow one times out.
+    let url = match receiver.recv_timeout(Duration::from_secs(40)) {
+        Ok(url) => url,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(StartupFailure::Died),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return Err(StartupFailure::Failed("The local server did not start. Check backend.log in Application Support. Another app may be using port 8765.".into())),
+    };
+    let url: tauri::Url = url.parse().map_err(|_| StartupFailure::Failed("Invalid server address".into()))?;
     if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") || url.port() != Some(8765) {
-        return Err("The server returned an unexpected address".into());
+        return Err(StartupFailure::Failed("The server returned an unexpected address".into()));
     }
-    if !state.quitting.load(Ordering::SeqCst) {
-        let window = app.get_webview_window("main").ok_or("Window closed")?;
-        *state.recovery_url.lock().unwrap()=Some(url.clone());
-        *state.ui_seen.lock().unwrap()=Some(Instant::now());
-        window.navigate(url).map_err(|e| e.to_string())?;
-        let _ = window.set_title("Atlanta");
+    Ok(url.to_string())
+}
+
+fn start(app: tauri::AppHandle, state: Arc<Backend>) -> Result<(), String> {
+    let data = std::env::var_os("BMA_DATA_DIR").map(PathBuf::from)
+        .unwrap_or(app.path().app_data_dir().map_err(|e| e.to_string())?);
+    std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+    let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
+    // macOS can refuse the first execs of a freshly installed unsigned backend (PyInstaller
+    // "PYZ archive entry not found in the TOC"); the child dies instantly. Retry those.
+    let mut last = String::new();
+    for attempt in 0..3 {
+        match spawn_backend(&app, &state, &data, &resources) {
+            Ok(url) => {
+                if !state.quitting.load(Ordering::SeqCst) {
+                    let window = app.get_webview_window("main").ok_or("Window closed")?;
+                    let url: tauri::Url = url.parse().map_err(|_| "Invalid server address")?;
+                    *state.recovery_url.lock().unwrap()=Some(url.clone());
+                    *state.ui_seen.lock().unwrap()=Some(Instant::now());
+                    window.navigate(url).map_err(|e| e.to_string())?;
+                    let _ = window.set_title("Atlanta");
+                }
+                break;
+            }
+            Err(StartupFailure::Died) => {
+                last = "The local server stopped during startup. Check backend.log in Application Support.".to_string();
+                if let Some(mut child) = state.child.lock().unwrap().take() { let _ = child.kill(); }
+            }
+            Err(StartupFailure::Failed(message)) => {
+                if state.quitting.load(Ordering::SeqCst) { return Ok(()); }
+                return Err(message);
+            }
+        }
+        if attempt < 2 { std::thread::sleep(Duration::from_secs(2)); }
     }
+    if !last.is_empty() { return Err(last); }
     thread::spawn(move || {
         let mut warned=false;
         while !state.quitting.load(Ordering::SeqCst) {

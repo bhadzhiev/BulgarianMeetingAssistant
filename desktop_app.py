@@ -242,6 +242,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200,catalog(self.server.service))
         if url.path == '/api/prompts/test/status':
             return self.respond(200,self.server.service.prompt_lab.status(parse_qs(url.query).get('id',[''])[0]))
+        if url.path == '/api/task-titles/status':
+            return self.respond(200,self.server.service.task_titles.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/task-draft/status':
             return self.respond(200,self.server.service.task_drafts.status(parse_qs(url.query).get('id',[''])[0]))
         if url.path == '/api/items':
@@ -421,6 +423,11 @@ class Handler(BaseHTTPRequestHandler):
             elif path in {'/api/task-email/prepare', '/api/task-email/draft'}:
                 from app import task_email
                 result = task_email.prepare(service, body) if path.endswith('/prepare') else task_email.save_draft(service, body)
+            elif path in {'/api/task-titles/preview', '/api/task-titles/start', '/api/task-titles/cancel', '/api/task-titles/apply'}:
+                from app import task_titles
+                action = path.rsplit('/', 1)[1]
+                result = (task_titles.public(task_titles.preview(service)) if action == 'preview' else service.task_titles.start(body)
+                          if action == 'start' else service.task_titles.stop(body.get('id')) if action == 'cancel' else task_titles.apply(service, body))
             elif path == '/api/task-draft/start':
                 result=service.task_drafts.start(body)
             elif path == '/api/task-draft/cancel':

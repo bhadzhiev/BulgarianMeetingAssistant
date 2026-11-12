@@ -1481,3 +1481,16 @@ label.required-label:has(.date-part-label)::after{content:none}
 .tracked-task.task-card.compact-task>.task-more{align-self:flex-start}
 @media(max-width:700px){.tracked-task.task-card.compact-task .task-quick-fields>label{flex:1 1 100%}.tracked-task.task-card.compact-task .task-quick-fields :is(select,input,.date-control){width:100%}.compact-flags>.email-mark{margin-left:0}}
 .tracked-task.task-card.compact-task .task-quick-fields select{line-height:34px!important}
+
+/* New task dialog: the same field order and grid as the task editor (2026-11-12). */
+#manual-task-dialog{width:min(640px,94vw)}
+#manual-task-body label{display:grid;gap:6px;margin:8px 0}
+#manual-task-body textarea{width:100%;margin:0;line-height:1.45}
+#manual-task-body select,#manual-task-body input{margin-bottom:0}
+/* The required mark goes after the field name, not under the field. */
+:is(#task-panel,#manual-task-body) label.required-label{grid-template-columns:auto 1fr;column-gap:0}
+:is(#task-panel,#manual-task-body) label.required-label>:is(textarea,input,select){grid-column:1/-1;order:2}
+#task-panel .task-core{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:720px){#task-panel .task-core{grid-template-columns:1fr}}
+#task-panel .task-progress{margin-top:12px;padding-top:4px;border-top:1px solid var(--line)}
+#task-panel .task-progress h3{margin:8px 0 0;font-size:14px}

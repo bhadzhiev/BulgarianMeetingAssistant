@@ -28,7 +28,8 @@ assert.match(mark,/const chosen=\['fast','balanced','best'\]\.find\(fits\);/);
 assert.match(mark,/b\.classList\.toggle\('selected',!privacy&&on\);b\.classList\.toggle\('in-effect',privacy&&on\)/);
 assert.match(css,/\.profile\.in-effect strong::after\{content:'✓ In effect'/);
 // V04: a task without a project says so.
-assert.match(app,/\(item\.effective_project_ids\|\|\[\]\)\.length\?'Projects: ':'No project'/);
+// Since 2026-11-12 the task editor names the current projects in its Project field, not in a separate line.
+assert.match(app,/option\(currentProjects\.length\?currentProjects\.join\(', '\):'No project','keep'\)/);
 // V05: Settings keeps more room for its fields.
 assert.match(css,/#settings-form>\.card-heading\{margin-bottom:6px!important\}/);
 assert.match(css,/#settings-form \.settings-footer\{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:10px 0 14px\}/);

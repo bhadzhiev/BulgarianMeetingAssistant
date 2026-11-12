@@ -194,7 +194,7 @@ valid. See `docs/ux-flow-validation.md` for measured layout and test boundaries.
 
 ### Manual tasks
 
-Use **New task** in My Work for a standalone action, or **Add task** in a meeting for a meeting-linked action. Set the text, owner, due date and project before saving. Meeting task rows have **Edit task**; My Work uses the existing task editor. These are normal local WorkItems with history, status, project routing and GitHub preview/approval. Creating one does not call AI or publish externally.
+Use **New task** in My Work for a standalone action, or **Add task** in a meeting for a meeting-linked action. Set the title, description, owner, due date and project before saving. The new task dialog and the task editor use the same fields in the same order: Title, Description (always visible), then owner, state, project and dates. The owner comes from People in both; a name from the notes that is not in People stays as said. Meeting task rows have **Edit task**; My Work uses the existing task editor. These are normal local WorkItems with history, status, project routing and GitHub preview/approval. Creating one does not call AI or publish externally.
 
 User-added meeting tasks survive regenerated notes and remain available before notes exist. No transcript timestamp is invented. Deleting the meeting keeps the user task in My Work without a dangling meeting link. A repeated creation request uses the same request ID to avoid duplicates after a lost response.
 

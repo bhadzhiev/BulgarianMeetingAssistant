@@ -341,11 +341,15 @@ def canonical_notes(minutes: dict, vocabulary: str, people=()) -> dict:
     names = [dict(row, aliases=[row['term'], *row['aliases']]) for row in names if row['aliases']]
     if not any(row['aliases'] for row in rows) and not names:
         return minutes
-    for items in minutes.values():
+    # A discussion topic holds its points: its name and each point are written text too (2026-11-13).
+    topics = [topic for topic in minutes.get('discussion') or [] if isinstance(topic, dict)]
+    points = [point for topic in topics for point in topic.get('points') or [] if isinstance(point, dict)]
+    rows_of_notes = [items for field, items in minutes.items() if field != 'discussion'] + [topics, points]
+    for items in rows_of_notes:
         for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict):
                 continue
-            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context'):
+            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context', 'topic'):
                 value = item.get(key)
                 if not isinstance(value, str):
                     continue
@@ -413,7 +417,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     saved_splits = saved.get('splits', []) if isinstance(saved, dict) and saved.get('signature') == signature else []
     splits = {key for key in saved_splits if isinstance(key, str)} if isinstance(saved_splits, list) else set()
     split_attempts = 0
-    result = dict(summary=[], decisions=[], updates=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[],
+    result = dict(summary=[], decisions=[], updates=[], next_steps=[], needs_decision=[], tasks=[], open_questions=[], observations=[], discussion=[],
                   **{field: [] for field in meeting_types.sections(args.meeting_type)})
 
     def generate_part(group, label, depth=0):
@@ -454,6 +458,10 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
             for item in minutes.get(field, []) if isinstance(minutes, dict) else []:
                 if isinstance(item, dict) and item.get('evidence_timestamp') not in stamps:
                     item['evidence_timestamp'] = None
+        for topic in minutes.get('discussion', []) if isinstance(minutes, dict) else []:
+            for point in topic.get('points', []) if isinstance(topic, dict) else []:
+                if isinstance(point, dict) and point.get('evidence_timestamp') not in stamps:
+                    point['evidence_timestamp'] = None
         # A quote must be the words of this part of the transcript; a rewritten quote goes, the statement stays.
         from meeting_assistant import verify_quotes
         verify_quotes(minutes, group)

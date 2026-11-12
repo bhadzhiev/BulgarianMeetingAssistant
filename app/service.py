@@ -2176,7 +2176,7 @@ class MeetingService:
         subprocess.run(['/usr/bin/open', '-R', str(backup.archive_path(self.backup_dir, name))], check=False, timeout=10)
         return {'ok': True}
 
-    NOTE_FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *meeting_types.SECTION_FIELDS)
+    NOTE_FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', 'discussion', *meeting_types.SECTION_FIELDS)
 
     def _edited_minutes(self, directory, body):
         """The notes after an edit. A copy that is older than the saved notes must not undo newer changes:

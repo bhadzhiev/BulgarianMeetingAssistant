@@ -998,8 +998,9 @@ function stampButton(stamp) {
 }
 // AI notes cite moments as (00:29:46); make them links to the transcript.
 function linkedText(target,text) { text.split(/\(?\b(\d{2}:\d{2}:\d{2})\b\)?/).forEach((part,i)=>target.append(i%2?stampButton(part):document.createTextNode(part))); return target; }
-const FIELD_TITLES={summary:'Summary',decisions:'Decisions',updates:'Updates on work in progress',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations'};
-const ITEM_FIELDS=Object.keys(FIELD_TITLES).filter(field=>field!=='tasks');
+const FIELD_TITLES={summary:'Summary',decisions:'Decisions',updates:'Updates on work in progress',next_steps:'Agreed next steps',needs_decision:'Questions for your decision',tasks:'Tasks',open_questions:'Unresolved questions',observations:'Private observations',discussion:'Discussion'};
+// A discussion topic holds its points, so it is no list of statements like the other fields.
+const ITEM_FIELDS=Object.keys(FIELD_TITLES).filter(field=>!['tasks','discussion'].includes(field));
 // Notes cite a segment's start in whole seconds, and the previous segment often still runs then.
 // So a segment that starts in that second wins; more of them form one span.
 function segmentAt(stamp) {
@@ -1021,7 +1022,7 @@ function sourceBlock(stamp) {
  return box;
 }
 let notesBase=null;
-const NOTE_FIELDS=['summary','decisions','updates','next_steps','needs_decision','tasks','open_questions','observations'];
+const NOTE_FIELDS=['summary','decisions','updates','next_steps','needs_decision','tasks','open_questions','observations','discussion'];
 // Send only the sections that changed, with how they looked before. The server refuses a section that
 // someone else changed meanwhile, so an older copy never undoes newer changes.
 async function saveMinutes(base) {
@@ -1128,7 +1129,7 @@ $('task-titles-apply').onclick=()=>perform(async()=>{
  editorDirty.clear('dialog:task-titles-dialog');$('task-titles-dialog').close();await refreshAfterItemChange();
  toast(AtlantaUX.count(result.applied,'task')+' updated'+(result.skipped?' · '+result.skipped+' changed meanwhile and stayed as they were':''));
 });
-function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):[item.text,item.rationale&&'Reason: '+item.rationale,item.context&&'Context: '+item.context].filter(Boolean).join(' · '); }
+function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):field==='discussion'?item.topic+': '+item.points.map(point=>point.text).join(' · '):[item.text,item.rationale&&'Reason: '+item.rationale,item.context&&'Context: '+item.context].filter(Boolean).join(' · '); }
 async function reviewNotes(action,accept) {
  detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
@@ -1240,7 +1241,7 @@ function renderNotes(busy=false) {
  if(!notesEditing)$('notes').append(notesOverview(minutes));
  if(detail.notes_consolidation&&!notesEditing&&!busy)$('notes').append(consolidationProof(detail.notes_consolidation));
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
- $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
+ $('notes').append(noteSection(minutes,'summary','Summary',busy),...(minutes.discussion?.length||notesEditing?[discussionSection(minutes,busy)]:[]),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
  // Updates on work that started before the meeting. Older notes have none, so the section shows only when it has content.
  if(minutes.updates?.length||notesEditing)$('outcomes').append(noteSection(minutes,'updates','Updates on work in progress',busy,state.settings?.meeting_task_ai?'Progress, blockers and clarifications about work that started before this meeting. A later step suggests the task each one belongs to.':'Progress, blockers and clarifications about work that started before this meeting. Use them to update your tasks.'));
@@ -1271,6 +1272,35 @@ function renderNotes(busy=false) {
   noteSection(minutes,'observations','Private observations',busy,'Only for you. AI interpretation of risks, unrealistic promises and disagreement. Check it against the recording. Not included in the Markdown export.'));
  if(!notesEditing)$('notes').append(el('p','hint notes-footer','AI notes from the recording of '+date(detail.created)+'. Each point links to the moment it comes from. Check it there before you rely on it.'));
 }
+// The details of the meeting by topic (2026-11-13): what was said that is no decision, task or question.
+// A point has its source moment like any statement; a topic is only a heading.
+function discussionSection(minutes,busy){
+ const section=el('section','note-section discussion-notes'),head=el('h3','','Discussion');section.append(head);
+ if(!notesEditing){
+  const topics=minutes.discussion||[];head.append(el('span','hint section-count',AtlantaUX.count(topics.length,'topic')));
+  for(const topic of topics){
+   const box=el('section','discussion-topic'),title=el('h4');title.append(el('span','',topic.topic),el('span','hint',AtlantaUX.count(topic.points.length,'point')));
+   const list=el('ul','discussion-points');
+   topic.points.forEach((point,index)=>{const li=el('li','discussion-point'),text=linkedText(el('span','note-text'),point.text),actions=noteButtons(topic.points,index,text,busy,'Discussion');li.append(text);if(point.evidence_timestamp)li.append(stampButton(point.evidence_timestamp));for(const action of actions)action.disabled=busy||action.disabled;li.append(...actions);list.append(li);});
+   box.append(title,list);section.append(box);
+  }
+  return section;
+ }
+ const topics=minutes.discussion=minutes.discussion||[],list=el('div','item-editors');
+ // A point that you write yourself needs no AI check.
+ const point=()=>({text:'',evidence_timestamp:null,review:'verified'});
+ function draw(){list.replaceChildren();topics.forEach((topic,t)=>{
+  const box=el('div','discussion-editor'),name=el('input'),top=el('div','task-bottom'),removeTopic=btn('quiet','Remove topic');
+  name.value=topic.topic;name.disabled=removeTopic.disabled=busy;name.setAttribute('aria-label','Topic '+(t+1));name.oninput=()=>{topic.topic=name.value;markNotes();};
+  removeTopic.onclick=()=>{topics.splice(t,1);markNotes();draw();};top.append(name,removeTopic);box.append(top);
+  topic.points.forEach((item,p)=>{const row=el('div','task-editor'),area=el('textarea'),bottom=el('div','task-bottom'),remove=btn('quiet','Remove');area.value=item.text;area.rows=Math.max(1,Math.ceil(item.text.length/90));area.disabled=remove.disabled=busy;area.setAttribute('aria-label','Topic '+(t+1)+', point '+(p+1));area.oninput=()=>{item.text=area.value;markNotes();};remove.onclick=()=>{topic.points.splice(p,1);markNotes();draw();};bottom.append(remove);row.append(area,bottom);box.append(row);});
+  const add=btn('secondary small-action','＋ Add point');add.disabled=busy;add.onclick=()=>{topic.points.push(point());markNotes();draw();list.children[t]?.querySelectorAll('textarea').forEach((area,i,all)=>{if(i===all.length-1)area.focus();});};box.append(add);list.append(box);});}
+ draw();
+ const addTopic=btn('secondary','＋ Add topic');addTopic.disabled=busy;addTopic.onclick=()=>{topics.push({topic:'',points:[point()]});markNotes();draw();list.lastElementChild?.querySelector('input').focus();};
+ section.append(list,addTopic);return section;
+}
+// Empty points go; a topic without points goes; a topic without a name keeps its points under "Other".
+function cleanDiscussion(topics){return topics.map(topic=>({...topic,topic:topic.topic.trim()||'Other',points:topic.points.filter(point=>point.text.trim())})).filter(topic=>topic.points.length);}
 // The notes open with who spoke and what they hold, as written meeting notes do (2026-11-13).
 // Speaker labels that nobody named (SPEAKER_00) are not people, so they are not listed.
 function notesOverview(minutes){
@@ -2954,7 +2984,7 @@ $('bar-open').onclick=()=>perform(async()=>{if(!state.active||!(await leaveEdits
 for(const [id,action] of [['process','transcribe'],['summarize','summarize'],['recover','recover'],['correct','correct']])$(id).onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;if(action==='summarize'&&state.settings.summarizer==='none'){openSettings('notes');toast('Choose a meeting-notes provider first');return;}await api('/api/meetings/'+selected+'/process',{action});dirtyNotes=dirtyTranscript=false;toast('Processing queued');await openMeeting(selected,true);});
 $('edit-title').onclick=()=>perform(async()=>{const title=await ask('Meeting name',{value:detail.title,ok:'Rename'});if(title?.trim()){await api('/api/meetings/'+selected+'/edit',{title});await openMeeting(selected,true);}});
 $('save-transcript').onclick=()=>perform(async()=>{await withEditorSave($('detail'),async()=>{if(!detail||detail.id!==selected)throw new Error('Reopen the meeting before saving.');if(dirtyNotes||itemEditing||speakerNaming)throw new Error('Save other edits before updating the transcript.');detail=await api('/api/meetings/'+selected+'/edit',{transcript:detail.transcript,transcript_revision:detail.transcript_revision,refresh_notes:false,defer_analysis:true});dirtyTranscript=false;detailChangedWhileEditing=false;transcriptEditing=false;lastFingerprint=JSON.stringify(detail);renderDetail();toast('Transcript corrections saved');});});
-$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(()=>withEditorSave($('detail'),async()=>{if(!validDates($('detail')))return;for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());notesEditing=false;try{await saveMinutes(notesBase);}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');}));
+$('save-notes').onclick=$('save-outcomes').onclick=()=>perform(()=>withEditorSave($('detail'),async()=>{if(!validDates($('detail')))return;for(const field of ITEM_FIELDS)detail.minutes[field]=(detail.minutes[field]||[]).filter(item=>item.text.trim());if(detail.minutes.discussion)detail.minutes.discussion=cleanDiscussion(detail.minutes.discussion);notesEditing=false;try{await saveMinutes(notesBase);}catch(e){notesEditing=true;throw e;}toast('Meeting notes saved');}));
 for(const name of ['notes','outcomes']) {
  $('edit-'+name).onclick=()=>{notesBase=structuredClone(detail.minutes);notesEditing=true;renderNotes(false);};
  $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!(await ask('Discard your changes to the notes?',{ok:'Discard',cancel:'Keep editing',danger:true})))return;notesEditing=false;await openMeeting(selected,true);});

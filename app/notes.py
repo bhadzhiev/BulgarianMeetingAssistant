@@ -11,7 +11,7 @@ import re
 
 from .meeting_types import SECTION_FIELDS
 
-FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', *SECTION_FIELDS)
+FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', 'discussion', *SECTION_FIELDS)
 # A new description is a change a person can accept; an empty one never clears what the task has.
 TASK_DETAILS = ('details', 'owner', 'deadline', 'due_date')
 SIMILAR = 0.6
@@ -34,7 +34,13 @@ def _near(old, new):
 
 
 def _text(field: str, item: dict) -> str:
-    return item['task'] if field == 'tasks' else item['text']
+    # A discussion topic is one change: it is found by its name, and new points change it (2026-11-13).
+    return item['task'] if field == 'tasks' else item['topic'] if field == 'discussion' else item['text']
+
+
+def _points_differ(field: str, old: dict, new: dict) -> bool:
+    words = lambda topic: [_key(point['text']) for point in topic.get('points') or []]
+    return field == 'discussion' and words(old) != words(new)
 
 
 def _key(text: str) -> str:
@@ -76,7 +82,8 @@ def changes(current: dict | None, proposed: dict) -> list[dict]:
                 continue
             old_left.remove(match)
             new_left.remove(j)
-            if field == 'tasks' and _task_details_differ(old[match], new[j]) or _explanation_differs(field, old[match], new[j]):
+            if (field == 'tasks' and _task_details_differ(old[match], new[j]) or _explanation_differs(field, old[match], new[j])
+                    or _points_differ(field, old[match], new[j])):
                 result.append(_change(field, 'changed', match, j, old[match], new[j]))
             elif _source_differs(old[match], new[j]):
                 # The words stay; the moment or the quote that proves them is new. A person sees it and chooses.
@@ -119,7 +126,7 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
             continue
         field, new = change['field'], copy.deepcopy(change['proposed'])
         if change['kind'] == 'added':
-            result.setdefault(field, []).append(dict(new, review='ai'))
+            result.setdefault(field, []).append(new if field == 'discussion' else dict(new, review='ai'))
         elif change['kind'] == 'removed':
             removed[field].append(change['current_index'])
         elif change['kind'] == 'source':
@@ -128,6 +135,10 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
             item['review'] = 'ai'
         else:
             item = result[field][change['current_index']]
+            if field == 'discussion':
+                # A new run replaces the points of a topic as a whole, after the person chose it.
+                item.update(topic=new['topic'], points=new['points'])
+                continue
             # The quote proves the statement: a new statement takes its own quote, or none. The old quote proved the old words.
             item['quote'] = new.get('quote')
             if field == 'tasks':
@@ -161,11 +172,13 @@ def name_speakers(minutes, renames):
         return None
     pattern = re.compile(r'(?<![\w])(' + '|'.join(re.escape(old) for old in sorted(labels, key=len, reverse=True)) + r')(?![\w])')
     result, changed = copy.deepcopy(minutes), False
-    for field in FIELDS:
-        for entry in result.get(field) or []:
+    topics = [topic for topic in result.get('discussion') or [] if isinstance(topic, dict)]
+    points = [point for topic in topics for point in topic.get('points') or [] if isinstance(point, dict)]
+    for rows in [result.get(field) for field in FIELDS if field != 'discussion'] + [topics, points]:
+        for entry in rows or []:
             if not isinstance(entry, dict):
                 continue
-            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context'):
+            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context', 'topic'):
                 value = entry.get(key)
                 if isinstance(value, str) and pattern.search(value):
                     entry[key] = pattern.sub(lambda m: labels[m.group(1)], value)

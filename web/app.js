@@ -3806,10 +3806,15 @@ function renderChannelProfile(profile){
 async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null}={}){
  if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
  if(!(await leaveEdits()))return;
- const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle,el('p','hint','Saved on this Mac. Publishing to GitHub uses a separate preview and approval.'));
- const text=el('textarea');text.maxLength=1000;text.rows=5;text.setAttribute('aria-label','Task text');text.placeholder='What needs to be done?';
- const details=el('textarea');details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Description (optional)';
- const owner=el('input');owner.maxLength=160;owner.setAttribute('aria-label','Owner');owner.placeholder='Owner (optional)';owner.setAttribute('list','known-speakers');
+  const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle);
+ // The same fields, names and order as the task editor: Title, Description, then owner, due date and context.
+ const text=el('textarea');text.maxLength=1000;text.rows=2;text.required=true;text.setAttribute('aria-label','Title');text.placeholder='What needs to be done?';
+ const details=el('textarea');details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Context, scope and links (optional)';
+ // The owner is chosen from People, as in the task editor. A name from the notes that is not in People stays as said.
+ const named=String(startOwner||'').trim(),known=(state.people||[]).find(p=>p.name.toLocaleLowerCase()===named.toLocaleLowerCase());
+ const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...personOptions());
+ if(named&&!known)owner.append(option(named+' · not in People','__named__'));owner.value=known?known.id:named?'__named__':'';
+ const ownerName=()=>owner.value==='__named__'?named:(state.people||[]).find(p=>p.id===owner.value)?.name||'';
  const due=el('input');due.type='date';due.setAttribute('aria-label','Due date');
  const meeting=el('select');meeting.setAttribute('aria-label','Meeting');meeting.append(option('No meeting · standalone task',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=meetingId||'';
  // A task from a line of the notes stays with that meeting: the line links to the new task.
@@ -3818,14 +3823,14 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  let projectEdited=false;project.onchange=()=>{projectEdited=true;};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel');save.type=cancel.type='button';actions.append(cancel,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
- text.value=startText;details.value=startDetails||'';owner.value=startOwner;due.value=startDue||'';
- const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};box.append(label('Task',text),label('Description',details),label('Owner',owner),label('Due date',due),label('Meeting',meeting),label('Project',project),actions);
- const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:owner.value,capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});if(mention===null)actions.insertBefore(refine,save);
+ text.value=startText;details.value=startDetails||'';due.value=startDue||'';
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project),label('Meeting',meeting));box.append(label('Title',text),label('Description',details),grid,actions);
+ const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});if(mention===null)actions.insertBefore(refine,save);
  const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;
  cancel.onclick=()=>perform(()=>requestDialogClose(dialog,()=>dialog.close()));
  save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
-  if(!text.value.trim()){text.focus();throw new Error('Enter task text');}if(!validDates(box))return;
-  const body={text:text.value.trim(),details:details.value.trim()||null,owner:owner.value.trim()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
+  if(!text.value.trim()){text.focus();throw new Error('Enter a title');}if(!validDates(box))return;
+  const body={text:text.value.trim(),details:details.value.trim()||null,owner:ownerName()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
   if(mention!==null)body.mention_index=mention;
   // A response lost after a successful save can be retried with the exact same request.
   if(submitted&&JSON.stringify(body)!==JSON.stringify(submitted))throw new Error('The previous result is uncertain. Retry with the same fields or check My Work before creating another task.');
@@ -3874,14 +3879,17 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
 }
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
- const dialog=$('task-panel'),box=$('task-panel-body'),projectHint=el('p','hint');projectHint.append(document.createTextNode((item.effective_project_ids||[]).length?'Projects: ':'No project'));(item.effective_project_ids||[]).forEach((key,i)=>{const project=projectList().find(p=>p.id===key);if(i)projectHint.append(document.createTextNode(', '));if(project?.color)projectHint.append(projectDot(project));projectHint.append(document.createTextNode(project?.name||'Removed project'));});
- const panelHead=el('div','task-panel-head');const panelTitle=el('h2','task-card-title',item.text);panelTitle.id='task-panel-title';panelHead.append(el('p','eyebrow',item.acceptance_state==='proposed'?'Proposed task':'Task'),panelTitle);
- box.replaceChildren(panelHead,projectHint);
+ const dialog=$('task-panel'),box=$('task-panel-body');
+ // The Project field names the current projects, so the editor shows them in one place.
+ const currentProjects=(item.effective_project_ids||[]).map(key=>projectList().find(p=>p.id===key)?.name||'Removed project');
+ const panelHead=el('div','task-panel-head');// The title is in the Title field; the heading names the action, so the title does not show two times.
+ const panelTitle=el('h2','task-card-title',item.acceptance_state==='proposed'?'Proposed task':'Edit task');panelTitle.id='task-panel-title';panelHead.append(panelTitle);
+ box.replaceChildren(panelHead);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
- const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=3;area.setAttribute('aria-label','Task title');
- const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=3;details.setAttribute('aria-label','Details');
- const criterion=el('textarea');criterion.value=item.completion_criteria||'';criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');
- const project=el('select');project.setAttribute('aria-label','Project');project.append(option('Keep current project links','keep'),option('No project','none'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));project.value='keep';
+ const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=2;area.required=true;area.setAttribute('aria-label','Title');area.placeholder='What needs to be done?';
+ const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Context, scope and links (optional)';
+ const criterion=el('textarea');criterion.value=item.completion_criteria||'';criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');criterion.placeholder='How do we know it is done? (optional)';
+ const project=el('select');project.setAttribute('aria-label','Project');project.append(option(currentProjects.length?currentProjects.join(', '):'No project','keep'),...(currentProjects.length?[option('No project','none')]:[]),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));project.value='keep';
  const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...personOptions());let ownerStart=item.owner_person_id||'';
  if(!ownerStart&&item.owner){owner.append(option(item.owner+' · current name','__current__'));ownerStart='__current__';}owner.value=ownerStart;
  // The others who work on the task. The owner stays accountable; adding people is a manual choice.
@@ -3891,30 +3899,25 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const requester=personSelect(item.requester_person_id,'Received from'),assigner=personSelect(item.assigned_by_person_id,'Assigned by'),follower=personSelect(item.follower_person_id,'Followed by');
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');
  const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up');
- const workflow=el('select');workflow.setAttribute('aria-label','Task state');workflow.append(...Object.entries(AtlantaTasks.STATES).map(([key,title])=>option(title,key)));workflow.value=AtlantaTasks.workflow(item);
- const update=el('textarea');update.maxLength=5000;update.rows=2;update.setAttribute('aria-label','Progress update');update.placeholder='What changed? Who or what are we waiting for?';
- const updateEvidence=el('select');updateEvidence.setAttribute('aria-label','Evidence for this update');updateEvidence.append(option('No evidence attached',''),...(data.graph?.source_evidence||[]).filter(e=>item.source_evidence?.includes(e.id)).map(e=>option(e.quote.slice(0,120),e.id)));
- // The editor opens with what changes every day: owner, state and due date, the expected result when it is set,
- // and an update. The rest is in sections that open on demand; a closed section names its filled values.
+ const workflow=el('select');workflow.setAttribute('aria-label','State');workflow.append(...Object.entries(AtlantaTasks.STATES).map(([key,title])=>option(title,key)));workflow.value=AtlantaTasks.workflow(item);
+ const update=el('textarea');update.maxLength=5000;update.rows=2;update.setAttribute('aria-label','Add an update');update.placeholder='What changed? Who or what are we waiting for?';
+ const evidenceRows=(data.graph?.source_evidence||[]).filter(e=>item.source_evidence?.includes(e.id));
+ const updateEvidence=el('select');updateEvidence.setAttribute('aria-label','Evidence for this update');updateEvidence.append(option('No evidence attached',''),...evidenceRows.map(e=>option(e.quote.slice(0,120),e.id)));
+ // One order in the new task and the task editor: what the task is (title, description, expected result), then
+ // who and when, then progress. Every field has one place that does not move; only rare fields are in sections.
  const core=el('div','task-card-grid task-core'),people=el('div','task-card-grid');
- const followField=label('Next follow-up',follow),criterionField=label('Expected result',criterion);
- core.append(label('Owner',owner),label('Task state',workflow),label('Due date',due));
+ core.append(label('Owner',owner),label('State',workflow),label('Project',project),label('Due date',due),label('Next follow-up',follow));
  const coField=el('div','assignee-field');coField.append(el('p','field-label','Also working on it'),el('p','hint','The owner is accountable. The others share the task and its state.'),coBox);
- people.append(label('Received from',requester),label('Assigned by',assigner),label('Followed by',follower),label('Project',project));
+ people.append(label('Received from',requester),label('Assigned by',assigner),label('Followed by',follower));
  if(managerSelf){const assigned=btn('secondary small-action','I assigned this task');assigned.onclick=()=>{assigner.value=managerSelf;dirty();sectionNotes();};people.append(assigned);}
  const section=(title,...nodes)=>{const box=el('details','task-section'),head=el('summary'),note=el('span','task-section-summary');head.append(el('span','task-section-title',title),note);box.append(head,...nodes);box.note=note;return box;};
- const detailsSection=section('Description',label('Description',details)),peopleSection=section('People and follow-up',coField,people),sourcesSection=section('Sources and GitHub'),historySection=section('History');
- // A follow-up date that is set, or a waiting task, keeps the follow-up beside the main fields.
- const placeFollow=()=>{if(follow.value||workflow.value==='waiting')core.append(followField);else people.append(followField);};
- const placeCriterion=()=>{if(item.completion_criteria)core.after(criterionField);else detailsSection.append(criterionField);};
+ const peopleSection=section('More people',coField,people),sourcesSection=section('Sources and GitHub'),historySection=section('History');
  const nameOf=id=>(state.people||[]).find(p=>p.id===id)?.name;
  const sectionNotes=()=>{
-  detailsSection.note.textContent=[details.value.trim()&&details.value.trim().slice(0,70)+(details.value.trim().length>70?'…':''),!item.completion_criteria&&criterion.value.trim()&&'expected result set'].filter(Boolean).join(' · ');
   const co=coChecks.filter(c=>c.checked).length;
-  peopleSection.note.textContent=[co&&'+'+co+' working on it',nameOf(requester.value)&&'from '+nameOf(requester.value),nameOf(assigner.value)&&'assigned by '+nameOf(assigner.value),nameOf(follower.value)&&'followed by '+nameOf(follower.value),follow.value&&!core.contains(followField)&&'follow-up '+date(follow.value)].filter(Boolean).join(' · ');
+  peopleSection.note.textContent=[co&&'+'+co+' working on it',nameOf(requester.value)&&'from '+nameOf(requester.value),nameOf(assigner.value)&&'assigned by '+nameOf(assigner.value),nameOf(follower.value)&&'followed by '+nameOf(follower.value)].filter(Boolean).join(' · ');
  };
  let editing=false;const dirty=()=>{editing=true;close.textContent='Cancel';github.inert=true;editorDirty.set('task-panel',true);};for(const control of [...coChecks,area,details,criterion,owner,requester,assigner,follower,due,follow,project,workflow,update,updateEvidence]){control.oninput=control.onchange=()=>{dirty();sectionNotes();};}
- workflow.addEventListener('change',()=>{placeFollow();sectionNotes();});
  // The owner is not in the list of the others: choosing an owner takes them out of it.
  const syncCo=()=>{for(const c of coChecks){const own=c.value===owner.value;c.closest('label').hidden=own;if(own)c.checked=false;}};syncCo();owner.addEventListener('change',syncCo);
  const save=el('button',item.acceptance_state==='proposed'?'secondary':'primary',item.acceptance_state==='proposed'?'Save draft':item.review_state==='needs_review'||item.review_state==='edited'?'Save & confirm':'Save changes'),close=el('button','secondary','Close'),footer=el('div','task-card-footer');save.type=close.type='button';
@@ -3922,6 +3925,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const persist=accept=>perform(()=>withDialogAction(dialog,async()=>{
   // A field with an error opens its section, so the error is in view.
   for(const part of box.querySelectorAll('details.task-section'))if(part.querySelector(':invalid,[aria-invalid=true]'))part.open=true;
+  if(!area.value.trim()){area.focus();throw new Error('Enter a title');}
   if(!validDates(box))return;
   const changes={text:area.value,details:details.value,completion_criteria:criterion.value};
   const co=coChecks.filter(c=>c.checked&&c.value!==owner.value).map(c=>c.value),coChanged=co.join()!==coStart.filter(id=>id!==owner.value).join();
@@ -3941,8 +3945,9 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  if(item.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(item))){const cancelTask=btn('danger-action','Cancel task…');cancelTask.onclick=()=>{workflow.value='cancelled';dirty();workflow.focus();cancelTask.textContent='Cancellation selected · Save changes to apply';};footer.prepend(cancelTask);}
  if(item.acceptance_state!=='proposed'){const mail=btn('secondary','Send by email…');mail.type='button';mail.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before you send the task by email.');dialog.close();await openTaskEmail(item.id);});footer.prepend(mail);}
  if(item.acceptance_state==='proposed'){const accept=btn('primary','Accept task');accept.onclick=()=>persist(true);footer.append(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
- box.append(label('Title',area),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),label('Add an update',update),label('Evidence for this update',updateEvidence),detailsSection,peopleSection,sourcesSection,historySection,footer);
- placeFollow();placeCriterion();sectionNotes();
+ const progress=el('section','task-progress');progress.append(el('h3','','Progress'),label('Add an update',update));if(evidenceRows.length)progress.append(label('Evidence for this update',updateEvidence));
+ box.append(label('Title',area),label('Description',details),label('Expected result',criterion),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,peopleSection,sourcesSection,historySection,footer);
+ sectionNotes();
  const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);
  const destinations=[...new Set((item.effective_project_ids||[]).flatMap(key=>projectList().find(p=>p.id===key)?.repositories||[]))];if(destinations.length){const repository=el('select');repository.setAttribute('aria-label','Repository readiness');repository.append(...destinations.map(name=>option(name,name)));const readiness=btn('quiet','Check repository access'),result=el('p','hint','Read access and issue publication permissions are separate.');readiness.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits first.');readiness.disabled=true;try{const value=await api('/api/items/'+item.id+'/readiness',{repository:repository.value});if(dialog.open&&sequence===taskPanelSequence)result.textContent=value.repository+' · '+value.account+' · '+(value.archived?'Archived or disabled':!value.issues_enabled?'Issues disabled':value.message);}finally{readiness.disabled=false;}});github.append(repository,readiness,result);}sourcesSection.append(github);

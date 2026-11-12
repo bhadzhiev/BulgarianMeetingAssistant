@@ -10,5 +10,5 @@ const groups=JSON.parse(JSON.stringify(vm.runInContext('peopleByTeam()',c)));
 assert.deepEqual(groups.team.map(p=>p.name),['Ангел','Яна']);
 assert.deepEqual(groups.others.map(p=>p.name),['Алекс','Борис','Виктор'],'a person who left the team is with the others');
 // Every owner picker uses the grouped list.
-assert.equal((src.match(/option\('No owner',''\),\.\.\.personOptions\(/g)||[]).length,3);
+assert.equal((src.match(/option\('No owner',''\),\.\.\.personOptions\(/g)||[]).length,4);
 console.log('Owner order PASS: team first, then the others, each alphabetical.');

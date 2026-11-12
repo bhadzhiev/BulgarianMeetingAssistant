@@ -1,14 +1,16 @@
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.css','utf8');
 const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
-// P02: the editor opens with the main fields; the rest is in sections that name their filled values.
+// P02, changed 2026-11-12: one fixed order. What the task is, then who and when, then progress; rare people fields in a section.
 const panel=slice('async function openTaskPanel(');
-assert.match(panel,/core\.append\(label\('Owner',owner\),label\('Task state',workflow\),label\('Due date',due\)\);/);
-assert.match(panel,/section\('Description',label\('Description',details\)\),peopleSection=section\('People and follow-up',coField,people\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\)/);
-assert.match(panel,/box\.append\(label\('Title',area\),core,[^;]*label\('Add an update',update\),label\('Evidence for this update',updateEvidence\),detailsSection,peopleSection,sourcesSection,historySection,footer\);/);
-// A set follow-up date or a waiting task keeps the follow-up beside the main fields; a set expected result shows at once.
-assert.match(panel,/const placeFollow=\(\)=>\{if\(follow\.value\|\|workflow\.value==='waiting'\)core\.append\(followField\);else people\.append\(followField\);\};/);
-assert.match(panel,/const placeCriterion=\(\)=>\{if\(item\.completion_criteria\)core\.after\(criterionField\);else detailsSection\.append\(criterionField\);\};/);
+assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
+assert.match(panel,/const peopleSection=section\('More people',coField,people\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\);/);
+assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),core,[^;]*progress,peopleSection,sourcesSection,historySection,footer\);/);
+// No field moves: the follow-up date and the expected result keep one place, and the evidence choice shows only when there is evidence.
+assert.doesNotMatch(panel,/placeFollow|placeCriterion|detailsSection/);
+assert.match(panel,/if\(evidenceRows\.length\)progress\.append\(label\('Evidence for this update',updateEvidence\)\);/);
+// The heading names the action; the title shows once, in its field.
+assert.match(panel,/el\('h2','task-card-title',item\.acceptance_state==='proposed'\?'Proposed task':'Edit task'\)/);
 // An error opens its section; Timeline opens History.
 assert.match(panel,/if\(part\.querySelector\(':invalid,\[aria-invalid=true\]'\)\)part\.open=true;/);
 assert.match(panel,/historySection\.open=true;timeline\.scrollIntoView/);
@@ -26,4 +28,4 @@ assert.match(slice('function renderBulkTasks(){'),/taskSelecting\?'Done selectin
 assert.match(css,/\.tracked-task\.task-card\.compact-task \.task-quick-fields>label:first-child\{grid-column:1 \/ -1\}/);
 // The calendar button inside the task menu does not close the menu.
 assert.match(app,/\.task-more>\.tracked-actions>button'\)\)closeMenus\(\)/);
-console.log('Compact tasks PASS: short editor with sections, compact list by default, cards view, selection on request, narrow rows.');
+console.log('Compact tasks PASS: fixed editor order, compact list by default, cards view, selection on request, narrow rows.');

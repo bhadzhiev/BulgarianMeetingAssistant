@@ -11,6 +11,12 @@ there is no recognized speech, the original name remains and the meeting shows t
 Use **Generate AI title** on a saved meeting to retry or explicitly replace a manual name.
 You can always use **Rename** afterward. Manual edits made while AI is running take priority.
 
+An AI title starts with the three-letter code of the meeting type, for example
+`DLY · PaperCut и сертификатите`. The codes are GEN (General), DLY (Daily stand-up), SPR (Sprint
+review), PLN (Planning), REF (Backlog refinement), XTM (Cross-team), CLI (Client meeting) and INC
+(Incident / postmortem). An own type uses the first three letters of its name. When you change the
+type of a meeting with an AI title, the code changes too. A title that you wrote never changes.
+
 To connect a calendar:
 
 1. Open **Settings → Google Calendar** and click **Sign in with Google**.

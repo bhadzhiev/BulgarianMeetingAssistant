@@ -148,8 +148,11 @@ class MeetingAutomationTests(unittest.TestCase):
         with patch('app.meeting_automation.generate_title',return_value=('Планиране на бюджета','final')):
             self.service._queue_metadata(mid,enrich=True);self.settled(mid)
         meeting=self.service.library.get(mid)
-        self.assertEqual(meeting['title'],'Планиране на бюджета')
+        # The title starts with the code of the meeting type (2026-11-13).
+        self.assertEqual(meeting['title'],'GEN · Планиране на бюджета')
         self.assertEqual(meeting['title_source'],'ai')
+        self.service.set_meeting_type(mid,'daily')
+        self.assertEqual(self.service.library.get(mid)['title'],'DLY · Планиране на бюджета')
         self.assertEqual(self.google.calls[-1]['title'],meeting['title'])
         self.assertNotIn('token=',self.google.calls[-1]['link'])
         self.service.sync_calendar(mid);self.settled(mid)

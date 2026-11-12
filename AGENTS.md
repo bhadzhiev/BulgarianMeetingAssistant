@@ -17,7 +17,7 @@ backend into `/Applications/Atlanta.app`.
 ```sh
 .venv/bin/python -m unittest discover -s tests -q   # full suite (~1241 tests; 1 known skip: BMA_RNNOISE_MODEL)
 node tests/web_<name>_regressions.cjs               # run one web regression suite
-for f in tests/web_*regressions.cjs; do node "$f"; done   # run all 91 directly
+for f in tests/web_*regressions.cjs; do node "$f"; done   # run all 92 directly
 node --check web/app.js                             # JS syntax after editing app.js
 cargo check --manifest-path desktop/src-tauri/Cargo.toml    # after Rust changes
 ```

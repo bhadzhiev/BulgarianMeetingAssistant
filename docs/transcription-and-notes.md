@@ -328,6 +328,13 @@ A saved meeting has four tabs: **Transcript**, **Tasks & decisions** (decisions,
 unresolved questions, agreed next steps), **Notes** (summary, questions for
 your decision, private observations), and **Analytics**. Generated notes contain these sections:
 
+The **Notes** tab starts with an overview: the named speakers (**Present**) and the number of
+tasks, decisions and open questions (**Holds**). Click the numbers to open **Tasks & decisions**.
+Speaker labels that nobody named (`SPEAKER_00`) are not listed. When the tasks have more than one
+owner, **Tasks & decisions** groups them by owner. A linked task uses its current owner; tasks without
+an owner come last. A note at the end of the **Notes** tab says that the AI wrote the notes from the
+recording, and that each point links to its source moment.
+
 - **Summary** and **Decisions**.
 - **Next steps:** agreed process steps, for example a follow-up meeting.
 - **Questions for your decision:** items that wait for a decision and were not decided.

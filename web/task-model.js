@@ -45,5 +45,8 @@
  }
  function visibleSelection(selection,rows){const visible=new Set(rows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).map(i=>i.id));return new Map([...selection].filter(([id])=>visible.has(id)));}
  function meetingGroups(mentions){const groups=[],byId=new Map();mentions.forEach((mention,index)=>{const key=mention.item_id;if(key&&byId.has(key)){byId.get(key).mentions.push(mention);return;}const group={task:mention,index,mentions:[mention]};groups.push(group);if(key)byId.set(key,group);});return groups;}
- return {STATES,workflow,inView,lastUpdate,suggestDueDate,personMatches,visibleSelection,meetingGroups};
+ // The tasks of one meeting by owner, in the order each owner first appears; tasks without an owner come last.
+ // One spelling of a name with other letter case is the same owner (2026-11-13).
+ function ownerGroups(groups,ownerOf){const byOwner=new Map();for(const group of groups){const name=String(ownerOf(group)||'').trim(),key=name.toLocaleLowerCase();if(!byOwner.has(key))byOwner.set(key,{owner:name,groups:[]});byOwner.get(key).groups.push(group);}const rows=[...byOwner.values()];return [...rows.filter(r=>r.owner),...rows.filter(r=>!r.owner)];}
+ return {STATES,workflow,inView,lastUpdate,suggestDueDate,personMatches,visibleSelection,meetingGroups,ownerGroups};
 });

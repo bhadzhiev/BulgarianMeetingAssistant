@@ -19,4 +19,4 @@ class WebDialogTests(unittest.TestCase):
         self.assertIn('id="tab-review"', page)
         self.assertIn('<div id="review-panel" class="card" hidden>', page)
         self.assertIn("['review','review-panel']", code)
-        self.assertIn("['review','outcomes','notes','analytics'].includes(tab)", code)
+        self.assertIn("['review','outcomes','notes','team','analytics'].includes(tab)", code)

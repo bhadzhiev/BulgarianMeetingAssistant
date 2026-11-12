@@ -9,6 +9,7 @@ from app.service import MeetingService
 from app.storage import atomic_json
 from tests.test_app import FakeRecorder, wait_for
 from tests.test_calendar import FakeGoogle
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 PROJECT = Path(__file__).resolve().parents[1]
 LATE = (dt.date.today() - dt.timedelta(days=2)).isoformat()

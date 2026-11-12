@@ -10,6 +10,7 @@ from unittest.mock import patch
 from app import task_draft,repo_reports
 from app.desktop import editor_state
 from tests import test_task_draft,test_repo_reports,test_prepare
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 PROJECT=Path(__file__).resolve().parents[1]
 

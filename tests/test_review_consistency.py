@@ -9,6 +9,7 @@ from app.review_queue import build as queue
 from app.storage import atomic_json
 from app.work_items import WorkItemConflict
 from tests.test_calendar import FakeGoogle
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 PROJECT=Path(__file__).resolve().parents[1]
 

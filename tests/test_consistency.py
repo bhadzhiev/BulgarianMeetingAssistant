@@ -10,6 +10,7 @@ from app.service import DEFAULTS, MeetingService
 from app.storage import atomic_json
 from meeting_assistant import TranscriptSegment, save_transcript
 from tests.test_calendar import FakeGoogle
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 PROJECT = Path(__file__).resolve().parents[1]
 JOB = dict(DEFAULTS, diarization_enabled=False, transcript_correction='none', summarizer='local')

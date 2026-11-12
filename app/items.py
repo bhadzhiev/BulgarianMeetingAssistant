@@ -229,8 +229,11 @@ class Registry:
         old['status'] = 'superseded'
         return new_id
 
-    def sync(self, meeting_id: str, minutes: dict | None) -> bool:
-        """Bring the registry in line with one meeting's notes. Returns True when the notes changed."""
+    def sync(self, meeting_id: str, minutes: dict | None, create_tasks: bool = True) -> bool:
+        """Bring the registry in line with one meeting's notes. Returns True when the notes changed.
+
+        create_tasks=False: the person makes tasks from the notes by hand (decision of 2026-11-12). A task mention
+        then stays text in the notes; only an item that already has the same text links again."""
         changed, present, primary = False, set(), set()
         # A user's tasks survive regenerated notes, including a run that omitted them.
         if minutes is not None:
@@ -281,6 +284,8 @@ class Registry:
                     mention['item_id'] = same['id']
                     present.add(same['id'])
                     changed = True
+                    continue
+                if kind == 'task' and not create_tasks:
                     continue
                 found = self.candidates(kind, mention, meeting_id)
                 if found:

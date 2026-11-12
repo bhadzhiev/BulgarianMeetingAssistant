@@ -13,6 +13,8 @@ assert.match(app,/task_matching_target:\$\('task-matching-allow'\)\.checked&&rem
 // The privacy text says it when the permission is on.
 const ctx=vm.createContext({URL});vm.runInContext(slice('function remoteAPI(url){','\nfunction privacy')+slice('function privacy(s) {','\nfunction switchTab'),ctx);
 const base={transcription:'local',summarizer:'local',transcript_correction:'none',title_provider:'none',local_ai_base_url:'https://api.moonshot.ai/v1'};
-assert.match(vm.runInContext('privacy',ctx)({...base,task_matching_target:'https://api.moonshot.ai/v1'}),/Titles and short updates of similar existing tasks are sent to api\.moonshot\.ai for task matching\./);
+assert.match(vm.runInContext('privacy',ctx)({...base,meeting_task_ai:true,task_matching_target:'https://api.moonshot.ai/v1'}),/Titles and short updates of similar existing tasks are sent to api\.moonshot\.ai for task matching\./);
 assert.doesNotMatch(vm.runInContext('privacy',ctx)({...base,task_matching_target:''}),/task matching/);
+// AI meeting tasks off (the default since 2026-11-12): no task matching, so the privacy text does not name it.
+assert.doesNotMatch(vm.runInContext('privacy',ctx)({...base,task_matching_target:'https://api.moonshot.ai/v1'}),/task matching/);
 console.log('Task matching PASS: permission per address, host named, cleared on address change, privacy text.');

@@ -5,6 +5,7 @@ import unittest
 from app import followup_email, notes
 from meeting_assistant import TranscriptSegment, verify_quotes
 from tests import test_followup_email
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 
 def saved():

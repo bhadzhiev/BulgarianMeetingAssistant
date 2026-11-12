@@ -57,7 +57,7 @@ DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model
                 summarizer='none', llm_model='gpt-4.1-mini', transcript_correction='local',
                 local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', local_ai_context=DEFAULT_CONTEXT, local_ai_temperature='zero', task_matching_target='', auto_process=True, live_transcription=True,
                 whisper_vad=True, whisper_vocabulary='', audio_preparation='off',
-                diarization_enabled=True, auto_title=True, title_provider='local', title_model='gpt-4.1-mini',
+                diarization_enabled=True, auto_title=True, meeting_task_ai=False, title_provider='local', title_model='gpt-4.1-mini',
                 calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
 
 
@@ -228,7 +228,7 @@ class MeetingService:
         if values['transcription'] == 'elevenlabs':
             from .scribe import keyterms
             keyterms(vocabulary)
-        for field in ['auto_process', 'live_transcription', 'whisper_vad', 'diarization_enabled', 'auto_title', 'calendar_enabled']:
+        for field in ['auto_process', 'live_transcription', 'whisper_vad', 'diarization_enabled', 'auto_title', 'meeting_task_ai', 'calendar_enabled']:
             if type(values[field]) is not bool:
                 raise ValueError(f'{field} must be true or false')
         if values['title_provider'] not in {'local','openai'}:
@@ -920,13 +920,15 @@ class MeetingService:
                     self._execute('summarize', directory, settings, progress, step_key(settings.get('summarizer')), self.note_names())
                     self.library.update(meeting_id, notes_need_refresh=(directory / 'minutes.proposed.json').exists(), notes_refresh_error=None)
                 # Matching the notes to existing tasks is a step of the same job. Its failure never stops the notes.
-                try:
-                    with job.step('Task matching'):
-                        self._match_tasks(meeting_id, directory, settings, progress, step_key('local'))
-                except JobCancelled:
-                    raise
-                except Exception as exc:
-                    self._save_matching(directory, dict(status='failed', error=self.redact(str(exc))))
+                # Without AI meeting tasks the job ends with the notes: the person makes and updates the tasks.
+                if self.meeting_task_ai():
+                    try:
+                        with job.step('Task matching'):
+                            self._match_tasks(meeting_id, directory, settings, progress, step_key('local'))
+                    except JobCancelled:
+                        raise
+                    except Exception as exc:
+                        self._save_matching(directory, dict(status='failed', error=self.redact(str(exc))))
             if action != 'recover' and (directory / 'transcript.json').exists():
                 with job.step('Analytics'):
                     self._run_analytics(meeting_id, settings, progress)
@@ -965,9 +967,16 @@ class MeetingService:
     def _save_matching(self, directory, record):
         atomic_json(directory / 'task-matching.json', dict(version=1, at=items.now(), **record))
 
+    def meeting_task_ai(self) -> bool:
+        """Whether AI makes task proposals and matches from meeting notes. Off by default since 2026-11-12:
+        the AI stops at the notes, and the person creates tasks and changes their state by hand."""
+        return bool(self.settings.get('meeting_task_ai'))
+
     def allow_task_matching(self, meeting_id):
         """Grant the one-address task matching permission and match this meeting's notes in the background."""
         from .local_ai import is_remote
+        if not self.meeting_task_ai():
+            raise ValueError('AI tasks from meetings are off. Turn them on in Settings → AI to match tasks.')
         directory = self.library.directory(meeting_id)
         if not (directory / 'minutes.json').exists():
             raise ValueError('Generate the notes first; matching compares them with the existing tasks.')
@@ -1001,7 +1010,7 @@ class MeetingService:
             speakers = set()
         unnamed = any(name and re.fullmatch(r'SPEAKER[ _-]?\d+', name, re.I) for name in speakers)
         with self.items.lock:
-            proposed = any(item.get('acceptance_state') == 'proposed'
+            proposed = self.meeting_task_ai() and any(item.get('acceptance_state') == 'proposed'
                            and any(link['meeting_id'] == meeting_id for link in item.get('links', []))
                            for item in self.items.items.values())
         return bool(unnamed or proposed or (directory / 'minutes.proposed.json').exists()
@@ -2397,7 +2406,7 @@ class MeetingService:
             if (directory / 'minutes.json').exists():
                 minutes = json.loads((directory / 'minutes.json').read_text())
                 validate_minutes(minutes)
-                if self.items.sync(meeting_id, minutes):
+                if self.items.sync(meeting_id, minutes, create_tasks=self.meeting_task_ai()):
                     save_minutes(directory, minutes)
             else:
                 # Processing again removes the notes; the items wait for the new notes, which replace them.
@@ -2406,8 +2415,8 @@ class MeetingService:
             self.items.save()
             path = directory / 'minutes.json'
             self.items_synced[meeting_id] = path.stat().st_mtime_ns if path.exists() else None
-            # Mentions that may be existing tasks wait in For review as proposals.
-            if path.exists() and meeting_id != self.active and meeting_id not in self.busy:
+            # Mentions that may be existing tasks wait in For review as proposals, unless the person makes tasks by hand.
+            if path.exists() and meeting_id != self.active and meeting_id not in self.busy and self.meeting_task_ai():
                 try:
                     from . import meeting_proposals
                     meeting_proposals.build(self, meeting_id)
@@ -2516,7 +2525,7 @@ class MeetingService:
 
     def _migrate_link_reviews(self):
         """Once: the mentions that waited in the old link review become proposals in For review."""
-        if getattr(self, '_links_migrated', False):
+        if getattr(self, '_links_migrated', False) or not self.meeting_task_ai():
             return
         self._links_migrated = True
         from . import meeting_proposals
@@ -2584,9 +2593,14 @@ class MeetingService:
                 pass  # another writer won; the next refresh links again
             meetings = self._meeting_refs()
             sources=self.review_sources()
+            # Without AI meeting tasks, the proposals that the AI made from meetings stay hidden, not deleted:
+            # turning the setting on shows them again.
+            manual = not self.meeting_task_ai()
             rows = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings), review_state=review_state(item,sources))
-                    for item in self.items.items.values()]
+                    for item in self.items.items.values() if not (manual and item.get('acceptance_state') == 'proposed')]
             graph = WorkGraph(self.items).snapshot()
+            if manual:
+                graph['proposals'] = [p for p in graph['proposals'] if p.get('origin') != 'meeting_match']
             conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
             # Pinned conversation bodies are fetched on demand, not with every My Work refresh.
             for revision in graph['source_revisions']:
@@ -2782,7 +2796,7 @@ class MeetingService:
                       and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
                     today=today, review=sum(1 for p in self.items.data.get('proposals', {}).values()
-                                            if p.get('origin') == 'meeting_match' and p.get('state') == 'pending'),
+                                            if p.get('origin') == 'meeting_match' and p.get('state') == 'pending') if self.meeting_task_ai() else 0,
                     suggested=sum(1 for p in self.items.data.get('proposals', {}).values()
                                   if p.get('origin') != 'meeting_match' and (p.get('state') == 'stale' or (
                                       p.get('state') == 'pending' and (not p.get('snoozed_until') or p['snoozed_until'] <= today)))))
@@ -2803,9 +2817,13 @@ class MeetingService:
     def create_task(self, body):
         """A user-authored WorkItem; no invented transcript evidence or AI execution."""
         if not isinstance(body, dict):raise ValueError('Task fields are required')
-        text=body.get('text');owner=body.get('owner');due=body.get('due_date')
+        text=body.get('text');owner=body.get('owner');due=body.get('due_date');details=body.get('details')
         request_id=body.get('request_id');meeting_id=body.get('meeting_id');project_id=body.get('project_id')
+        # mention_index: the task line of the meeting notes that the person makes into a task.
+        mention_index=body.get('mention_index')
         if not isinstance(text,str) or not text.strip() or len(text.strip())>1000:raise ValueError('Enter task text up to 1000 characters')
+        if details is not None and (not isinstance(details,str) or len(details)>5000):raise ValueError('Description must be up to 5000 characters')
+        if mention_index is not None and (meeting_id is None or type(mention_index) is not int):raise ValueError('Choose the meeting task line to create')
         if owner is not None and (not isinstance(owner,str) or len(owner)>160):raise ValueError('Owner must be text up to 160 characters')
         if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{32}',request_id):raise ValueError('A task request ID is required')
         if due is not None:
@@ -2813,6 +2831,8 @@ class MeetingService:
                 if not isinstance(due,str) or dt.date.fromisoformat(due).isoformat()!=due:raise ValueError()
             except (TypeError,ValueError):raise ValueError('Due date must use YYYY-MM-DD') from None
         payload=dict(text=text.strip(),owner=(owner or '').strip() or None,due_date=due,meeting_id=meeting_id,project_id=project_id)
+        if (details or '').strip():payload['details']=details.strip()
+        if mention_index is not None:payload['mention_index']=mention_index
         with self.lock,self.items.lock,self.items.store.serialized():
             self.items.data,self.items.revision=self.items.store.load()
             existing=next((i for i in self.items.items.values() if i.get('creation_request')==request_id),None)
@@ -2823,17 +2843,40 @@ class MeetingService:
                 self.library.get(meeting_id)
                 if meeting_id==self.active or meeting_id in self.busy:raise ValueError('Wait for recording or processing to finish before adding a task')
             if project_id is not None and not self.projects.get('projects',project_id):raise ValueError('This project no longer exists')
+            minutes=mention=own=None
+            if mention_index is not None:
+                directory=self.library.directory(meeting_id)
+                minutes=read_json(directory/'minutes.json',None)
+                lines=(minutes or {}).get('tasks') or []
+                if not 0<=mention_index<len(lines):raise items.WorkItemConflict('This task line is no longer in the meeting notes. Reload the meeting.')
+                mention=lines[mention_index]
+                own=self.items.items.get(mention.get('item_id')) if mention.get('item_id') else None
+                # A hidden AI proposal of the same line gives way to the person's task; any other task stays.
+                if own and own.get('acceptance_state')!='proposed':raise items.WorkItemConflict('This task line is already a task. Reload the meeting.')
             key=uuid.uuid4().hex[:16]
             item=dict(id=key,kind='task',text=payload['text'],owner=payload['owner'],due_date=due,deadline=None,status='open',
                 created=self.items.created_at(meeting_id),created_by='user',manual=['text','owner','deadline','due_date','status'],links=[],history=[],
                 supersedes=[],superseded_by=None,creation_request=request_id,creation_payload=payload)
+            if payload.get('details'):item['details']=payload['details'];item['manual'].append('details')
             if project_id is not None:item['project_ids']=[project_id]
-            if meeting_id is not None:
+            if mention is not None:
+                # The task keeps the line of the notes as its evidence; what the notes said stays as said.
+                item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=mention.get('evidence_timestamp'),seen=items.seen('task',mention)))
+            elif meeting_id is not None:
                 item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=None,
                     seen=dict(task=item['text'],owner=item['owner'],deadline=None,due_date=due,status='open')))
             self.items.items[key]=item
             self.items._event(item,'created',meeting_id,by='user');self.items._date_creation(item)
+            if own:
+                if self.items.has_graph_links(own['id']):
+                    own['dismissed']=True;own['links']=[l for l in own['links'] if l['meeting_id']!=meeting_id]
+                    self.items._event(own,'removed',meeting_id,by='user')
+                else:self.items.remove(own['id'])
             self.items.save()
+            if mention is not None:
+                from meeting_assistant import save_minutes
+                mention['item_id']=key;mention.pop('link',None)
+                save_minutes(self.library.directory(meeting_id),minutes)
             if meeting_id is not None:self._sync_items(meeting_id)
             return copy.deepcopy(self.items.items[key])
 
@@ -3144,7 +3187,7 @@ class MeetingService:
                 if kind == 'task':
                     mention['status'] = target['status']
             mention.pop('link')
-            self.items.sync(meeting_id, minutes)
+            self.items.sync(meeting_id, minutes, create_tasks=self.meeting_task_ai())
             save_minutes(directory, minutes)
             self.items.save()
             return self.detail(meeting_id)

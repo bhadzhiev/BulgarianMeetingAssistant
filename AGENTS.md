@@ -15,9 +15,9 @@ backend into `/Applications/Atlanta.app`.
 ## Verify before claiming done
 
 ```sh
-.venv/bin/python -m unittest discover -s tests -q   # full suite (~1218 tests; 1 known skip: BMA_RNNOISE_MODEL)
+.venv/bin/python -m unittest discover -s tests -q   # full suite (~1241 tests; 1 known skip: BMA_RNNOISE_MODEL)
 node tests/web_<name>_regressions.cjs               # run one web regression suite
-for f in tests/web_*regressions.cjs; do node "$f"; done   # run all 90 directly
+for f in tests/web_*regressions.cjs; do node "$f"; done   # run all 91 directly
 node --check web/app.js                             # JS syntax after editing app.js
 cargo check --manifest-path desktop/src-tauri/Cargo.toml    # after Rust changes
 ```
@@ -66,6 +66,9 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   (AI sees accepted, visible, open tasks only); API keys never appear in meeting files or API
   responses. Changes touching AI sending must keep these boundaries (see
   `tests/test_ai_budget_and_errors.py`, `docs/work-assistant-contract.md`).
+- **AI meeting tasks are off by default** (setting `meeting_task_ai`, since 2026-11-12): the AI stops at the
+  notes; the person makes tasks with **Create task** on a notes line. Test modules that cover AI proposals
+  or matching import `setUpModule`/`tearDownModule` from `tests/ai_meeting_tasks.py`.
 - **Nothing changes until the person decides:** AI proposals stay proposals until accepted or
   linked; meetings, owners, states the person edited are never overwritten by AI
   (`keep_confirmed` reviews in `meeting_review.py`).

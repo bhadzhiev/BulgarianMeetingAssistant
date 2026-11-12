@@ -13,7 +13,26 @@ person. A name without a People entry shows as "· not in People".
 In every owner list, the people in your team come first, in alphabetical order. The other people
 come next, also in alphabetical order. The typed owner suggestions use the same order.
 
+### Tasks from meetings: you make them
+
+Since 2026-11-12 the AI stops at the meeting notes. The notes still list the tasks that the meeting
+named, but each line is text only. Atlanta does not make task proposals from the notes, does not
+match them with existing tasks, and does not add updates to tasks. You decide which tasks to keep.
+
+- Click **Create task** on a task line of the notes. The editor opens with the title, description,
+  owner and due date of the line. Edit them and click **Create task**.
+- The new task links to the meeting and to the line. The line then shows the task card.
+- Change the state of a task by hand in My Work. Use the **Updates on work in progress** section
+  of the notes as the source.
+- Task proposals that the AI made before stay hidden. They are not deleted.
+
+To get the old behaviour back, turn on **Settings → AI → Let AI propose tasks from meeting notes and
+match them with existing tasks**. The hidden proposals then show again, and the sections below apply.
+Gmail, Google Chat and GitHub suggestions do not depend on this setting.
+
 ### Updates from meetings
+
+This section applies only when AI meeting tasks are on.
 
 After the notes of a meeting, Atlanta compares what each speaker said with the open tasks of that
 speaker. When a speaker gives new progress, a blocker or a clarification about their own open task,

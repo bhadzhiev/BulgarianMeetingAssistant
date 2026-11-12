@@ -15,6 +15,7 @@ from app.work_items import WorkItemConflict
 from tests.test_calendar import FakeGoogle
 from tests.test_items import task, decision, notes
 from tests import test_http
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 PROJECT = Path(__file__).resolve().parents[1]
 

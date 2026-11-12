@@ -458,6 +458,8 @@
 <div class="advanced-setting cloud-setting"><label for="local-ai-context">Model context (tokens)</label><input id="local-ai-context" type="number" min="4096" max="2000000" step="1" required><p class="hint">The context the server gives the model. Notes of a long meeting go in parts that fit it; a large cloud context takes the whole meeting at once.</p></div>
 <div class="advanced-setting"><label for="local-ai-max-tokens">Maximum output tokens</label><input id="local-ai-max-tokens" type="number" min="128" max="32768" step="1" required><p class="hint">Includes reasoning tokens on many servers. Truncated results are rejected; increase this limit or reduce reasoning if needed.</p></div>
 <p class="hint">One endpoint and model for summaries, decisions, tasks, open questions and titles. Keep the model server running. Speech recognition and live captions use Whisper.</p>
+<label class="checkbox"><input id="meeting-task-ai" type="checkbox"> Let AI propose tasks from meeting notes and match them with existing tasks</label>
+<p class="hint">Off: the AI stops at the notes. Use Create task on a task line of the notes to add the tasks you keep. Gmail, Chat and GitHub suggestions do not change.</p>
 <div id="task-matching-field"><label class="checkbox"><input id="task-matching-allow" type="checkbox"> <span id="task-matching-label">Send task context to this API to match meeting tasks</span></label>
 <p id="task-matching-hint" class="hint"></p></div>
 </fieldset>

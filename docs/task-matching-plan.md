@@ -1,6 +1,8 @@
 # Task matching: technical plan
 
-**Status: draft.** This plan answers §11 of the brief "Контекстно разпознаване на задачи — задание за реализация, v2" (8 November 2026). It records the decisions so far and the limits.
+**Status: off by default since 2026-11-12.** The AI stops at the meeting notes; the person makes tasks by hand. Settings → AI → *Let AI propose tasks from meeting notes* turns this plan's features on again.
+
+**Earlier status: draft.** This plan answers §11 of the brief "Контекстно разпознаване на задачи — задание за реализация, v2" (8 November 2026). It records the decisions so far and the limits.
 
 ## Decisions so far
 

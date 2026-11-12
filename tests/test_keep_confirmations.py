@@ -9,6 +9,7 @@ from app.service import MeetingService
 from app.storage import atomic_json
 from meeting_assistant import validate_minutes
 from tests.test_calendar import FakeGoogle
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 PROJECT = Path(__file__).resolve().parents[1]
 

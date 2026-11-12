@@ -146,7 +146,7 @@ Each statement goes into one section only, in this order: decisions, tasks, upda
 of the meeting type, needs decision, open questions, next steps, observations, summary. The model
 writes the sections in this order too, so the summary comes last. The summary does not repeat
 tasks, decisions, updates or questions. A task title has 6–12 words (at most 15): owner, action
-and object. Each task also has a description (`details`): 1–3 short sentences with the scope,
+and object. Each task also has a description (`details`): 1–4 short sentences with the scope,
 conditions, contacts or expected result that the transcript says, or null when it says nothing more.
 A person edits the title and the description in the task panel. "Update notes" offers a new
 description of an existing task as a change; an empty one never clears it.
@@ -342,7 +342,13 @@ recording, and that each point links to its source moment.
   The model receives the meeting date. It converts a deadline such as "до петък" into a due
   date when the date is clear. Otherwise the due date stays empty. A task without a deadline in the
   words of the meeting gets no due date from AI. You can set it yourself.
-- **Open questions.**
+- **Open questions.** Each question has a **context**: who asked it, what is known and what is
+  still unclear. It is empty when the meeting said nothing more than the question.
+- Each decision has a **reason**: why it was taken and how the people reacted, with their names.
+  When nobody said a reason, the notes say "No reason was given in the meeting." Notes from before
+  13.11.2026 have no reason and show nothing. Edit the reason and the context in the notes editor.
+  A new AI run offers a new reason as a change; an empty one never clears a saved one.
+- When an important place in the recording cannot be understood, the notes say so and do not guess.
 - **Private observations:** risks, promises that look unrealistic, and signs of disagreement.
   This is an AI interpretation. Check it against the recording. It is not in `minutes.md`,
   but it is in `minutes.json`.

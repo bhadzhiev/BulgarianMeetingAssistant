@@ -283,9 +283,10 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
 NOTES_PART_CHARS = 10000
 # Measured with Qwen on Bulgarian: about 2.4 characters per token and 2,500 tokens of instructions.
 CHARS_PER_TOKEN = 2.0
-# The notes request without the transcript: about 4,700 tokens by the 2-characters-per-token estimate on
-# 10.11.2026 (instructions and schema). The real size is measured for each run (prompt_tokens); this value is the Settings check.
-PROMPT_TOKENS = 5000
+# The notes request without the transcript: about 5,300 tokens by the 2-characters-per-token estimate on
+# 13.11.2026 (instructions and schema, with the reasons of decisions and the context of open questions).
+# The real size is measured for each run (prompt_tokens); this value is the Settings check.
+PROMPT_TOKENS = 6000
 MAX_PART_CHARS = 400000
 
 
@@ -344,7 +345,7 @@ def canonical_notes(minutes: dict, vocabulary: str, people=()) -> dict:
         for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict):
                 continue
-            for key in ('text', 'task', 'owner'):
+            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context'):
                 value = item.get(key)
                 if not isinstance(value, str):
                     continue

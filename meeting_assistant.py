@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import gc
 import json
@@ -352,7 +353,15 @@ def minutes_schema(sections: tuple[str, ...] = ()) -> dict[str, Any]:
     # The model writes the fields in this order. It is the order of the section rule in the prompt, with summary
     # last: a statement that is already a decision or a task is then not written again in a later section.
     order = ("decisions", "tasks", "updates", *sections, "needs_decision", "open_questions", "next_steps", "observations", "summary")
-    shapes = {"decisions": quoted, "updates": quoted, "tasks": task}
+    # A decision keeps why it was taken, and an open question what is known and what is unclear (2026-11-13):
+    # written notes that say only "decided X" or "X is open" do not tell a later reader enough.
+    reasoned = copy.deepcopy(quoted)
+    reasoned["properties"]["rationale"] = {"type": ["string", "null"]}
+    reasoned["required"].append("rationale")
+    question = copy.deepcopy(item)
+    question["properties"]["context"] = {"type": ["string", "null"]}
+    question["required"].append("context")
+    shapes = {"decisions": reasoned, "updates": quoted, "tasks": task, "open_questions": question}
     return {
         "type": "object",
         "properties": {name: {"type": "array", "items": shapes.get(name, item)} for name in order},
@@ -421,9 +430,15 @@ task: „<отговорник> да <глагол> <обект>“, ако от
 task е кратко заглавие: обикновено 6–12 думи, най-много 15, с глагол в началото на действието.
 Заглавието съдържа само отговорника, действието и обекта. Без условия, списъци, фон или контакти и без „;“:
 подробностите остават в details и quote. Друг факт (например кой е контактът по темата) е отделен запис в своята секция.
-details: описание на задачата в 1–3 кратки изречения, само от казаното: какво точно трябва да се направи, обхват,
-условия, контакти или резултат, по който се разбира, че е готово. Не повтаряй заглавието с други думи и не измисляй.
+details: описание на задачата в 1–4 кратки изречения, само от казаното: какво точно трябва да се направи, обхват,
+условия, контакти или резултат, по който се разбира, че е готово. Когато е важно кой какво каза, назови го
+(„Иван: базата е готова наполовина.“). Не повтаряй заглавието с други думи и не измисляй.
 Ако текстът не казва нищо повече от заглавието, върни null.
+rationale: за всяко решение 1–3 кратки изречения: защо е прието и как реагираха участниците, с имената им,
+ако са известни („Иван предложи…; Мария се съгласи, защото…“). Само казаното. Ако никой не каза причина, върни null.
+context: за всеки отворен въпрос 1–2 кратки изречения: кой го повдигна, какво вече е казано и какво остава неясно.
+Ако текстът не казва повече от самия въпрос, върни null.
+Когато важно място в записа е неразбираемо, кажи това („в записа не се чува ясно кой е вторият адрес“), вместо да гадаеш.
 Всеки елемент в summary, decisions, next_steps, needs_decision, open_questions и observations е обект:
 text е твърдението, evidence_timestamp е timestamp на сегмента, който го доказва. Не пиши timestamp в text.
 Човек проверява всяко твърдение, като отваря неговия момент в записа; неточен evidence_timestamp прави проверката невъзможна.
@@ -621,6 +636,12 @@ def note_item(value: Any) -> Any:
     return {"text": value.strip(), "evidence_timestamp": bare.group(1) if bare else None, "review": "ai"}
 
 
+# Text that explains a statement: why a decision was taken, what is known about an open question (2026-11-13).
+# Notes saved before these fields have none; null means the meeting gave no reason or context.
+NOTE_EXPLANATIONS = {"decisions": "rationale", "open_questions": "context"}
+EXPLANATION_LIMIT = 2000
+
+
 def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] | None = None) -> None:
     """Validate notes. Fills in fields added after the first format, so older notes stay valid."""
     fields = {"summary", "decisions", "tasks", "open_questions"}
@@ -641,9 +662,13 @@ def validate_minutes(minutes: dict[str, Any], segments: list[TranscriptSegment] 
             continue
         minutes[field] = [note_item(item) for item in minutes[field]]
         for item in minutes[field]:
-            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - {"text", "evidence_timestamp", "review", "quote", *REGISTRY_KEYS}:
+            explanation = NOTE_EXPLANATIONS.get(field)
+            allowed = {"text", "evidence_timestamp", "review", "quote", *REGISTRY_KEYS, *([explanation] if explanation else [])}
+            if not isinstance(item, dict) or not {"text", "evidence_timestamp"} <= set(item) or set(item) - allowed:
                 raise ValueError(f"{field} items need text and a source timestamp field")
             _check_quote(item)
+            if explanation and item.get(explanation) is not None and (not isinstance(item[explanation], str) or len(item[explanation]) > EXPLANATION_LIMIT):
+                raise ValueError(f"{explanation} must be text of at most {EXPLANATION_LIMIT} characters or null")
             item.setdefault("review", "ai")
             if not isinstance(item["text"], str) or not item["text"].strip():
                 raise ValueError(f"{field} items need text")
@@ -725,7 +750,12 @@ def save_minutes(output_dir: Path, minutes: dict[str, Any]) -> None:
     )
     def line(item: dict[str, Any]) -> str:
         source = f" ({item['evidence_timestamp']})" if item.get("evidence_timestamp") else ""
-        return f"- {item['text']}{source}" + (" — проверено" if item.get("review") == "verified" else "")
+        text = f"- {item['text']}{source}" + (" — проверено" if item.get("review") == "verified" else "")
+        if (item.get("rationale") or "").strip():
+            text += f"\n  Причина: {item['rationale'].strip()}"
+        if (item.get("context") or "").strip():
+            text += f"\n  Контекст: {item['context'].strip()}"
+        return text
     try:
         titles = meeting_types.titles_bg(json.loads((output_dir / "meeting.json").read_text()))
     except (OSError, ValueError):

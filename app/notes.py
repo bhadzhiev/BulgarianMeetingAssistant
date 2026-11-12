@@ -52,6 +52,13 @@ def _task_details_differ(old: dict, new: dict) -> bool:
     return any(new.get(name) is not None and new.get(name) != old.get(name) for name in TASK_DETAILS)
 
 
+def _explanation_differs(field: str, old: dict, new: dict) -> bool:
+    """A new reason of a decision or context of a question. One that the AI did not find never clears a saved one."""
+    from meeting_assistant import NOTE_EXPLANATIONS
+    name = NOTE_EXPLANATIONS.get(field)
+    return bool(name) and new.get(name) is not None and new.get(name) != old.get(name)
+
+
 def _change(field, kind, old_index, new_index, old, new):
     return dict(id=f'{field}:{kind}:{"-" if old_index is None else old_index}:{"-" if new_index is None else new_index}',
                 field=field, kind=kind, current_index=old_index, proposed_index=new_index, current=old, proposed=new)
@@ -69,7 +76,7 @@ def changes(current: dict | None, proposed: dict) -> list[dict]:
                 continue
             old_left.remove(match)
             new_left.remove(j)
-            if field == 'tasks' and _task_details_differ(old[match], new[j]):
+            if field == 'tasks' and _task_details_differ(old[match], new[j]) or _explanation_differs(field, old[match], new[j]):
                 result.append(_change(field, 'changed', match, j, old[match], new[j]))
             elif _source_differs(old[match], new[j]):
                 # The words stay; the moment or the quote that proves them is new. A person sees it and chooses.
@@ -127,7 +134,11 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
                 item.update(task=new['task'], evidence_timestamp=new['evidence_timestamp'],
                             **{name: new[name] for name in TASK_DETAILS if new.get(name) is not None})
             else:
+                from meeting_assistant import NOTE_EXPLANATIONS
                 item.update(text=new['text'], evidence_timestamp=new['evidence_timestamp'])
+                name = NOTE_EXPLANATIONS.get(field)
+                if name and new.get(name) is not None:
+                    item[name] = new[name]
             item['review'] = 'ai'
     # Indices refer to the saved notes, so remove from the end after all replacements.
     for field, indices in removed.items():
@@ -139,7 +150,8 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
 def name_speakers(minutes, renames):
     """The notes with each named speaker label (SPEAKER_00) replaced by the name, without AI.
 
-    Only the written fields change: statement text, task text and owner. Quotes keep the words that were said.
+    Only the written fields change: statement text, task text, owner and the explaining text (details, reason,
+    context). Quotes keep the words that were said.
     Returns a new dict, or None when nothing changed.
     """
     import copy
@@ -153,7 +165,7 @@ def name_speakers(minutes, renames):
         for entry in result.get(field) or []:
             if not isinstance(entry, dict):
                 continue
-            for key in ('text', 'task', 'owner'):
+            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context'):
                 value = entry.get(key)
                 if isinstance(value, str) and pattern.search(value):
                     entry[key] = pattern.sub(lambda m: labels[m.group(1)], value)

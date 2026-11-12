@@ -58,7 +58,9 @@ DEFAULTS = dict(transcription='local', local_model='large-v3-turbo', cloud_model
                 local_ai_base_url=DEFAULT_BASE_URL, local_ai_model=DEFAULT_MODEL, local_ai_format='json_schema', local_ai_max_tokens=4096, local_ai_reasoning='default', local_ai_context=DEFAULT_CONTEXT, local_ai_temperature='zero', task_matching_target='', auto_process=True, live_transcription=True,
                 whisper_vad=True, whisper_vocabulary='', audio_preparation='off',
                 diarization_enabled=True, auto_title=True, meeting_task_ai=False, title_provider='local', title_model='gpt-4.1-mini',
-                calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='')
+                calendar_enabled=False, calendar_id='', calendar_name='', calendar_account='',
+                # The name of the person who runs Atlanta, as a speaker: the team analysis coaches this person (2026-11-13).
+                self_name='')
 
 
 MARKER_KINDS = ('important', 'decision', 'check')
@@ -236,6 +238,9 @@ class MeetingService:
         for field in ['calendar_id','calendar_name','calendar_account']:
             if not isinstance(values[field],str) or len(values[field])>512 or any(ord(c)<32 for c in values[field]):
                 raise ValueError('Invalid calendar setting')
+        if not isinstance(values['self_name'],str) or len(values['self_name'])>100 or any(ord(c)<32 for c in values['self_name']):
+            raise ValueError('Your name must be one line of at most 100 characters')
+        values['self_name']=values['self_name'].strip()
         for key in ['local_model', 'cloud_model', 'llm_model', 'title_model', 'local_ai_model']:
             if not isinstance(values[key], str) or not values[key].strip() or len(values[key]) > 150:
                 raise ValueError('Invalid model name')
@@ -405,6 +410,8 @@ class MeetingService:
                 except ValueError:
                     notes_valid = False
             meeting['transcript_revision'] = self._transcript_revision(meeting['transcript'])
+            from . import team_analysis
+            meeting['team_analysis'] = team_analysis.read(self, meeting_id)
             meeting['voice_suggestions'] = self._voice_suggestions(meeting_id, directory, meeting['transcript'])
             meeting['minutes_revision'] = self._minutes_revision(directory)
             from .notes_consolidation import audit_for

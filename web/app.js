@@ -566,7 +566,7 @@ async function applyRoute(){
  try{
   if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){
    try{await openMeeting(meeting);}catch(e){if(e.status!==404)throw e;await openConversations();error('This meeting is no longer on this Mac. It may have been deleted.');return;}
-   const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','analytics'].includes(tab))switchTab(tab);}
+   const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','team','analytics'].includes(tab))switchTab(tab);}
   else if(target==='work'){if(q.get('tab')==='suggested')await openTaskInbox();else{if(WORK_PANELS[q.get('tab')])workTab=q.get('tab');await $('open-tasks').onclick();}const source=q.get('source');if(workTab==='gmail'&&source)await openMail(source);else if(workTab==='chat'&&source){chatSpace=source;await loadChat();}else if(workTab==='github'){if(q.get('section')==='reports'){showGitHubSection('reports');if(q.get('report'))await openRepoReport(q.get('report'));}else if(source&&/^\d+$/.test(source))await openGitHubItem(Number(source));}}
   else if(target==='projects'){
    const project=q.get('project')||'',select=$('workspace-project');
@@ -790,7 +790,7 @@ function privacy(s) { let text=s.transcription==='elevenlabs'?'Audio and vocabul
  if(s.meeting_task_ai&&s.summarizer==='local'&&remoteAPI(s.local_ai_base_url)&&s.task_matching_target===s.local_ai_base_url)text+=' Titles and short updates of similar existing tasks are sent to '+apiHost(s.local_ai_base_url)+' for task matching.';
  if(s.calendar_enabled)text+=' Meeting titles, times and local links are saved in Google Calendar.';return text; }
 function switchTab(name) {
- for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
+ for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['team','team-analysis-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
  meetingTab=name;syncRoute(true);
  if(detail&&view==='detail')placeActions(detail);
  if(name==='review')perform(openMeetingReview);
@@ -897,7 +897,7 @@ function renderDetail() {
  renderSpeakerLegend();renderSpeakerReview(busy);renderAttention(busy);
  $('detail-markers').hidden=!d.markers?.length; $('detail-markers').replaceChildren();
  if(d.markers?.length){$('detail-markers').append(el('h3','','Moments you marked'));const list=el('div','marker-list');renderMarkerList(list,d.markers,true);$('detail-markers').append(list);}
- $('save-transcript').disabled=!dirtyTranscript||busy;$('save-transcript').textContent='Save corrections';renderTranscriptRefresh(busy); renderSavedDraft(d); renderNotes(busy); renderMeetingAnalytics(busy);
+ $('save-transcript').disabled=!dirtyTranscript||busy;$('save-transcript').textContent='Save corrections';renderTranscriptRefresh(busy); renderSavedDraft(d); renderNotes(busy); renderTeamAnalysis(busy); renderMeetingAnalytics(busy);
 }
 const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','followup-email','delete-meeting'];
 // One clear next step is a button; the other actions wait in the More menu.
@@ -1332,6 +1332,56 @@ function speakerStats(target,rows,global=false) {
   if(global)facts.push('Not marked as answered: '+row.unanswered_questions,'Meetings: '+row.meetings);
   box.append(el('p','speaker-stat-meta',facts.join(' · ')));target.append(box);
  }
+}
+// Team analysis (2026-11-13): the person who runs Atlanta asked for it about their own meetings. It is private:
+// not in the notes, exports, search or emails. One request goes to the Notes & AI provider after the person confirms.
+const TEAM_PERSON_FIELDS=[['ownership','Ownership'],['proactivity','Proactivity'],['reporting','Reporting']];
+const TEAM_COACHING=[['keep','Keep'],['change','Change'],['develop','Develop']];
+let teamAnalysisRunning=null;
+function teamObservations(rows){
+ if(!rows?.length)return el('p','empty-note','Nothing in this meeting.');
+ const list=el('ul','team-observations');
+ for(const row of rows){const li=el('li');if(row.speaker)li.append(el('strong','',row.speaker+': '));li.append(linkedText(el('span'),row.text));if(row.evidence_timestamp)li.append(stampButton(row.evidence_timestamp));list.append(li);}
+ return list;
+}
+function teamSection(title,...content){const section=el('section','team-section');section.append(el('h3','',title),...content.filter(Boolean));return section;}
+function renderTeamAnalysis(busy=false){
+ const target=$('team-analysis-content'),saved=detail.team_analysis,names=[...new Set(detail.transcript.map(s=>s.speaker).filter(Boolean))],running=teamAnalysisRunning===detail.id;
+ target.replaceChildren();
+ $('team-analysis-run').textContent=running?'Analyzing…':saved?'Analyze again':'Analyze';$('team-analysis-run').disabled=busy||running||!detail.transcript.length;
+ // The coaching is for the person who runs Atlanta: they choose their own name among the speakers once.
+ const who=el('label','team-self'),select=el('select');select.append(option('Choose your name',''),...names.map(name=>option(name,name)));
+ select.value=names.includes(state.settings.self_name)?state.settings.self_name:'';select.disabled=busy||running;
+ select.onchange=()=>perform(async()=>{await api('/api/settings',{self_name:select.value});state.settings.self_name=select.value;toast(select.value?'Saved: you are '+select.value:'Your name is cleared');});
+ who.append(el('span','','You in this meeting'),select);target.append(who);
+ const generic=names.filter(name=>/^SPEAKER[ _-]?\d+$/i.test(name));
+ if(generic.length)target.append(el('p','notice warning','Name the speakers first: '+generic.join(', ')+'. The analysis describes each person by what the transcript says they said.'));
+ target.append(el('p','hint','Only for you. The transcript can confuse speakers and words, so check each observation at its moment before you act on it.'));
+ if(running)target.append(el('p','notice','The AI analyzes the meeting. A long meeting can take a few minutes.'));
+ if(!saved){if(!running)target.append(emptyNote(detail.transcript.length?'Choose Analyze for work behavior by person, team dynamics, discourse and coaching for you.':'Transcribe the meeting first.'));return;}
+ target.append(el('p','hint team-meta','By '+saved.model+' · '+AtlantaUX.dateTime(saved.created_at)+(saved.manager?' · coaching for '+saved.manager:'')));
+ if(saved.stale)target.append(el('p','notice warning','The transcript changed after this analysis. Choose Analyze again to include the changes.'));
+ if(saved.talk?.length)target.append(el('p','hint team-talk','Talk: '+saved.talk.map(row=>row.speaker+' '+row.percent+'% · '+AtlantaUX.count(row.turns,'turn')).join(' · ')));
+ const analysis=saved.analysis,people=analysis.people.map(person=>{
+  const box=el('section','team-person'),head=el('h4');head.append(avatar(person.name),el('span','',person.name));box.append(head);
+  if(person.summary)box.append(el('p','team-summary',person.summary));
+  for(const [key,label] of TEAM_PERSON_FIELDS)box.append(el('h5','',label),teamObservations(person[key]));
+  return box;});
+ target.append(
+  teamSection('Work behavior by person',...(people.length?people:[el('p','empty-note','No other participant spoke.')])),
+  teamSection('Communication and team dynamics',analysis.dynamics.overview&&el('p','team-summary',analysis.dynamics.overview),teamObservations(analysis.dynamics.observations)),
+  teamSection('Discourse: words, wording and implied meanings',analysis.discourse.overview&&el('p','team-summary',analysis.discourse.overview),teamObservations(analysis.discourse.observations)),
+  teamSection('Coaching: your management practice',...TEAM_COACHING.flatMap(([key,label])=>[el('h4','',label),teamObservations(analysis.coaching[key])])));
+}
+async function runTeamAnalysis(){
+ const meetingId=detail.id,preview=await api('/api/team-analysis/preview',{meeting_id:meetingId});
+ const lines=['Atlanta sends the transcript ('+preview.characters+' characters) with the speaker names to '+preview.model+(preview.base_url?' at '+preview.base_url:'')+'.','The analysis stays on this Mac.'];
+ if(preview.unnamed.length)lines.push('Not named yet: '+preview.unnamed.join(', ')+'.');
+ if(!state.settings.self_name)lines.push('Choose your name first if you want coaching for you; otherwise the coaching is for the person who leads the meeting.');
+ if(!(await ask('Analyze the team in this meeting?\n\n'+lines.join('\n'),{ok:'Analyze'})))return;
+ teamAnalysisRunning=meetingId;if(detail?.id===meetingId)renderTeamAnalysis();
+ try{const result=await api('/api/team-analysis/generate',{meeting_id:meetingId,self_name:state.settings.self_name||''});if(detail?.id===meetingId){detail.team_analysis=result;lastFingerprint=JSON.stringify(detail);}toast('Team analysis ready');}
+ finally{teamAnalysisRunning=null;if(detail?.id===meetingId)renderTeamAnalysis();}
 }
 function renderMeetingAnalytics(busy=false) {
  const data=detail.analytics,target=$('meeting-analytics-content');target.replaceChildren();
@@ -2990,7 +3040,8 @@ for(const name of ['notes','outcomes']) {
  $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!(await ask('Discard your changes to the notes?',{ok:'Discard',cancel:'Keep editing',danger:true})))return;notesEditing=false;await openMeeting(selected,true);});
 }
 $('reanalyze').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});
-for(const tab of ['review','transcript','outcomes','notes','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
+for(const tab of ['review','transcript','outcomes','notes','team','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
+$('team-analysis-run').onclick=()=>perform(runTeamAnalysis);
 $('settings-open').onclick=()=>openSettings();$('settings-inline').onclick=()=>openSettings('recording');
 for(const tab of document.querySelectorAll('.settings-tabs button')) tab.onclick=()=>showSettingsTab(tab.dataset.tab);
 // A required field on a hidden tab would block saving without a visible message.

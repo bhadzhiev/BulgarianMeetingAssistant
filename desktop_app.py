@@ -420,6 +420,9 @@ class Handler(BaseHTTPRequestHandler):
                 action = path.rsplit('/', 1)[-1]
                 result = (followup_email.prepare(service, body) if action == 'prepare' else
                           followup_email.generate(service, body) if action == 'generate' else followup_email.save_draft(service, body))
+            elif path in {'/api/team-analysis/preview', '/api/team-analysis/generate'}:
+                from app import team_analysis
+                result = team_analysis.preview(service, body) if path.endswith('/preview') else team_analysis.generate(service, body)
             elif path in {'/api/task-email/prepare', '/api/task-email/draft'}:
                 from app import task_email
                 result = task_email.prepare(service, body) if path.endswith('/prepare') else task_email.save_draft(service, body)

@@ -371,6 +371,26 @@ task has a **source moment** and a **review state**:
   becomes **✓ Checked**. Statements that you add yourself start as checked.
 - The AI must cite the moment where a decision was taken, not where it was proposed.
 
+### Team analysis
+
+The **Team analysis** tab of a meeting analyzes the people and the team, for the person who runs Atlanta.
+It has four parts:
+
+1. **Work behavior by person:** ownership, proactivity and reporting of each participant except you,
+   with a short summary for each person.
+2. **Communication and team dynamics:** how people talk, work together and react to pressure.
+3. **Discourse:** the words, the wording and possible implied meanings. Implied meanings are hypotheses.
+4. **Coaching: your management practice:** what to keep, change and develop, with concrete behaviors.
+
+Name the speakers first, and choose your own name in **You in this meeting** (setting `self_name`).
+**Analyze** shows the model, its address and the size of the transcript, and sends one request to the
+Notes & AI provider only after you confirm. The talk shares and turns are counted by Atlanta, not by AI.
+Every observation has its moment in the recording. The AI describes what was said and done; it does not
+write diagnoses or guess feelings, and it names a line that looks attributed to the wrong speaker.
+The result is in `team-analysis.json` in the meeting folder. It is not in the notes, the exports, the
+search or the follow-up email. When the transcript changes, the tab says so; **Analyze again** replaces it.
+Edit its instructions in Settings → AI instructions → **Team analysis of a meeting**.
+
 ### Follow-up email
 
 After you review a meeting, open **More → Follow-up email…**. The draft uses only reviewed content:

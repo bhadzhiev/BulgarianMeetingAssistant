@@ -1508,3 +1508,5 @@ label.required-label:has(.date-part-label)::after{content:none}
 .discussion-points{margin:0;padding-left:20px;font-size:14px;line-height:1.6}.discussion-point{margin:0 0 4px;overflow-wrap:anywhere}
 .discussion-point>:is(.stamp-group,button,.row-menu){margin-left:6px;vertical-align:middle}.discussion-point .small-action{font-size:11px;padding:2px 8px}
 .discussion-editor{display:grid;gap:6px;padding:10px 0;border-top:1px solid var(--line)}.discussion-editor>.task-bottom input{flex:1;min-width:0;font-weight:600}
+/* On a narrow screen the quote of a statement takes its own line; it was a column of one word (2026-11-13). */
+@media(max-width:600px){.note-meta .note-source{flex-basis:100%}}

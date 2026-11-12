@@ -189,6 +189,7 @@ From a saved meeting you can:
 
 - Play the recording or click a transcript timestamp to seek.
 - Read the notes as lists. Click a timestamp in the notes to see that moment in the transcript.
+- Click **Create task** on a task line of the notes to add it to My Work (see `docs/my-work-and-sources.md`).
 - Tick a task as done directly in **My Work**.
 - Correct transcript text and manually label speakers, then **Save corrections**.
 - Choose speakers from the shared list of known speakers. Known speakers show a coloured badge.

@@ -14,6 +14,7 @@ from app.service import MeetingService
 from app.storage import atomic_json
 from tests import test_voices as fixtures, test_review_queue as queue_fixtures, test_reprocess as rerun_fixtures
 from tests.test_app import wait_for
+from tests.ai_meeting_tasks import setUpModule, tearDownModule  # noqa: F401  AI meeting tasks are on in these tests
 
 
 class VoiceLifecycleTests(unittest.TestCase):

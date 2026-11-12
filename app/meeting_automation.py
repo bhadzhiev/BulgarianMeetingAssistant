@@ -131,6 +131,8 @@ class MeetingAutomation:
                 if current.get('title_revision',0)!=revision:
                     return  # The user renamed it while the model was running.
                 if title:
+                    from . import meeting_types
+                    title=meeting_types.with_code(title,current)
                     service.library.update(meeting_id,title=title,title_source='ai',title_basis=basis,
                         title_revision=revision+1,title_status='generated',title_error=None)
                 else:

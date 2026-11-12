@@ -1491,7 +1491,12 @@ class MeetingService:
         """Change the type of one meeting. Saved notes stay; new notes for the type wait for review."""
         changes = self._type_changes(kind, 'manual')
         with self.lock:
-            self.library.get(meeting_id)
+            meeting = self.library.get(meeting_id)
+            # An AI title carries the code of the type; it follows the new type. A title that a person wrote stays.
+            if meeting.get('title_source') == 'ai':
+                title = meeting_types.with_code(meeting['title'], dict(meeting, **changes), meeting)
+                if title != meeting['title']:
+                    changes.update(title=title, title_revision=meeting.get('title_revision', 0) + 1)
             self.library.update(meeting_id, **changes)
             return self.detail(meeting_id)
 

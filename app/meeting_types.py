@@ -162,6 +162,26 @@ def check_template(value) -> dict:
                 revision=value.get('revision'))
 
 
+# A generated title starts with the code of the meeting type, for example "DLY · PaperCut и сертификатите" (2026-11-13).
+CODES = {'general': 'GEN', 'daily': 'DLY', 'sprint_review': 'SPR', 'planning': 'PLN', 'refinement': 'REF',
+         'cross_team': 'XTM', 'client': 'CLI', 'incident': 'INC'}
+CODE_SEPARATOR = ' · '
+
+
+def code(meeting) -> str:
+    """The three-letter code of the type of a meeting. An own type uses the first three letters of its name."""
+    kind = of(meeting)
+    return CODES.get(kind['id']) or ''.join(c for c in kind['label'] if c.isalnum())[:3].upper() or 'MTG'
+
+
+def with_code(title: str, meeting, previous=None) -> str:
+    """The title with the code of the meeting type in front. A built-in code or the code of the previous type is
+    replaced, not repeated. Other words before the separator ("SAP · Lift") are part of the title and stay."""
+    head, separator, tail = title.partition(CODE_SEPARATOR)
+    known = set(CODES.values()) | {'MTG'} | ({code(previous)} if previous is not None else set())
+    return code(meeting) + CODE_SEPARATOR + (tail if separator and head in known else title)
+
+
 def definition(kind, template=None) -> dict:
     """Everything that a type changes. An own type comes from its template, or from the copy in a meeting."""
     if kind in TYPES:

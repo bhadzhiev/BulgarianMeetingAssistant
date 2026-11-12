@@ -1226,6 +1226,7 @@ function renderNotes(busy=false) {
  }
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(emptyNote('Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
+ if(!notesEditing)$('notes').append(notesOverview(minutes));
  if(detail.notes_consolidation&&!notesEditing&&!busy)$('notes').append(consolidationProof(detail.notes_consolidation));
  if(detail.minutes_proposal||detail.notes_need_refresh||detail.notes_refresh_error)for(const id of ['notes','outcomes']) $(id).append(detail.minutes_proposal?proposalBanner(busy):transcriptRefreshBanner(busy));
  $('notes').append(noteSection(minutes,'summary','Summary',busy),...typeSections(meetingType(detail),minutes).map(s=>noteSection(minutes,s.key,s.title,busy)),noteSection(minutes,'needs_decision','Questions for your decision',busy));
@@ -1242,7 +1243,13 @@ function renderNotes(busy=false) {
   const bottom=el('div','task-bottom');bottom.append(remove);box.append(text,bottom);taskList.append(box);}); }
  if(!notesEditing) {
   if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
-  AtlantaTasks.meetingGroups(minutes.tasks).forEach(({task,index,mentions})=>{if(!detail.items?.[task.item_id]?.dismissed)taskList.append(taskRow(task,index,busy,mentions));});
+  // Who does what: the tasks by owner, as written meeting notes list them (2026-11-13). One owner needs no headings.
+  const shown=AtlantaTasks.meetingGroups(minutes.tasks).filter(({task})=>!detail.items?.[task.item_id]?.dismissed);
+  const owners=AtlantaTasks.ownerGroups(shown,({task})=>detail.items?.[task.item_id]?.owner||task.owner);
+  for(const {owner,groups} of owners){
+   if(owners.length>1){const head=el('h4','owner-group');head.append(avatar(owner||''),el('span','',owner||'No owner'),el('span','hint',AtlantaUX.count(groups.length,'task')));taskList.append(head);}
+   for(const {task,index,mentions} of groups)taskList.append(taskRow(task,index,busy,mentions));
+  }
  } else {
   if(minutes.tasks.some(task=>detail.items?.[task.item_id]))section.append(el('p','hint','Linked tasks are edited in their task card. Save or cancel these note edits first.'));
   // New tasks come from Add task or Create task, not from the notes editor: one way to add a task.
@@ -1251,6 +1258,16 @@ function renderNotes(busy=false) {
  $('outcomes').append(section,noteSection(minutes,'open_questions','Unresolved questions',busy),noteSection(minutes,'next_steps','Agreed next steps',busy));
  $('notes').append(
   noteSection(minutes,'observations','Private observations',busy,'Only for you. AI interpretation of risks, unrealistic promises and disagreement. Check it against the recording. Not included in the Markdown export.'));
+ if(!notesEditing)$('notes').append(el('p','hint notes-footer','AI notes from the recording of '+date(detail.created)+'. Each point links to the moment it comes from. Check it there before you rely on it.'));
+}
+// The notes open with who spoke and what they hold, as written meeting notes do (2026-11-13).
+// Speaker labels that nobody named (SPEAKER_00) are not people, so they are not listed.
+function notesOverview(minutes){
+ const box=el('dl','notes-overview'),names=[...new Set(detail.transcript.map(s=>s.speaker).filter(name=>name&&!/^SPEAKER[ _-]?\d+$/i.test(name)))];
+ if(names.length)box.append(el('dt','','Present'),el('dd','',names.join(', ')));
+ const counts=[[AtlantaTasks.meetingGroups(minutes.tasks||[]).length,'task'],[AtlantaTasks.meetingGroups(minutes.decisions||[]).length,'decision'],[(minutes.open_questions||[]).length,'open question']].map(([n,word])=>AtlantaUX.count(n,word)).join(' · ');
+ const holds=btn('quiet notes-holds',counts);holds.title='Show the tasks and decisions';holds.onclick=()=>switchTab('outcomes');
+ const value=el('dd');value.append(holds);box.append(el('dt','','Holds'),value);return box;
 }
 function shortDuration(seconds) {
  seconds=Math.max(0,Math.round(seconds||0));const hours=Math.floor(seconds/3600),minutes=Math.floor(seconds/60)%60,rest=seconds%60;

@@ -1494,3 +1494,10 @@ label.required-label:has(.date-part-label)::after{content:none}
 @media(max-width:720px){#task-panel .task-core{grid-template-columns:1fr}}
 #task-panel .task-progress{margin-top:12px;padding-top:4px;border-top:1px solid var(--line)}
 #task-panel .task-progress h3{margin:8px 0 0;font-size:14px}
+
+/* Meeting notes: the overview, the tasks by owner and the source note (2026-11-13) */
+.notes-overview{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin:0 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:13px}
+.notes-overview dt{color:var(--muted);font-weight:500}.notes-overview dd{margin:0;overflow-wrap:anywhere}
+.notes-holds{padding:0;font-size:13px;text-align:left}
+.owner-group{display:flex;align-items:center;gap:8px;margin:18px 0 4px;font-size:14px}.owner-group:first-child{margin-top:4px}.owner-group .hint{font-weight:400;margin:0}
+.notes-footer{margin:18px 0 0;padding-top:12px;border-top:1px solid var(--line)}

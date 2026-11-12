@@ -1460,3 +1460,24 @@ label.required-label:has(.date-part-label)::after{content:none}
 .task-title-row>input[type=checkbox]{margin-top:9px}
 .task-title-fields{display:flex;flex-direction:column;gap:6px;min-width:0}
 .task-title-fields .task-description{margin:0}
+/* Compact task card (2026-11-12): each task is a small card. The title on top, then Owner, State and Due date
+   with their labels, then the overdue badge and Emailed. Add update, Timeline and the next check stay in "…". */
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task{margin:0 0 10px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--card);align-items:flex-start}
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task:last-child{border-bottom:1px solid var(--line)}
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.has-project-line{border-left:3px solid var(--project-color)}
+.tracked-task.task-card.compact-task>.tracked-main{display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:12px 14px}
+.tracked-task.task-card.compact-task>.tracked-main>.entity-top{flex:1 0 100%;align-items:flex-start}
+.tracked-task.task-card.compact-task .entity-top .tracked-text{font-size:15px;font-weight:700;line-height:1.35;-webkit-line-clamp:2}
+.tracked-task.task-card.compact-task .task-quick-fields>label{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;font-weight:500;color:var(--muted)}
+.tracked-task.task-card.compact-task .task-quick-fields>label>*{font-size:13px}
+.tracked-task.task-card.compact-task .task-quick-fields :is(select,input:not([type=checkbox])){height:36px!important;min-height:36px!important;border-radius:9px}
+.compact-owner{position:relative}
+.compact-owner>.speaker-badge{position:absolute;left:6px;bottom:6px;width:24px;height:24px;min-width:24px;border-radius:50%;z-index:1;pointer-events:none}
+.tracked-task.task-card.compact-task .compact-owner>select{padding-left:38px!important;min-width:200px}
+.tracked-task.task-card.compact-task .task-quick-fields>label:nth-child(2) select{min-width:140px}
+.tracked-task.task-card.compact-task>.tracked-main>.compact-flags{display:flex;flex:1 1 220px;flex-wrap:wrap;min-width:0;align-items:center;gap:8px 12px;min-height:36px}
+.compact-flags>.email-mark{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--ink)}
+.compact-flags>.email-mark .icon{color:var(--green)}
+.tracked-task.task-card.compact-task>.task-more{align-self:flex-start}
+@media(max-width:700px){.tracked-task.task-card.compact-task .task-quick-fields>label{flex:1 1 100%}.tracked-task.task-card.compact-task .task-quick-fields :is(select,input,.date-control){width:100%}.compact-flags>.email-mark{margin-left:0}}
+.tracked-task.task-card.compact-task .task-quick-fields select{line-height:34px!important}

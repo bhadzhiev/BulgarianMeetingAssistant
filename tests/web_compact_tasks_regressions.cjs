@@ -4,8 +4,8 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 // P02: the editor opens with the main fields; the rest is in sections that name their filled values.
 const panel=slice('async function openTaskPanel(');
 assert.match(panel,/core\.append\(label\('Owner',owner\),label\('Task state',workflow\),label\('Due date',due\)\);/);
-assert.match(panel,/section\('Details',label\('Details',details\)\),peopleSection=section\('People and follow-up',coField,people\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\)/);
-assert.match(panel,/box\.append\(label\('Task',area\),core,[^;]*label\('Add an update',update\),label\('Evidence for this update',updateEvidence\),detailsSection,peopleSection,sourcesSection,historySection,footer\);/);
+assert.match(panel,/section\('Description',label\('Description',details\)\),peopleSection=section\('People and follow-up',coField,people\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\)/);
+assert.match(panel,/box\.append\(label\('Title',area\),core,[^;]*label\('Add an update',update\),label\('Evidence for this update',updateEvidence\),detailsSection,peopleSection,sourcesSection,historySection,footer\);/);
 // A set follow-up date or a waiting task keeps the follow-up beside the main fields; a set expected result shows at once.
 assert.match(panel,/const placeFollow=\(\)=>\{if\(follow\.value\|\|workflow\.value==='waiting'\)core\.append\(followField\);else people\.append\(followField\);\};/);
 assert.match(panel,/const placeCriterion=\(\)=>\{if\(item\.completion_criteria\)core\.after\(criterionField\);else detailsSection\.append\(criterionField\);\};/);

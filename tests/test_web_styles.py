@@ -27,6 +27,9 @@ class SelectStyleTests(unittest.TestCase):
             '.conversation-filters input,.conversation-filters select', '.conversation-filters select',
             # The 28px field scale for task rows and editors, beside the 28px row buttons.
             ':is(.task-quick-fields,.tracked-meta,.task-editor,.task-bottom,.work-proposal,.tracked-edit-bar) :is(input:not([type=checkbox]):not([type=radio]),select),\n.segment .speaker,.tracked-owner-input',
+            # The compact task card: 36px labelled fields, and room for the owner's avatar in the select.
+            '.tracked-task.task-card.compact-task .task-quick-fields :is(select,input:not([type=checkbox]))',
+            '.tracked-task.task-card.compact-task .compact-owner>select',
         }
         for rule, body in re.findall(r'([^{}]*\bselect\b[^{}]*)\{([^}]*)\}', CSS):
             rule = rule.strip()

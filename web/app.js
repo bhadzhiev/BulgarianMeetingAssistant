@@ -1771,7 +1771,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
   due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null},dayText('Due date',due.value),{due_date:item.due_date||null});
   follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null},dayText('Next follow-up',follow.value),{follow_up_date:item.follow_up_date||null});
   const addUpdate=actionBtn('secondary small-action','Add update',()=>openTaskPanel(item.id,{focusUpdate:true}));
-  const timeline=actionBtn('quiet small-action task-timeline','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due',due),label('Next check',follow));
+  const timeline=actionBtn('quiet small-action task-timeline','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due date',due),label('Next check',follow));
   // The card shows the task; the fields open on request and stay open across a refresh after a save.
   quick.id='task-fields-'+item.id;quick.hidden=!openTaskFields.has(item.id);
   const toggle=btn('quiet small-action task-fields-toggle','');toggle.type='button';toggle.setAttribute('aria-controls',quick.id);
@@ -1790,8 +1790,10 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
    if(['overdue','today'].includes(kind))flags.append(el('span','due-label '+kind,dueInfo(item,today)[1]));
    const review=workReviewBadge(item.review_state,item);if(review)flags.append(review);
    if(co.length)flags.append(el('span','badge shared-badge','Shared · +'+co.length));
-   const mailedFlag=emailMark(item,{compact:true});if(mailedFlag)flags.append(mailedFlag);
-   main.replaceChildren(head,...(flags.childNodes.length?[flags]:[]),quick);
+   const mailedFlag=emailMark(item);if(mailedFlag)flags.append(mailedFlag);
+   // The card in the compact view: the title, then Owner, State and Due date with their labels, then the flags.
+   const ownerField=quick.firstElementChild;ownerField.classList.add('compact-owner');owner.before(avatar(item.owner||''));
+   main.replaceChildren(head,quick,...(flags.childNodes.length?[flags]:[]));
    for(const b of [addUpdate,timeline]){b.classList.remove('secondary','small-action');b.classList.add('quiet');}
    compactMenu=[addUpdate,timeline,nextCheck];
   }
@@ -2453,8 +2455,7 @@ function renderTasks() {
  }}
  const compact=taskDensity==='compact';if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
  // The compact list has one header row with the column names; it lines up with the rows.
- if(itemKind==='task'&&compact&&rows.length){const selecting=taskSelecting||taskSelection.size>0,head=el('div','tracked-task task-card compact-task compact-head'),cols=el('div','tracked-main');head.setAttribute('aria-hidden','true');
-  cols.append(el('span','compact-col-task','Task'),el('span','','Owner'),el('span','','State'),el('span','','Due'));head.append(...(selecting?[el('div','task-row-marks')]:[]),cols,el('span','compact-col-more'));rowTarget.append(head);}
+ // Each compact card labels its own fields, so the list has no column header row.
  for(const item of rows) rowTarget.append(itemKind==='task'?globalTaskRow(item,today,{compact,select:!compact||taskSelecting||taskSelection.size>0,showProject:!project.value}):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
@@ -3892,7 +3893,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  people.append(label('Received from',requester),label('Assigned by',assigner),label('Followed by',follower),label('Project',project));
  if(managerSelf){const assigned=btn('secondary small-action','I assigned this task');assigned.onclick=()=>{assigner.value=managerSelf;dirty();sectionNotes();};people.append(assigned);}
  const section=(title,...nodes)=>{const box=el('details','task-section'),head=el('summary'),note=el('span','task-section-summary');head.append(el('span','task-section-title',title),note);box.append(head,...nodes);box.note=note;return box;};
- const detailsSection=section('Details',label('Details',details)),peopleSection=section('People and follow-up',coField,people),sourcesSection=section('Sources and GitHub'),historySection=section('History');
+ const detailsSection=section('Description',label('Description',details)),peopleSection=section('People and follow-up',coField,people),sourcesSection=section('Sources and GitHub'),historySection=section('History');
  // A follow-up date that is set, or a waiting task, keeps the follow-up beside the main fields.
  const placeFollow=()=>{if(follow.value||workflow.value==='waiting')core.append(followField);else people.append(followField);};
  const placeCriterion=()=>{if(item.completion_criteria)core.after(criterionField);else detailsSection.append(criterionField);};
@@ -3930,7 +3931,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  if(item.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(item))){const cancelTask=btn('danger-action','Cancel task…');cancelTask.onclick=()=>{workflow.value='cancelled';dirty();workflow.focus();cancelTask.textContent='Cancellation selected · Save changes to apply';};footer.prepend(cancelTask);}
  if(item.acceptance_state!=='proposed'){const mail=btn('secondary','Send by email…');mail.type='button';mail.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before you send the task by email.');dialog.close();await openTaskEmail(item.id);});footer.prepend(mail);}
  if(item.acceptance_state==='proposed'){const accept=btn('primary','Accept task');accept.onclick=()=>persist(true);footer.append(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
- box.append(label('Task',area),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),label('Add an update',update),label('Evidence for this update',updateEvidence),detailsSection,peopleSection,sourcesSection,historySection,footer);
+ box.append(label('Title',area),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),label('Add an update',update),label('Evidence for this update',updateEvidence),detailsSection,peopleSection,sourcesSection,historySection,footer);
  placeFollow();placeCriterion();sectionNotes();
  const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);

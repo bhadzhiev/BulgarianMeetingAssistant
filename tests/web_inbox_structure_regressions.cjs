@@ -8,7 +8,14 @@ assert.match(app,/This may be an existing task\. It waits in My Work → Inbox\.
 // The dead Suggestions tab and its panel are gone; old routes and buttons land in the Inbox view.
 assert.doesNotMatch(html,/data-work-tab="suggested"/,'no hidden Suggestions tab');
 assert.doesNotMatch(html,/id="work-suggested"/,'no vestigial suggested panel');
-assert.match(app,/function openTaskInbox\(\)\{managerView='inbox';store\('manager-view','inbox'\);workTab='task';return \$\('open-tasks'\)\.onclick\(\);\}/);
+assert.match(app,/function openTaskInbox\(\)\{managerView='inbox';store\('manager-view','inbox'\);workTab='task';inboxOnPurpose=true;return \$\('open-tasks'\)\.onclick\(\);\}/);
+// My Work opens on All tasks instead of an empty saved Inbox; a link to the Inbox still opens it.
+assert.match(app,/if\(managerView==='inbox'&&!inboxOnPurpose&&!waiting\)\{managerView='all';store\('manager-view','all'\);\}inboxOnPurpose=false;/);
+// Without AI meeting items the Inbox holds source suggestions, and its words say so.
+assert.match(app,/'Suggestions from Gmail, Google Chat and GitHub wait here for your decision\./);
+assert.match(app,/'New suggestions arrive after each source sync\.'/);
+assert.match(app,/AtlantaUX\.count\(proposalListEl\.children\.length,'suggestion'\)\+' from sources'/);
+assert.match(html,/Each task appears once, with every meeting that discussed it\. Only you change its state and the fields you edited\./);
 assert.match(app,/if\(q\.get\('tab'\)==='suggested'\)await openTaskInbox\(\)/,'old suggested routes still land in the Inbox');
 assert.doesNotMatch(app,/showWorkTab\('suggested'\)/);
 assert.ok(!app.includes("$('work-suggested')"),'no code moves proposal lists into the removed panel');

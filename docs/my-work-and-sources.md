@@ -28,6 +28,8 @@ match them with existing tasks, and does not add updates to tasks. You decide wh
   Decisions tab then.
 - In Edit of the notes, a task line is text only. Owner, dates and state belong to the task card.
 - Task proposals and decisions that the AI made before stay hidden. They are not deleted.
+- The Inbox holds the Gmail, Google Chat and GitHub suggestions. My Work opens on **All tasks** when
+  the saved view is an empty Inbox. A link to the Inbox still opens it.
 
 To get the old behaviour back, turn on **Settings → AI → Let AI propose tasks from meeting notes and
 match them with existing tasks**. The hidden proposals then show again, and the sections below apply.

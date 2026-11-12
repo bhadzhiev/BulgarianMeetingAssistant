@@ -2402,7 +2402,7 @@ function renderTasks() {
  const accepted=decisions.filter(d=>d.status==='accepted'&&!d.dismissed&&(!d.snoozed_until||d.snoozed_until<=today)).length;
  const noWork=!itemsData.items.length&&!itemsData.pending.length;
  taskSummary(noWork?'Your tasks and decisions from every meeting and source.':open.length+' open task'+(open.length===1?'':'s')+' · '+late.length+' overdue · '+accepted+' accepted decision'+(accepted===1?'':'s')+(pending.length?' · '+pending.length+' to review':''));
- if(itemKind==='task'&&managerView==='inbox'&&!noWork)taskSummary((meetingProposalListEl.children.length+tasks.length)+' from meetings · '+proposalListEl.children.length+' from sources');
+ if(itemKind==='task'&&managerView==='inbox'&&!noWork)taskSummary(state.settings?.meeting_task_ai?(meetingProposalListEl.children.length+tasks.length)+' from meetings · '+proposalListEl.children.length+' from sources':AtlantaUX.count(proposalListEl.children.length,'suggestion')+' from sources');
  for(const button of document.querySelectorAll('[data-kind]')) { const count=pending.filter(p=>p.kind===button.dataset.kind).length; button.textContent=(button.dataset.kind==='task'?'Tasks':'Decisions')+(count?' · '+count+' to review':''); }
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','These mentions have wording close to existing items (text similarity). Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
@@ -2434,10 +2434,10 @@ function renderTasks() {
  let rowTarget=$('task-list');
  if(inbox){
   const meetingCount=meetingProposalListEl.children.length+rows.length,sourceCount=proposalListEl.children.length,list=$('task-list');
-  list.append(el('h2','','Inbox'),el('p','hint','Everything the AI proposed and waits for your decision. Accept, link or skip each one — nothing changes until you decide.'),proposalFiltersEl);
+  list.append(el('h2','','Inbox'),el('p','hint',state.settings?.meeting_task_ai?'Everything the AI proposed and waits for your decision. Accept, link or skip each one — nothing changes until you decide.':'Suggestions from Gmail, Google Chat and GitHub wait here for your decision. Accept, link or skip each one — nothing changes until you decide.'),proposalFiltersEl);
   if(meetingCount)list.append(el('h3','work-section','From meetings · '+meetingCount),meetingProposalListEl);
   if(sourceCount)list.append(el('h3','work-section','From connected sources · '+sourceCount),proposalListEl);
-  if(!meetingCount&&!sourceCount){const box=el('div','empty-content no-match');box.append(el('p','','Nothing to review for this filter.'),el('p','hint','New proposals arrive after each meeting and each source sync.'));if(proposalFilter!=='pending')box.append(actionBtn('secondary small-action','Show pending',()=>{proposalFilter='pending';renderTasks();}));list.append(box);}
+  if(!meetingCount&&!sourceCount){const box=el('div','empty-content no-match');box.append(el('p','','Nothing to review for this filter.'),el('p','hint',state.settings?.meeting_task_ai?'New proposals arrive after each meeting and each source sync.':'New suggestions arrive after each source sync.'));if(proposalFilter!=='pending')box.append(actionBtn('secondary small-action','Show pending',()=>{proposalFilter='pending';renderTasks();}));list.append(box);}
   rowTarget=el('div','task-rows');list.append(rowTarget);
  }
 
@@ -2462,7 +2462,8 @@ function renderTasks() {
 const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
 let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?localStorage.getItem('work-tab'):'task';}catch{}
 // The Inbox is the Inbox view of the Tasks tab: everything that waits for a decision in one place.
-function openTaskInbox(){managerView='inbox';store('manager-view','inbox');workTab='task';return $('open-tasks').onclick();}
+let inboxOnPurpose=false;
+function openTaskInbox(){managerView='inbox';store('manager-view','inbox');workTab='task';inboxOnPurpose=true;return $('open-tasks').onclick();}
 function showWorkTab(tab){
  // Decisions are text in the meeting notes unless AI meeting items are on (2026-11-12); My Work then has no Decisions tab.
  const decisionsTab=$('work-tabs').querySelector('[data-work-tab=decision]');decisionsTab.hidden=!state?.settings?.meeting_task_ai;if(tab==='decision'&&decisionsTab.hidden)tab='task';
@@ -2860,7 +2861,10 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden){events?.c
 // The microphone list is scanned only while the new-meeting form is visible.
 setInterval(()=>{ if(view!=='setup'||document.hidden||!state) return;
  api('/api/devices').then(result=>{if(JSON.stringify(result.devices)!==JSON.stringify(state.devices)||result.device_error!==state.device_error){state.devices=result.devices;state.device_error=result.device_error;renderState();}}).catch(()=>{}); },3000);
-$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('tasks');lastTasks='';await loadTasks();showWorkTab(workTab);renderLibrary();if(workTab!=='review')perform(loadReviewQueue);});
+$('open-tasks').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('tasks');lastTasks='';await loadTasks();
+ // My Work opens on All tasks when the saved view is an empty Inbox (2026-11-12); a link to the Inbox still opens it.
+ const waiting=(itemsData?.graph?.proposals||[]).some(p=>p.state==='pending')||(itemsData?.items||[]).some(i=>i.acceptance_state==='proposed'&&!i.dismissed);
+ if(managerView==='inbox'&&!inboxOnPurpose&&!waiting){managerView='all';store('manager-view','all');}inboxOnPurpose=false;showWorkTab(workTab);renderLibrary();if(workTab!=='review')perform(loadReviewQueue);});
 $('open-analytics').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('analytics');await loadAnalytics();renderLibrary();});
 $('analytics-apply').onclick=()=>perform(loadAnalytics);
 $('analytics-reset').onclick=()=>perform(async()=>{for(const id of ['analytics-from','analytics-to','analytics-speaker','analytics-topic'])$(id).value='';await loadAnalytics();});

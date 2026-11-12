@@ -62,6 +62,19 @@ class TaskTitleTests(unittest.TestCase):
         # A second apply of the same run finds a task that already has a description and leaves it.
         self.assertEqual(task_titles.apply(self.s, dict(changes=job['proposals'])), dict(applied=0, skipped=1))
 
+    def test_a_confirmed_review_stays_after_apply(self):
+        from app.meeting_review import fingerprint
+        with self.s.items.lock:
+            item = self.s.items.items[self.old['id']]
+            item['meeting_reviews'] = dict(m1=dict(state='confirmed', content=fingerprint(item)), m2=dict(state='edited', content=fingerprint(item)))
+            self.s.items.save()
+            revision = item['revision']
+        task_titles.apply(self.s, dict(changes=[dict(id=self.old['id'], revision=revision, text=self.old['text'], title='Периферия')]))
+        item = self.s.items.items[self.old['id']]
+        self.assertEqual(item['meeting_reviews']['m1']['content'], fingerprint(item))
+        # Only a confirmation moves with the text; another review state asks again.
+        self.assertNotEqual(item['meeting_reviews']['m2']['content'], fingerprint(item))
+
     def test_a_task_changed_after_the_run_is_skipped(self):
         _, job = self.run_titles({self.old['id']: 'Периферия'})
         self.s.update_item(self.old['id'], self.old['text'], dict(owner='Иван'), self.old['revision'])
@@ -78,6 +91,14 @@ class TaskTitleTests(unittest.TestCase):
             titles = task_titles.generate(tasks, {}, '')
         self.assertEqual(calls, ['task_titles', 'task_titles'])
         self.assertEqual(titles, {'t0': 'Първа задача'})
+
+    def test_titles_have_no_thinking_on_a_cloud_api(self):
+        from app.local_ai import complete_json
+        from app.service import DEFAULTS
+        answer = dict(choices=[dict(message=dict(content='{"titles": []}'), finish_reason='stop')])
+        with mock.patch('meeting_assistant.post_json', return_value=answer) as post:
+            complete_json(dict(DEFAULTS, local_ai_base_url='https://api.moonshot.ai/v1', local_ai_model='kimi-k3.1-pro'), [], task_titles.SCHEMA, 'task_titles')
+        self.assertEqual(post.call_args.args[1].get('reasoning_effort'), 'none')
 
 
 if __name__ == '__main__':

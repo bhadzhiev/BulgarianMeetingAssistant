@@ -161,6 +161,23 @@ class TitleJobs:
             self.thread.join(timeout=2)
 
 
+def keep_reviews(item):
+    """A confirmed review stays: the confirmed text is now the description, word for word, under a title the person chose.
+
+    Without this, every confirmed task returned to the review queue after Apply.
+    """
+    from .meeting_review import fingerprint
+    if (item.get('details') or '').strip() == '':
+        return False
+    before, after = fingerprint(dict(item, text=item['details'], details='')), fingerprint(item)
+    kept = False
+    for receipt in item.get('meeting_reviews', {}).values():
+        if receipt.get('state') == 'confirmed' and receipt.get('content') == before:
+            receipt['content'] = after
+            kept = True
+    return kept
+
+
 def apply(service, body):
     """Save the titles a person kept. A task that changed since the run is left as it is."""
     rows = body.get('changes')
@@ -183,4 +200,12 @@ def apply(service, body):
             applied += 1
         except WorkItemConflict:
             skipped += 1
+            continue
+        with service.lock, service.items.lock:
+            item = service.items.items.get(row['id'])
+            if item and item['text'] == title and item.get('details') == row['text'] and keep_reviews(item):
+                try:
+                    service.items.save()
+                except WorkItemConflict:
+                    pass
     return dict(applied=applied, skipped=skipped)

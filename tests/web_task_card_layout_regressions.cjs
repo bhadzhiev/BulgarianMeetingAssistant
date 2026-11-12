@@ -2,9 +2,14 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.css','utf8');
 const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 const row=slice('function globalTaskRow(','function decisionRow(');
-// The first line of the details is a subtitle under the title.
-assert.match(row,/const subtitle=String\(item\.details\|\|''\)\.split\('\\n'\)/);
-assert.match(row,/main\.append\(head,\.\.\.\(subtitle\?\[el\('p','task-subtitle',subtitle\)\]:\[\]\),meta\)/);
+// A task is a title and a description: the card, the meeting task and the review card show the description.
+assert.match(app,/function taskDescription\(text\)\{const node=el\('p','task-description',text\);node\.title=text;return node;\}/);
+assert.match(row,/main\.append\(head,\.\.\.\(description\?\[taskDescription\(description\)\]:\[\]\),meta\)/);
+assert.match(slice('function taskRow(','function renderNotes('),/const description=String\(\(item\?item\.details:task\.details\)\|\|''\)\.trim\(\);if\(description\)main\.append\(taskDescription\(description\)\)/);
+assert.match(app,/head\.append\(el\('p','review-text',item\.text\),state\);row\.append\(head\);if\(item\.details\)row\.append\(taskDescription\(item\.details\)\)/);
+// An update of the notes shows a new description as part of the task change.
+assert.match(app,/function changeText\(field,item\) \{ return field==='tasks'\?\[item\.task,item\.details,item\.owner,/);
+assert.match(css,/\.task-description\{[^}]*-webkit-line-clamp:3/);
 // The last update is a box with its label, date and text; Emailed goes into the box when there is an update.
 assert.match(row,/box\.append\(el\('span','task-update-label','Last update'\),el\('span','task-last-when',dateTime\(update\.at\)\),last\);if\(mailed\)box\.append\(mailed\)/);
 assert.match(row,/if\(mailed&&!update\)meta\.append\(mailed\)/);
@@ -31,4 +36,4 @@ assert.match(row,/actionBtn\('quiet small-action task-timeline','Timeline'/);
 assert.match(css,/\.tracked-task\.task-card \.tracked-main>\.task-row-actions\{[^}]*border-top:1px solid var\(--line\)/);
 assert.match(css,/\.task-row-actions \.task-timeline\{margin-left:auto\}/);
 assert.match(css,/\.task-update\{[^}]*background:var\(--surface\)/);
-console.log('Task card layout PASS: subtitle, update box, meeting rows, main Mark done.');
+console.log('Task card layout PASS: description, update box, meeting rows, main Mark done.');

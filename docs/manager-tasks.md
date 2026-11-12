@@ -4,7 +4,7 @@ Meetings remain the source of notes. A proposed action is not yet an accepted co
 
 - Open **My Work → Tasks → Inbox** to review proposed meeting actions and source suggestions together: two queues, *From meetings* and *From connected sources*. Edit and accept, accept, link to an existing task, or skip.
 - Use **New task** for work received outside an imported source. Manual tasks are accepted locally; no AI or external message is sent.
-- Open a task title anywhere to edit the same task card: wording, details, expected result, owner, received from, assigned by, project, dates and progress updates.
+- Open a task title anywhere to edit the same task card: title, description, expected result, owner, state, project, dates and progress updates. Since 2026-11-12 the card does not show Received from, Assigned by, Followed by or the evidence of an update; their saved values stay unchanged.
 - Set **This is me** to an existing People profile. **My tasks** uses a confirmed owner identity or a manually assigned matching name/alias. **Assigned by me** uses the explicit assigner, not an AI guess. These roles do not mean the recipient has accepted externally.
 - **Follow-up** shows active tasks with a due follow-up, an overdue deadline or Waiting state. Add a dated progress update to retain what changed.
 - Local states: To do, In progress, Waiting, Done, Cancelled. Only accepted, non-cancelled tasks count as active commitments. Existing tasks retain their IDs, links and history and default to accepted locally without fabricated review receipts.

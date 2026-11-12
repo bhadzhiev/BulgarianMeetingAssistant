@@ -4,11 +4,12 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 // P02, changed 2026-11-12: one fixed order. What the task is, then who and when, then progress; rare people fields in a section.
 const panel=slice('async function openTaskPanel(');
 assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
-assert.match(panel,/const peopleSection=section\('More people',coField,people\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\);/);
+assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\);/);
 assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),core,[^;]*progress,peopleSection,sourcesSection,historySection,footer\);/);
-// No field moves: the follow-up date and the expected result keep one place, and the evidence choice shows only when there is evidence.
+// No field moves: the follow-up date and the expected result keep one place.
 assert.doesNotMatch(panel,/placeFollow|placeCriterion|detailsSection/);
-assert.match(panel,/if\(evidenceRows\.length\)progress\.append\(label\('Evidence for this update',updateEvidence\)\);/);
+// Fields the person does not use are not in the editor; saving does not send them, so saved values stay.
+assert.doesNotMatch(panel,/'(Received from|Assigned by|Followed by|I assigned this task|Evidence for this update|update_evidence_id|requester_person_id|assigned_by_person_id|follower_person_id)'/);
 // The heading names the action; the title shows once, in its field.
 assert.match(panel,/el\('h2','task-card-title',item\.acceptance_state==='proposed'\?'Proposed task':'Edit task'\)/);
 // An error opens its section; Timeline opens History.

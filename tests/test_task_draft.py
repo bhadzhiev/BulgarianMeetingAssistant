@@ -34,6 +34,21 @@ class DraftTests(unittest.TestCase):
         self.assertEqual(self.s.tasks(),[])
         self.assertTrue(result['text'])
 
+    def test_task_edit_preview_and_draft_use_the_polish_stage(self):
+        body=dict(provider='task_edit',id='c'*32,text='Мигрирай базата',details='',completion_criteria='',context='')
+        preview=task_draft.preview(self.s,body)
+        self.assertEqual(set(preview['target']['_prompt_snapshot']['stages']),{'task_polish'})
+        seen={}
+        def run(action,directory,settings,progress,key,cancel=None):
+            seen.update(action=action,source=settings['task_draft_source'],stages=set(settings['_prompt_snapshot']['stages']))
+            return dict(text='Провери миграцията на базата',details='Предложение: staging първо.',completion_criteria='')
+        before=copy.deepcopy(self.s.items.data)
+        result=task_draft.draft(self.s,dict(body,approved=True,preview_token=preview['preview_token']),SimpleNamespace(run=run))
+        self.assertEqual(seen['action'],'task_draft');self.assertIs(seen['source']['polish'],True);self.assertEqual(seen['stages'],{'task_polish'})
+        self.assertEqual(result['text'],'Провери миграцията на базата');self.assertEqual(self.s.items.data,before)
+        with self.assertRaises(WorkItemConflict):
+            task_draft.draft(self.s,dict(body,text='Друга карта',approved=True,preview_token=preview['preview_token']),SimpleNamespace(run=run))
+
     def test_consent_settings_and_source_changes_invalidate_draft(self):
         with self.assertRaises(WorkItemConflict):task_draft.draft(self.s,self.body)
         approved=self.approved();self.s.settings['local_ai_max_tokens']+=1
@@ -57,6 +72,30 @@ class DraftTests(unittest.TestCase):
         for output in [dict(text=''),dict(text='x'*1001),dict(text='Task',unexpected=True)]:
             with patch('app.task_draft.complete_json',return_value=output):
                 with self.assertRaises(ValueError):task_draft.generate(dict(body='Source'),{})
+
+    def test_task_edit_snapshot_is_the_current_card_and_needs_text(self):
+        body=dict(provider='task_edit',id='a'*32,text='  Мигрирай базата към v2  ',details='текущ контекст',completion_criteria='',context='Project goal: по-лесен sync')
+        source=task_draft.snapshot(None,body)
+        self.assertTrue(source['polish'])
+        self.assertEqual(json.loads(source['body']),dict(text='Мигрирай базата към v2',details='текущ контекст',context='Project goal: по-лесен sync'))
+        with self.assertRaisesRegex(ValueError,'title or a description'):task_draft.snapshot(None,dict(body,text='  ',details=''))
+        with self.assertRaisesRegex(ValueError,'capture ID'):task_draft.snapshot(None,dict(body,id='short'))
+        with self.assertRaises(ValueError):task_draft.snapshot(None,dict(body,context='дума ' * 500))
+
+    def test_task_edit_uses_the_polish_prompt_and_stage(self):
+        seen={}
+        def fake(settings,messages,schema,name,timeout=0,api_key=''):
+            seen.update(name=name,system=messages[0]['content']);return dict(text='Провери sync грешките',details='',completion_criteria='')
+        with patch('app.task_draft.complete_json',side_effect=fake):
+            result=task_draft.generate(dict(body='{}',polish=True),{})
+        self.assertEqual(seen['name'],'task_polish');self.assertEqual(seen['system'],task_draft.POLISH_SYSTEM)
+        self.assertEqual(result['text'],'Провери sync грешките')
+        with patch('app.task_draft.complete_json',side_effect=fake):
+            task_draft.generate(dict(body='{}'),{})
+        self.assertEqual(seen['name'],'task_draft');self.assertEqual(seen['system'],task_draft.SYSTEM)
+
+    def test_task_edit_never_creates_a_task(self):
+        with self.assertRaisesRegex(ValueError,'never creates'):task_draft.create(None,dict(provider='task_edit'))
 
     def test_github_snapshot_rejects_stale_revision_and_unavailable_source(self):
         record=dict(available=True,revision='current',title='Issue',body='Requested change')

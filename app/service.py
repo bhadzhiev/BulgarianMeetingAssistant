@@ -2842,6 +2842,8 @@ class MeetingService:
         mention_index=body.get('mention_index')
         if not isinstance(text,str) or not text.strip() or len(text.strip())>1000:raise ValueError('Enter task text up to 1000 characters')
         if details is not None and (not isinstance(details,str) or len(details)>5000):raise ValueError('Description must be up to 5000 characters')
+        criteria=body.get('completion_criteria')
+        if criteria is not None and (not isinstance(criteria,str) or len(criteria)>5000):raise ValueError('Expected result must be up to 5000 characters')
         if mention_index is not None and (meeting_id is None or type(mention_index) is not int):raise ValueError('Choose the meeting task line to create')
         if owner is not None and (not isinstance(owner,str) or len(owner)>160):raise ValueError('Owner must be text up to 160 characters')
         if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{32}',request_id):raise ValueError('A task request ID is required')
@@ -2851,6 +2853,7 @@ class MeetingService:
             except (TypeError,ValueError):raise ValueError('Due date must use YYYY-MM-DD') from None
         payload=dict(text=text.strip(),owner=(owner or '').strip() or None,due_date=due,meeting_id=meeting_id,project_id=project_id)
         if (details or '').strip():payload['details']=details.strip()
+        if (criteria or '').strip():payload['completion_criteria']=criteria.strip()
         if mention_index is not None:payload['mention_index']=mention_index
         with self.lock,self.items.lock,self.items.store.serialized():
             self.items.data,self.items.revision=self.items.store.load()
@@ -2877,6 +2880,7 @@ class MeetingService:
                 created=self.items.created_at(meeting_id),created_by='user',manual=['text','owner','deadline','due_date','status'],links=[],history=[],
                 supersedes=[],superseded_by=None,creation_request=request_id,creation_payload=payload)
             if payload.get('details'):item['details']=payload['details'];item['manual'].append('details')
+            if payload.get('completion_criteria'):item['completion_criteria']=payload['completion_criteria'];item['manual'].append('completion_criteria')
             if project_id is not None:item['project_ids']=[project_id]
             if mention is not None:
                 # The task keeps the line of the notes as its evidence; what the notes said stays as said.

@@ -462,6 +462,28 @@ function editTaskDraft(source,preview){
   controls();dialog.showModal();area.focus();
  });
 }
+// Improve with AI returns a sharper card as a suggestion; the person reviews it before saving — nothing is written (2026-11-14).
+// The fields stay editable while the AI works: a card the person changed meanwhile is replaced only after a confirmation.
+async function improveWithAI(read,context,apply,button,alive){
+ const before=read(),source={provider:'task_edit',id:crypto.randomUUID().replaceAll('-',''),...before,context};
+ const preview=await api('/api/task-draft/preview',source);
+ if(preview.ai_available===false)throw new Error(preview.ai_unavailable_reason);
+ if(!(await ask('Send the current card to '+preview.target.local_ai_model+' at '+preview.target.local_ai_base_url+'? '+preview.characters+' characters. The result is a suggestion you review before saving.',{ok:'Improve with AI'})))return;
+ button.disabled=true;const label=button.textContent;
+ const job=await api('/api/task-draft/start',{...source,preview_token:preview.preview_token,approved:true});
+ // A job that did not finish is cancelled, also after a failed status request: it holds the processing slot.
+ let open=true;const stop=()=>{if(open){open=false;api('/api/task-draft/cancel',{id:job.id}).catch(()=>{});}};
+ try{
+  for(;;){await new Promise(r=>setTimeout(r,700));if(!alive())return stop();
+   const status=await api('/api/task-draft/status?id='+encodeURIComponent(job.id));if(!alive())return stop();
+   if(status.running){button.textContent=status.status+'…';continue;}
+   open=false;
+   if(status.error)throw new Error(status.error);
+   if(status.text){if(JSON.stringify(read())!==JSON.stringify(before)&&!(await ask('You changed the card while the AI worked. Replace your changes with the suggestion?',{ok:'Use the suggestion'})))return;
+    if(!alive())return;apply(status);toast('Suggestion applied · review it before saving');}
+   break;}
+ }catch(e){stop();throw e;}finally{button.disabled=false;button.textContent=label;}
+}
 // A new task is never hidden: My Work clears the filters that hide it, then scrolls to it.
 function revealTask(id){
  if(view!=='tasks'||itemKind!=='task'||!itemsData)return;
@@ -3940,6 +3962,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  // The same fields, names and order as the task editor: Title, Description, then owner, due date and context.
  const text=el('textarea');text.maxLength=1000;text.rows=2;text.required=true;text.setAttribute('aria-label','Title');text.placeholder='What needs to be done?';
  const details=el('textarea');details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Context, scope and links (optional)';
+ const criterion=el('textarea');criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');criterion.placeholder='How we know it is done (optional)';
  // The owner is chosen from People, as in the task editor. A name from the notes that is not in People stays as said.
  const named=String(startOwner||'').trim(),known=(state.people||[]).find(p=>p.name.toLocaleLowerCase()===named.toLocaleLowerCase());
  const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...personOptions());
@@ -3954,13 +3977,16 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel');save.type=cancel.type='button';actions.append(cancel,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
  text.value=startText;details.value=startDetails||'';due.value=startDue||'';
- const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project),label('Meeting',meeting));box.append(label('Title',text),label('Description',details),grid,actions);
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project),label('Meeting',meeting));box.append(label('Title',text),label('Description',details),label('Expected result',criterion),grid,actions);
  const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});if(mention===null)actions.insertBefore(refine,save);
+ const improve=btn('secondary','Improve with AI');improve.onclick=()=>perform(async()=>{if(!text.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');const goal=project.value&&(state.projects?.projects||[]).find(p=>p.id===project.value)?.goal;
+  await improveWithAI(()=>({text:text.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{text.value=result.text||text.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;editorDirty.set('dialog:manual-task-dialog',true);text.focus();},improve,()=>dialog.open);});actions.insertBefore(improve,save);
  const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;
  cancel.onclick=()=>perform(()=>requestDialogClose(dialog,()=>dialog.close()));
  save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
   if(!text.value.trim()){text.focus();throw new Error('Enter a title');}if(!validDates(box))return;
   const body={text:text.value.trim(),details:details.value.trim()||null,owner:ownerName()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
+  if(criterion.value.trim())body.completion_criteria=criterion.value.trim();
   if(mention!==null)body.mention_index=mention;
   // A response lost after a successful save can be retried with the exact same request.
   if(submitted&&JSON.stringify(body)!==JSON.stringify(submitted))throw new Error('The previous result is uncertain. Retry with the same fields or check My Work before creating another task.');
@@ -4071,7 +4097,14 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  if(item.acceptance_state!=='proposed'){const mail=btn('secondary','Send by email…');mail.type='button';mail.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before you send the task by email.');dialog.close();await openTaskEmail(item.id);});footer.prepend(mail);}
  if(item.acceptance_state==='proposed'){const accept=btn('primary','Accept task');accept.onclick=()=>persist(true);footer.append(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
  const progress=el('section','task-progress');progress.append(el('h3','','Progress'),label('Add an update',update));
- box.append(label('Title',area),label('Description',details),label('Expected result',criterion),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,peopleSection,sourcesSection,historySection,footer);
+ const improveRow=el('div','action-group');
+ if(item.kind==='task'){const improve=btn('quiet small-action','Improve with AI');improve.type='button';
+  improve.onclick=()=>perform(async()=>{if(!area.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');
+   const pid=project.value!=='keep'&&project.value!=='none'?project.value:(item.effective_project_ids||[])[0];
+   const goal=pid&&(state.projects?.projects||[]).find(p=>p.id===pid)?.goal;
+   await improveWithAI(()=>({text:area.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{area.value=result.text||area.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;dirty();sectionNotes();area.focus();},improve,()=>dialog.open);});
+  improveRow.append(improve,el('span','hint','Suggests sharper wording; you review it before saving.'));}
+ box.append(label('Title',area),label('Description',details),label('Expected result',criterion),improveRow,core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,peopleSection,sourcesSection,historySection,footer);
  sectionNotes();
  const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);

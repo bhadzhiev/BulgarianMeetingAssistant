@@ -55,17 +55,42 @@ def recording(path, seconds=2):
 
 
 class ScribeTests(unittest.TestCase):
-    def test_request_uses_scribe_repeated_keyterms_and_auto_language(self):
+    def test_request_uses_scribe_repeated_keyterms_and_bg_with_secondary_en(self):
         with patch('app.scribe.urllib.request.urlopen') as upload:
             upload.return_value.__enter__.return_value = io.StringIO(json.dumps(response()))
-            units = scribe.transcribe(b'audio', 'synthetic-key', ['SAP', 'Transit Gateway'], 60, 62)
+            units, edited = scribe.transcribe(b'audio', 'synthetic-key', ['SAP', 'Transit Gateway'], 60, 62)
         request = upload.call_args.args[0]
         self.assertEqual(request.full_url, scribe.ENDPOINT)
         self.assertEqual(request.get_header('Xi-api-key'), 'synthetic-key')
         self.assertEqual(request.data.count(b'name="keyterms"'), 2)
         self.assertIn(b'scribe_v3', request.data)
-        self.assertNotIn(b'language_code', request.data)
+        # Scribe v3: Bulgarian is the main language and English is declared secondary (2026-11-13).
+        self.assertIn(b'name="language_code"\r\n\r\nbg', request.data)
+        self.assertIn(b'name="secondary_language_codes"\r\n\r\nen', request.data)
+        self.assertNotIn(b'transcript_edit', request.data)
+        self.assertIsNone(edited)
         self.assertEqual((units[0]['start'], units[0]['end']), (60, 60.7))
+
+    def test_transcript_edit_is_sent_and_the_edited_text_is_returned(self):
+        with patch('app.scribe.urllib.request.urlopen') as upload:
+            upload.return_value.__enter__.return_value = io.StringIO(json.dumps(dict(response(), edited_transcript='Проверихме Kubernetes.')))
+            units, edited = scribe.transcribe(b'audio', 'key', [], 0, 2, edit='Fix spelling.')
+        self.assertIn(b'name="transcript_edit"\r\n\r\nFix spelling.', upload.call_args.args[0].data)
+        self.assertEqual(edited, 'Проверихме Kubernetes.')
+        with patch('app.scribe.urllib.request.urlopen') as upload:
+            upload.return_value.__enter__.return_value = io.StringIO(json.dumps(dict(response(), edited_transcript='  ')))
+            _, edited = scribe.transcribe(b'audio', 'key', [], 0, 2, edit='Fix spelling.')
+        self.assertIsNone(edited)
+
+    def test_edit_instruction_carries_rules_names_and_terms_within_the_limit(self):
+        text = scribe.edit_instruction('Kubernetes, SAP', ['Иван Петров'])
+        self.assertIn('Fix only speech recognition errors', text)
+        self.assertIn('Participant names: Иван Петров.', text)
+        self.assertIn('Kubernetes, SAP.', text)
+        huge = '\n'.join('term-' + 'x' * 40 for _ in range(200))
+        limited = scribe.edit_instruction(huge, [])
+        self.assertLessEqual(len(limited), scribe.EDIT_LIMIT)
+        self.assertNotIn('Preferred spellings', scribe.edit_instruction('', []))
 
     def test_errors_do_not_expose_provider_body_or_key(self):
         error = urllib.error.HTTPError(scribe.ENDPOINT, 401, 'synthetic-key', {}, io.BytesIO(b'synthetic-key'))
@@ -93,12 +118,14 @@ class ScribeTests(unittest.TestCase):
                 dict(type='word', text='Здравей.', start=1, end=1.5, speaker_id='speaker_0'),
                 dict(type='spacing', text=' ', start=1.5, end=1.6, speaker_id='speaker_0'),
                 dict(type='word', text='Добре.', start=61, end=61.5, speaker_id='speaker_1')])
-            def upload(audio, key, terms, offset, end, timeout=180):
+            def upload(audio, key, terms, offset, end, timeout=180, edit=''):
                 self.assertEqual((audio, key, terms, offset, end), (original, 'scribe-key', ['Kubernetes'], 0, 62))
                 self.assertGreaterEqual(timeout, 362)
-                return scribe.word_units(data, offset, end)
+                self.assertEqual(edit, '')
+                return scribe.word_units(data, offset, end), None
             with patch('app.scribe.transcribe', side_effect=upload) as call:
-                processing.transcribe(path, dict(DEFAULTS, transcription='elevenlabs', whisper_vocabulary='Kubernetes'), lambda _:None, 'scribe-key')
+                processing.transcribe(path, dict(DEFAULTS, transcription='elevenlabs', whisper_vocabulary='Kubernetes',
+                                                 transcript_correction='none'), lambda _:None, 'scribe-key')
             self.assertEqual(call.call_count, 1)
             transcript = json.loads((path/'transcript.json').read_text())
             self.assertEqual([(s['text'], s['speaker']) for s in transcript], [('Здравей.', None), ('Добре.', None)])
@@ -109,6 +136,23 @@ class ScribeTests(unittest.TestCase):
             self.assertEqual((metadata['model'], metadata['speaker_recognition']), ('scribe_v3', 'local'))
             self.assertEqual((path/'recording.wav').read_bytes(), original)
             self.assertNotIn('scribe-key', ''.join(p.read_text() for p in path.glob('*.json')))
+
+    def test_pipeline_applies_the_scribe_edit_when_correction_is_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp); recording(path, 2)
+            data = dict(text='пуснах кубернетис.', words=[dict(type='word', text='пуснах', start=0, end=.4),
+                                                          dict(type='word', text='кубернетис.', start=.5, end=1)])
+            def upload(audio, key, terms, offset, end, timeout=180, edit=''):
+                self.assertIn('Kubernetes', edit)
+                return scribe.word_units(data, offset, end), 'Пуснах Kubernetes.'
+            with patch('app.scribe.transcribe', side_effect=upload):
+                processing.transcribe(path, dict(DEFAULTS, transcription='elevenlabs', transcript_correction='local',
+                                                 whisper_vocabulary='Kubernetes | кубернетис'), lambda _: None, 'scribe-key')
+            transcript = json.loads((path/'transcript.json').read_text())
+            self.assertEqual([s['text'] for s in transcript], ['Пуснах Kubernetes.'])
+            metadata = json.loads((path/'transcript.metadata.json').read_text())
+            self.assertEqual((metadata['correction']['provider'], metadata['correction']['changed']), ('scribe_transcript_edit', 2))
+            self.assertEqual((metadata['language'], metadata['secondary_languages']), ('bg', ['en']))
 
     def test_request_never_asks_scribe_for_speakers(self):
         with patch('app.scribe.urllib.request.urlopen') as upload:

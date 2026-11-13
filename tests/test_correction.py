@@ -89,5 +89,20 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'transcript correction'):self.service.process(mid,'correct')
 
 
+class ScribeEditTests(unittest.TestCase):
+    """Scribe v3 edits the transcript in the transcription request; the words are aligned back onto the units."""
+    def segments(self):
+        from meeting_assistant import TranscriptSegment
+        return [TranscriptSegment(0,.4,'пуснах'),TranscriptSegment(.4,1,'кубернетис.')]
+    def test_small_fixes_and_alias_spellings_are_kept(self):
+        out,changed,rejected=correction.apply_scribe_edit(self.segments(),'Пуснах Kubernetes.',[],dict(whisper_vocabulary='Kubernetes | кубернетис'))
+        self.assertEqual([s.text for s in out],['Пуснах','Kubernetes.'])
+        self.assertEqual((changed,rejected),(2,0))
+    def test_a_rewrite_keeps_the_original(self):
+        out,changed,rejected=correction.apply_scribe_edit(self.segments(),'Something entirely different happened today.',[],dict(whisper_vocabulary=''))
+        self.assertEqual([s.text for s in out],['пуснах','кубернетис.'])
+        self.assertEqual(changed,0)
+
+
 if __name__=='__main__':
     unittest.main()

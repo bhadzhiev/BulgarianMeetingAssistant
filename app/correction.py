@@ -98,6 +98,29 @@ def accept(original: str, corrected, protected=(), spellings=()) -> bool:
     return False
 
 
+def apply_scribe_edit(segments, edited, speakers, settings):
+    """Map Scribe's edited transcript onto the timed word units and keep only the edits that pass the same
+    checks as the AI correction. Scribe returns the edit as plain text without timestamps, so the words are
+    aligned back onto the units; an edit that rewrites too much keeps the original text (2026-11-13)."""
+    from . import whisper
+    from .vocabulary import entries
+    mapped = whisper.apply_prompted_text(segments, edited)
+    terms, spellings = vocabulary(settings), entries(settings.get('whisper_vocabulary', '') or '')
+    changed, rejected, out = 0, 0, []
+    for original, candidate in zip(segments, mapped):
+        if candidate.text == original.text:
+            out.append(original)
+            continue
+        present = [term for term in terms if re.search(r'(?<!\w)' + re.escape(term) + r'(?!\w)', original.text, re.I)]
+        if accept(original.text, candidate.text, [*speakers, *present], spellings):
+            out.append(candidate)
+            changed += 1
+        else:
+            out.append(original)
+            rejected += 1
+    return out, changed, rejected
+
+
 def ask(settings, messages, response_schema, api_key):
     provider = settings.get('transcript_correction', 'none')
     if provider == 'local':

@@ -87,11 +87,16 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
     model = None
     model_path = None
     vad = prompt = None
+    edit = ''
+    edit_result = None
     if provider == 'elevenlabs':
         from . import scribe
         if not api_key:
             raise ValueError('Add an ElevenLabs API key in Settings before transcription.')
         prompt = scribe.keyterms(settings.get('whisper_vocabulary', ''))
+        # Scribe v3 edits the transcript in the same request instead of the per-part AI correction (2026-11-13).
+        edit = scribe.edit_instruction(settings.get('whisper_vocabulary', ''), speakers) \
+            if settings.get('transcript_correction', 'none') != 'none' else ''
     if provider == 'openai' and not api_key:
         raise ValueError('Add an OpenAI API key in Settings before processing with cloud transcription.')
     if provider == 'local':
@@ -147,7 +152,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
         signature = hashlib.sha256(json.dumps(dict(version=2, word_alignment=word_alignment, backend_version=backend_version, audio=audio_digest(audio_path),
             provider=provider, model=model_name,
             model_file=model_stat, vad=vad_state, prompt=prompt, preparation=preparation,
-            **({'request': 'whole recording'} if provider == 'elevenlabs' else {}),
+            **({'request': 'whole recording', 'edit': hashlib.sha256(edit.encode()).hexdigest()[:16]} if provider == 'elevenlabs' else {}),
             **({'hotwords_score': parakeet.HOTWORDS_SCORE, 'length_reward': parakeet.LENGTH_REWARD} if provider == 'parakeet_sherpa' else {}),
             **({'model_revision': parakeet.MODEL_REVISION} if provider in {'parakeet', 'parakeet_sherpa'} else {})), sort_keys=True).encode()).hexdigest()
         checkpoint = directory / '.transcription-progress.json'
@@ -168,8 +173,15 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             if provider == 'elevenlabs':
                 # One request gives Scribe the context of the whole meeting.
                 progress('Sending the whole recording to ElevenLabs Scribe')
-                segments = [TranscriptSegment(**unit) for unit in scribe.transcribe(audio_path.read_bytes(), api_key, prompt, 0, total / rate,
-                                                                                    timeout=300 + total / rate)]
+                units_list, edited = scribe.transcribe(audio_path.read_bytes(), api_key, prompt, 0, total / rate,
+                                                       timeout=300 + total / rate, edit=edit)
+                segments = [TranscriptSegment(**unit) for unit in units_list]
+                if edited:
+                    progress('Transcribing · applying the Scribe transcript edit')
+                    from . import correction
+                    segments, edit_changed, edit_rejected = correction.apply_scribe_edit(segments, edited, speakers, settings)
+                    edit_result = dict(provider='scribe_transcript_edit', model=scribe.MODEL,
+                                       changed=edit_changed, rejected=edit_rejected)
                 cursor = total
             while cursor < total:
                 # Bound memory and cloud request size. Prefer a quiet boundary in the last 5s.
@@ -258,7 +270,9 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             timestamps='word' if provider == 'elevenlabs' else 'segment' if provider in {'local', 'parakeet', 'parakeet_sherpa'} else 'approximate chunk boundaries',
             audio_preparation=preparation, resumed_from_seconds=resumed_from)
         if provider == 'elevenlabs':
-            metadata.update(language='auto', vocabulary_applied=bool(prompt), word_boundaries=True, speaker_recognition='local')
+            metadata.update(language='bg', secondary_languages=['en'], vocabulary_applied=bool(prompt), word_boundaries=True, speaker_recognition='local')
+            if edit_result:
+                metadata['correction'] = edit_result
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):

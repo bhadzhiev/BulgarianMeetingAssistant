@@ -27,12 +27,39 @@ def keyterms(vocabulary):
     return terms
 
 
-def transcribe(audio, key, terms, offset, end, timeout=180):
+EDIT_LIMIT = 2000
+EDIT_RULES = ('Fix only speech recognition errors in this Bulgarian transcript: spelling, punctuation, capitalization, '
+              'merged or split words. Keep English technical terms in English; do not translate them. Do not rephrase, '
+              'summarize, translate, add or drop content. Keep every name, number, date and negation exactly.')
+
+
+def edit_instruction(vocabulary, speakers=()):
+    """The transcript_edit instruction: the correction rules plus the preferred spellings and names that fit."""
+    from .vocabulary import terms as preferred_terms
+    base = EDIT_RULES
+    names = ', '.join(str(n) for n in list(speakers)[:100])
+    if names:
+        base += '\nParticipant names: ' + names + '.'
+    prefix = 'Preferred spellings where the audio supports them: '
+    chosen, length = [], len(base) + 1 + len(prefix)
+    for term in preferred_terms(vocabulary):
+        if length + len(term) + 2 > EDIT_LIMIT:
+            break
+        chosen.append(term)
+        length += len(term) + 2
+    if chosen:
+        base += '\n' + prefix + ', '.join(chosen) + '.'
+    return base[:EDIT_LIMIT]
+
+
+def transcribe(audio, key, terms, offset, end, timeout=180, edit=''):
     boundary = 'scribe-' + uuid.uuid4().hex
-    fields = [('model_id', MODEL), ('timestamps_granularity', 'word'),
-              ('tag_audio_events', 'false'), ('diarize', 'false')]
     # The local speaker model separates speakers: Scribe merges voices that share one system audio stream.
-    # Omit language_code so Bulgarian and English can both be detected.
+    # Bulgarian is the main language; Scribe v3 declares English as secondary instead of guessing (2026-11-13).
+    fields = [('model_id', MODEL), ('timestamps_granularity', 'word'), ('language_code', 'bg'),
+              ('secondary_language_codes', 'en'), ('tag_audio_events', 'false'), ('diarize', 'false')]
+    if edit:
+        fields.append(('transcript_edit', edit))
     fields.extend(('keyterms', term) for term in terms)
     parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode() for name, value in fields]
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode() + audio + b'\r\n')
@@ -49,7 +76,8 @@ def transcribe(audio, key, terms, offset, end, timeout=180):
         raise ValueError(f'Scribe request failed (HTTP {exc.code}). ' + hints.get(exc.code, 'Retry later or check your ElevenLabs account.')) from None
     except (urllib.error.URLError, TimeoutError):
         raise ValueError('Could not reach ElevenLabs. Check the connection and retry; the recording is saved.') from None
-    return word_units(data, offset, end)
+    edited = data.get('edited_transcript')
+    return word_units(data, offset, end), edited if isinstance(edited, str) and edited.strip() else None
 
 
 def word_units(data, offset, end):

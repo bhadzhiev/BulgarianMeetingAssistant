@@ -29,6 +29,8 @@ The fields stay editable while the AI works. If the person changes the card mean
 asks before it replaces the changes with the suggestion. Closing the form, or a failed status
 check, cancels the job. The new-task dialog has the same **Expected result** field as the
 task editor, so a suggested expected result is not lost.
+With reasoning on **Automatic**, a cloud API is asked for **low** thinking on this improvement,
+so the editor does not wait for a long reasoning pass. A local server keeps its own default.
 
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 

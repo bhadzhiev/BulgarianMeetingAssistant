@@ -169,7 +169,9 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
         reasoning = 'none'
     # Team analysis keeps some thinking for the behavioral judgment, but at low on a cloud API: the default
     # level of Kimi K3.1 Pro spent a whole 16,384-token budget and 9.5 minutes before any JSON (2026-11-13).
-    if reasoning == 'default' and name == 'team_analysis' and is_remote(base_url):
+    # Improve with AI on a task card waits in an open editor: at the default level, a cloud thinking model kept the
+    # person waiting so long that Atlanta looked asleep; the person asked for low (2026-11-14).
+    if reasoning == 'default' and name in {'team_analysis', 'task_polish'} and is_remote(base_url):
         reasoning = 'low'
     payload = dict(model=model, messages=messages, stream=False, max_tokens=max_tokens)
     # Some cloud models accept only their own temperature (Kimi K3: only 1). "server" leaves it to them.

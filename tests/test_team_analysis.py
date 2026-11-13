@@ -42,8 +42,9 @@ class TeamAnalysisTests(unittest.TestCase):
     def run_analysis(self, result=None, **body):
         calls = []
         def complete(target, messages, schema, name, timeout, api_key):
-            calls.append(dict(target=target, messages=messages, schema=schema, name=name))
-            return result or answer()
+            calls.append(dict(target=target, messages=messages, schema=schema, name=name, timeout=timeout))
+            full = result or answer()
+            return {key: full.get(key) for key in schema['required']}
         saved = team_analysis.generate(self.service, dict(meeting_id=self.meeting_id, **body), complete=complete)
         return saved, calls
 
@@ -52,10 +53,13 @@ class TeamAnalysisTests(unittest.TestCase):
 
     def test_one_request_with_the_manager_the_transcript_and_the_talk(self):
         saved, calls = self.run_analysis(self_name='Ана')
-        self.assertEqual(len(calls), 1)
-        call = calls[0]
+        # Two requests with the largest output limit: thinking on Kimi used a whole 16,384-token limit (2026-11-13).
+        self.assertEqual([c['schema']['required'] for c in calls], [['people'], ['dynamics', 'discourse', 'coaching']])
+        self.assertEqual([c['target']['local_ai_max_tokens'] for c in calls], [32768, 32768])
+        self.assertEqual([c['timeout'] for c in calls], [1200, 1200])
+        self.assertIn('В този отговор върни само: people.', calls[0]['messages'][0]['content'])
+        call = calls[1]
         self.assertEqual(call['name'], 'team_analysis')
-        self.assertGreaterEqual(call['target']['local_ai_max_tokens'], 8192)
         system, request = call['messages'][0]['content'], call['messages'][1]['content']
         self.assertIn('Анализът е за мениджъра Ана.', system)
         self.assertIn('освен Ана', system)
@@ -110,6 +114,18 @@ class TeamAnalysisTests(unittest.TestCase):
             self.run_analysis()
         with self.assertRaisesRegex(ValueError, 'at most 100 characters'):
             self.service.save_settings(dict(self_name='x' * 101))
+
+
+    def test_a_cloud_model_thinks_at_its_default_level(self):
+        # The person keeps the default thinking of Kimi for this analysis (2026-11-13): no reasoning_effort is sent.
+        from unittest import mock
+        from app.local_ai import complete_json
+        from app.service import DEFAULTS
+        reply = dict(choices=[dict(message=dict(content=json.dumps(answer())), finish_reason='stop')])
+        with mock.patch('meeting_assistant.post_json', return_value=reply) as post:
+            complete_json(dict(DEFAULTS, local_ai_base_url='https://api.moonshot.ai/v1', local_ai_model='kimi-k3.1-pro'), [],
+                          team_analysis.schema(['00:00:00']), 'team_analysis')
+        self.assertNotIn('reasoning_effort', post.call_args.args[1])
 
 
 if __name__ == '__main__':

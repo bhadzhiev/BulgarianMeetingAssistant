@@ -1334,7 +1334,7 @@ function speakerStats(target,rows,global=false) {
  }
 }
 // Team analysis (2026-11-13): the person who runs Atlanta asked for it about their own meetings. It is private:
-// not in the notes, exports, search or emails. One request goes to the Notes & AI provider after the person confirms.
+// not in the notes, exports, search or emails. Two requests go to the Notes & AI provider after the person confirms.
 const TEAM_PERSON_FIELDS=[['ownership','Ownership'],['proactivity','Proactivity'],['reporting','Reporting']];
 const TEAM_COACHING=[['keep','Keep'],['change','Change'],['develop','Develop']];
 let teamAnalysisRunning=null;
@@ -1357,7 +1357,7 @@ function renderTeamAnalysis(busy=false){
  const generic=names.filter(name=>/^SPEAKER[ _-]?\d+$/i.test(name));
  if(generic.length)target.append(el('p','notice warning','Name the speakers first: '+generic.join(', ')+'. The analysis describes each person by what the transcript says they said.'));
  target.append(el('p','hint','Only for you. The transcript can confuse speakers and words, so check each observation at its moment before you act on it.'));
- if(running)target.append(el('p','notice','The AI analyzes the meeting. A long meeting can take a few minutes.'));
+ if(running)target.append(el('p','notice','The AI analyzes the meeting in two steps: the people, then the team and the coaching. A thinking model can take up to 20 minutes for each step.'));
  if(!saved){if(!running)target.append(emptyNote(detail.transcript.length?'Choose Analyze for work behavior by person, team dynamics, discourse and coaching for you.':'Transcribe the meeting first.'));return;}
  target.append(el('p','hint team-meta','By '+saved.model+' · '+AtlantaUX.dateTime(saved.created_at)+(saved.manager?' · coaching for '+saved.manager:'')));
  if(saved.stale)target.append(el('p','notice warning','The transcript changed after this analysis. Choose Analyze again to include the changes.'));

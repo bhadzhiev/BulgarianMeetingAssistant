@@ -183,6 +183,8 @@ class MeetingService:
         self.task_titles = TitleJobs(self)
         from .team_ai import ReviewAI
         self.team_ai = ReviewAI(self)
+        from .team_analysis import AnalysisJob
+        self.team_analysis_job = AnalysisJob(self)
         from .team_github import TeamGitHub
         self.team_github = TeamGitHub(self)
         from .job_registry import Jobs
@@ -3372,6 +3374,7 @@ class MeetingService:
         self.task_drafts.close()
         self.task_titles.close()
         self.team_ai.close()
+        self.team_analysis_job.close()
         self.team_github.close()
         self.repo_reports.close()
         self.github.close()

@@ -69,9 +69,10 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
 - **AI meeting tasks are off by default** (setting `meeting_task_ai`, since 2026-11-12): the AI stops at the
   notes; tasks and decisions are text there, and the person makes tasks with **Create task** on a notes line. Test modules that cover AI proposals
   or matching import `setUpModule`/`tearDownModule` from `tests/ai_meeting_tasks.py`.
-- **Team analysis is private and on request** (`app/team_analysis.py`, since 2026-11-13): one confirmed Analyze (two requests) per
-  Analyze, the result only in `team-analysis.json`, never in notes, exports, search or emails. It is the only place
-  that assesses people; the private observations of the notes still never judge a person.
+- **Team analysis is private and on request** (`app/team_analysis.py`, since 2026-11-13): one confirmed Analyze (two
+  parallel requests, one background job) per Analyze, the result only in `team-analysis.json`, never in notes,
+  exports, search or emails. It is the only place that assesses people; the private observations of the notes
+  still never judge a person.
 - **Nothing changes until the person decides:** AI proposals stay proposals until accepted or
   linked; meetings, owners, states the person edited are never overwritten by AI
   (`keep_confirmed` reviews in `meeting_review.py`).

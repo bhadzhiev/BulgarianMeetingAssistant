@@ -15,12 +15,16 @@ assert.match(app,/\[\['keep','Keep'\],\['change','Change'\],\['develop','Develop
 assert.match(app,/await api\('\/api\/team-analysis\/preview',\{meeting_id:meetingId\}\)/);
 assert.match(app,/if\(!\(await ask\('Analyze the team in this meeting\?/);
 assert.match(app,/'Not named yet: '\+preview\.unnamed\.join/);
-assert.match(app,/await api\('\/api\/team-analysis\/generate',\{meeting_id:meetingId,self_name:state\.settings\.self_name\|\|''\}\)/);
+assert.match(app,/await api\('\/api\/team-analysis\/start',\{meeting_id:meetingId,self_name:state\.settings\.self_name\|\|''\}\)/);
+// The analysis is a background job: the page polls its status, shows the progress and offers Stop.
+assert.match(app,/api\('\/api\/team-analysis\/status\?job='\+teamAnalysisJob\.id\)/);
+assert.match(app,/api\('\/api\/team-analysis\/stop',\{job:job\.id\}\)/);
+assert.match(app,/teamAnalysisJob\.status==='Ready'\)toast\('Team analysis ready'\)/);
 // The person chooses their own name among the speakers; unnamed speakers get a warning; a stale analysis says so.
 assert.match(app,/await api\('\/api\/settings',\{self_name:select\.value\}\)/);
 assert.match(app,/'Name the speakers first: '/);
 assert.match(app,/The transcript changed after this analysis\./);
 assert.match(app,/if\(row\.evidence_timestamp\)li\.append\(stampButton\(row\.evidence_timestamp\)\)/);
-assert.match(app,/in two steps: the people, then the team and the coaching\. A thinking model can take up to 20 minutes for each step\./);
+assert.match(app,/The AI analyzes the people, the team and the coaching in two parallel requests: '/);
 for(const name of ['.team-person','.team-observations','.team-section'])assert.ok(css.includes(name),name+' is styled');
 console.log('Team analysis PASS: private tab, four sections, one confirmed Analyze, own name, moments.');

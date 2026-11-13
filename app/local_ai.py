@@ -167,6 +167,10 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
             and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
             or name == 'topic_matches' and is_remote(base_url)):
         reasoning = 'none'
+    # Team analysis keeps some thinking for the behavioral judgment, but at low on a cloud API: the default
+    # level of Kimi K3.1 Pro spent a whole 16,384-token budget and 9.5 minutes before any JSON (2026-11-13).
+    if reasoning == 'default' and name == 'team_analysis' and is_remote(base_url):
+        reasoning = 'low'
     payload = dict(model=model, messages=messages, stream=False, max_tokens=max_tokens)
     # Some cloud models accept only their own temperature (Kimi K3: only 1). "server" leaves it to them.
     if settings.get('local_ai_temperature', 'zero') == 'zero':

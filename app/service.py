@@ -904,7 +904,8 @@ class MeetingService:
             if should_diarize and (action == 'speakers' or settings.get('diarization_enabled', True)) and (directory / 'recording.wav').exists():
                 with job.step('Speaker identification'):
                     self._run_diarization(meeting_id, directory, progress)
-            # Scribe text is final; AI correction runs after it only on explicit request.
+            # Scribe v3 edits its transcript in the transcription request when correction is on (2026-11-13);
+            # the per-part AI correction runs after Scribe only on explicit request.
             # An imported transcript is corrected like a new transcription; its failure does not stop the notes.
             automatic_correction = action in {'all', 'transcribe'} and settings['transcription'] != 'elevenlabs' or auto_correct
             if (automatic_correction or action in {'correct','correct_summarize'}) and settings.get('transcript_correction', 'none') != 'none':

@@ -3,7 +3,7 @@ const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.cs
 const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function taskDescription('));
 // The editor names the two text fields Title and Description.
 // Since 2026-11-12 the description is always visible, under the title, in the editor and in the new task dialog.
-assert.match(app,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),core,/);
+assert.match(app,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,/);
 assert.match(app,/box\.append\(label\('Title',text\),label\('Description',details\),grid,actions\);/);
 assert.match(row,/label\('Owner',owner\),label\('State',stateSelect\),label\('Due date',due\)/);
 // The compact card: title, then the labelled fields with the owner's avatar, then the flags with the Emailed word.

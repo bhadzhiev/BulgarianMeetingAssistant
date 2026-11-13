@@ -5,7 +5,7 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 const panel=slice('async function openTaskPanel(');
 assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
 assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\);/);
-assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),core,[^;]*progress,peopleSection,sourcesSection,historySection,footer\);/);
+assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,[^;]*progress,peopleSection,sourcesSection,historySection,footer\);/);
 // No field moves: the follow-up date and the expected result keep one place.
 assert.doesNotMatch(panel,/placeFollow|placeCriterion|detailsSection/);
 // Fields the person does not use are not in the editor; saving does not send them, so saved values stay.

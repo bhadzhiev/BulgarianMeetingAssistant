@@ -462,6 +462,23 @@ function editTaskDraft(source,preview){
   controls();dialog.showModal();area.focus();
  });
 }
+// Improve with AI returns a sharper card as a suggestion; the person reviews it before saving — nothing is written (2026-11-14).
+async function improveWithAI(fields,apply,button,alive){
+ const source={provider:'task_edit',id:crypto.randomUUID().replaceAll('-',''),...fields};
+ const preview=await api('/api/task-draft/preview',source);
+ if(preview.ai_available===false)throw new Error(preview.ai_unavailable_reason);
+ if(!(await ask('Send the current card to '+preview.target.local_ai_model+' at '+preview.target.local_ai_base_url+'? '+preview.characters+' characters. The result is a suggestion you review before saving.',{ok:'Improve with AI'})))return;
+ button.disabled=true;const label=button.textContent;
+ const job=await api('/api/task-draft/start',{...source,preview_token:preview.preview_token,approved:true});
+ try{
+  for(;;){await new Promise(r=>setTimeout(r,700));if(!alive()){api('/api/task-draft/cancel',{id:job.id}).catch(()=>{});return;}
+   const status=await api('/api/task-draft/status?id='+encodeURIComponent(job.id));if(!alive()){api('/api/task-draft/cancel',{id:job.id}).catch(()=>{});return;}
+   if(status.running){button.textContent=status.status+'…';continue;}
+   if(status.error)throw new Error(status.error);
+   if(status.text){apply(status);toast('Suggestion applied · review it before saving');}
+   break;}
+ }finally{button.disabled=false;button.textContent=label;}
+}
 // A new task is never hidden: My Work clears the filters that hide it, then scrolls to it.
 function revealTask(id){
  if(view!=='tasks'||itemKind!=='task'||!itemsData)return;
@@ -3956,6 +3973,8 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  text.value=startText;details.value=startDetails||'';due.value=startDue||'';
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project),label('Meeting',meeting));box.append(label('Title',text),label('Description',details),grid,actions);
  const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});if(mention===null)actions.insertBefore(refine,save);
+ const improve=btn('secondary','Improve with AI');improve.onclick=()=>perform(async()=>{if(!text.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');const goal=project.value&&(state.projects?.projects||[]).find(p=>p.id===project.value)?.goal;
+  await improveWithAI({text:text.value,details:details.value,completion_criteria:'',context:goal?'Project goal: '+goal:''},result=>{text.value=result.text||text.value;details.value=result.details||details.value;editorDirty.set('dialog:manual-task-dialog',true);text.focus();},improve,()=>dialog.open);});actions.insertBefore(improve,save);
  const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;
  cancel.onclick=()=>perform(()=>requestDialogClose(dialog,()=>dialog.close()));
  save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
@@ -4071,7 +4090,14 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  if(item.acceptance_state!=='proposed'){const mail=btn('secondary','Send by email…');mail.type='button';mail.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before you send the task by email.');dialog.close();await openTaskEmail(item.id);});footer.prepend(mail);}
  if(item.acceptance_state==='proposed'){const accept=btn('primary','Accept task');accept.onclick=()=>persist(true);footer.append(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
  const progress=el('section','task-progress');progress.append(el('h3','','Progress'),label('Add an update',update));
- box.append(label('Title',area),label('Description',details),label('Expected result',criterion),core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,peopleSection,sourcesSection,historySection,footer);
+ const improveRow=el('div','action-group');
+ if(item.kind==='task'){const improve=btn('quiet small-action','Improve with AI');improve.type='button';
+  improve.onclick=()=>perform(async()=>{if(!area.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');
+   const pid=project.value!=='keep'&&project.value!=='none'?project.value:(item.effective_project_ids||[])[0];
+   const goal=pid&&(state.projects?.projects||[]).find(p=>p.id===pid)?.goal;
+   await improveWithAI({text:area.value,details:details.value,completion_criteria:criterion.value,context:goal?'Project goal: '+goal:''},result=>{area.value=result.text||area.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;dirty();sectionNotes();area.focus();},improve,()=>dialog.open);});
+  improveRow.append(improve,el('span','hint','Suggests sharper wording; you review it before saving.'));}
+ box.append(label('Title',area),label('Description',details),label('Expected result',criterion),improveRow,core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,peopleSection,sourcesSection,historySection,footer);
  sectionNotes();
  const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);

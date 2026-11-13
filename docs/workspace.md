@@ -139,9 +139,10 @@ Repository reports analyze bounded groups of changes and then synthesize the sup
 
 ### Editable AI instructions
 
-**Settings → AI instructions** configures nine operations: meeting notes/tasks/decisions,
-transcript correction, meeting titles, Gmail commitments, task drafts, GitHub change analysis,
-GitHub report synthesis, search answers and semantic topic matching. Edit the task layer
+**Settings → AI instructions** configures the AI operations: meeting notes/tasks/decisions,
+transcript correction, meeting titles, Gmail commitments, task drafts, task card improvement,
+GitHub change analysis, GitHub report synthesis, search answers and semantic topic matching.
+Edit the task layer
 (language, style, focus and extraction priorities); source adapters, JSON schemas and
 runtime evidence checks remain in code. Transcription vocabulary remains under Recording.
 

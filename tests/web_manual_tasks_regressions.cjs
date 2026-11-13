@@ -12,7 +12,7 @@ function setup(){
   api:(path,body)=>{requests.push({path,body:JSON.parse(JSON.stringify(body))});return new Promise((res,rej)=>finish=(error)=>error?rej(error):res({id:'task'}))}});
  vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
  vm.runInContext(src.slice(src.indexOf('async function openManualTask('),src.indexOf("$('new-task').onclick=")),c);
- return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries(nodes['manual-task-body'].children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>{const buttons=nodes['manual-task-body'].children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Draft with AI…','Create task']);return [buttons.find(b=>b.text==='Create task'),buttons.find(b=>b.text==='Cancel')];}};
+ return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries(nodes['manual-task-body'].children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>{const buttons=nodes['manual-task-body'].children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Draft with AI…','Improve with AI','Create task']);return [buttons.find(b=>b.text==='Create task'),buttons.find(b=>b.text==='Cancel')];}};
 }
 (async()=>{
  const projectContext=setup();vm.runInContext("view='projects';contextProject=()=> 'workspace-project';",projectContext.c);await vm.runInContext('openManualTask()',projectContext.c);assert.equal(projectContext.fields().Project.value,'workspace-project');

@@ -20,6 +20,12 @@ Task model version 1 adds an optional **Followed by** person independently of ow
 
 Select transcript segments and choose **Task from selection**. The same source editor handles Gmail, Chat, GitHub and repository findings, and **New task → Draft with AI** handles free text. Generation is optional and uses the explicit source/provider preview. It suggests title, context and expected result; owner, requester and due date are entered by a person. Cancel returns to the original quick-capture form. No task is created until confirmation.
 
+**Improve with AI** (new-task dialog and task editor) sends the current card — title,
+description, expected result, plus the chosen project's goal when there is one — to the
+configured AI provider after an explicit confirmation, and returns a sharper suggestion in
+the same fields. An empty suggested field never wipes a filled one, the suggestion only
+becomes real when the person saves, and it can never create or change a task by itself.
+
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 
 The first notes produced for the meeting being viewed open **Tasks & decisions**, provided the user has no unsaved edits and is still on Transcript. Explicitly selected other tabs are preserved.

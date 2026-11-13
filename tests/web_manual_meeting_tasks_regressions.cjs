@@ -43,8 +43,8 @@ vm.runInContext(slice('async function openManualTask(',"$('new-task').onclick=")
  const body=nodes['manual-task-body'],fields=Object.fromEntries(body.children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  // A name from the notes that is not in People stays as said.
  assert.deepEqual([fields.Title.value,fields.Description.value,fields.Owner.value,fields.Meeting.value,fields.Meeting.disabled],['Изпрати оферта','До петък','__named__','meeting',true]);
- const buttons=body.children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Create task']);
- await buttons[1].onclick();
+ const buttons=body.children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Improve with AI','Create task']);
+ await buttons[2].onclick();
  assert.equal(requests[0].path,'/api/items/create');
  assert.deepEqual({...requests[0].body,request_id:''},{text:'Изпрати оферта',details:'До петък',owner:'Иван',due_date:null,meeting_id:'meeting',project_id:null,request_id:'',mention_index:2});
  console.log('Manual meeting tasks PASS: setting, Create task on a notes line, hidden proposals, quiet checklist, linked editor.');

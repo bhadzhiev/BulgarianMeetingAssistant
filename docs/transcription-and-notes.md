@@ -630,7 +630,8 @@ Alternatively, set `ELEVENLABS_API_KEY` before launching; the app uses it and do
 The app shows whether a key is present; this does not validate credits or API access.
 
 The app uploads the whole recording to ElevenLabs in one request for final transcription.
-The model is `scribe_v3` (since 2026-11-12; it replaced `scribe_v2` at the same price). Language detection is automatic for Bulgarian and English.
+The model is `scribe_v3` (since 2026-11-12; it replaced `scribe_v2` at the same price). Bulgarian is the main
+language; English is declared as a secondary language, so mixed Bulgarian-English speech keeps its accuracy.
 The original recording is kept. A failed request is retried with the whole recording.
 Words retain the API timestamps for playback.
 
@@ -663,6 +664,11 @@ For Scribe, preferred spellings are sent as keyterms. Each term must
 have at most 50 characters and 5 words; brackets, braces, angle brackets and backslash
 are unsupported. ElevenLabs charges extra for keyterms. Review current prices and
 account limits at https://elevenlabs.io/pricing/api before processing long recordings.
-AI transcript correction does not run automatically after Scribe. To run it on a Scribe
-transcript, choose **AI text correction** explicitly. Notes and title generation keep their
-separately chosen providers.
+When transcript correction is on, the Scribe request also carries a `transcript_edit`
+instruction built from the correction rules, the preferred spellings and the participant
+names (since 2026-11-13). Scribe returns the edit as separate text; the app aligns it back
+onto the word timestamps and keeps only the edits that pass the same checks as the AI
+correction, so the original text stays wherever the edit rewrites too much. ElevenLabs
+charges extra for transcript editing. The per-part AI correction does not run automatically
+after Scribe; to run it anyway, choose **AI text correction** explicitly. Notes and title
+generation keep their separately chosen providers.

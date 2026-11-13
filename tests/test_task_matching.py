@@ -60,6 +60,20 @@ class SelectTests(unittest.TestCase):
         data = tm.select([task('a', 'Миграция на базата данни')], notes(updates=['Миграцията на базата данни е наполовина']), MEETING)
         self.assertEqual([m['id'] for m in data['mentions']], ['u0'])
 
+    def test_a_project_goal_travels_with_its_candidates(self):
+        goals = {'p1': 'Доставка на новия sync до края на месеца', 'p2': ''}
+        data = tm.select([task('a', 'Подготви офертата за клиента'), task('b', 'Подготви офертата за клиента', effective_project_ids=['p2'])],
+                         notes('Подготви офертата за клиента'), MEETING, project_goals=goals)
+        by_id = {c['id']: c for c in data['existing_tasks']}
+        self.assertEqual(by_id['a']['project_goals'], ['Доставка на новия sync до края на месеца'])
+        self.assertNotIn('project_goals', by_id['b'])
+        self.assertNotIn('project_goals', tm.select([task('a', 'Подготви офертата за клиента')],
+                                                    notes('Подготви офертата за клиента'), MEETING)['existing_tasks'][0])
+        long_goal = {'p1': 'дума ' * 100}
+        [candidate] = tm.select([task('a', 'Подготви офертата за клиента')], notes('Подготви офертата за клиента'),
+                                MEETING, project_goals=long_goal)['existing_tasks']
+        self.assertLessEqual(len(candidate['project_goals'][0]), tm.GOAL_LIMIT + 1)
+
 
 class ValidateTests(unittest.TestCase):
     DATA = dict(mentions=[dict(id='t0', candidate_ids=['a', 'b']), dict(id='u0', candidate_ids=['a'])], existing_tasks=[])

@@ -571,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/conversations/projects':
                 result = service.conversations.assign(body)
             elif path == '/api/projects/create':
-                result = service.create_project(body.get('name'), body.get('color'))
+                result = service.create_project(body.get('name'), body.get('color'), body.get('goal'))
             elif path == '/api/templates/save':
                 result = service.save_template(body)
             elif path == '/api/templates/delete':

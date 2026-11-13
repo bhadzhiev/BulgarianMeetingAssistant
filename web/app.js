@@ -2756,7 +2756,13 @@ function renderProjectSettings() {
   rename.onclick=()=>perform(async()=>{const name=await ask('New name',{value:entry.name,ok:'Rename'});if(name?.trim()&&name.trim()!==entry.name)await change({action:'rename',name});});
   remove.onclick=()=>perform(async()=>{if(await ask('Delete "'+entry.name+'"'+(kind==='projects'?' and its series':'')+'?\n\nMeetings stay; they only leave this group.',{ok:'Delete',danger:true}))await change({action:'delete'});});
   return line;};
- for(const project of projectList()) { const box=el('div','project-entry'); box.append(row('projects',project),...seriesOf(project.id).map(series=>row('series',series))); list.append(box); }
+ const goalBlock=project=>{const block=el('div','project-goal'),text=el('p','hint project-goal-text',project.goal||'No goal yet. The goal tells the AI what this project exists to deliver.'),edit=el('button','quiet','Edit goal');edit.type='button';
+  edit.onclick=()=>{const area=el('textarea','project-goal-edit');area.maxLength=500;area.rows=3;area.value=project.goal||'';area.setAttribute('aria-label','Goal of '+project.name);
+   const save=btn('primary small-action','Save'),cancel=btn('secondary small-action','Cancel',()=>renderProjectSettings());
+   save.onclick=()=>perform(async()=>{state.projects=(await api('/api/projects/change',{kind:'projects',id:project.id,action:'goal',value:area.value})).projects;lastProjects='';syncProjects();renderProjectSettings();toast('Goal of "'+project.name+'" saved');});
+   const buttons=el('div','action-group');buttons.append(save,cancel);block.replaceChildren(area,buttons);area.focus();};
+  block.append(text,edit);return block;};
+ for(const project of projectList()) { const box=el('div','project-entry'); box.append(row('projects',project),goalBlock(project),...seriesOf(project.id).map(series=>row('series',series))); list.append(box); }
 }
 function sourceListen(source){return source?.meeting_id&&source.timestamp?listenButton(source.meeting_id,source.start??stampSeconds(source.timestamp),{label:'',until:source.end,className:'chip-listen'}):'';}
 function sourceChip(source) {
@@ -3671,7 +3677,7 @@ $('open-team').onclick=()=>perform(()=>openTeam());
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
 $('workspace-refresh').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;itemsData=await api('/api/items');await loadWorkspace();});
-function askProject(){return new Promise(resolve=>{const dialog=$('project-dialog');$('project-name').value='';$('project-color').value=PROJECT_PALETTE[projectList().length%PROJECT_PALETTE.length];dialog.returnValue='';dialog.onclose=()=>{resolve(dialog.returnValue==='ok'&&$('project-name').value.trim()?{name:$('project-name').value.trim(),color:$('project-color').value}:null);};dialog.showModal();$('project-name').focus();});}
+function askProject(){return new Promise(resolve=>{const dialog=$('project-dialog');$('project-name').value='';$('project-goal').value='';$('project-color').value=PROJECT_PALETTE[projectList().length%PROJECT_PALETTE.length];dialog.returnValue='';dialog.onclose=()=>{resolve(dialog.returnValue==='ok'&&$('project-name').value.trim()?{name:$('project-name').value.trim(),goal:$('project-goal').value.trim(),color:$('project-color').value}:null);};dialog.showModal();$('project-name').focus();});}
 // One way to create a project, from Projects and from Settings → Projects.
 async function createProject(){const spec=await askProject();if(!spec)return null;const created=await api('/api/projects/create',spec);state.projects=created.projects;lastProjects='';syncProjects();return created;}
 $('workspace-new').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;const created=await createProject();if(!created)return;fillProjects($('workspace-project'),created.id,'All projects',[option('Unassigned','__none__')]);await loadWorkspace();});

@@ -27,6 +27,18 @@ def _color(value) -> str | None:
     return value.strip().lower()
 
 
+GOAL_LIMIT = 500
+
+
+def _goal(value) -> str | None:
+    """The goal of a project: free text (newlines allowed), empty or None means no goal (2026-11-13)."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value.strip()) > GOAL_LIMIT or any(ord(c) < 32 and c not in '\n\t' for c in value):
+        raise ValueError('A project goal must be text of at most 500 characters')
+    return value.strip() or None
+
+
 class Projects(SafeJSON):
     _data_attribute = 'data'
     def __init__(self, path: Path):
@@ -48,6 +60,9 @@ class Projects(SafeJSON):
                 if kind=='projects' and 'color' in entry:
                     try:_color(entry['color'])
                     except ValueError:raise ValueError('Invalid project color')
+                if kind=='projects' and 'goal' in entry:
+                    try:_goal(entry['goal'])
+                    except ValueError:raise ValueError('Invalid project goal')
                 if kind=='series':
                     if entry.get('project_id') not in {p['id'] for p in data['projects']}:raise ValueError('Series has no project')
                     type_id=entry.get('type')
@@ -80,6 +95,9 @@ class Projects(SafeJSON):
         color = _color(spec.get('color'))
         if color:
             project['color'] = color
+        goal = _goal(spec.get('goal'))
+        if goal:
+            project['goal'] = goal
         self.data['projects'].append(project)
         return project['id']
 
@@ -127,6 +145,18 @@ class Projects(SafeJSON):
         if not series:
             raise ValueError('This series no longer exists. Reload and try again.')
         series['type'] = kind
+
+    def set_goal(self, project_id, goal) -> None:
+        """The goal of a project: what the project exists to deliver. Empty or None clears it."""
+        self.guard_write()
+        project = self.get('projects', project_id)
+        if not project:
+            raise ValueError('This project no longer exists. Reload and try again.')
+        goal = _goal(goal)
+        if goal:
+            project['goal'] = goal
+        else:
+            project.pop('goal', None)
 
     def set_color(self, project_id, color) -> None:
         """The color of a project, shown next to its name. Empty or None clears it."""
@@ -210,6 +240,13 @@ class Projects(SafeJSON):
                     added['repositories'] = [r for r in entry['repositories'] if isinstance(r, str) and REPO.fullmatch(r)][:30]
                 if kind == 'projects' and isinstance(entry.get('color'), str) and COLOR.fullmatch(entry['color'].strip()):
                     added['color'] = entry['color'].strip().lower()
+                if kind == 'projects' and isinstance(entry.get('goal'), str):
+                    try:
+                        goal = _goal(entry['goal'])
+                    except ValueError:
+                        goal = None
+                    if goal:
+                        added['goal'] = goal
                 if kind == 'series' and (entry.get('type') in TYPES or isinstance(entry.get('type'), str) and CUSTOM_ID.fullmatch(entry['type'])):
                     added['type'] = entry['type']
                 self.data[kind].append(added)

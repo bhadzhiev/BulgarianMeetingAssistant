@@ -25,6 +25,10 @@ description, expected result, plus the chosen project's goal when there is one â
 configured AI provider after an explicit confirmation, and returns a sharper suggestion in
 the same fields. An empty suggested field never wipes a filled one, the suggestion only
 becomes real when the person saves, and it can never create or change a task by itself.
+The fields stay editable while the AI works. If the person changes the card meanwhile, Atlanta
+asks before it replaces the changes with the suggestion. Closing the form, or a failed status
+check, cancels the job. The new-task dialog has the same **Expected result** field as the
+task editor, so a suggested expected result is not lost.
 
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 

@@ -34,6 +34,21 @@ class DraftTests(unittest.TestCase):
         self.assertEqual(self.s.tasks(),[])
         self.assertTrue(result['text'])
 
+    def test_task_edit_preview_and_draft_use_the_polish_stage(self):
+        body=dict(provider='task_edit',id='c'*32,text='Мигрирай базата',details='',completion_criteria='',context='')
+        preview=task_draft.preview(self.s,body)
+        self.assertEqual(set(preview['target']['_prompt_snapshot']['stages']),{'task_polish'})
+        seen={}
+        def run(action,directory,settings,progress,key,cancel=None):
+            seen.update(action=action,source=settings['task_draft_source'],stages=set(settings['_prompt_snapshot']['stages']))
+            return dict(text='Провери миграцията на базата',details='Предложение: staging първо.',completion_criteria='')
+        before=copy.deepcopy(self.s.items.data)
+        result=task_draft.draft(self.s,dict(body,approved=True,preview_token=preview['preview_token']),SimpleNamespace(run=run))
+        self.assertEqual(seen['action'],'task_draft');self.assertIs(seen['source']['polish'],True);self.assertEqual(seen['stages'],{'task_polish'})
+        self.assertEqual(result['text'],'Провери миграцията на базата');self.assertEqual(self.s.items.data,before)
+        with self.assertRaises(WorkItemConflict):
+            task_draft.draft(self.s,dict(body,text='Друга карта',approved=True,preview_token=preview['preview_token']),SimpleNamespace(run=run))
+
     def test_consent_settings_and_source_changes_invalidate_draft(self):
         with self.assertRaises(WorkItemConflict):task_draft.draft(self.s,self.body)
         approved=self.approved();self.s.settings['local_ai_max_tokens']+=1

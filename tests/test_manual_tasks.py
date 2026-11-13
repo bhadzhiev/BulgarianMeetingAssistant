@@ -56,8 +56,12 @@ class ManualTaskTests(unittest.TestCase):
         first=self.create();self.assertEqual(first['id'],self.create()['id'])
         with self.assertRaises(WorkItemConflict):self.create(text='A different task')
         self.assertEqual(len(self.service.item_list()['items']),1)
+    def test_expected_result_from_the_new_task_dialog_is_saved_as_a_person_edit(self):
+        task=self.create(completion_criteria='  Restore работи на staging  ')
+        self.assertEqual(task['completion_criteria'],'Restore работи на staging');self.assertIn('completion_criteria',task['manual'])
+        self.assertNotIn('completion_criteria',self.create(request_id='b'*32,completion_criteria='  ')['manual'])
     def test_invalid_inputs_and_busy_meeting_never_create(self):
-        for change in [dict(text=' '),dict(text='x'*1001),dict(owner=42),dict(due_date='2026-02-30'),dict(due_date='20261110'),dict(project_id='missing'),dict(meeting_id='missing'),dict(request_id='bad')]:
+        for change in [dict(text=' '),dict(text='x'*1001),dict(owner=42),dict(completion_criteria=7),dict(completion_criteria='x'*5001),dict(due_date='2026-02-30'),dict(due_date='20261110'),dict(project_id='missing'),dict(meeting_id='missing'),dict(request_id='bad')]:
             with self.subTest(change=change),self.assertRaises((ValueError,FileNotFoundError)):self.create(**change)
         self.service.busy.add(self.meeting)
         with self.assertRaisesRegex(ValueError,'processing'):self.create(meeting_id=self.meeting)

@@ -29,6 +29,7 @@ THRESHOLD = 0.4          # lower than the link review (0.55): the AI decides; th
 TYPES = ('new_task', 'existing_mention', 'existing_update', 'proposed_change', 'uncertain')
 CHANGE_FIELDS = ('owner', 'due_date', 'workflow_state')
 WORKFLOW = ('todo', 'in_progress', 'waiting', 'done', 'cancelled')
+GOAL_LIMIT = 300
 
 SYSTEM = """You match what one meeting said to existing tasks.
 untrusted_meeting.mentions are the tasks and updates of THIS meeting, with the words that were said.
@@ -45,6 +46,7 @@ For each mention, choose one type:
 - uncertain: no clear basis to choose one candidate.
 task_id is one of the candidate_ids of that mention, or null for new_task and uncertain.
 Similar titles with a different project, result or period are not the same work.
+project_goals, when present, describe what each project exists to deliver; work outside a project's goal is usually not its task.
 A closed task stays closed: the meeting talking about it does not reopen it.
 reason: one short sentence in Bulgarian. update_text: in Bulgarian, only for existing_update, from the words of the meeting.
 confidence: high only when the mention clearly names the same work and result as the task; medium when it is probable;
@@ -125,14 +127,16 @@ def eligible(item, end, meeting_id):
     return closed is None or end - dt.timedelta(days=RECENT_DAYS) <= closed <= end
 
 
-def view(item, end, project_names, people):
+def view(item, end, project_names, people, project_goals=None):
     """What the AI may see of one candidate. Records after the meeting are not shown as known at the meeting."""
     later = any((_when(e.get('at')) or end) > end for e in item.get('history', []))
     updates = [e for e in item.get('history', []) if e.get('event') == 'progress_update' and e.get('text') and (_when(e.get('at')) or end) <= end]
     owner = next((p['name'] for p in people if p['id'] == item.get('owner_person_id')), None) or item.get('owner')
+    goals = [_cut((project_goals or {}).get(key), GOAL_LIMIT) for key in item.get('effective_project_ids', [])]
     return dict(
         id=item['id'], revision=item.get('revision'), title=_cut(item.get('text'), TITLE_LIMIT),
         projects=[project_names[key] for key in item.get('effective_project_ids', []) if key in project_names],
+        **(dict(project_goals=[goal for goal in goals if goal]) if any(goals) else {}),
         owner=owner, due_date=item.get('due_date'),
         state=item.get('workflow_state') or ('done' if item.get('status') == 'done' else 'todo'),
         # History keeps when a change was recorded, not when it happened: the state is approximate.
@@ -151,7 +155,7 @@ def assigned_to(item, person_id):
     return bool(person_id) and (item.get('owner_person_id') == person_id or person_id in (item.get('assignee_person_ids') or []))
 
 
-def select(tasks, minutes, meeting, project_names=None, people=(), speaker_at=None):
+def select(tasks, minutes, meeting, project_names=None, people=(), speaker_at=None, project_goals=None):
     """The input for one meeting, within the limits; None when no mention has a candidate.
 
     speaker_at(evidence_timestamp) gives (name, person_id) of the speaker at that moment, or (None, None)."""
@@ -190,7 +194,7 @@ def select(tasks, minutes, meeting, project_names=None, people=(), speaker_at=No
     # The meeting limit: the best scored candidates stay; a mention loses only the candidates that went.
     keep = sorted(scored, key=lambda key: -scored[key])[:PER_MEETING]
     by_id = {item['id']: item for item in pool}
-    candidates = {key: view(by_id[key], end, project_names, people) for key in keep}
+    candidates = {key: view(by_id[key], end, project_names, people, project_goals) for key in keep}
     data = None
     while True:
         for mention in rows:

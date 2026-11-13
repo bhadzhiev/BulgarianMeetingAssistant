@@ -1058,7 +1058,8 @@ class MeetingService:
             meetings = self._meeting_refs()
             tasks = [dict(item, effective_project_ids=self.effective_project_ids(item, meetings)) for item in self.items.items.values() if item['kind'] == 'task']
             names = {p['id']: p['name'] for p in self.projects.data['projects']}
-            data = task_matching.select(tasks, minutes, meeting, names, self.people.list(), speaker_at)
+            goals = {p['id']: p['goal'] for p in self.projects.data['projects'] if p.get('goal')}
+            data = task_matching.select(tasks, minutes, meeting, names, self.people.list(), speaker_at, project_goals=goals)
         if not data:
             return self._save_matching(directory, dict(status='no_candidates', notes=path.name))
         sign = task_matching.signature(data, settings)
@@ -1562,8 +1563,8 @@ class MeetingService:
             return dict(meeting_types=meeting_types.public(self.templates.list()), projects=self.projects.data)
 
     def change_scope(self, kind, entry_id, action, name=None, value=None):
-        """Rename, recolor or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
-        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type', 'color'} or action == 'type' and kind != 'series' or action == 'color' and kind != 'projects':
+        """Rename, recolor, set the goal or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
+        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type', 'color', 'goal'} or action == 'type' and kind != 'series' or action in {'color', 'goal'} and kind != 'projects':
             raise ValueError('Invalid change')
         with self.lock, self.projects.lock:
             if action == 'type':
@@ -1571,6 +1572,8 @@ class MeetingService:
                 self.projects.set_series_type(entry_id, self._meeting_type(name)[0])
             elif action == 'color':
                 self.projects.set_color(entry_id, value)
+            elif action == 'goal':
+                self.projects.set_goal(entry_id, value)
             elif action == 'rename':
                 self.projects.rename(kind, entry_id, name)
             else:
@@ -1951,9 +1954,9 @@ class MeetingService:
             return rows
         return self.github_links.for_resource(kind, key)
 
-    def create_project(self, name, color=None):
+    def create_project(self, name, color=None, goal=None):
         with self.lock, self.projects.lock:
-            key = self.projects.ensure_project({'name': name, **({'color': color} if color else {})})
+            key = self.projects.ensure_project({'name': name, **({'color': color} if color else {}), **({'goal': goal} if goal else {})})
             self.projects.save()
             return dict(id=key, projects=self.projects.data)
 

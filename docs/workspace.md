@@ -6,6 +6,12 @@ Open **Projects** to create a project independently of a meeting and see its
 meetings, tasks, decisions, questions and linked source evidence together.
 **Unassigned** collects meetings and work without an effective project.
 
+A project can carry an optional **goal** — free text of up to 500 characters,
+set on creation and edited later in Settings → Projects. The goal says what the
+project exists to deliver; it travels with the project name to the AI endpoint
+during task matching, so work outside the goal is less likely to be matched to
+that project. Keep it free of secrets you would not send to the AI provider.
+
 Each accepted WorkItem has an **Assign to project** control in My Work and the
 project workspace. Choose one or more projects and save. A saved empty selection
 means explicitly unassigned. **Use meeting projects** restores automatic grouping

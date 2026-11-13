@@ -20,7 +20,8 @@ VERSION = 1
 FILE = 'team-analysis.json'
 # Two requests, each with the largest output limit: a thinking model (Kimi K3.1 Pro, thinking at its default level
 # by the person's choice) used the whole 16,384-token limit of one request on thinking and returned nothing
-# after 9.5 minutes (2026-11-13). The people are one answer; the team, the words and the coaching are the other.
+# after 9.5 minutes (2026-11-13). complete_json asks a cloud API for low thinking on this stage, so the judgment
+# keeps some reasoning without the wait. The people are one answer; the team, the words and the coaching are the other.
 PARTS = (('people',), ('dynamics', 'discourse', 'coaching'))
 OUTPUT_LIMIT = 32768
 TIMEOUT = 1200

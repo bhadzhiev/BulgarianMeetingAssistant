@@ -116,14 +116,25 @@ class TeamAnalysisTests(unittest.TestCase):
             self.service.save_settings(dict(self_name='x' * 101))
 
 
-    def test_a_cloud_model_thinks_at_its_default_level(self):
-        # The person keeps the default thinking of Kimi for this analysis (2026-11-13): no reasoning_effort is sent.
+    def test_a_cloud_model_thinks_at_low_level(self):
+        # The default thinking of Kimi spent a whole output budget and 9.5 minutes (2026-11-13): ask for low.
         from unittest import mock
         from app.local_ai import complete_json
         from app.service import DEFAULTS
         reply = dict(choices=[dict(message=dict(content=json.dumps(answer())), finish_reason='stop')])
         with mock.patch('meeting_assistant.post_json', return_value=reply) as post:
             complete_json(dict(DEFAULTS, local_ai_base_url='https://api.moonshot.ai/v1', local_ai_model='kimi-k3.1-pro'), [],
+                          team_analysis.schema(['00:00:00']), 'team_analysis')
+        self.assertEqual(post.call_args.args[1].get('reasoning_effort'), 'low')
+
+    def test_a_local_model_keeps_its_default_level(self):
+        # A local server has no per-token cost; the person's own setting applies (none by default).
+        from unittest import mock
+        from app.local_ai import complete_json
+        from app.service import DEFAULTS
+        reply = dict(choices=[dict(message=dict(content=json.dumps(answer())), finish_reason='stop')])
+        with mock.patch('meeting_assistant.post_json', return_value=reply) as post:
+            complete_json(dict(DEFAULTS, local_ai_base_url='http://127.0.0.1:1234/v1'), [],
                           team_analysis.schema(['00:00:00']), 'team_analysis')
         self.assertNotIn('reasoning_effort', post.call_args.args[1])
 

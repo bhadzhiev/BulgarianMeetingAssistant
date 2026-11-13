@@ -51,25 +51,30 @@ class TeamAnalysisTests(unittest.TestCase):
     def test_talk_shares_and_turns(self):
         self.assertEqual(team_analysis.talk(SEGMENTS), [dict(speaker='Ана', percent=52, turns=2), dict(speaker='Борис', percent=48, turns=2)])
 
-    def test_one_request_with_the_manager_the_transcript_and_the_talk(self):
+    def test_two_parallel_requests_with_the_manager_the_transcript_and_the_talk(self):
         saved, calls = self.run_analysis(self_name='Ана')
-        # Two requests with the largest output limit: thinking on Kimi used a whole 16,384-token limit (2026-11-13).
-        self.assertEqual([c['schema']['required'] for c in calls], [['people'], ['dynamics', 'discourse', 'coaching']])
-        self.assertEqual([c['target']['local_ai_max_tokens'] for c in calls], [32768, 32768])
-        self.assertEqual([c['timeout'] for c in calls], [1200, 1200])
-        self.assertIn('В този отговор върни само: people.', calls[0]['messages'][0]['content'])
-        call = calls[1]
-        self.assertEqual(call['name'], 'team_analysis')
-        system, request = call['messages'][0]['content'], call['messages'][1]['content']
+        # Two parallel requests, each carrying only the instructions of its part; the output limit fits one part
+        # and a cloud API is asked for low thinking (2026-11-13).
+        by_part = {tuple(call['schema']['required']): call for call in calls}
+        self.assertEqual(set(by_part), {('people',), ('dynamics', 'discourse', 'coaching')})
+        self.assertEqual({call['target']['local_ai_max_tokens'] for call in calls}, {8192})
+        self.assertEqual({call['timeout'] for call in calls}, {1200})
+        people, team = by_part[('people',)], by_part[('dynamics', 'discourse', 'coaching')]
+        self.assertIn('В този отговор върни само: people.', people['messages'][0]['content'])
+        self.assertIn('освен Ана', people['messages'][0]['content'])
+        self.assertNotIn('коучинг преглед', people['messages'][0]['content'])
+        self.assertEqual(team['name'], 'team_analysis')
+        system, request = team['messages'][0]['content'], team['messages'][1]['content']
         self.assertIn('Анализът е за мениджъра Ана.', system)
-        self.assertIn('освен Ана', system)
+        self.assertIn('коучинг преглед на мениджърската практика на Ана', system)
+        self.assertNotIn('освен Ана', system)
         self.assertIn('Без диагнози и психологически етикети. Не гадай чувства или мотиви', system)
         self.assertIn('кажи го в наблюдението и не оценявай човека по нея', system)
         self.assertIn('Мениджър: Ана', request)
         self.assertIn('Говорене (изчислено от приложението): Ана 52%, 2 реплики; Борис 48%, 2 реплики', request)
         self.assertIn('[00:00:11] Борис: Пуснах мониторинга', request)
-        self.assertEqual(call['schema']['properties']['coaching']['required'], ['keep', 'change', 'develop'])
-        self.assertIn('00:00:21', call['schema']['properties']['dynamics']['properties']['observations']['items']['properties']['evidence_timestamp']['enum'])
+        self.assertEqual(team['schema']['properties']['coaching']['required'], ['keep', 'change', 'develop'])
+        self.assertIn('00:00:21', team['schema']['properties']['dynamics']['properties']['observations']['items']['properties']['evidence_timestamp']['enum'])
         self.assertEqual(self.service.settings['self_name'], 'Ана')
         self.assertEqual(saved['manager'], 'Ана')
 
@@ -126,6 +131,46 @@ class TeamAnalysisTests(unittest.TestCase):
             complete_json(dict(DEFAULTS, local_ai_base_url='https://api.moonshot.ai/v1', local_ai_model='kimi-k3.1-pro'), [],
                           team_analysis.schema(['00:00:00']), 'team_analysis')
         self.assertEqual(post.call_args.args[1].get('reasoning_effort'), 'low')
+
+    def test_the_background_job_saves_the_analysis_and_reports_progress(self):
+        import time
+        from unittest import mock
+        reply = dict(choices=[dict(message=dict(content=json.dumps(answer())), finish_reason='stop')])
+        with mock.patch('meeting_assistant.post_json', return_value=reply):
+            job = self.service.team_analysis_job.start(dict(meeting_id=self.meeting_id))
+            self.assertTrue(job['running'])
+            self.assertEqual(job['total'], 2)
+            while self.service.team_analysis_job.status(job['id'])['running']:
+                time.sleep(0.01)
+            status = self.service.team_analysis_job.status(job['id'])
+        self.assertEqual((status['status'], status['done'], status['error']), ('Ready', 2, None))
+        self.assertTrue((self.directory / 'team-analysis.json').exists())
+        self.assertIsNotNone(self.service.detail(self.meeting_id)['team_analysis'])
+        with self.assertRaisesRegex(ValueError, 'no longer available'):
+            self.service.team_analysis_job.status('no-such-job')
+
+    def test_one_job_at_a_time_and_a_stop_keeps_the_old_analysis(self):
+        import threading
+        import time
+        from unittest import mock
+        gate = threading.Event()
+
+        def slow(url, payload, timeout=0, **kwargs):
+            gate.wait(10)
+            return dict(choices=[dict(message=dict(content=json.dumps(answer())), finish_reason='stop')])
+
+        with mock.patch('meeting_assistant.post_json', side_effect=slow):
+            job = self.service.team_analysis_job.start(dict(meeting_id=self.meeting_id))
+            with self.assertRaisesRegex(ValueError, 'finish or stop'):
+                self.service.team_analysis_job.start(dict(meeting_id=self.meeting_id))
+            stopped = self.service.team_analysis_job.stop(job['id'])
+            self.assertIn('Cancelling', stopped['status'])
+            gate.set()
+            while self.service.team_analysis_job.status(job['id'])['running']:
+                time.sleep(0.01)
+            status = self.service.team_analysis_job.status(job['id'])
+        self.assertEqual(status['status'], 'Cancelled')
+        self.assertFalse((self.directory / 'team-analysis.json').exists())
 
     def test_a_local_model_keeps_its_default_level(self):
         # A local server has no per-token cost; the person's own setting applies (none by default).

@@ -13,17 +13,22 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import secrets
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
+from .jobs import JobCancelled
 from .storage import atomic_json
 
 VERSION = 1
 FILE = 'team-analysis.json'
-# Two requests, each with the largest output limit: a thinking model (Kimi K3.1 Pro, thinking at its default level
-# by the person's choice) used the whole 16,384-token limit of one request on thinking and returned nothing
-# after 9.5 minutes (2026-11-13). complete_json asks a cloud API for low thinking on this stage, so the judgment
-# keeps some reasoning without the wait. The people are one answer; the team, the words and the coaching are the other.
+# Two parallel requests: the people are one answer; the team, the words and the coaching are the other. A thinking
+# model (Kimi K3.1 Pro, thinking at its default level by the person's choice) used the whole 16,384-token limit of
+# one request on thinking and returned nothing after 9.5 minutes (2026-11-13), so complete_json asks a cloud API
+# for low thinking on this stage and the output limit is sized for the JSON of one part, not for reasoning.
 PARTS = (('people',), ('dynamics', 'discourse', 'coaching'))
-OUTPUT_LIMIT = 32768
+OUTPUT_LIMIT = 8192
 TIMEOUT = 1200
 TEXT_LIMIT = 1500
 MAX_ITEMS = 12
@@ -35,6 +40,19 @@ SYSTEM = """Ти си опитен организационен психолог
 
 Анализът е за мениджъра {manager}. Той го чете сам, за да води екипа по-добре.
 
+Правила за всяко наблюдение:
+- text е наблюдението; evidence_timestamp е моментът от транскрипта, който го доказва. null само ако
+  наблюдението е за цялата среща.
+- Пиши за поведение и думи, не за характер. Без диагнози и психологически етикети. Не гадай чувства или мотиви:
+  реакцията на натиск описвай чрез казаното и направеното.
+- Цитирай кратко („…“), когато думите са важни.
+- Транскриптът е автоматичен: говорещият или думата може да са сбъркани. Ако реплика изглежда приписана на друг
+  човек или дума изглежда сбъркана по контекста, кажи го в наблюдението и не оценявай човека по нея.
+- Бъди конкретен и честен: не омекотявай и не преувеличавай. Не измисляй факти, хора или събития.
+- Делът на говорене и броят реплики са изчислени от приложението: ползвай ги, не ги смятай наново."""
+
+# Each request carries only the instructions of its own part; the two parts run in parallel (2026-11-13).
+PEOPLE = """
 people: поведенческа оценка на работното изпълнение за всеки участник, който говори, освен {manager}.
 - name: името точно както е в транскрипта.
 - summary: 1–2 изречения: силните страни и какво липсва в поведението му в тази среща.
@@ -42,8 +60,9 @@ people: поведенческа оценка на работното изпъл
   довежда ли до край.
 - proactivity (проактивност): предлага ли решения без подкана, вижда ли рискове предварително, действа ли сам.
 - reporting (отчитане): ясен ли е статусът: резултат, среда, какво не е направено и кога ще бъде, без да чака въпрос.
-- По 1–4 наблюдения на поле, със силните и слабите страни. Празен списък, ако срещата не показва нищо за полето.
+- По 1–4 наблюдения на поле, със силните и слабите страни. Празен списък, ако срещата не показва нищо за полето."""
 
+TEAM = """
 dynamics: анализ на комуникацията и екипната динамика: как хората разговарят, си сътрудничат и реагират на натиск.
 Кой води и кой мълчи, прекъсвания, несъгласия и как се решават, ескалация стъпка по стъпка, помощ между хората,
 как въпросите и критиката се приемат. overview: 2–4 изречения. observations: 3–8 наблюдения.
@@ -55,18 +74,9 @@ discourse: дискурсивен анализ: речникът, формули
 
 coaching: коучинг преглед на мениджърската практика на {manager}, с фокус върху конкретни поведения.
 keep: какво да запази. change: какво да промени. develop: какво да развие. По 2–5 на група. Всяко: поведението с
-кратък цитат и момент, защо е важно и конкретна алтернатива или следваща стъпка (например формулировка).
+кратък цитат и момент, защо е важно и конкретна алтернатива или следваща стъпка (например формулировка)."""
 
-Правила за всяко наблюдение:
-- text е наблюдението; evidence_timestamp е моментът от транскрипта, който го доказва. null само ако
-  наблюдението е за цялата среща.
-- Пиши за поведение и думи, не за характер. Без диагнози и психологически етикети. Не гадай чувства или мотиви:
-  реакцията на натиск описвай чрез казаното и направеното.
-- Цитирай кратко („…“), когато думите са важни.
-- Транскриптът е автоматичен: говорещият или думата може да са сбъркани. Ако реплика изглежда приписана на друг
-  човек или дума изглежда сбъркана по контекста, кажи го в наблюдението и не оценявай човека по нея.
-- Бъди конкретен и честен: не омекотявай и не преувеличавай. Не измисляй факти, хора или събития.
-- Делът на говорене и броят реплики са изчислени от приложението: ползвай ги, не ги смятай наново."""
+INSTRUCTIONS = {('people',): PEOPLE, ('dynamics', 'discourse', 'coaching'): TEAM}
 
 
 def _observation(stamps):
@@ -196,8 +206,8 @@ def preview(service, body):
                 self_name=service.settings.get('self_name', ''))
 
 
-def generate(service, body, complete=None):
-    """One request to the Notes & AI provider. The result replaces the saved analysis of the meeting."""
+def generate(service, body, complete=None, progress=None, cancel=None):
+    """The requests to the Notes & AI provider run in parallel. The result replaces the saved analysis."""
     meeting_id = body.get('meeting_id')
     meeting = service.library.get(meeting_id)
     manager = _manager(service, body.get('self_name'))
@@ -222,24 +232,99 @@ def generate(service, body, complete=None):
         'Участници: ' + ', '.join(speakers(segments)),
         'Говорене (изчислено от приложението): ' + '; '.join(f"{row['speaker']} {row['percent']}%, {row['turns']} реплики" for row in stats),
         '', 'ТРАНСКРИПТ:', transcript_for_llm(rows)])
-    system = SYSTEM.replace('{manager}', manager or 'човекът, който води срещата')
+    leader = manager or 'човекът, който води срещата'
     if not service.processing_slot.acquire(blocking=False):
         raise ValueError('Wait until recording or processing finishes before you analyze the meeting.')
     try:
         if complete is None:
             from .local_ai import complete_json as complete
-        full, result = schema(stamps), {}
-        for keys in PARTS:
+        full, result, lock, finished = schema(stamps), {}, threading.Lock(), 0
+        if progress:
+            progress(0, 'Two parallel requests: the people, and the team with the coaching')
+
+        def ask(keys):
+            nonlocal finished
             part = dict(full, required=list(keys), properties={key: full['properties'][key] for key in keys})
-            only = '\n\nВ този отговор върни само: ' + ', '.join(keys) + '. Другите части са в отделна заявка.'
+            only = '\n\nВ този отговор върни само: ' + ', '.join(keys) + '. Другата част е в отделна заявка.'
+            system = (SYSTEM + INSTRUCTIONS[keys]).replace('{manager}', leader)
             answer = complete(target, [dict(role='system', content=system + only), dict(role='user', content=request)], part,
                               'team_analysis', timeout=TIMEOUT, api_key=service.ai_key(target['provider']))
-            if isinstance(answer, dict):
-                result.update({key: answer.get(key) for key in keys})
+            with lock:
+                finished += 1
+                if progress:
+                    progress(finished, f'Part {finished} of {len(PARTS)} is ready')
+            return keys, answer
+
+        with ThreadPoolExecutor(max_workers=len(PARTS), thread_name_prefix='team-analysis') as pool:
+            for keys, answer in pool.map(ask, PARTS):
+                if isinstance(answer, dict):
+                    result.update({key: answer.get(key) for key in keys})
     finally:
         service.processing_slot.release()
+    if cancel is not None and cancel.is_set():
+        raise JobCancelled()
     record_usage(directory, 'team_analysis', snapshot)
     saved = dict(version=VERSION, created_at=dt.datetime.now(dt.timezone.utc).isoformat(), model=target['local_ai_model'],
                  manager=manager, transcript=signature(segments), talk=stats, analysis=clean(result, stamps))
     atomic_json(directory / FILE, saved)
     return dict(saved, stale=False)
+
+
+class AnalysisJob:
+    """One cancellable team analysis at a time, in the background. The page polls the status and reads the saved
+    analysis from the meeting detail when the job is ready; the result never travels in the job status."""
+
+    def __init__(self, service):
+        self.service = service
+        self.lock, self.cancel, self.thread, self.job = threading.RLock(), threading.Event(), None, {}
+
+    def start(self, body):
+        with self.lock:
+            if self.thread and self.thread.is_alive():
+                raise ValueError('Wait for the current team analysis to finish or stop it first')
+            self.cancel.clear()
+            run = secrets.token_hex(16)
+            self.job = dict(id=run, meeting_id=body.get('meeting_id'), running=True, status='Starting',
+                            done=0, total=len(PARTS), error=None, started_at=time.time())
+            self.thread = threading.Thread(target=self._run, args=(run, dict(body)), daemon=True, name='team-analysis')
+            self.thread.start()
+            return dict(self.job)
+
+    def _run(self, run, body):
+        def progress(done, status):
+            with self.lock:
+                self.job.update(done=done, status=status)
+        try:
+            if self.service.closed.is_set():
+                raise JobCancelled()
+            generate(self.service, body, progress=progress, cancel=self.cancel)
+            with self.lock:
+                self.job.update(status='Ready', done=len(PARTS))
+        except JobCancelled:
+            with self.lock:
+                self.job.update(status='Cancelled', error=None)
+        except Exception as exc:
+            with self.lock:
+                self.job.update(status='Failed', error=self.service.redact(str(exc)))
+        finally:
+            with self.lock:
+                self.job.update(running=False)
+
+    def status(self, key):
+        with self.lock:
+            if key != self.job.get('id'):
+                raise ValueError('This team analysis is no longer available')
+            return dict(self.job)
+
+    def stop(self, key):
+        with self.lock:
+            if key != self.job.get('id'):
+                raise ValueError('This team analysis is no longer available')
+            self.cancel.set()
+            self.job['status'] = 'Cancelling · the current requests finish first'
+            return dict(self.job)
+
+    def close(self):
+        self.cancel.set()
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=5)

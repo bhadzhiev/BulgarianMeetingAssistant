@@ -166,6 +166,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.team_ai.preview(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/team/review/ai/status':
             return self.respond(200, self.server.service.team_ai.status(parse_qs(url.query).get('job', [''])[0]))
+        if url.path == '/api/team-analysis/status':
+            return self.respond(200, self.server.service.team_analysis_job.status(parse_qs(url.query).get('job', [''])[0]))
         if url.path == '/api/team/review/prepare':
             return self.respond(200, self.server.service.team_review_prepare(parse_qs(url.query).get('person', [''])[0]))
         if url.path == '/api/people/profile':
@@ -420,9 +422,13 @@ class Handler(BaseHTTPRequestHandler):
                 action = path.rsplit('/', 1)[-1]
                 result = (followup_email.prepare(service, body) if action == 'prepare' else
                           followup_email.generate(service, body) if action == 'generate' else followup_email.save_draft(service, body))
-            elif path in {'/api/team-analysis/preview', '/api/team-analysis/generate'}:
+            elif path == '/api/team-analysis/preview':
                 from app import team_analysis
-                result = team_analysis.preview(service, body) if path.endswith('/preview') else team_analysis.generate(service, body)
+                result = team_analysis.preview(service, body)
+            elif path == '/api/team-analysis/start':
+                result = service.team_analysis_job.start(body)
+            elif path == '/api/team-analysis/stop':
+                result = service.team_analysis_job.stop(body.get('job'))
             elif path in {'/api/task-email/prepare', '/api/task-email/draft'}:
                 from app import task_email
                 result = task_email.prepare(service, body) if path.endswith('/prepare') else task_email.save_draft(service, body)

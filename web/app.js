@@ -1337,7 +1337,7 @@ function speakerStats(target,rows,global=false) {
 // not in the notes, exports, search or emails. Two requests go to the Notes & AI provider after the person confirms.
 const TEAM_PERSON_FIELDS=[['ownership','Ownership'],['proactivity','Proactivity'],['reporting','Reporting']];
 const TEAM_COACHING=[['keep','Keep'],['change','Change'],['develop','Develop']];
-let teamAnalysisRunning=null;
+let teamAnalysisJob=null,teamAnalysisTimer=null;
 function teamObservations(rows){
  if(!rows?.length)return el('p','empty-note','Nothing in this meeting.');
  const list=el('ul','team-observations');
@@ -1346,7 +1346,7 @@ function teamObservations(rows){
 }
 function teamSection(title,...content){const section=el('section','team-section');section.append(el('h3','',title),...content.filter(Boolean));return section;}
 function renderTeamAnalysis(busy=false){
- const target=$('team-analysis-content'),saved=detail.team_analysis,names=[...new Set(detail.transcript.map(s=>s.speaker).filter(Boolean))],running=teamAnalysisRunning===detail.id;
+ const target=$('team-analysis-content'),saved=detail.team_analysis,names=[...new Set(detail.transcript.map(s=>s.speaker).filter(Boolean))],job=teamAnalysisJob&&teamAnalysisJob.meeting_id===detail.id?teamAnalysisJob:null,running=!!job?.running;
  target.replaceChildren();
  $('team-analysis-run').textContent=running?'Analyzing…':saved?'Analyze again':'Analyze';$('team-analysis-run').disabled=busy||running||!detail.transcript.length;
  // The coaching is for the person who runs Atlanta: they choose their own name among the speakers once.
@@ -1357,7 +1357,8 @@ function renderTeamAnalysis(busy=false){
  const generic=names.filter(name=>/^SPEAKER[ _-]?\d+$/i.test(name));
  if(generic.length)target.append(el('p','notice warning','Name the speakers first: '+generic.join(', ')+'. The analysis describes each person by what the transcript says they said.'));
  target.append(el('p','hint','Only for you. The transcript can confuse speakers and words, so check each observation at its moment before you act on it.'));
- if(running)target.append(el('p','notice','The AI analyzes the meeting in two steps: the people, then the team and the coaching. A thinking model can take up to 20 minutes for each step.'));
+ if(running){const line=el('p','notice','The AI analyzes the people, the team and the coaching in two parallel requests: '+job.status+(job.total>1?' · '+job.done+' of '+job.total+' ready':''));line.append(' ',actionBtn('quiet small-action','Stop',async()=>{teamAnalysisJob=await api('/api/team-analysis/stop',{job:job.id});renderTeamAnalysis();}));target.append(line);}
+ else if(job?.error)target.append(el('p','error',job.error));
  if(!saved){if(!running)target.append(emptyNote(detail.transcript.length?'Choose Analyze for work behavior by person, team dynamics, discourse and coaching for you.':'Transcribe the meeting first.'));return;}
  target.append(el('p','hint team-meta','By '+saved.model+' · '+AtlantaUX.dateTime(saved.created_at)+(saved.manager?' · coaching for '+saved.manager:'')));
  if(saved.stale)target.append(el('p','notice warning','The transcript changed after this analysis. Choose Analyze again to include the changes.'));
@@ -1379,9 +1380,21 @@ async function runTeamAnalysis(){
  if(preview.unnamed.length)lines.push('Not named yet: '+preview.unnamed.join(', ')+'.');
  if(!state.settings.self_name)lines.push('Choose your name first if you want coaching for you; otherwise the coaching is for the person who leads the meeting.');
  if(!(await ask('Analyze the team in this meeting?\n\n'+lines.join('\n'),{ok:'Analyze'})))return;
- teamAnalysisRunning=meetingId;if(detail?.id===meetingId)renderTeamAnalysis();
- try{const result=await api('/api/team-analysis/generate',{meeting_id:meetingId,self_name:state.settings.self_name||''});if(detail?.id===meetingId){detail.team_analysis=result;lastFingerprint=JSON.stringify(detail);}toast('Team analysis ready');}
- finally{teamAnalysisRunning=null;if(detail?.id===meetingId)renderTeamAnalysis();}
+ teamAnalysisJob=await api('/api/team-analysis/start',{meeting_id:meetingId,self_name:state.settings.self_name||''});
+ if(detail?.id===meetingId)renderTeamAnalysis();
+ pollTeamAnalysis();
+}
+// The analysis runs in the background; the page follows it and reloads the meeting when it ends.
+function pollTeamAnalysis(){
+ clearTimeout(teamAnalysisTimer);if(!teamAnalysisJob)return;
+ teamAnalysisTimer=setTimeout(()=>perform(async()=>{
+  teamAnalysisJob=await api('/api/team-analysis/status?job='+teamAnalysisJob.id);
+  const here=view==='detail'&&detail?.id===teamAnalysisJob.meeting_id;
+  if(teamAnalysisJob.running){if(here)renderTeamAnalysis();pollTeamAnalysis();return;}
+  if(teamAnalysisJob.status==='Ready')toast('Team analysis ready');
+  else if(teamAnalysisJob.error)toast('Team analysis failed: '+teamAnalysisJob.error);
+  if(here)await openMeeting(teamAnalysisJob.meeting_id,true);
+ }),2000);
 }
 function renderMeetingAnalytics(busy=false) {
  const data=detail.analytics,target=$('meeting-analytics-content');target.replaceChildren();

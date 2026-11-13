@@ -384,7 +384,10 @@ It has four parts:
 
 Name the speakers first, and choose your own name in **You in this meeting** (setting `self_name`).
 **Analyze** shows the model, its address and the size of the transcript, and sends one request to the
-Notes & AI provider only after you confirm. The talk shares and turns are counted by Atlanta, not by AI.
+Notes & AI provider only after you confirm. The analysis is two requests: the people, then the team, the
+words and the coaching. Each has an output limit of 32,768 tokens and up to 20 minutes, because a thinking
+model (for example Kimi K3.1 Pro at its default thinking level) spends much of the limit on thinking.
+The talk shares and turns are counted by Atlanta, not by AI.
 Every observation has its moment in the recording. The AI describes what was said and done; it does not
 write diagnoses or guess feelings, and it names a line that looks attributed to the wrong speaker.
 The result is in `team-analysis.json` in the meeting folder. It is not in the notes, the exports, the

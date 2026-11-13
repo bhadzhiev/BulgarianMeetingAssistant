@@ -11,7 +11,7 @@ const order=['Work behavior by person','Communication and team dynamics','Discou
 assert.ok(order.every(i=>i>0)&&order.every((v,i)=>!i||v>order[i-1]),'sections in order');
 assert.match(app,/\[\['ownership','Ownership'\],\['proactivity','Proactivity'\],\['reporting','Reporting'\]\]/);
 assert.match(app,/\[\['keep','Keep'\],\['change','Change'\],\['develop','Develop'\]\]/);
-// One confirmed request: the dialog names the model and the size, and the unnamed speakers.
+// One confirmed Analyze: the dialog names the model and the size, and the unnamed speakers.
 assert.match(app,/await api\('\/api\/team-analysis\/preview',\{meeting_id:meetingId\}\)/);
 assert.match(app,/if\(!\(await ask\('Analyze the team in this meeting\?/);
 assert.match(app,/'Not named yet: '\+preview\.unnamed\.join/);
@@ -21,5 +21,6 @@ assert.match(app,/await api\('\/api\/settings',\{self_name:select\.value\}\)/);
 assert.match(app,/'Name the speakers first: '/);
 assert.match(app,/The transcript changed after this analysis\./);
 assert.match(app,/if\(row\.evidence_timestamp\)li\.append\(stampButton\(row\.evidence_timestamp\)\)/);
+assert.match(app,/in two steps: the people, then the team and the coaching\. A thinking model can take up to 20 minutes for each step\./);
 for(const name of ['.team-person','.team-observations','.team-section'])assert.ok(css.includes(name),name+' is styled');
-console.log('Team analysis PASS: private tab, four sections, one confirmed request, own name, moments.');
+console.log('Team analysis PASS: private tab, four sections, one confirmed Analyze, own name, moments.');

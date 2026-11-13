@@ -2,7 +2,7 @@
 
 The person who runs Atlanta asked for this analysis of their own meetings, after the speakers are named. It is
 private: it stays in the meeting folder (team-analysis.json), it is not in the notes, the exports, the search or
-the follow-up email. One request goes to the Notes & AI provider only when the person chooses Analyze.
+the follow-up email. Two requests go to the Notes & AI provider only when the person chooses Analyze.
 
 The analysis describes what was said and done, with the moment of each observation, so that the reader can check
 it in the recording. Automatic transcripts confuse speakers and words; the instructions ask the model to name such
@@ -18,6 +18,12 @@ from .storage import atomic_json
 
 VERSION = 1
 FILE = 'team-analysis.json'
+# Two requests, each with the largest output limit: a thinking model (Kimi K3.1 Pro, thinking at its default level
+# by the person's choice) used the whole 16,384-token limit of one request on thinking and returned nothing
+# after 9.5 minutes (2026-11-13). The people are one answer; the team, the words and the coaching are the other.
+PARTS = (('people',), ('dynamics', 'discourse', 'coaching'))
+OUTPUT_LIMIT = 32768
+TIMEOUT = 1200
 TEXT_LIMIT = 1500
 MAX_ITEMS = 12
 GENERIC = ('SPEAKER', 'Speaker')
@@ -205,8 +211,7 @@ def generate(service, body, complete=None):
     from .prompts import record_usage, select_stages
     snapshot = select_stages(service.prompts.snapshot(meeting.get('meeting_type') or 'general', meeting_id), ('team_analysis',))
     target['_prompt_snapshot'] = snapshot
-    # The answer covers four sections for every person; a small output limit cuts it.
-    target['local_ai_max_tokens'] = min(32768, max(target.get('local_ai_max_tokens') or 4096, 8192))
+    target['local_ai_max_tokens'] = OUTPUT_LIMIT
     stats = talk(segments)
     request = '\n'.join([
         'Среща: ' + meeting.get('title', ''),
@@ -222,8 +227,14 @@ def generate(service, body, complete=None):
     try:
         if complete is None:
             from .local_ai import complete_json as complete
-        result = complete(target, [dict(role='system', content=system), dict(role='user', content=request)], schema(stamps),
-                          'team_analysis', timeout=900, api_key=service.ai_key(target['provider']))
+        full, result = schema(stamps), {}
+        for keys in PARTS:
+            part = dict(full, required=list(keys), properties={key: full['properties'][key] for key in keys})
+            only = '\n\nВ този отговор върни само: ' + ', '.join(keys) + '. Другите части са в отделна заявка.'
+            answer = complete(target, [dict(role='system', content=system + only), dict(role='user', content=request)], part,
+                              'team_analysis', timeout=TIMEOUT, api_key=service.ai_key(target['provider']))
+            if isinstance(answer, dict):
+                result.update({key: answer.get(key) for key in keys})
     finally:
         service.processing_slot.release()
     record_usage(directory, 'team_analysis', snapshot)

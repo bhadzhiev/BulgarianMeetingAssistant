@@ -5,8 +5,9 @@
 Every task, decision and proposal shows a coloured source chip: **Meeting**, **Gmail**, **Chat** or
 **GitHub**. Click a chip to open the source. **All sources** filters the task and decision lists.
 
-A task card shows the task, its owner, its due date, its source and **Mark done**. **Change owner or
-dates** opens the owner, state, due date and next check fields, with **Add update** and **Timeline**.
+A task card shows the task, its owner, its due date, its source, **Mark done** and **Add update**.
+The more-actions menu opens **Timeline**, **Quick fields** or the full task editor. **Quick fields**
+opens the owner, state, due date and next check fields.
 The fields stay open after a save. An owner name that matches one person in People shows as that
 person. A name without a People entry shows as "· not in People".
 
@@ -60,7 +61,7 @@ task fields: title, details, expected result, owner, due date and meeting. The e
 the note "Генерирано от Atlanta". A saved draft always has this note.
 
 The owners and the others on the tasks are preselected as recipients. Choose **Save Gmail draft**.
-Atlanta saves a Gmail draft and never sends email. Each task then shows an envelope (**Emailed**),
+Atlanta saves a Gmail draft and never sends email. Each task then shows an envelope (**Gmail draft**),
 and its history has an entry with the recipients and the subject. Saving again for the same tasks
 updates the same draft. This needs the `gmail.compose` permission, the same as **Follow-up email**.
 
@@ -205,3 +206,11 @@ the verified Google user ID, so an email rename keeps the same cache. **Clear lo
 can remove a cached identity after sign-out and keeps promoted WorkItem snapshots in the graph and
 archives. There is no automatic retention purge. All development tests use synthetic Chat responses;
 live Workspace consent, API access and real conversation sync still need account-owner validation.
+
+### Task list controls (2026-11-14)
+
+Both Compact and Cards start bulk selection with **Select tasks**. The selection count and
+checkboxes appear only in selection mode. Cards keep Mark done and Add update on the surface;
+Timeline and Quick fields are in the menu, and Sources is collapsed. Opening the title still
+opens the complete editor, including Improve with AI, expected result, history and evidence.
+The envelope says **Gmail draft**: Atlanta does not know whether that draft was sent in Gmail.

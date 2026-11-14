@@ -217,10 +217,10 @@ recording (for example, imported transcripts) show the control as unavailable.
 
 ### Conversation analytics
 
-Saved meetings have an **Analytics** tab for talk time, topic evidence, and questions.
-The sidebar's **Conversation analytics** view aggregates those results across meetings,
-with date, speaker, and topic filters. It reports descriptive statistics, not employee
-scores, and does not perform sentiment analysis.
+Saved meetings have an **Analytics** tab for speaking time. The Library's **Analytics**
+view aggregates speaking time across recordings, with date and speaker filters. These are
+descriptive statistics, not employee scores. Speech intervals are not conversational turns.
+The question checkbox queue and topic-hit counters are not shown (2026-11-14); saved data stays.
 
 - **Offline speaker diarization and talk time.** After transcription, optional
   `pyannote/speaker-diarization-community-1` processing creates `speaker-timeline.json`.
@@ -254,19 +254,12 @@ scores, and does not perform sentiment analysis.
   (0.82–0.90 for the same person, at most 0.68 for different people) are not identity guarantees.
   **Settings → Voices → Learn voices from saved meetings** makes prints for meetings that were
   separated before this feature. The prints stay on this Mac and are deleted with the meeting.
-- **Topic trackers.** Manage shared trackers in **Settings → Topic trackers**. Literal
-  phrases match locally and case-insensitively, with timestamped transcript evidence.
-  Optional matching by meaning uses the Configured API (on this Mac or a cloud API) and validates every
-  returned segment ID. A match must be about the topic in its own words; a reply of one or two words
-  never matches. If this matching fails, literal hits remain available and the meeting shows a separate
-  analytics warning. A speaker rename reuses the earlier matches.
-- **Question detection.** Deterministic Bulgarian and English cues and question punctuation
-  identify questions, including Bulgarian questions without `?`. Answers are never inferred;
-  mark questions answered manually. Reanalysis preserves answered state where the stable
-  question identity or its evidence still matches.
-- **Cross-meeting analytics.** Aggregates talk seconds, turns, questions, unanswered
-  questions, topic hits, and longest monologues. JSON results are cached by file modification
-  time. Meetings without analytics are omitted until you open them and choose **Reanalyze**.
+- **Retained analytics data.** Topic matching and punctuation-based question detection remain
+  in cached analytics and APIs for compatibility. They are not an unanswered-work queue and do
+  not appear in the reading interface. Earlier answer markings are preserved by reanalysis.
+- **Cross-meeting analytics.** Shows speaking time, speech intervals and meeting coverage.
+  Meetings without generated analytics are omitted until reanalyzed. Descriptive intervals
+  should not be compared with the transcript turn counts used by private team analysis.
 
 Diarization is optional and is not required for recording, transcription, or notes. To enable
 its model, install the extra dependencies in the app's virtual environment and provide a
@@ -465,12 +458,11 @@ its older proposal. **All** includes reviewed and stale proposals. Reprocessing 
 does not create another proposal or reset a dismissal. Automatic extraction from Gmail or Chat is
 not enabled yet.
 
-**Questions** first shows **From meeting notes**: the open questions and the questions for your decision
-in the notes of every meeting, newest first. A question asked again shows once. **Answer** or **Track**
-moves it to **Tracked questions** with its meeting and moment; new notes of the meeting do not remove it.
-Tracked questions also hold personal questions and questions accepted from proposals. Add a question,
-save an answer, or reopen it; the earlier answer stays in its history. Suggested and Questions cover all sources,
-independent of the meeting project filter. **Edit** and **Delete** work on every question, task and
+**Questions** first shows open questions the person chose to track. Answered questions are
+under **Answered**; candidates from the notes are under **From meeting notes**, collapsed by
+default. **Answer** or **Track** keeps the meeting and moment. New notes do not remove a
+tracked question, and reopening keeps the earlier answer in history. Questions span all sources.
+**Edit** and **Delete** work on every question, task and
 decision, also on items with saved sources. Delete removes the links to other items; the saved source
 quotes stay. Proposal Link adds sources without merging away IDs or history.
 
@@ -679,3 +671,10 @@ correction, so the original text stays wherever the edit rewrites too much. Elev
 charges extra for transcript editing. The per-part AI correction does not run automatically
 after Scribe; to run it anyway, choose **AI text correction** explicitly. Notes and title
 generation keep their separately chosen providers.
+
+### Quiet meeting reading (2026-11-14)
+
+Empty note sections are hidden while reading and remain available in the editor. **Review**
+and its action appear only for pending, open meeting items; an old Review route opens
+**Tasks & decisions** when nothing is pending. Updated-note proposals keep their separate
+review action. The Review page no longer repeats the Summary from Notes.

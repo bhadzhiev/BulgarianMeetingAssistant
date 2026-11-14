@@ -1521,3 +1521,10 @@ label.required-label:has(.date-part-label)::after{content:none}
 .team-summary{margin:0 0 6px;font-size:14px;line-height:1.55}
 .team-observations{margin:0;padding-left:20px;font-size:14px;line-height:1.6}.team-observations li{margin:0 0 4px;overflow-wrap:anywhere}
 .team-observations .stamp-group{margin-left:6px;vertical-align:middle}
+
+/* Sources stay one click away without repeating every meeting on the task list (2026-11-14). */
+.task-card-sources{margin-top:10px;color:var(--muted);font-size:.88rem}
+.task-card-sources>summary{cursor:pointer;width:fit-content}
+.task-card-sources[open]>summary{margin-bottom:8px}
+.meeting-question-candidates,.question-history{margin-top:20px}
+.meeting-question-candidates>summary,.question-history>summary{cursor:pointer;padding:10px 0;color:var(--muted)}

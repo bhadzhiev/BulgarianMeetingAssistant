@@ -139,7 +139,7 @@ def server_reason(exc):
     return f' The server answered HTTP {exc.code}' + (f': {message}' if message else '.')
 
 
-def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
+def complete_json(settings, messages, schema, name, timeout=600, api_key='', max_tokens=None):
     from meeting_assistant import post_json, extract_json
     base_url = validate_base_url(settings.get('local_ai_base_url', DEFAULT_BASE_URL))
     model = settings.get('local_ai_model', DEFAULT_MODEL)
@@ -150,7 +150,8 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     from .prompts import apply
     messages = apply(settings,messages,name)
     messages.append({'role': 'user', 'content': 'Return only one JSON object matching this schema: ' + json.dumps(schema_hint(schema), ensure_ascii=False)})
-    max_tokens = settings.get('local_ai_max_tokens', 4096)
+    if max_tokens is None:
+        max_tokens = settings.get('local_ai_max_tokens', 4096)
     if type(max_tokens) is not int or not 128 <= max_tokens <= 32768:
         raise ValueError('API output limit must be between 128 and 32768 tokens')
     reasoning = settings.get('local_ai_reasoning', 'default')
@@ -162,16 +163,21 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key=''):
     # A cloud API (Kimi K3) also spent a 16,384-token budget on thinking and returned no notes.
     # Topic matching is a short classification; on a cloud API, thinking only makes a speaker rename slow.
     # Task titles are short rewrites of 40 tasks; on Kimi K3 thinking used the output budget (2026-11-12).
+    # Improve with AI on a task card waits in an open editor: even low thinking kept the person waiting
+    # (2026-11-14), so a short card rewrite asks for no reasoning on a cloud API or a thinking local model.
     if reasoning == 'default' and (
-            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review', 'task_matching', 'task_titles'}
+            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review', 'task_matching', 'task_titles', 'task_polish'}
             and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
             or name == 'topic_matches' and is_remote(base_url)):
-        reasoning = 'none'
+        # Kimi K3 models always think: their API accepts only low/high/max and rejects 'none'
+        # (2026-11-14), so there the lightest valid effort is low.
+        if is_remote(base_url) and isinstance(model, str) and re.search(r'(?:^|/)kimi-k3(?:[.\-/]|$)', model, re.I):
+            reasoning = 'low'
+        else:
+            reasoning = 'none'
     # Team analysis keeps some thinking for the behavioral judgment, but at low on a cloud API: the default
     # level of Kimi K3.1 Pro spent a whole 16,384-token budget and 9.5 minutes before any JSON (2026-11-13).
-    # Improve with AI on a task card waits in an open editor: at the default level, a cloud thinking model kept the
-    # person waiting so long that Atlanta looked asleep; the person asked for low (2026-11-14).
-    if reasoning == 'default' and name in {'team_analysis', 'task_polish'} and is_remote(base_url):
+    if reasoning == 'default' and name == 'team_analysis' and is_remote(base_url):
         reasoning = 'low'
     payload = dict(model=model, messages=messages, stream=False, max_tokens=max_tokens)
     # Some cloud models accept only their own temperature (Kimi K3: only 1). "server" leaves it to them.

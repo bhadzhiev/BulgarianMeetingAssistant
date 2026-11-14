@@ -84,15 +84,17 @@ class DraftTests(unittest.TestCase):
 
     def test_task_edit_uses_the_polish_prompt_and_stage(self):
         seen={}
-        def fake(settings,messages,schema,name,timeout=0,api_key=''):
-            seen.update(name=name,system=messages[0]['content']);return dict(text='Провери sync грешките',details='',completion_criteria='')
+        def fake(settings,messages,schema,name,timeout=0,api_key='',max_tokens=None):
+            seen.update(name=name,system=messages[0]['content'],max_tokens=max_tokens);return dict(text='Провери sync грешките',details='',completion_criteria='')
         with patch('app.task_draft.complete_json',side_effect=fake):
             result=task_draft.generate(dict(body='{}',polish=True),{})
         self.assertEqual(seen['name'],'task_polish');self.assertEqual(seen['system'],task_draft.POLISH_SYSTEM)
+        self.assertEqual(seen['max_tokens'],2048,'a short rewrite does not wait for the full output budget')
         self.assertEqual(result['text'],'Провери sync грешките')
         with patch('app.task_draft.complete_json',side_effect=fake):
             task_draft.generate(dict(body='{}'),{})
         self.assertEqual(seen['name'],'task_draft');self.assertEqual(seen['system'],task_draft.SYSTEM)
+        self.assertIs(seen['max_tokens'],None,'a draft keeps the settings output budget')
 
     def test_task_edit_never_creates_a_task(self):
         with self.assertRaisesRegex(ValueError,'never creates'):task_draft.create(None,dict(provider='task_edit'))

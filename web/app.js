@@ -402,65 +402,9 @@ async function suggestTask(button,source){
  if(taskDraftPending){toast('Finish the current task draft first');return;}
  if(taskEvidenceTarget&&source.provider!=='manual')source={...source,link_only:true,capture_target:taskEvidenceTarget.id};
  taskDraftPending=true;button.disabled=true;
- try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);return await editTaskDraft(source,preview);}
+ // One task dialog for every source (2026-11-14): the draft opens in the same editor as a manual task.
+ try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);return await openManualTask(null,{source,sourcePreview:preview});}
  finally{taskDraftPending=false;button.disabled=false;}
-}
-function editTaskDraft(source,preview){
- return new Promise(resolve=>{
-  const dialog=$('task-draft-dialog'),area=$('task-draft-text'),submit=$('task-draft-save'),cancel=$('task-draft-cancel'),generate=$('task-draft-generate'),note=$('task-draft-error'),status=$('task-draft-status'),project=$('task-draft-project'),keep=$('task-draft-keep');
-  let createdTaskId=null,submitted=null,jobId='',poll=null,generating=false,preparing=false,saving=false,closed=false,operation=crypto.randomUUID().replaceAll('-','');
-  const extra=$('task-draft-details'),criterion=$('task-draft-criterion'),link=$('task-draft-link');
-  const owner=$('task-draft-owner'),due=$('task-draft-due');owner.value=source.capture_owner||'';due.value=source.capture_due_date||'';
-  extra.value=criterion.value='';link.replaceChildren(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));link.value=source.capture_target&&itemsData.items.some(i=>i.id===source.capture_target&&i.acceptance_state!=='proposed')?source.capture_target:source.link_only?'__choose__':'';
-  const sourceKey=JSON.stringify(source),cacheKey='atlanta-task-draft';
-  area.value='';area.disabled=false;keep.checked=false;note.hidden=true;status.textContent='Review the source, generate a draft or write it yourself.';
-  $('task-draft-source').textContent=preview.source_excerpt||'';const target=preview.target;
-  if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
-  $('task-draft-target').textContent=preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+target.local_ai_model+' · '+target.local_ai_base_url+' · '+preview.characters+' source characters';
-  fillProjects(project,Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject(),'No project');
-  try{const cached=JSON.parse(localStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.at<86400000&&cached.source===sourceKey){area.value=cached.text;extra.value=cached.details||'';criterion.value=cached.completion_criteria||'';owner.value=cached.owner||'';due.value=cached.due_date||'';project.value=cached.project||'';keep.checked=true;status.textContent='Recovered draft from this Mac. Review it against the current source.';}else if(cached&&Date.now()-cached.at>=86400000)localStorage.removeItem(cacheKey);}catch{}
-  function persist(){if(keep.checked){store(cacheKey,JSON.stringify({at:Date.now(),source:sourceKey,text:area.value,details:extra.value,completion_criteria:criterion.value,owner:owner.value,due_date:due.value,project:project.value}));}else{try{localStorage.removeItem(cacheKey);}catch{}}}
-  function controls(){submit.textContent=link.value?'Link evidence':'Create task';submit.disabled=saving||generating||link.value==='__choose__'||(!link.value&&!area.value.trim());owner.disabled=due.disabled=extra.disabled=criterion.disabled=!!link.value||saving||generating;link.disabled=saving||generating;area.disabled=!!link.value||saving||generating;generate.disabled=!!link.value||saving||generating||preparing||preview.ai_available===false;cancel.disabled=saving;area.disabled=!!link.value||saving||generating;project.disabled=saving||!!link.value;}
-  owner.oninput=due.onchange=extra.oninput=criterion.oninput=()=>{editorDirty.set('task-draft',true);persist();};link.onchange=()=>{editorDirty.set('task-draft',true);controls();};
-  area.oninput=()=>{area.setCustomValidity('');editorDirty.set('task-draft',true);persist();controls();};project.onchange=()=>{editorDirty.set('task-draft',true);persist();};keep.onchange=persist;
-  async function stop(){closed=true;if(poll)clearTimeout(poll);if(jobId&&generating){try{await api('/api/task-draft/cancel',{id:jobId});}catch{}}}
-  async function discard(){if(saving)return;if(editorDirty.keys().includes('task-draft')&&!keep.checked&&!(await ask('Discard this task draft?',{ok:'Discard',cancel:'Keep editing'})))return;await stop();if(!keep.checked){try{localStorage.removeItem(cacheKey);}catch{}}dialog.close();}
-  dialog.oncancel=event=>{event.preventDefault();discard();};dialog.onclose=()=>{stop();editorDirty.clear('task-draft');resolve(createdTaskId);};cancel.onclick=discard;
-  generate.onclick=()=>perform(async()=>{
-   if(preparing||generating||saving||closed)return;preparing=true;controls();
-   try{
-   if(area.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
-   // An error here shows in this dialog: the page behind the dialog is not in view.
-   let current;try{current=await api('/api/task-draft/preview',source);}catch(e){if(!closed){showError(note,e.message);status.textContent='The draft could not start.';}return;}if(closed)return;
-   if(current.ai_available===false){preview=current;note.textContent=current.ai_unavailable_reason;note.hidden=false;return;}
-   if(!(await ask('Send the selected source to '+current.target.local_ai_model+' at '+current.target.local_ai_base_url+'? '+current.characters+' characters. The result stays an editable draft.',{ok:'Generate draft'})))return;
-   if(closed)return;preview=current;generating=true;note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();
-   try{
-    const job=await api('/api/task-draft/start',{...source,preview_token:preview.preview_token,approved:true});jobId=job.id;
-    if(closed){await api('/api/task-draft/cancel',{id:jobId});return;}
-    const check=async()=>{if(closed)return;try{const job=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=job.status+' · '+Math.max(0,Math.floor(Date.now()/1000-job.started_at))+' s';if(job.running){poll=setTimeout(check,700);return;}generating=false;if(job.error){showError(note,job.error+' You can still write the task manually.');}else if(job.text){area.value=job.text;extra.value=job.details||'';criterion.value=job.completion_criteria||'';editorDirty.set('task-draft',true);persist();}controls();area.focus();}catch(e){generating=false;showError(note,e.message);controls();}};
-    await check();
-   }catch(e){generating=false;showError(note,e.message);status.textContent='Generation failed. Write the task manually or try again.';controls();}
-   }finally{preparing=false;controls();}
-  });
-  submit.onclick=async()=>{
-   if(!link.value&&!area.value.trim()){area.setCustomValidity('Enter task text');area.reportValidity();return;}
-   if(!validDates(dialog))return;
-   saving=true;note.hidden=true;controls();
-   try{
-    const payload={...source,preview_token:preview.preview_token,operation_id:operation,title:area.value.trim()||'Link source evidence',details:extra.value,completion_criteria:criterion.value,owner:owner.value.trim()||null,due_date:due.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
-    if(submitted&&JSON.stringify(submitted)!==JSON.stringify(payload))throw new Error('Previous result uncertain. Retry unchanged or check My Work.');submitted=payload;
-    const created=await api('/api/task-draft/create',payload);
-    try{localStorage.removeItem(cacheKey);}catch{}createdTaskId=created.item_id;editorDirty.clear('task-draft');dialog.close();
-    if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
-    showCreatedTask(created.item_id,!!link.value);
-    try{await refreshAfterItemChange();revealTask(created.item_id);}catch(e){error('Task created. The list could not refresh. Use Open task or Refresh; do not create it again.');}
-   }catch(e){if(e.status>=400&&e.status<500)submitted=null;showError(note,e.message);}
-   finally{saving=false;controls();}
-  };
-  dialog.querySelector('form').onsubmit=event=>event.preventDefault();
-  controls();dialog.showModal();area.focus();
- });
 }
 // Improve with AI returns a sharper card as a suggestion; the person reviews it before saving — nothing is written (2026-11-14).
 // The fields stay editable while the AI works: a card the person changed meanwhile is replaced only after a confirmation.
@@ -1091,6 +1035,9 @@ function noteSection(minutes,field,title,busy,hint) {
   else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&state.settings?.meeting_task_ai&&detail.items?.[item.item_id];
    if(decision) meta.append(decisionBadge(decision));
    const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions){action.disabled=busy;for(const inner of action.querySelectorAll?.('button')||[])inner.disabled=busy||inner.disabled;}meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
+   // An unanswered question of the notes is often work in disguise: Make task turns it into a task for
+   // someone, and the task keeps this meeting and moment as its source (2026-11-14).
+   if(['open_questions','needs_decision'].includes(field)&&!decision){const make=btn('secondary small-action','Make task');make.disabled=busy;make.title='Turn this question into a task for someone; the task keeps this meeting and moment as its source';make.onclick=()=>perform(()=>openManualTask(detail.id,{text:item.text,evidence:item.evidence_timestamp||null}));meta.append(make);}
    if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText);const why=noteExplanation(field,item);if(why)li.append(why);li.append(meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
    if(field==='decisions'&&state.settings?.meeting_task_ai&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
@@ -2423,7 +2370,12 @@ function trackedQuestionCard(q){
   meta.append(statusBadge(q.status==='answered'?{tone:'ok',label:'Answered'}:{tone:'muted',label:'Open'}));const origin=questionOrigin(q.origin);if(origin)meta.append(el('span','',origin.replace(/^ · /,'')));
   main.append(top,meta);if(q.answer)main.append(el('p','question-answer',q.answer));
   const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Mark answered…');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});
-  const actions=el('div','action-group');actions.append(b);main.append(actions,projectAssignment(q),githubActions({kind:'item',id:q.id}),historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));row.append(main);return row;
+  const actions=el('div','action-group');actions.append(b);
+  // An open question that is really work becomes a task; the task keeps a link back to the question (2026-11-14).
+  if(q.status!=='answered'){const make=el('button','secondary small-action','Make task');make.type='button';make.title='Turn this question into a task for someone; the task stays linked to the question';make.onclick=()=>perform(()=>openManualTask(null,{text:q.text,question:q}));actions.append(make);}
+  const spawned=(itemsData.graph?.relationships||[]).filter(edge=>edge.kind==='derives_from'&&edge.to_id===q.id).map(edge=>itemsData.items.find(i=>i.id===edge.from_id)).filter(i=>i&&i.kind==='task');
+  for(const task of spawned){const open=el('button','quiet relation-line','Task: '+task.text);open.type='button';open.onclick=()=>perform(()=>openTaskPanel(task.id));main.append(open);}
+  main.append(actions,projectAssignment(q),githubActions({kind:'item',id:q.id}),historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));row.append(main);return row;
 }
 // The questions in meeting notes: the same list as Prepare me, from every meeting. Track or answer one to keep it here.
 function questionOrigin(origin){const meeting=origin&&itemsData.meetings?.[origin.meeting_id];return meeting?' · '+withDate(meeting.title,meeting.date):'';}
@@ -2437,7 +2389,8 @@ function renderMeetingQuestions(target){
   meta.append(statusBadge(q.kind==='decide'?{tone:'warn',label:'Needs your decision'}:{tone:'muted',label:'Open question'}),el('span','',meeting?withDate(meeting.title,meeting.date):'Meeting'));
   if(q.evidence_timestamp&&meeting?.has_audio)meta.append(listenButton(q.meeting_id,stampSeconds(q.evidence_timestamp),{label:q.evidence_timestamp,className:'quiet'}));
   actions.append(btn('secondary small-action','Mark answered…',()=>perform(async()=>{const answer=await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(answer===null)return;await graphAction('question',{text:q.text,source,answer});toast('Answer saved');})),
-   btn('secondary small-action','Track',()=>perform(async()=>{await graphAction('question',{text:q.text,source});toast('Question tracked in My Work');})));
+   btn('secondary small-action','Track',()=>perform(async()=>{await graphAction('question',{text:q.text,source});toast('Question tracked in My Work');})),
+   btn('secondary small-action','Make task',()=>perform(()=>openManualTask(q.meeting_id,{text:q.text,evidence:q.evidence_timestamp||null}))));
   main.append(top,meta,actions);row.append(main);target.append(row);
  }
 }
@@ -4048,16 +4001,19 @@ function renderChannelProfile(profile){
  for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-message'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+dateTime(message.date*1000)));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
 }
 
-async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null,expected:startExpected='',onCreated=null}={}){
+// One task dialog, wherever the task starts — My Work, a meeting, a notes line, an unanswered question,
+// Gmail, Chat, GitHub or a report (2026-11-14): same fields, same AI actions, same Create task.
+// With a source the dialog also shows the evidence and can link it to an existing task instead of creating one.
+async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null,expected:startExpected='',onCreated=null,question=null,evidence=null,source=null,sourcePreview=null}={}){
  if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
- if(!(await leaveEdits()))return;
-  const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle);
+ if(!(await leaveEdits()))return null;
+ const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle);
  // The same fields, names and order as the task editor: Title, Description, then owner, due date and context.
  const text=el('textarea');text.maxLength=1000;text.rows=2;text.required=true;text.setAttribute('aria-label','Title');text.placeholder='What needs to be done?';
  const details=el('textarea');details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Context, scope and links (optional)';
  const criterion=el('textarea');criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');criterion.placeholder='How we know it is done (optional)';
  // The owner is chosen from People, as in the task editor. A name from the notes that is not in People stays as said.
- const named=String(startOwner||'').trim(),known=(state.people||[]).find(p=>p.name.toLocaleLowerCase()===named.toLocaleLowerCase());
+ const named=String(startOwner||source?.capture_owner||'').trim(),known=(state.people||[]).find(p=>p.name.toLocaleLowerCase()===named.toLocaleLowerCase());
  const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...personOptions());
  if(named&&!known)owner.append(option(named+' · not in People','__named__'));owner.value=known?known.id:named?'__named__':'';
  const ownerName=()=>owner.value==='__named__'?named:(state.people||[]).find(p=>p.id===owner.value)?.name||'';
@@ -4065,30 +4021,112 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const meeting=el('select');meeting.setAttribute('aria-label','Meeting');meeting.append(option('No meeting · standalone task',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=meetingId||'';
  // A task from a line of the notes stays with that meeting: the line links to the new task.
  if(mention!==null)meeting.disabled=true;
- const project=el('select');project.setAttribute('aria-label','Project');const initial=(state.meetings||[]).find(m=>m.id===meetingId)?.project_id||(view==='projects'?contextProject():($('work-project').value!=='__none__'?$('work-project').value:''));fillProjects(project,initial||'','No project');
- let projectEdited=false;project.onchange=()=>{projectEdited=true;};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
- const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel');save.type=cancel.type='button';actions.append(cancel,save);
+ const project=el('select');project.setAttribute('aria-label','Project');
+ const initial=source?(Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject()):((state.meetings||[]).find(m=>m.id===meetingId)?.project_id||(view==='projects'?contextProject():($('work-project').value!=='__none__'?$('work-project').value:'')));
+ fillProjects(project,initial||'','No project');
+ let projectEdited=false;project.onchange=()=>{projectEdited=true;editorDirty.set(dirtyKey,true);};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
+ const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel'),draft=btn('secondary','Draft with AI…'),improve=btn('secondary','Improve with AI');save.type=cancel.type=draft.type=improve.type='button';actions.append(cancel,draft,improve,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
- text.value=startText;details.value=startDetails||'';due.value=startDue||'';criterion.value=startExpected;
- const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project),label('Meeting',meeting));box.append(label('Title',text),label('Description',details),label('Expected result',criterion),grid,actions);
- const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});if(mention===null)actions.insertBefore(refine,save);
- const improve=btn('secondary','Improve with AI');improve.onclick=()=>perform(async()=>{if(!text.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');const goal=project.value&&(state.projects?.projects||[]).find(p=>p.id===project.value)?.goal;
-  await improveWithAI(()=>({text:text.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{text.value=result.text||text.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;editorDirty.set('dialog:manual-task-dialog',true);text.focus();},improve,()=>dialog.open);});actions.insertBefore(improve,save);
- const requestId=crypto.randomUUID().replaceAll('-','');let submitted=null;
- cancel.onclick=()=>perform(()=>requestDialogClose(dialog,()=>dialog.close()));
+ text.value=startText;details.value=startDetails||'';due.value=startDue||source?.capture_due_date||'';criterion.value=startExpected;
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project));
+ // A meeting source already names its meeting; a typed draft can still choose one.
+ const withMeeting=!source||source.provider==='manual';if(withMeeting)grid.append(label('Meeting',meeting));
+ const note=el('p','notice');note.setAttribute('role','alert');note.hidden=true;
+ const status=el('p','hint');status.setAttribute('role','status');
+ let preview=sourcePreview||null,link=null;
+ const parts=[];
+ if(source){
+  parts.push(el('p','hint',preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+preview.target.local_ai_model+' · '+preview.target.local_ai_base_url+' · '+preview.characters+' source characters'));
+  const srcBox=el('details','task-source');srcBox.append(el('summary','','Source evidence'),el('blockquote','',preview.source_excerpt||''));parts.push(srcBox);
+ }
+ parts.push(label('Title',text),label('Description',details),label('Expected result',criterion),grid);
+ if(source){
+  link=el('select');link.setAttribute('aria-label','Create or link');
+  link.append(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));
+  link.value=source.capture_target&&itemsData.items.some(i=>i.id===source.capture_target&&i.acceptance_state!=='proposed')?source.capture_target:source.link_only?'__choose__':'';
+  link.onchange=()=>{editorDirty.set('task-draft',true);controls();};
+  parts.push(label('Create or link',link),el('p','hint','Link adds this evidence to an existing task; its wording, owner and state stay unchanged.'));
+  status.textContent='Review the source, generate a draft or write it yourself.';
+  if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
+ }
+ parts.push(status,note,actions);box.append(...parts);
+ let createdTaskId=null,resolveClose=null,submitted=null,jobId='',poll=null,generating=false,polling=false,saving=false,closed=false;
+ const dirtyKey=source?'task-draft':'dialog:manual-task-dialog',requestId=crypto.randomUUID().replaceAll('-','');
+ const linking=()=>!!(link&&link.value);
+ function controls(){
+  save.textContent=linking()?'Link evidence':'Create task';
+  save.disabled=saving||generating||link?.value==='__choose__'||(!linking()&&!text.value.trim());
+  text.disabled=details.disabled=criterion.disabled=owner.disabled=due.disabled=linking()||saving||generating;
+  meeting.disabled=mention!==null||linking()||saving||generating;project.disabled=saving||linking()||generating;
+  if(link)link.disabled=saving||generating;
+  draft.disabled=linking()||saving||generating||!!(source&&preview?.ai_available===false);
+  improve.disabled=linking()||saving||generating;cancel.disabled=saving;
+ }
+ text.oninput=()=>{text.setCustomValidity('');editorDirty.set(dirtyKey,true);controls();};
+ details.oninput=criterion.oninput=()=>editorDirty.set(dirtyKey,true);owner.oninput=due.onchange=()=>editorDirty.set(dirtyKey,true);
+ async function stop(){closed=true;if(poll)clearTimeout(poll);if(jobId&&generating){try{await api('/api/task-draft/cancel',{id:jobId});}catch{}}}
+ // Draft with AI works the same with or without a source: without one, the current title is the source.
+ draft.onclick=()=>perform(async()=>{
+  if(generating||saving||closed)return;
+  const src=source||(()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))throw new Error('Check the dates');return {provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:withMeeting?meeting.value||null:null};})();
+  generating=true;note.hidden=true;controls();
+  try{
+   if(source&&text.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
+   // An error here shows in this dialog: the page behind the dialog is not in view.
+   let current;try{current=await api('/api/task-draft/preview',src);}catch(e){if(!closed){showError(note,e.message);status.textContent='The draft could not start.';}return;}
+   if(closed)return;
+   if(current.ai_available===false){if(source)preview=current;note.textContent=current.ai_unavailable_reason;note.hidden=false;return;}
+   if(!(await ask('Send the selected source to '+current.target.local_ai_model+' at '+current.target.local_ai_base_url+'? '+current.characters+' characters. The result stays an editable draft.',{ok:'Generate draft'})))return;
+   if(closed)return;if(source)preview=current;
+   note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();
+   const job=await api('/api/task-draft/start',{...src,preview_token:current.preview_token,approved:true});jobId=job.id;
+   if(closed){await api('/api/task-draft/cancel',{id:jobId});return;}
+   const check=async()=>{if(closed)return;try{const state=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=state.status+' · '+Math.max(0,Math.floor(Date.now()/1000-state.started_at))+' s';if(state.running){poll=setTimeout(check,700);return;}polling=generating=false;if(state.error){showError(note,state.error+' You can still write the task manually.');}else if(state.text){text.value=state.text;details.value=state.details||'';criterion.value=state.completion_criteria||'';editorDirty.set(dirtyKey,true);}controls();text.focus();}catch(e){polling=generating=false;showError(note,e.message);controls();}};
+   polling=true;await check();
+  }catch(e){showError(note,e.message);status.textContent='Generation failed. Write the task manually or try again.';}
+  // The status poll outlives this handler: while it runs, the job still owns the dialog and Close cancels it.
+  finally{if(!polling)generating=false;controls();}
+ });
+ improve.onclick=()=>perform(async()=>{if(!text.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');const goal=project.value&&(state.projects?.projects||[]).find(p=>p.id===project.value)?.goal;
+  await improveWithAI(()=>({text:text.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{text.value=result.text||text.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;editorDirty.set(dirtyKey,true);text.focus();},improve,()=>dialog.open);});
+ async function discard(){if(saving)return;if(source&&editorDirty.keys().includes('task-draft')&&!(await ask('Discard this task draft?',{ok:'Discard',cancel:'Keep editing'})))return;await stop();dialog.close();}
+ dialog.oncancel=event=>{event.preventDefault();perform(()=>source?discard():requestDialogClose(dialog,()=>stop().then(()=>dialog.close())));};
+ dialog.onclose=()=>{stop();editorDirty.clear(dirtyKey);if(resolveClose)resolveClose(createdTaskId);};
+ cancel.onclick=()=>perform(()=>source?discard():requestDialogClose(dialog,()=>stop().then(()=>dialog.close())));
  save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
-  if(!text.value.trim()){text.focus();throw new Error('Enter a title');}if(!validDates(box))return;
+  if(!linking()&&!text.value.trim()){text.setCustomValidity('Enter task text');text.reportValidity();text.focus();return;}
+  if(!validDates(box))return;
+  if(source){
+   saving=true;note.hidden=true;controls();
+   try{
+    const payload={...source,preview_token:preview.preview_token,operation_id:requestId,title:text.value.trim()||'Link source evidence',details:details.value,completion_criteria:criterion.value,owner:ownerName()||null,due_date:due.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
+    if(source.provider==='manual')payload.capture_meeting_id=meeting.value||null;
+    if(submitted&&JSON.stringify(submitted)!==JSON.stringify(payload))throw new Error('Previous result uncertain. Retry unchanged or check My Work.');submitted=payload;
+    const created=await api('/api/task-draft/create',payload);
+    createdTaskId=created.item_id;editorDirty.clear(dirtyKey);await stop();dialog.close();
+    if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
+    showCreatedTask(created.item_id,linking());
+    try{await refreshAfterItemChange();revealTask(created.item_id);}catch(e){error('Task created. The list could not refresh. Use Open task or Refresh; do not create it again.');}
+   }catch(e){if(e.status>=400&&e.status<500)submitted=null;showError(note,e.message);}
+   finally{saving=false;controls();}
+   return;
+  }
   const body={text:text.value.trim(),details:details.value.trim()||null,owner:ownerName()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
   if(criterion.value.trim())body.completion_criteria=criterion.value.trim();
   if(mention!==null)body.mention_index=mention;
+  // A task from a question keeps the question link server-side; from a notes question, its moment (2026-11-14).
+  if(question)body.question_id=question.id;
+  if(evidence)body.evidence_timestamp=evidence;
   // A response lost after a successful save can be retried with the exact same request.
   if(submitted&&JSON.stringify(body)!==JSON.stringify(submitted))throw new Error('The previous result is uncertain. Retry with the same fields or check My Work before creating another task.');
   submitted=body;
   let item;await withEditorSave(box,async()=>{try{item=await api('/api/items/create',body);}catch(e){if(e.status>=400&&e.status<500&&e.status!==409)submitted=null;throw e;}});
-  editorDirty.clear('dialog:manual-task-dialog');dialog.close();if(onCreated){try{await onCreated(item);}catch(e){error('Task created, but its agreement link could not be saved: '+e.message);}}showCreatedTask(item.id);
+  editorDirty.clear(dirtyKey);dialog.close();if(onCreated){try{await onCreated(item);}catch(e){error('Task created, but its agreement link could not be saved: '+e.message);}}showCreatedTask(item.id);
   try{await refreshAfterItemChange();revealTask(item.id);}catch{error('Task saved. Refresh My Work to see it.');}
  }));
- dialog.showModal();text.focus();
+ controls();dialog.showModal();text.focus();
+ if(source)return new Promise(resolve=>resolveClose=resolve);
+ return null;
 }
 $('new-task').onclick=()=>perform(()=>openManualTask());
 $('meeting-add-task').onclick=()=>perform(()=>openManualTask(selected));
@@ -4323,7 +4361,7 @@ const dialogPolicies={
  'review-dialog':{close:'review-close',cancel:'review-cancel',actions:['review-apply','review-discard']},
  'settings-dialog':{close:'settings-close',cancel:'settings-cancel',form:'settings-form',actions:['type-prompt-save','type-prompt-reset'],custom:true},
  'github-draft-dialog':{close:'github-draft-close',cancel:'github-draft-cancel',actions:['github-publish-preview'],custom:true},
- 'task-panel':{custom:true},'task-draft-dialog':{custom:true},
+ 'task-panel':{custom:true},
  'reprocess-dialog':{close:'reprocess-close',actions:['reprocess-run'],transient:true},
  'viewer-dialog':{close:'viewer-close',transient:true},
  'conversation-reader':{close:'conversation-reader-close',transient:true},
@@ -4344,7 +4382,7 @@ function dialogChanged(dialog){return editorDirty.keys().includes('dialog:'+dial
 function markDialogDirty(event){
  const dialog=event.target.closest?.('dialog');if(!dialog)return;
  const policy=dialogPolicies[dialog.id];
- if(policy?.transient||dialog.id==='task-draft-dialog'||dialog.id==='task-panel')return;
+ if(policy?.transient||dialog.id==='task-panel')return;
  // Parent editors do not own changes made in a nested dialog.
  editorDirty.set('dialog:'+dialog.id,true);
 }
@@ -4417,7 +4455,7 @@ document.addEventListener('close',event=>{if(event.target.tagName==='DIALOG'){ed
 document.addEventListener('cancel',event=>{
  const dialog=event.target,policy=dialogPolicies[dialog.id];if(!policy)return;
  if(dialogJobs.has(dialog)){event.preventDefault();event.stopImmediatePropagation();toast('Wait for the current operation to finish');return;}
- if(['task-draft-dialog','task-panel','ask-dialog'].includes(dialog.id))return;
+ if(['manual-task-dialog','task-panel','ask-dialog'].includes(dialog.id))return;
  event.preventDefault();event.stopImmediatePropagation();
  perform(()=>requestDialogClose(dialog,policy.dismiss));
 },true);

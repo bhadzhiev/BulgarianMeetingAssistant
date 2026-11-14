@@ -18,7 +18,7 @@ The task card shows saved sources and local history. It does not claim to import
 
 Task model version 1 adds an optional **Followed by** person independently of owner and assigner. Legacy open/done tasks migrate without moving into Inbox. Existing AI tasks without review receipts get an explicit legacy badge and can be reviewed gradually. Archive/Restore includes standalone user tasks and preserves manager fields, IDs and history.
 
-Select transcript segments and choose **Task from selection**. The same source editor handles Gmail, Chat, GitHub and repository findings, and **New task → Draft with AI** handles free text. Generation is optional and uses the explicit source/provider preview. It suggests title, context and expected result; owner, requester and due date are entered by a person. Cancel returns to the original quick-capture form. No task is created until confirmation.
+Every new task uses one and the same task editor, whatever the source: transcript selection (**Task from selection**), Gmail, Chat, GitHub, repository findings, an unanswered meeting question (**Make task**), or free text (**New task**). The dialog always offers the same fields and the same actions — **Draft with AI**, **Improve with AI**, **Create or link**. When a source is attached, its evidence and the AI provider preview are shown inside the dialog, generation is optional, and the source, evidence, task fields, routing and retry receipt commit together. A task made from a question keeps a lasting link back to that question. No task is created until confirmation.
 
 **Improve with AI** (new-task dialog and task editor) sends the current card — title,
 description, expected result, plus the chosen project's goal when there is one — to the
@@ -29,8 +29,10 @@ The fields stay editable while the AI works. If the person changes the card mean
 asks before it replaces the changes with the suggestion. Closing the form, or a failed status
 check, cancels the job. The new-task dialog has the same **Expected result** field as the
 task editor, so a suggested expected result is not lost.
-With reasoning on **Automatic**, a cloud API is asked for **low** thinking on this improvement,
-so the editor does not wait for a long reasoning pass. A local server keeps its own default.
+With reasoning on **Automatic**, a cloud API or a thinking local model (qwen3.5) is asked for
+**no** thinking on this improvement, so the editor does not wait for a reasoning pass at all.
+Kimi K3 always thinks and rejects a no-thinking request, so there Atlanta asks for its lightest
+valid effort (**low**). Another local server keeps its own default.
 
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 
@@ -54,4 +56,4 @@ Prepare me adds local updates, waiting tasks, due follow-ups and cached GitHub a
 
 Repository readiness verifies read access, repository identity and whether Issues are enabled. It does not claim to prove token Issues write permission from repository push access; that is checked by GitHub only after explicit publication approval. Existing preview, editable drafts, Copy Markdown and durable operation markers remain in use. Unknown publication outcomes can be found and checked from the task card after restart; there is no automatic POST retry. An issue closing or reopening offers a local review action, never an automatic status rewrite.
 
-Manual task capture and evidence linking work with AI disabled or unconfigured. Only **Generate draft** requires a valid AI provider; no worker starts without it.
+Manual task capture and evidence linking work with AI disabled or unconfigured. Only **Draft with AI** requires a valid AI provider; no worker starts without it.

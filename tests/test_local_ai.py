@@ -55,6 +55,13 @@ class LocalAITests(unittest.TestCase):
         for limit in [True,0,127,32769,'4096']:
             with self.assertRaises(ValueError):complete_json(dict(DEFAULTS,local_ai_max_tokens=limit),[],SCHEMA,'test')
 
+    def test_a_call_can_cap_the_output_limit_below_the_settings_budget(self):
+        # Improve with AI caps a short rewrite so a rambling model cannot keep the open editor waiting.
+        with patch('meeting_assistant.post_json',return_value=response({'ok':True})) as post:
+            complete_json(dict(DEFAULTS,local_ai_max_tokens=8192),[],SCHEMA,'task_polish',max_tokens=2048)
+            self.assertEqual(post.call_args.args[1]['max_tokens'],2048)
+        with self.assertRaises(ValueError):complete_json(DEFAULTS,[],SCHEMA,'task_polish',max_tokens=100)
+
     def test_automatic_qwen_meeting_tasks_disable_reasoning_before_first_request(self):
         from app import correction
         # Reproduce a server that exhausts its budget on thinking unless disabled.
@@ -91,6 +98,7 @@ class LocalAITests(unittest.TestCase):
             ('not-qwen3.5-9b', 'meeting_minutes', False),
             ('qwen3.5-9b', 'gmail_tasks', False),
             ('qwen3.5-9b', 'meeting_answer', False),
+            ('qwen3.5-9b', 'task_polish', True),
         ]:
             with self.subTest(model=model, name=name), patch('meeting_assistant.post_json', return_value=response({})) as post:
                 complete_json(dict(DEFAULTS, local_ai_model=model), [], SCHEMA, name)
@@ -109,10 +117,17 @@ class LocalAITests(unittest.TestCase):
             complete_json(dict(cloud, local_ai_reasoning='low'), [], SCHEMA, 'meeting_minutes')
             self.assertEqual(post.call_args.args[1]['reasoning_effort'], 'low')
 
-    def test_automatic_policy_asks_a_cloud_api_for_low_thinking_on_team_analysis_and_task_polish(self):
+    def test_automatic_policy_limits_thinking_on_team_analysis_and_task_polish(self):
+        # Improve with AI waits in an open editor: on a cloud API or a thinking local model it asks for
+        # no reasoning at all, except on Kimi K3 which always thinks and takes low as its lightest
+        # (2026-11-14); team analysis keeps low for the behavioral judgment.
         cloud = dict(DEFAULTS, local_ai_base_url='https://api.example.com/v1', local_ai_model='cloud-model')
-        for name, base, expected in [('team_analysis', cloud, 'low'), ('task_polish', cloud, 'low'), ('task_draft', cloud, None),
-                                     ('task_polish', DEFAULTS, None)]:
+        qwen = dict(DEFAULTS, local_ai_model='qwen3.5-9b')
+        plain_local = dict(DEFAULTS, local_ai_model='mistral-7b')
+        kimi = dict(cloud, local_ai_model='kimi-k3.1-pro')
+        for name, base, expected in [('team_analysis', cloud, 'low'), ('task_polish', cloud, 'none'), ('task_draft', cloud, None),
+                                     ('task_polish', qwen, 'none'), ('task_polish', plain_local, None),
+                                     ('task_polish', kimi, 'low'), ('meeting_minutes', kimi, 'low')]:
             with self.subTest(name=name, url=base['local_ai_base_url']), patch('meeting_assistant.post_json', return_value=response({})) as post:
                 complete_json(base, [], SCHEMA, name)
                 self.assertEqual(post.call_args.args[1].get('reasoning_effort'), expected)

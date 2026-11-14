@@ -20,7 +20,7 @@ function fixture(){
 (async()=>{
  const f=fixture(),policies=JSON.parse(vm.runInContext('JSON.stringify(dialogPolicies)',f.c));
  const ids=[...html.matchAll(/<dialog id="([^"]+)"/g)].map(m=>m[1]);
- assert.deepEqual(Object.keys(policies).sort(),ids.sort(),'Every actual modal needs an explicit policy');assert.equal(ids.length,26);
+ assert.deepEqual(Object.keys(policies).sort(),ids.sort(),'Every actual modal needs an explicit policy');assert.equal(ids.length,25);
  const htmlIds=new Set([...html.matchAll(/id="([^"]+)"/g)].map(m=>m[1]));
  for(const p of Object.values(policies))for(const id of [p.close,p.cancel,p.form,...(p.actions||[]),...(p.otherClose||[])].filter(Boolean))assert(htmlIds.has(id),'Missing dialog control '+id);
  for(const [id,p] of Object.entries(policies)){
@@ -46,11 +46,11 @@ function fixture(){
  const a=vm.runInContext("requestDialogClose($('person-dialog'),()=>$('person-dialog').close())",pending.c);
  const b=vm.runInContext("requestDialogClose($('person-dialog'),()=>{throw new Error('second close')})",pending.c);
  answer(false);assert.equal(await a,false);assert.equal(await b,false);
- // The dynamic manual-task editor also has a real Escape dismiss callback.
- const manual=fixture();manual.c.editorDirty.set('dialog:manual-task-dialog',true);manual.answers.push(false);
- const escapeManual={target:manual.e('manual-task-dialog'),preventDefault(){},stopImmediatePropagation(){}};
- manual.listeners.cancel[0](escapeManual);await tick();assert(manual.e('manual-task-dialog').open);
- manual.answers.push(true);manual.listeners.cancel[0](escapeManual);await tick();assert(!manual.e('manual-task-dialog').open);
+ // The unified task editor handles Escape itself (it may hold a running AI draft),
+ // so the global cancel handler must not pre-empt its own oncancel callback.
+ const manual=fixture();const escapeManual={target:manual.e('manual-task-dialog'),preventDefault(){this.prevented=true;},stopImmediatePropagation(){}};
+ manual.listeners.cancel[0](escapeManual);assert(!escapeManual.prevented,'global cancel leaves manual-task-dialog to its own oncancel');
+ assert(source.includes("dialog.oncancel=event=>{event.preventDefault();perform(()=>source?discard():"),'openManualTask installs its own Escape handler');
  // The new-project prompt must also close with Escape without a missing callback.
  const project=fixture();const escapeProject={target:project.e('project-dialog'),preventDefault(){this.prevented=true;},stopImmediatePropagation(){}};
  project.listeners.cancel[0](escapeProject);await tick();assert(escapeProject.prevented);assert(!project.e('project-dialog').open);

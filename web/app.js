@@ -375,7 +375,7 @@ async function perform(fn) {
 function hasEdits() { return dirtyTranscript || dirtyNotes || itemEditing || speakerNaming || editorDirty.has(); }
 // What a person would lose, in their words, so the question says what it is about.
 const EDITOR_NAMES={'task-draft':'task draft','task-panel':'task changes','meeting-review':'review edit','inline-edit':'note edit',
- 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','team-agreements':'actions and goals','team-previous':'states of the last 1:1','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
+ 'project-repositories':'project links','team-review':'1:1 review edit','team-notes':'conversation notes','team-agreements':'actions and goals','team-previous':'states of the last 1:1','team-context':'private preparation context','team-conversation':'conversation date','type-prompt':'meeting-type instructions','ai-prompts':'AI instructions','turn-speaker':'speaker change'};
 function unsavedNames(){
  const names=[dirtyTranscript&&'transcript corrections',dirtyNotes&&'notes changes',itemEditing&&'task changes',speakerNaming&&'speaker name',
   ...editorDirty.keys().map(key=>key.startsWith('dialog:')?'changes in the open window':EDITOR_NAMES[key]||'changes')];
@@ -570,7 +570,7 @@ function currentRoute(){
  if(view==='detail'&&selected){q.set('meeting',selected);if(meetingTab!=='transcript')q.set('tab',meetingTab);}
  else if(view==='tasks'){q.set('view','work');q.set('tab',workTab);if(workTab==='gmail'&&mailThread)q.set('source',mailThread);if(workTab==='chat'&&chatSpace)q.set('source',chatSpace);if(workTab==='github'){if(ghSection==='reports'){q.set('section','reports');if(repoReportId)q.set('report',repoReportId);}else if(ghItem)q.set('source',String(ghItem));}}
  else if(view==='projects'){q.set('view','projects');const project=$('workspace-project').value;if(project)q.set('project',project);if(workspaceSection!=='overview')q.set('section',workspaceSection);if(workspaceSection==='work'&&workspaceWorkKind)q.set('kind',workspaceWorkKind);}
- else if(view==='team'){q.set('view','team');if(teamReviewId)q.set('review',teamReviewId);else if(teamTab!=='members')q.set('tab',teamTab);}
+ else if(view==='team'){q.set('view','team');if(teamHistoryPersonId)q.set('person',teamHistoryPersonId);if(teamReviewId)q.set('review',teamReviewId);else if(teamTab!=='members')q.set('tab',teamTab);}
  else if(view==='prepare'){q.set('view','prepare');if(prepareScope.project)q.set('project',prepareScope.project);if(prepareScope.series)q.set('series',prepareScope.series);if(prepareScope.type)q.set('type',prepareScope.type);}
  else if(view==='importing')q.set('view','importing');
  else if(view==='calendar'){q.set('view','calendar');q.set('day',calendarDay);if($('calendar-project').value)q.set('project',$('calendar-project').value);}
@@ -595,7 +595,7 @@ async function applyRoute(){
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
    workspaceSection=q.get('section')||'overview';workspaceWorkKind=['task','decision','question'].includes(q.get('kind'))?q.get('kind'):'';await $('open-projects').onclick();
   }
-  else if(target==='team'){const review=q.get('review');if(review&&/^[a-f0-9]{12}$/.test(review))await openTeamReview(review);else await openTeam(q.get('tab')==='reviews'?'reviews':'members');}
+  else if(target==='team'){const review=q.get('review');if(review&&/^[a-f0-9]{12}$/.test(review))await openTeamReview(review);else if(q.get('person'))await openTeamPerson(q.get('person'));else await openTeam(q.get('tab')==='reviews'?'reviews':'members');}
   else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
   else if(target==='importing')await openImport();
   else if(target==='calendar')await openCalendar(q.get('day'),q.get('project')||'');
@@ -3373,10 +3373,11 @@ let workspaceWorkKind='';
 let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null,teamReviewId='',teamReview=null,teamReviewRows=null,teamReviewPerson=null;
 // The unsaved edits of the open 1:1 review. A save of one part re-renders the panel; the other parts keep their edits.
 let teamDrafts={};
+let teamHistoryPersonId='',teamHistoryRows=[],teamHistorySequence=0,teamHistoryLoading=false,teamHistoryError='';
 async function openTeam(tab){
- if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;teamReviewId='';teamReview=null;show('team');renderLibrary();await loadTeam();
+ if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;if(teamTab==='members')teamHistoryPersonId='';teamReviewId='';teamReview=null;show('team');renderLibrary();await loadTeam();
 }
-async function loadTeam(){const sequence=++teamSequence,[fresh,reviews]=await Promise.all([api('/api/team'),api('/api/team/reviews')]);if(sequence!==teamSequence||view!=='team')return;teamData=fresh;teamReviewRows=reviews.reviews;renderTeam();}
+async function loadTeam(){const sequence=++teamSequence,[fresh,reviews]=await Promise.all([api('/api/team'),api('/api/team/reviews')]);if(sequence!==teamSequence||view!=='team')return;teamData=fresh;teamReviewRows=reviews.reviews;renderTeam();if(teamHistoryPersonId)await loadTeamHistory(teamHistoryPersonId);}
 function teamPeriodText(periods){
  const last=periods.at(-1);if(!last)return '';
  return last.end===null?'In the team since '+date(last.start):'In the team '+date(last.start)+' · left '+date(last.end);
@@ -3385,7 +3386,7 @@ function teamCard(member,person){
  const card=el('article','entity-card team-card'),main=el('div','entity-main'),top=el('div','entity-top'),chips=el('div','entity-chips'),meta=el('div','entity-meta');
  const projects=member.project_ids.map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
  if(projects.length===1&&projects[0].color){card.classList.add('has-project-line');card.style.setProperty('--project-color',projects[0].color);}
- top.append(btn('entity-title',person.name,()=>perform(()=>openPerson(person.id))));for(const project of projects)chips.append(projectChip(project));
+ top.append(btn('entity-title',person.name,()=>perform(()=>openTeamPerson(person.id))));for(const project of projects)chips.append(projectChip(project));
  const change=member.active?btn('quiet','Leave the team…',()=>openTeamDialog('leave',person)):btn('quiet','Rejoin the team…',()=>openTeamDialog('join',person));
  top.append(chips,rowMenu('More actions for '+person.name,btn('quiet','Open profile',()=>perform(()=>openPerson(person.id))),change));
  const identity=personIdentity(person);if(identity)meta.append(el('span','',identity));
@@ -3417,7 +3418,7 @@ function renderTeam(){
   for(const member of rows)list.append(teamCard(member,people.get(member.id)));
   if(!rows.length)list.append(emptyNote(teamStatus==='active'?(project?'No active member works in this project.':'No active members. Rejoin a former member or add a person.'):(project?'No former member worked in this project.':'No former members. A person who leaves the team stays here with the history.')));
  }
- $('team-review-panel').hidden=true;renderTeamReviews();
+ $('team-review-panel').hidden=true;renderTeamReviews();renderTeamHistory();
 }
 // One dialog adds a person, ends a period or starts a new one. The date is the first day in the team, or the first day outside it.
 function openTeamDialog(action,person=null){
@@ -3433,6 +3434,52 @@ function openTeamDialog(action,person=null){
  if(!person&&!candidates.length){$('team-error').textContent='Everybody in People is already in your team. Add a new person in Settings → People first.';$('team-error').hidden=false;}
  $('team-save').disabled=!person&&!candidates.length;$('team-dialog').showModal();
 }
+// A person is the entry point. Old versions stay under the review they correct, not separate conversations.
+async function openTeamPerson(id){
+ if(!(await leaveEdits())){$('team-history-person').value=teamHistoryPersonId;return;}teamHistoryPersonId=id;teamHistoryRows=[];teamHistoryLoading=!!id;teamHistoryError='';teamTab='reviews';teamReviewId='';teamReview=null;dirtyTranscript=dirtyNotes=false;selected=null;show('team');renderLibrary();renderTeamHistory();await loadTeam();
+}
+async function loadTeamHistory(id){
+ const sequence=++teamHistorySequence;let data;try{data=await api('/api/team/reviews?person='+encodeURIComponent(id));}catch(e){if(id===teamHistoryPersonId){teamHistoryLoading=false;teamHistoryError=e.message;renderTeamHistory();}throw e;}
+ if(sequence!==teamHistorySequence||id!==teamHistoryPersonId||view!=='team'||teamReviewId)return;
+ teamHistoryRows=data.reviews;teamHistoryLoading=false;teamHistoryError='';renderTeamHistory();
+}
+function currentReviewRows(rows){return rows.filter(r=>r.status!=='superseded'&&!(r.status==='draft'&&r.supersedes));}
+function openReviewAgreements(rows){
+ const seen=new Set(),out=[];
+ for(const r of currentReviewRows(rows))for(const a of r.agreements||[]){if(seen.has(a.id))continue;seen.add(a.id);if(a.status==='open')out.push({...a,review_id:r.id});}
+ return out;
+}
+function renderTeamHistory(){
+ const select=$('team-history-person'),box=$('team-person-history');
+ const ids=new Set([...(teamData?.members||[]).map(m=>m.id),...(teamReviewRows||[]).map(r=>r.person_id),teamHistoryPersonId]);
+ const self=(state.people||[]).find(p=>p.name===state.settings?.self_name);if(self)ids.add(self.id);
+ select.replaceChildren(option('Choose a person',''),...(state.people||[]).filter(p=>ids.has(p.id)).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>option(p.name,p.id)));
+ select.value=teamHistoryPersonId;box.replaceChildren();
+ if(!teamHistoryPersonId){box.append(emptyNote('Choose a person to see their review history and what needs a conversation.'));return;}
+ const person=(state.people||[]).find(p=>p.id===teamHistoryPersonId);if(!person){box.append(emptyNote('This person is no longer in People. The reviews remain in the archive.'));return;}
+ if(teamHistoryLoading){box.append(el('p','hint','Loading '+person.name+'’s history…'));return;}if(teamHistoryError){box.append(el('p','error',teamHistoryError),actionBtn('secondary','Retry history',()=>loadTeamHistory(person.id)));return;}
+ const rows=teamHistoryRows.filter(r=>r.person_id===person.id),head=el('section','card team-history-head');
+ const top=el('div','card-heading');top.append(el('h2','',person.name),actionBtn('quiet small-action','Open profile',()=>openPerson(person.id)));head.append(top);
+ const draft=rows.find(r=>r.status==='draft'),actions=el('div','action-group');actions.append(draft?actionBtn('primary','Continue preparation',()=>openTeamReview(draft.id)):actionBtn('primary','Prepare next conversation',()=>openPrepareReview(person)));head.append(actions);box.append(head);
+ const open=openReviewAgreements(rows),next=el('section','card team-next-conversation');next.append(el('h3','','For the next conversation'));
+ if(!open.length)next.append(el('p','hint','No open agreements recorded. Add what you agree after the conversation.'));
+ for(const a of open){const line=el('div','team-history-agreement');line.append(el('p','',a.text),el('p','hint',(a.owner==='manager'?'My support':a.owner==='both'?'Both':'The person')+(a.due_date?' · check by '+date(a.due_date):'')),actionBtn('quiet small-action','Check agreement',()=>openTeamReview(a.review_id)));if(a.expected_result)line.append(el('p','hint','Expected: '+a.expected_result));next.append(line);}box.append(next);
+ const order=el('select');order.setAttribute('aria-label','History order');order.append(option('Newest first','newest'),option('Oldest first','oldest'));
+ const list=el('div','team-review-timeline');const draw=()=>{
+  list.replaceChildren();const visible=currentReviewRows(rows).slice();if(order.value==='oldest')visible.reverse();
+  for(const r of visible){const card=teamReviewCard(r),main=card.querySelector('.entity-main');
+   main.append(el('p','hint',r.conversation_at?'Conversation held · '+dateTime(r.conversation_at):'Conversation not recorded as held'));
+   if(r.overlaps?.length)main.append(el('p','notice','Overlapping period · check before comparing'));
+   for(const h of r.highlights||[])main.append(el('p','team-timeline-agreement',h.label+' · '+h.text));
+   for(const a of r.agreements||[])main.append(el('p','team-timeline-agreement',a.text+' · '+(a.owner==='manager'?'Me':a.owner==='both'?'Both':'The person')+' · '+a.status+(a.verified_at?' · result checked':'')));
+   const related=new Set([r.id]);let changed=true;while(changed){changed=false;for(const v of rows)if((related.has(v.supersedes)||related.has(v.superseded_by))&&!related.has(v.id)){related.add(v.id);changed=true;}}
+   const versions=rows.filter(v=>v.id!==r.id&&related.has(v.id));
+   if(versions.length){const details=el('details','team-review-versions');details.append(el('summary','','Versions · '+versions.length),...versions.map(teamReviewCard));main.append(details);}list.append(card);
+  }
+  if(!visible.length)list.append(emptyNote('No reviews yet. Prepare the first conversation.'));
+ };order.onchange=draw;box.append(el('h3','','Review history'),order,list);draw();syncRoute(true);
+}
+$('team-history-person').onchange=()=>perform(()=>openTeamPerson($('team-history-person').value));
 // Reviews: every 1:1 review with its person, period, status and coverage. Search by person, filter by status.
 const REVIEW_STATUS={draft:{tone:'warn',label:'Draft'},finalized:{tone:'ok',label:'Finalized'},superseded:{tone:'muted',label:'Superseded'}};
 function reviewPeriod(period){const at=value=>dateTime(value);return at(period.start)+' – '+at(period.end)+' · '+period.timezone;}
@@ -3473,22 +3520,24 @@ $('team-review-close').onclick=()=>$('team-review-dialog').close();
 async function openTeamReview(id,{saved=false}={}){
  // After a save in a dialog nothing is unsaved; the dialog save is still settling.
  if(!saved&&!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;
- const review=await api('/api/team/review?id='+encodeURIComponent(id));teamReviewId=id;teamReview=review;show('team');renderLibrary();renderTeamReview();
+ const sequence=++teamSequence,request=readers.start('team-review'),review=await api('/api/team/review?id='+encodeURIComponent(id));if(sequence!==teamSequence||!readers.current(request))return;teamReviewId=id;teamHistoryPersonId=review.person_id;teamReview=review;show('team');renderLibrary();renderTeamReview();
 }
 function renderTeamReview(){
  const r=teamReview,box=$('team-review-panel');$('team-members-panel').hidden=$('team-reviews-panel').hidden=true;box.hidden=false;
  for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab==='reviews';b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
- editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');syncRoute(true);
+ editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');editorDirty.clear('team-context');editorDirty.clear('team-conversation');syncRoute(true);
  if(teamDrafts.id!==r.id)teamDrafts={id:r.id};
  const drafts=teamDrafts;
- const back=actionBtn('quiet team-back','← All reviews',()=>openTeam('reviews'));
+ const back=actionBtn('quiet team-back','← Person’s history',()=>openTeamPerson(r.person_id));
  const head=el('div','card team-review-head'),title=el('h2','',reviewPersonName(r)+' · 1:1 review'),meta=el('div','entity-meta');
  meta.append(statusBadge(REVIEW_STATUS[r.status]||{tone:'muted',label:r.status}),el('span','',reviewPeriod(r.period)),el('span','','Version '+r.version),el('span','',reviewCoverage(r)));
  head.append(el('p','eyebrow','1:1 REVIEW'),title,meta);
+ if(r.overlaps?.length)head.append(el('p','notice','This period overlaps '+AtlantaUX.count(r.overlaps.length,'finalized review')+'. Counts cannot be added together. Check the periods before finalizing.'));
  // The limitations are in the Coverage section of the review; the head names only what waits for a person.
  if(r.coverage?.excluded)head.append(el('p','hint',AtlantaUX.count(r.coverage.excluded,'item')+' excluded from the analysis · '+(r.coverage.excluded===1?'it needs':'they need')+' confirmation. See Coverage.'));
  if(r.status==='superseded'&&r.superseded_by)head.append(el('p','notice','A newer version replaces this review.'));
  // A source that changed after the review: a finalized review stays fixed and suggests a new version.
+ if(r.facts_need_refresh)head.append(el('p','notice',r.status==='draft'?'This preparation uses earlier counting rules. Refresh facts to separate old work from new activity.':'This fixed review uses earlier counting rules. Create a new version to refresh its facts.'));
  const changes=r.source_changes||[];
  if(changes.length&&r.status!=='superseded'){const box=el('details','notice team-source-changes');box.append(el('summary','',AtlantaUX.count(changes.length,'source')+' changed after this review was collected.'+(r.status==='finalized'?' Make a new version to correct it.':' Collect the facts again to update it.')),...changes.map(c=>el('p','hint',(c.removed?'Removed · ':'Changed · ')+c.text)));head.append(box);}
  // The AI run of this review: what wrote it, or that it is incomplete and blocks Finalize.
@@ -3506,11 +3555,11 @@ function renderTeamReview(){
  if(drafts.review_md!==undefined&&draft&&drafts.review_md!==r.review_md){text.value=drafts.review_md;editorDirty.set('team-review',true);}else{delete drafts.review_md;text.value=r.review_md;}
  const saveText=async()=>{if(text.value!==teamReview.review_md){teamReview=await api('/api/team/review/save',{id:r.id,revision:teamReview.revision,review_md:text.value});}delete drafts.review_md;editorDirty.clear('team-review');};
  if(draft){
-  actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision});toast('Review finalized');renderTeamReview();}),
+  actions.append(actionBtn('primary','Finalize',async()=>{if(!(await ask('Finalize this review? The review text is then fixed. A correction becomes a new version. The conversation notes stay editable.',{ok:'Finalize'})))return;if(r.overlaps?.length&&!(await ask('This period overlaps another finalized review. Keep this overlapping period?',{ok:'Keep overlapping period'})))return;await saveText();teamReview=await api('/api/team/review/finalize',{id:r.id,revision:teamReview.revision,acknowledge_overlap:!!r.overlaps?.length});toast('Review finalized');renderTeamReview();}),
    actionBtn('secondary','Save draft',async()=>{await saveText();toast('Draft saved');renderTeamReview();}),
    actionBtn('secondary','Collect GitHub contribution…',()=>openTeamGitHub(r)),
    actionBtn('secondary','Prepare with AI…',()=>openTeamAI(r)),
-   ...([actionBtn('secondary','Collect facts again',async()=>{if(!(await ask('Collect the facts of this period again? The new facts replace the review text, also your edits, the GitHub part and the AI part. The conversation notes stay.',{ok:'Collect again'})))return;teamReview=await api('/api/team/review/collect',{id:r.id,revision:teamReview.revision});delete drafts.review_md;editorDirty.clear('team-review');toast('Facts collected again');renderTeamReview();})]),
+   actionBtn('secondary','Refresh facts…',()=>previewTeamFacts(r)),
    actionBtn('quiet danger-text','Discard draft',async()=>{if(!(await ask('Discard this draft? The next period does not change.',{ok:'Discard draft',danger:true})))return;await api('/api/team/review/discard',{id:r.id,revision:teamReview.revision});editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');teamDrafts={};toast('Draft discarded');await openTeam('reviews');}));
  }else{
   if(r.status==='finalized')actions.append(actionBtn('secondary','New version…',async()=>{if(!(await ask('Make a new version to correct this review? This review stays as it is until you finalize the new version.',{ok:'Make new version'})))return;const fresh=await api('/api/team/review/version',{id:r.id});await openTeamReview(fresh.id);}));
@@ -3521,6 +3570,7 @@ function renderTeamReview(){
  // The version links: to the newer review, and to the one that this version replaces.
  if(r.status==='superseded'&&r.superseded_by)actions.prepend(actionBtn('primary','Open the newer version',()=>openTeamReview(r.superseded_by)));
  if(r.supersedes)actions.append(actionBtn('quiet','Open the version it replaces',()=>openTeamReview(r.supersedes)));
+ const secondary=[...actions.children].filter(b=>['Collect GitHub contribution…','Refresh facts…','Discard draft','Export Markdown','Delete review…'].includes(b.textContent));if(secondary.length)actions.append(rowMenu('More review actions',...secondary));
  head.append(actions);
  const body=el('section','card team-review-body');body.append(el('h3','','Review'));
  // A draft reads like the final review; Edit text opens the Markdown.
@@ -3528,16 +3578,67 @@ function renderTeamReview(){
   // Unsaved edits of the text stay open in the editor, so they are in view.
   if(drafts.review_md!==undefined)queueMicrotask(()=>edit.click());edit.onclick=()=>{const open=text.hidden;text.hidden=!open;view.hidden=open;edit.textContent=open?'Show the review':'Edit text';if(open)text.focus();};body.querySelector('h3').after(edit);body.append(view,text);}
  else body.append(markdownBlock(r.review_md));
+ for(const section of body.querySelectorAll('.markdown'))quietReviewSections(section);
  body.append(evidenceList(r));
  const notesCard=el('section','card team-review-notes'),notes=el('textarea','team-notes-text');notes.rows=8;notes.placeholder='Notes, agreed actions and goals of the conversation';notes.setAttribute('aria-label','Conversation notes');
  if(drafts.notes_md!==undefined&&drafts.notes_md!==r.notes_md){notes.value=drafts.notes_md;editorDirty.set('team-notes',true);}else{delete drafts.notes_md;notes.value=r.notes_md;}
  notes.oninput=()=>{const edited=notes.value!==teamReview.notes_md;if(edited)drafts.notes_md=notes.value;else delete drafts.notes_md;editorDirty.set('team-notes',edited);};
  const saveNotes=actionBtn('secondary small-action','Save notes',async()=>{const value=notes.value;teamReview=await api('/api/team/review/notes',{id:r.id,revision:teamReview.revision,notes_md:value});if(notes.value===value){delete drafts.notes_md;editorDirty.clear('team-notes');}toast('Notes saved');});
  notesCard.append(el('h3','','Conversation notes'),el('p','hint','Separate from the review. Edit them before and after the conversation; they never change the review.'),notes,saveNotes);
- box.replaceChildren(back,head,...(r.previous_agreements?.agreements?.length?[previousAgreementsCard(r.previous_agreements,drafts)]:[]),body,notesCard,agreementsCard(r,drafts));
+ box.replaceChildren(back,head,...(r.previous_agreements?.agreements?.length?[previousAgreementsCard(r.previous_agreements,drafts)]:[]),reviewConversationCard(r,drafts),...(r.outstanding_agreements?.length?[outstandingAgreementsCard(r.outstanding_agreements)]:[]),body,privateContextCard(r,drafts),...(r.private_preparation?[privatePreparationCard(r)]:[]),notesCard,agreementsCard(r,drafts));
+}
+function quietReviewSections(root){
+ const headings=[...root.querySelectorAll('h2')];
+ for(const heading of headings){
+  const children=[];let next=heading.nextElementSibling;while(next&&next.tagName!=='H2'){children.push(next);next=next.nextElementSibling;}
+  if(children.length===1&&children[0].tagName==='P'&&/^_?(No confirmed|No accepted|No recorded|Not collected yet|The AI step suggests questions|This is the first review)/.test(children[0].textContent.trim())){children[0].remove();heading.remove();continue;}
+  if(!['Coverage','Tasks','GitHub contribution','Change since the last review'].includes(heading.textContent.trim()))continue;
+  const details=el('details','team-review-section');details.append(el('summary','',heading.textContent));heading.before(details);for(const child of children)details.append(child);heading.remove();
+ }
+}
+
+function outstandingAgreementsCard(rows){
+ const card=el('section','card');card.append(el('h3','','Still open from earlier conversations'));
+ for(const a of rows){const line=el('div','team-history-agreement');line.append(el('p','',a.text),el('p','hint',(a.owner==='manager'?'My support':a.owner==='both'?'Both':'The person')+(a.due_date?' · check by '+date(a.due_date):'')),actionBtn('quiet small-action','Open agreement',()=>openTeamReview(a.review_id)));card.append(line);}return card;
+}
+function reviewConversationCard(r,drafts){
+ const card=el('section','card'),date=el('input');date.type='datetime-local';date.setAttribute('aria-label','Conversation held at');date.value=drafts.conversation_at??(r.conversation_at?localInput(r.conversation_at):'');
+ const original=r.conversation_at?localInput(r.conversation_at):'';
+ date.oninput=()=>{drafts.conversation_at=date.value;editorDirty.set('team-conversation',date.value!==original);};
+ if(drafts.conversation_at!==undefined)editorDirty.set('team-conversation',date.value!==original);
+ card.append(el('h3','','Conversation'),el('p','hint','Finalizing fixes the preparation. Record the conversation date separately, after it happens. Times are in Europe/Sofia.'),date,actionBtn('secondary small-action','Save conversation date',async()=>{teamReview=await api('/api/team/review/conversation',{id:r.id,revision:teamReview.revision,conversation_at:date.value||null});delete drafts.conversation_at;editorDirty.clear('team-conversation');renderTeamReview();}));return card;
+}
+$('team-context-close').onclick=$('team-context-cancel').onclick=()=>$('team-context-dialog').close();
+function privatePreparationCard(r){
+ const card=el('section','card');card.append(el('h3','','Private AI preparation'),el('p','hint','Uses the context you selected. Interpretations and reported views need checking. This part is excluded from Markdown exports.'),markdownBlock(r.private_preparation),evidenceList({...r,evidence:[...(r.evidence||[]),...(r.private_evidence||[])]}));return card;
+}
+function privateContextCard(r,drafts){
+ const card=el('details','card team-private-context');card.append(el('summary','','Private preparation context'));
+ const original=r.context||{},context=structuredClone(drafts.context||original),draft=r.status==='draft',fields=[['role','Role, expected results and authority'],['employee_view','The person’s view — as recorded by me'],['manager_support','My support, blockers and changed priorities'],['focus','Development focus and examples']];
+ const dirty=()=>{drafts.context=structuredClone(context);editorDirty.set('team-context',JSON.stringify(context)!==JSON.stringify(original));};
+ for(const [key,title] of fields){const label=el('label','',title),input=el('textarea');input.rows=2;input.maxLength=5000;input.value=context[key]||'';input.disabled=!draft;input.oninput=()=>{context[key]=input.value;dirty();};label.append(input);card.append(label);}
+ const chosen=new Map((context.observations||[]).map(o=>[o.id,o])),list=el('div');
+ if(r.context_changes?.length)card.append(el('p','notice','A selected observation’s transcript changed or was removed. The saved snapshot stays; check it before using it in AI preparation.'));
+ const draw=()=>{list.replaceChildren();for(const o of chosen.values()){const row=el('div','team-context-observation');row.append(el('p','',o.text),el('p','hint','AI interpretation · '+o.meeting_title+' · '+date(o.occurred_at)),listenButton(o.meeting_id,stampSeconds(o.timestamp),{className:'quiet small-action',label:'Source'}));if(draft)row.append(actionBtn('quiet small-action','Remove from context',()=>{chosen.delete(o.id);context.observations=[...chosen.values()];dirty();draw();}));list.append(row);}};draw();
+ card.append(el('p','hint','Selected team observations stay interpretations with a link to the recording. Context is private and excluded from exports.'),list);
+ if(draft)card.append(actionBtn('secondary small-action','Choose observations from meetings…',async()=>{
+  const data=await api('/api/team/review/context?id='+encodeURIComponent(r.id)),dialog=$('team-context-dialog'),box=$('team-context-body');box.replaceChildren(el('h3','','Choose private observations'));
+  const selected=new Map(chosen);for(const o of data.observations){const label=el('label','team-observation-choice'),check=el('input');check.type='checkbox';check.checked=selected.has(o.id);check.onchange=()=>{if(check.checked)selected.set(o.id,o);else selected.delete(o.id);};label.append(check,el('span','',o.text+' · '+o.meeting_title+' · '+o.timestamp));box.append(label);}
+  if(!data.observations.length)box.append(emptyNote('No current team observations with a recording reference in this period. Existing saved selections remain.'));
+  box.append(actionBtn('primary','Use selected observations',()=>{if(selected.size>20)throw new Error('Choose at most 20 observations');chosen.clear();for(const [id,o] of selected)chosen.set(id,o);context.observations=[...chosen.values()];dirty();draw();dialog.close();}));dialog.showModal();
+ }));
+ const label=el('label','check'),include=el('input');include.type='checkbox';include.checked=!!context.include_in_ai;include.disabled=!draft;include.onchange=()=>{context.include_in_ai=include.checked;dirty();};label.append(include,document.createTextNode('Include this private context in the next AI preview'));card.append(label);
+ if(draft)card.append(actionBtn('secondary small-action','Save private context',async()=>{teamReview=await api('/api/team/review/context',{id:r.id,revision:teamReview.revision,context:{...context,observation_ids:[...chosen.keys()]}});delete drafts.context;editorDirty.clear('team-context');renderTeamReview();}));
+ if(drafts.context){card.open=true;editorDirty.set('team-context',true);}return card;
+}
+async function previewTeamFacts(r){
+ if(editorDirty.keys().some(k=>k.startsWith('team-'))){toast('Save your edits before refreshing facts');return;}
+ const proposal=await api('/api/team/review/preview-collect',{id:r.id,revision:r.revision}),dialog=$('team-context-dialog'),box=$('team-context-body');
+ const current=el('details');current.append(el('summary','','Current review text'),markdownBlock(r.review_md));
+ box.replaceChildren(el('h3','','Preview refreshed facts'),el('p','notice','Applying replaces the review text, including manual edits and the GitHub/AI sections. Conversation notes, context and agreements stay. Cancel keeps everything.'),current,markdownBlock(proposal.review_md),actionBtn('primary','Replace review text with these facts',async()=>{teamReview=await api('/api/team/review/apply-collect',{id:r.id,revision:r.revision,token:proposal.token});dialog.close();renderTeamReview();}));dialog.showModal();
 }
 // The evidence records that the review cites: what, when, why it counts, and the quote. Each opens its source.
-const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result confirmed',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
+const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result checked',task_existing:'Taken on before this period',review_context:'Private context',team_observation:'AI interpretation',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
 function evidenceList(r){
  const box=el('details','team-evidence'),rows=r.evidence||[];box.append(el('summary','','Evidence · '+rows.length));
  if(!rows.length){box.append(el('p','hint','No evidence records in this review.'));return box;}
@@ -3556,13 +3657,14 @@ function evidenceList(r){
 // AI preparation: a preview of the destination and the exact records, an explicit approval, then one job.
 let teamAIPreview=null,teamAIJob=null,teamAITimer=null;
 async function openTeamAI(r){
- if(editorDirty.keys().includes('team-review')){toast('Save the draft first');return;}
+ if(editorDirty.keys().some(k=>['team-review','team-context'].includes(k))){toast('Save the draft and private context first');return;}
  const p=await api('/api/team/review/ai/preview?id='+encodeURIComponent(r.id));teamAIPreview=p;
  const box=$('team-ai-summary');box.replaceChildren();$('team-ai-error').hidden=true;$('team-ai-approve').checked=false;$('team-ai-start').disabled=true;
  if(!p.ai_available){$('team-ai-error').textContent=p.ai_unavailable_reason;$('team-ai-error').hidden=false;}
  const t=p.target,facts=[['Destination',(t.provider==='openai'?'OpenAI':'Configured API')+' · '+t.local_ai_model],['Address',t.local_ai_base_url||'—'],['Records',p.records+' · '+AtlantaUX.count(p.batches,'part')+' · '+p.characters.toLocaleString('en-GB')+' characters']];
  for(const [name,value] of facts){const row=el('p','team-ai-fact');row.append(el('strong','',name+': '),document.createTextNode(value));box.append(row);}
  if(p.remote)box.append(el('p','notice','This destination is outside this Mac. The records, with their quotes and the name '+r.person_name+', leave the Mac.'));
+ if(p.input.records.some(row=>['review_context','team_observation'].includes(row.kind)))box.append(el('p','notice','Includes selected private context. The generated preparation stays private and is excluded from exports.'));
  if(!p.records)box.append(el('p','hint','This review has no records. The AI can only say that there is not enough data.'));
  $('team-ai-input').textContent=JSON.stringify(p.input,null,2);$('team-ai-dialog').showModal();
 }
@@ -3588,7 +3690,7 @@ function pollTeamAI(){
 // GitHub: find the repositories with activity, let the person exclude some, then collect in the background.
 let teamGitHubFound=null,teamGitHubJob=null,teamGitHubTimer=null;
 async function openTeamGitHub(r){
- if(editorDirty.keys().includes('team-review')){toast('Save the draft first');return;}
+ if(editorDirty.keys().some(k=>['team-review','team-context'].includes(k))){toast('Save the draft and private context first');return;}
  if(r.generator&&!(await ask('Collecting GitHub removes the AI part, because it may cite old records. Run the AI again after it. Continue?',{ok:'Continue'})))return;
  const box=$('team-github-repos');box.replaceChildren();$('team-github-error').hidden=true;$('team-github-start').disabled=true;$('team-github-hint').textContent='Finding the repositories with activity in the period…';$('team-github-dialog').showModal();
  try{teamGitHubFound=await api('/api/team/review/github/discover?id='+encodeURIComponent(r.id));}
@@ -3617,7 +3719,7 @@ function pollTeamGitHub(){
 }
 // Actions and goals after the conversation: only what the manager saves counts. They stay editable, also after Finalize.
 const AGREEMENT_OWNERS=[['person','The person'],['manager','Me'],['both','Both']],AGREEMENT_STATES=[['open','Open'],['done','Done'],['dropped','Dropped']];
-function agreementRow(row,onchange,{full=true,person=''}={}){
+function agreementRow(row,onchange,{full=true,person='',review=null}={}){
  const line=el('div','team-agreement'),kind=el('select'),text=el('input'),owner=el('select'),due=el('input'),status=el('select');
  kind.append(option('Action','action'),option('Goal','goal'));kind.value=row.kind;text.value=row.text;text.maxLength=1000;text.placeholder=row.kind==='goal'?'What should change?':'What will happen?';
  owner.append(...AGREEMENT_OWNERS.map(([v,l])=>option(l,v)));owner.value=row.owner;due.type='date';due.value=row.due_date||'';status.append(...AGREEMENT_STATES.map(([v,l])=>option(l,v)));status.value=row.status;
@@ -3626,17 +3728,31 @@ function agreementRow(row,onchange,{full=true,person=''}={}){
  for(const c of [kind,text,owner,due,status])c.oninput=c.onchange=()=>{read();onchange();};
  if(!full){line.classList.add('compact');line.append(el('span','team-agreement-text',(row.kind==='goal'?'Goal · ':'Action · ')+row.text+(row.due_date?' · due '+date(row.due_date):'')),status);return line;}
  line.append(kind,text,owner,due,status);
- // A goal keeps the column of Make a task…, so the rows stay aligned.
- line.append(row.kind==='action'?actionBtn('quiet small-action','Make a task…',()=>openManualTask(null,{text:row.text,owner:row.owner==='person'?person:'',due:row.due_date||''})):el('span'));
+ const result=el('details','team-agreement-result'),expected=el('textarea'),evidence=el('textarea'),checked=el('input');
+ expected.value=row.expected_result||'';expected.maxLength=2000;expected.rows=2;expected.setAttribute('aria-label','Expected result of agreement');
+ evidence.value=row.result_evidence||'';evidence.maxLength=2000;evidence.rows=2;evidence.setAttribute('aria-label','Evidence of result check');
+ checked.type='checkbox';checked.checked=!!row.verified_at||row.verified===true;
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
+ result.append(el('summary','',checked.checked?'Result checked':'Expected result and check'),label('Expected result',expected),label('Evidence, test or result link',evidence),label('I checked this result',checked));
+ const update=()=>{row.expected_result=expected.value;row.result_evidence=evidence.value;row.verified=checked.checked;if(checked.checked){row.status='done';status.value='done';}onchange();};
+ expected.oninput=evidence.oninput=checked.onchange=update;
+ status.onchange=()=>{read();if(status.value!=='done'){checked.checked=false;row.verified=false;}onchange();};
+ const task=row.task_id?actionBtn('quiet small-action','Open linked task',()=>openTaskPanel(row.task_id)):row.kind==='action'?actionBtn('quiet small-action','Make a task…',async()=>{
+  if(row.task_id)return openTaskPanel(row.task_id);if(!row.id||!review){toast('Save this agreement before making its task');return;}
+  await openManualTask(null,{text:row.text,owner:row.owner==='person'?person:row.owner==='manager'?state.settings?.self_name||'':'',due:row.due_date||'',expected:row.expected_result||'',onCreated:async item=>{
+   row.task_id=item.id;task.textContent='Open linked task';onchange();
+   teamReview=await api('/api/team/review/link-task',{id:review.id,revision:teamReview.revision,agreement_id:row.id,task_id:item.id});delete teamDrafts.agreements;editorDirty.clear('team-agreements');renderTeamReview();
+  }});
+ }):el('span');line.append(task);
  line.append(actionBtn('quiet small-action','Remove',()=>{line.dispatchEvent(new CustomEvent('remove-agreement',{bubbles:true}));}));
- return line;
+ line.append(result);return line;
 }
 function agreementsCard(r,drafts={}){
  const saved=JSON.stringify(r.agreements||[]);if(drafts.agreements&&JSON.stringify(drafts.agreements)===saved)delete drafts.agreements;
  const card=el('section','card team-agreements'),list=el('div','team-agreement-list'),rows=structuredClone(drafts.agreements||r.agreements||[]);
  const dirty=()=>{const edited=JSON.stringify(rows)!==saved;if(edited)drafts.agreements=structuredClone(rows);else delete drafts.agreements;editorDirty.set('team-agreements',edited);};
  if(drafts.agreements)editorDirty.set('team-agreements',true);
- const draw=()=>{list.replaceChildren(...rows.map(row=>agreementRow(row,dirty,{person:reviewPersonName(r).replace(/ \(then .*\)$/,'')})));if(!rows.length)list.append(emptyNote('No actions or goals yet. Add what you agreed in the conversation.'));};
+ const draw=()=>{list.replaceChildren(...rows.map(row=>agreementRow(row,dirty,{person:reviewPersonName(r).replace(/ \(then .*\)$/,''),review:r})));if(!rows.length)list.append(emptyNote('No actions or goals yet. Add what you agreed in the conversation.'));};
  list.addEventListener('remove-agreement',event=>{const index=[...list.children].indexOf(event.target);if(index>=0){rows.splice(index,1);draw();dirty();}});
  const add=kind=>()=>{rows.push({kind,text:'',owner:'person',due_date:null,status:'open'});draw();dirty();list.lastElementChild?.querySelector('input')?.focus();};
  const save=actionBtn('secondary small-action','Save actions and goals',async()=>{teamReview=await api('/api/team/review/agreements',{id:r.id,revision:teamReview.revision,agreements:rows.filter(x=>x.text.trim())});delete drafts.agreements;editorDirty.clear('team-agreements');toast('Actions and goals saved');renderTeamReview();});
@@ -3655,8 +3771,8 @@ function previousAgreementsCard(previous,drafts={}){
 }
 // Export: the review and the notes as one Markdown file. Nothing is sent anywhere.
 function exportTeamReview(r){
- const agreements=(r.agreements||[]).map(a=>'- '+(a.kind==='goal'?'Goal':'Action')+' · '+a.text+' · '+a.status+(a.due_date?' · due '+date(a.due_date):'')).join('\n');
- const text=r.review_md.trimEnd()+'\n\n---\n\n## Conversation notes\n\n'+(r.notes_md.trim()||'_No notes._')+'\n\n## Agreed actions and goals\n\n'+(agreements||'_None._')+'\n',link=document.createElement('a');
+ const agreements=(r.agreements||[]).map(a=>'- '+(a.kind==='goal'?'Goal':'Action')+' · '+a.text+' · '+(a.owner==='manager'?'Me':a.owner==='both'?'Both':'The person')+' · '+a.status+(a.due_date?' · check by '+date(a.due_date):'')+(a.expected_result?'\n  Expected result: '+a.expected_result:'')+(a.result_evidence?'\n  Result evidence: '+a.result_evidence:'')+(a.verified_at?'\n  Checked by '+a.verified_by+' · '+dateTime(a.verified_at):'')).join('\n');
+ const text=r.review_md.trimEnd()+(r.conversation_at?'\n\nConversation held: '+dateTime(r.conversation_at):'')+'\n\n---\n\n## Conversation notes\n\n'+(r.notes_md.trim()||'_No notes._')+'\n\n## Agreed actions and goals\n\n'+(agreements||'_None._')+'\n',link=document.createElement('a');
  link.href=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));link.download='1-1-review-'+r.person_name.replace(/[^\p{L}\p{N}]+/gu,'-').toLowerCase()+'-'+r.period.end.slice(0,10)+'-v'+r.version+'.md';
  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
 }
@@ -3931,7 +4047,7 @@ function renderChannelProfile(profile){
  for(const [key,label] of [['email','Email messages'],['chat','Chat messages']]){const section=el('section','profile-section');section.append(el('h4','',label+' · '+channels[key].length));for(const message of channels[key]){const row=el('div','profile-message'),open=el('button','quiet','Open cached source');row.append(el('p','',message.text),el('small','hint',message.title+' · '+message.account+' · '+dateTime(message.date*1000)));open.type='button';open.onclick=()=>perform(async()=>{const status=await api(message.provider==='gmail'?'/api/gmail':'/api/chat');if((message.provider==='gmail'?status.account:status.account_id)!==message.account)throw new Error('Connect '+message.account+' to open its source. The cached quotation is shown here.');$('person-dialog').close();show('tasks');lastTasks='';await loadTasks();if(message.provider==='gmail'){showWorkTab('gmail');await openMail(message.thread_id);}else{chatSpace=message.space;chatMessage=message.name;showWorkTab('chat');}});row.append(open);section.append(row);}box.append(section);}
 }
 
-async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null}={}){
+async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null,expected:startExpected='',onCreated=null}={}){
  if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
  if(!(await leaveEdits()))return;
   const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle);
@@ -3952,7 +4068,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  let projectEdited=false;project.onchange=()=>{projectEdited=true;};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel');save.type=cancel.type='button';actions.append(cancel,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
- text.value=startText;details.value=startDetails||'';due.value=startDue||'';
+ text.value=startText;details.value=startDetails||'';due.value=startDue||'';criterion.value=startExpected;
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project),label('Meeting',meeting));box.append(label('Title',text),label('Description',details),label('Expected result',criterion),grid,actions);
  const refine=btn('secondary','Draft with AI…');refine.onclick=()=>perform(async()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))return;const source={provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:meeting.value||null};dialog.close();const result=await suggestTask(refine,source);if(!result){dialog.showModal();text.focus();}});if(mention===null)actions.insertBefore(refine,save);
  const improve=btn('secondary','Improve with AI');improve.onclick=()=>perform(async()=>{if(!text.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');const goal=project.value&&(state.projects?.projects||[]).find(p=>p.id===project.value)?.goal;
@@ -3968,7 +4084,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   if(submitted&&JSON.stringify(body)!==JSON.stringify(submitted))throw new Error('The previous result is uncertain. Retry with the same fields or check My Work before creating another task.');
   submitted=body;
   let item;await withEditorSave(box,async()=>{try{item=await api('/api/items/create',body);}catch(e){if(e.status>=400&&e.status<500&&e.status!==409)submitted=null;throw e;}});
-  editorDirty.clear('dialog:manual-task-dialog');dialog.close();showCreatedTask(item.id);
+  editorDirty.clear('dialog:manual-task-dialog');dialog.close();if(onCreated){try{await onCreated(item);}catch(e){error('Task created, but its agreement link could not be saved: '+e.message);}}showCreatedTask(item.id);
   try{await refreshAfterItemChange();revealTask(item.id);}catch{error('Task saved. Refresh My Work to see it.');}
  }));
  dialog.showModal();text.focus();
@@ -4193,6 +4309,7 @@ const dialogPolicies={
  'excerpt-dialog':{close:'excerpt-cancel',form:'excerpt-form'},
  'person-dialog':{close:'person-close',cancel:'person-cancel',form:'person-form',actions:['person-delete']},
  'team-dialog':{close:'team-close',cancel:'team-cancel',form:'team-form'},
+ 'team-context-dialog':{close:'team-context-close',cancel:'team-context-cancel'},
  'team-review-dialog':{close:'team-review-close',cancel:'team-review-cancel',form:'team-review-form'},
  // The approval box is not an edit: closing the AI preview never asks to discard it.
  'team-ai-dialog':{close:'team-ai-close',cancel:'team-ai-cancel',form:'team-ai-form',transient:true},

@@ -156,6 +156,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.team_overview())
         if url.path == '/api/team/reviews':
             return self.respond(200, self.server.service.team_reviews_list(parse_qs(url.query).get('person', [''])[0]))
+        if url.path == '/api/team/review/context':
+            from app.review_context import candidates
+            review = self.server.service.team_reviews.get(parse_qs(url.query).get('id', [''])[0])
+            return self.respond(200, dict(observations=candidates(self.server.service, review)))
         if url.path == '/api/team/review':
             return self.respond(200, self.server.service.team_review(parse_qs(url.query).get('id', [''])[0]))
         if url.path == '/api/team/review/github/discover':
@@ -523,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = remove(service,body)
             elif path == '/api/people/save':
                 result = service.save_person(body)
-            elif path.startswith('/api/team/review/') and path.rsplit('/', 1)[1] in {'create', 'version', 'collect', 'save', 'notes', 'agreements', 'finalize', 'discard', 'delete'}:
+            elif path.startswith('/api/team/review/') and path.rsplit('/', 1)[1] in {'create', 'version', 'collect', 'save', 'notes', 'agreements', 'finalize', 'discard', 'delete', 'context', 'conversation', 'link-task', 'preview-collect', 'apply-collect'}:
                 result = service.team_review_action(path.rsplit('/', 1)[1], body)
             elif path == '/api/team/review/github/start':
                 result = service.team_github.start(body)

@@ -1662,7 +1662,7 @@ class MeetingService:
 
     def team_reviews_list(self, person_id=''):
         """Every review, newest period first, with its person and status. No review text."""
-        return dict(reviews=self.team_reviews.list(person_id or None))
+        return dict(reviews=self.team_reviews.history(person_id) if person_id else self.team_reviews.list())
 
     def team_review_prepare(self, person_id):
         """The default period of the next review. Nothing is saved."""
@@ -1691,12 +1691,22 @@ class MeetingService:
         # The agreements of the last 1:1 stay editable here, so the manager marks them done or dropped.
         last = self.team_reviews.previous(review['person_id'], review['period']['start'], review.get('supersedes')) if review['status'] == 'draft' else None
         previous = last and dict(review_id=last['id'], revision=last['revision'], period=last['period'], agreements=last['agreements'])
-        return dict(review, source_changes=changed, person_current_name=person['name'] if person else None, previous_agreements=previous)
+        from .review_context import records
+        from .team_analysis import signature
+        context_changes = []
+        for observation in review.get('context', {}).get('observations', []):
+            path = self.library.root / observation['meeting_id'] / 'transcript.json'
+            if not path.exists() or signature(read_json(path, [])) != observation.get('transcript'):
+                context_changes.append(observation['id'])
+        return dict(review, facts_need_refresh=review.get('coverage', {}).get('fact_version', 1) < 2, source_changes=changed, person_current_name=person['name'] if person else None, previous_agreements=previous,
+                    overlaps=self.team_reviews.overlaps(review), private_evidence=records(review),
+                    context_changes=context_changes, outstanding_agreements=self.team_reviews.outstanding(review['person_id'], review['period']['start'],
+                        exclude=tuple(x for x in (review['id'], review.get('supersedes'), last and last['id']) if x)))
 
     def team_review_action(self, action, body):
         result = self._team_review_action(action, body)
         # A changed review comes back with its source changes and the current name, like a read.
-        return self.team_review(result['id']) if isinstance(result, dict) and 'review_md' in result else result
+        return self.team_review(result['id']) if isinstance(result, dict) and 'review_md' in result and 'id' in result else result
 
     def _team_review_action(self, action, body):
         if not isinstance(body, dict):
@@ -1717,9 +1727,52 @@ class MeetingService:
         if action == 'notes':
             return reviews.save_notes(body.get('id'), body.get('revision'), body.get('notes_md'))
         if action == 'finalize':
-            return reviews.finalize(body.get('id'), body.get('revision'))
+            return reviews.finalize(body.get('id'), body.get('revision'), body.get('acknowledge_overlap', False))
         if action == 'agreements':
-            return reviews.save_agreements(body.get('id'), body.get('revision'), body.get('agreements'))
+            return reviews.save_agreements(body.get('id'), body.get('revision'), body.get('agreements'), self.settings.get('self_name') or 'The manager')
+        if action == 'conversation':
+            return reviews.save_conversation(body.get('id'), body.get('revision'), body.get('conversation_at'))
+        if action == 'context':
+            from .review_context import candidates
+            old = reviews.get(body.get('id'))
+            context = body.get('context')
+            if not isinstance(context, dict):
+                raise ValueError('Invalid review context')
+            chosen = context.get('observation_ids', [])
+            if not isinstance(chosen, list) or any(not isinstance(key, str) for key in chosen) or len(set(chosen)) != len(chosen):
+                raise ValueError('Invalid selected observations')
+            known = {r['id']: r for r in candidates(self, old)}
+            # Saved snapshots remain usable after a source change, but never silently refreshed.
+            known.update({r['id']: r for r in old.get('context', {}).get('observations', []) if r['id'] not in known})
+            if any(key not in known for key in chosen):
+                raise ValueError('The selected observations changed. Open the context again.')
+            return reviews.save_context(old['id'], body.get('revision'), dict(context, observations=[known[key] for key in chosen]))
+        if action == 'link-task':
+            old = reviews.get(body.get('id'))
+            task = next((i for i in self.item_list()['items'] if i['id'] == body.get('task_id') and i['kind'] == 'task'), None)
+            if not task:
+                raise ValueError('Choose an existing task')
+            rows = old['agreements']
+            row = next((r for r in rows if r['id'] == body.get('agreement_id')), None)
+            if not row:
+                raise ValueError('Save the agreement first')
+            if row.get('task_id') and row['task_id'] != task['id']:
+                raise ValueError('This agreement already has a task')
+            row['task_id'] = task['id']
+            return reviews.save_agreements(old['id'], body.get('revision'), rows, self.settings.get('self_name') or 'The manager')
+        if action in {'preview-collect', 'apply-collect'}:
+            from .prompts import digest
+            old = reviews.get(body.get('id'))
+            if old['status'] != 'draft' or old['revision'] != body.get('revision'):
+                raise ValueError('The draft changed. Open the preview again.')
+            collect = self._team_collector(self._team_person(old['person_id']))
+            facts = collect(old['period']['start'], old['period']['end'], reviews.previous(old['person_id'], old['period']['start'], old.get('supersedes')))
+            token = digest(dict(id=old['id'], revision=old['revision'], facts=facts))
+            if action == 'preview-collect':
+                return dict(review_md=facts['review_md'], token=token)
+            if body.get('token') != token:
+                raise ValueError('The sources changed. Collect and preview again.')
+            return reviews.recollect(old['id'], old['revision'], lambda *args: facts)
         if action == 'delete':
             return reviews.delete(body.get('id'), body.get('revision'))
         if action == 'discard':

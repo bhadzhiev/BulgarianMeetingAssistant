@@ -214,3 +214,7 @@ checkboxes appear only in selection mode. Cards keep Mark done and Add update on
 Timeline and Quick fields are in the menu, and Sources is collapsed. Opening the title still
 opens the complete editor, including Improve with AI, expected result, history and evidence.
 The envelope says **Gmail draft**: Atlanta does not know whether that draft was sent in Gmail.
+
+### Person-centred 1:1 review history
+
+Select a name in Team to see that person’s review history, open agreements and the next conversation. Reviews also has a person picker; the all-reviews list is a secondary archive. See [Person review history](person-review-history.md) for conversation dates, checked results, selected private context and safe fact refresh.

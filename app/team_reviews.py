@@ -91,8 +91,108 @@ class TeamReviews:
             meta = dict(meta, review_md=(directory / 'review.md').read_text(encoding='utf-8'),
                         notes_md=(directory / 'conversation-notes.md').read_text(encoding='utf-8'),
                         evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')),
-                        agreements=self._agreements(directory))
+                        agreements=self._agreements(directory),
+                        context=self._optional(directory, 'review-context.json', {}),
+                        private_preparation=(directory / 'private-preparation.md').read_text(encoding='utf-8') if (directory / 'private-preparation.md').exists() else '')
         return meta
+
+    @staticmethod
+    def _optional(directory, name, default):
+        path = directory / name
+        return json.loads(path.read_text(encoding='utf-8')) if path.exists() else default
+
+    def overlaps(self, review):
+        return [dict(id=r['id'], period=r['period']) for r in self._all(review['person_id'])
+                if r['status'] == 'finalized' and r['id'] not in {review['id'], review.get('supersedes')}
+                and _moment(r['period']['start'], 'Start') < _moment(review['period']['end'], 'End')
+                and _moment(review['period']['start'], 'Start') < _moment(r['period']['end'], 'End')]
+
+    def verified_results(self, task_id):
+        with self.lock:
+            checks = []
+            for review in self._all():
+                if review['status'] == 'superseded':
+                    continue
+                for row in self._agreements(self._directory(review['id'])):
+                    if row.get('task_id') == task_id and row.get('verified_at') and row.get('expected_result') and row.get('result_evidence'):
+                        checks.append(row)
+            return sorted(checks, key=lambda row: row['verified_at'], reverse=True)
+
+    def outstanding(self, person_id, before=None, exclude=()):
+        with self.lock:
+            seen, rows = set(), []
+            for review in self._all(person_id):
+                if review['status'] != 'finalized' or review['id'] in exclude:
+                    continue
+                if before and _moment(review['period']['end'], 'End') > _moment(before, 'Start'):
+                    continue
+                for row in self._agreements(self._directory(review['id'])):
+                    if row['id'] in seen:
+                        continue
+                    seen.add(row['id'])
+                    if row['status'] == 'open':
+                        rows.append(dict(row, review_id=review['id'], review_end=review['period']['end']))
+            return rows
+
+    def history(self, person_id):
+        """One row per review version, with live agreements but no private preparation text."""
+        with self.lock:
+            rows = []
+            labels = {'task_completed': 'Recorded completion', 'result_confirmed': 'Result checked', 'task_overdue': 'Overdue'}
+            for review in self._all(person_id):
+                directory = self._directory(review['id'])
+                highlights, seen = [], set()
+                for record in self._optional(directory, 'evidence.json', []):
+                    if record.get('kind') not in labels:
+                        continue
+                    try:
+                        when = _moment(record.get('occurred_at'), 'Evidence date')
+                    except ValueError:
+                        continue
+                    key = (record['kind'], (record.get('source_ref') or {}).get('item_id'), (record.get('facts') or {}).get('text'))
+                    if key in seen or not _moment(review['period']['start'], 'Start') <= when < _moment(review['period']['end'], 'End'):
+                        continue
+                    seen.add(key)
+                    highlights.append(dict(label=labels[record['kind']], text=(record.get('facts') or {}).get('text', '')))
+                rows.append(dict(review, agreements=self._agreements(directory), overlaps=self.overlaps(review), highlights=highlights[:3]))
+            return rows
+
+    def save_context(self, review_id, revision, context):
+        with self.lock:
+            directory, meta = self._current(review_id, revision)
+            if meta['status'] != 'draft':
+                raise ValueError('Make a new version to change the preparation context')
+            if not isinstance(context, dict):
+                raise ValueError('Invalid review context')
+            clean = {}
+            for key in ('role', 'employee_view', 'manager_support', 'focus'):
+                value = context.get(key, '')
+                if not isinstance(value, str) or len(value) > 5000:
+                    raise ValueError('Each context field has at most 5000 characters')
+                clean[key] = value.strip()
+            if type(context.get('include_in_ai', False)) is not bool:
+                raise ValueError('Choose whether context may be included in the AI preview')
+            clean['include_in_ai'] = context.get('include_in_ai', False)
+            observations = context.get('observations', [])
+            if not isinstance(observations, list) or len(observations) > 20:
+                raise ValueError('Choose at most 20 observations')
+            # The service resolves selected IDs to saved source snapshots; client text is never trusted.
+            clean['observations'] = observations
+            atomic_json(directory / 'review-context.json', clean)
+            (directory / 'private-preparation.md').unlink(missing_ok=True)
+            self._write_meta(directory, dict(meta, generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
+            return self.get(review_id)
+
+    def save_conversation(self, review_id, revision, held_at):
+        with self.lock:
+            directory, meta = self._current(review_id, revision)
+            if held_at is not None:
+                held_at = _moment(held_at, 'Conversation date')
+                if held_at > dt.datetime.now(TZ):
+                    raise ValueError('A conducted conversation cannot be in the future')
+                held_at = _iso(held_at)
+            self._write_meta(directory, dict(meta, conversation_at=held_at, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
+            return self.get(review_id)
 
     @staticmethod
     def _agreements(directory):
@@ -198,7 +298,21 @@ class TeamReviews:
             partial.mkdir()
             try:
                 atomic_text(partial / 'review.md', review_md)
-                atomic_text(partial / 'conversation-notes.md', '')
+                atomic_text(partial / 'conversation-notes.md', (old_dir / 'conversation-notes.md').read_text(encoding='utf-8') if supersedes else '')
+                if supersedes:
+                    atomic_json(partial / 'agreements.json', self._agreements(old_dir))
+                    if (old_dir / 'review-context.json').exists():
+                        atomic_json(partial / 'review-context.json', self._optional(old_dir, 'review-context.json', {}))
+                    if (old_dir / 'private-preparation.md').exists():
+                        atomic_text(partial / 'private-preparation.md', (old_dir / 'private-preparation.md').read_text(encoding='utf-8'))
+                    meta['conversation_at'] = old.get('conversation_at')
+                if not supersedes:
+                    previous = self.previous(person['id'], _iso(start))
+                    if previous:
+                        context = self._optional(self._directory(previous['id']), 'review-context.json', {})
+                        reusable = {k: context[k] for k in ('role', 'focus') if context.get(k)}
+                        if reusable:
+                            atomic_json(partial / 'review-context.json', dict(reusable, include_in_ai=False, observations=[]))
                 atomic_json(partial / 'evidence.json', evidence)
                 atomic_json(partial / 'metadata.json', meta)
                 partial.rename(person_dir / review_id)
@@ -218,7 +332,8 @@ class TeamReviews:
             return None
         directory = self._directory(done[0]['id'])
         return dict(id=done[0]['id'], period=done[0]['period'], coverage=done[0].get('coverage') or {}, revision=done[0]['revision'],
-                    evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')), agreements=self._agreements(directory))
+                    evidence=json.loads((directory / 'evidence.json').read_text(encoding='utf-8')), agreements=self._agreements(directory),
+                    outstanding=self.outstanding(person_id, before, exclude=(done[0]['id'],)))
 
     def recollect(self, review_id, revision, collect):
         """Collect the facts of a draft again. The new text replaces the old one; the notes stay."""
@@ -229,6 +344,7 @@ class TeamReviews:
             facts = collect(meta['period']['start'], meta['period']['end'], self.previous(meta['person_id'], meta['period']['start'], meta.get('supersedes')))
             atomic_text(directory / 'review.md', facts['review_md'])
             atomic_json(directory / 'evidence.json', facts['evidence'])
+            (directory / 'private-preparation.md').unlink(missing_ok=True)
             self._write_meta(directory, dict(meta, coverage=dict(facts['coverage'], excluded_items=facts['excluded']), generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
@@ -249,7 +365,7 @@ class TeamReviews:
                 raise Conflict('The draft changed during the AI preparation. Run it again; the finished parts are kept.') from None
             if meta['status'] != 'draft' or len(text) > MAX_REVIEW:
                 raise ValueError('The AI result does not fit this draft')
-            atomic_text(directory / 'review.md', text)
+            atomic_text(directory / ('private-preparation.md' if generator.get('private') else 'review.md'), text)
             self._write_meta(directory, dict(meta, generator=generator, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
@@ -278,6 +394,7 @@ class TeamReviews:
                                       counts=dict(authored=len(result['authored']), reviews=len(result['reviews']), commits=len(result['commits'])))
             atomic_text(directory / 'review.md', text)
             atomic_json(directory / 'evidence.json', evidence)
+            (directory / 'private-preparation.md').unlink(missing_ok=True)
             self._write_meta(directory, dict(meta, coverage=coverage, generator=None, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
@@ -293,7 +410,7 @@ class TeamReviews:
             self._write_meta(directory, dict(meta, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
-    def save_agreements(self, review_id, revision, rows):
+    def save_agreements(self, review_id, revision, rows, verifier='The manager'):
         """The actions and goals of the conversation. Only what the manager saves counts; they change apart from the review."""
         with self.lock:
             if not isinstance(rows, list) or len(rows) > MAX_AGREEMENTS:
@@ -316,11 +433,31 @@ class TeamReviews:
                     except (TypeError, ValueError):
                         raise ValueError('A due date must be YYYY-MM-DD') from None
                 key = row.get('id') if isinstance(row.get('id'), str) and row['id'] in old else uuid.uuid4().hex[:12]
-                task = row.get('task_id') if isinstance(row.get('task_id'), str) and re.fullmatch(r'[a-f0-9]{12}', row['task_id']) else None
+                task = row.get('task_id') if isinstance(row.get('task_id'), str) and re.fullmatch(r'[a-f0-9]{12,32}', row['task_id']) else None
+                fields = {}
+                for field in ('expected_result', 'result_evidence'):
+                    value = row.get(field, '')
+                    if not isinstance(value, str) or len(value) > 2000:
+                        raise ValueError('Expected result and evidence have at most 2000 characters')
+                    fields[field] = value.strip()
+                check = row.get('verified', bool(row.get('verified_at')))
+                if type(check) is not bool:
+                    raise ValueError('Choose whether the result was checked')
+                if check and row['status'] != 'done':
+                    raise ValueError('A checked result must be marked done')
+                if check and (not fields['expected_result'] or not fields['result_evidence']):
+                    raise ValueError('A checked result needs an expected result and evidence of the check')
+                unchanged_check = check and old.get(key, {}).get('verified_at') and all(old[key].get(k) == fields[k] for k in fields)
                 entry = dict(id=key, kind=row['kind'], text=' '.join(text.split()), owner=row['owner'], due_date=due, status=row['status'], task_id=task,
-                             created=old.get(key, {}).get('created', now), updated=now if old.get(key) != row else old.get(key, {}).get('updated', now))
-                if old.get(key) and all(old[key].get(k) == entry[k] for k in ('kind', 'text', 'owner', 'due_date', 'status', 'task_id')):
-                    entry['updated'] = old[key].get('updated', now)
+                             **fields, verified_at=(old[key]['verified_at'] if unchanged_check else now) if check else None,
+                             verified_by=(old[key].get('verified_by', verifier) if unchanged_check else verifier) if check else None,
+                             created=old.get(key, {}).get('created', now), updated=now)
+                changes = {k: [old.get(key, {}).get(k), v] for k, v in entry.items() if k not in {'updated', 'created'} and old.get(key, {}).get(k) != v}
+                entry['history'] = list(old.get(key, {}).get('history', []))
+                if changes:
+                    entry['history'].append(dict(at=now, changes=changes))
+                else:
+                    entry['updated'] = old.get(key, {}).get('updated', now)
                 clean.append(entry)
             if len({r['id'] for r in clean}) != len(clean):
                 raise ValueError('Each action or goal is saved once')
@@ -364,13 +501,16 @@ class TeamReviews:
             self._write_meta(directory, dict(meta, revision=meta['revision'] + 1, updated=_iso(dt.datetime.now(TZ))))
             return self.get(review_id)
 
-    def finalize(self, review_id, revision):
+    def finalize(self, review_id, revision, acknowledge_overlap=False):
         with self.lock:
             directory, meta = self._current(review_id, revision)
             if meta['status'] != 'draft':
                 raise ValueError('Only a draft can be finalized')
             if meta.get('generator') and not meta['generator'].get('complete'):
                 raise ValueError('The AI preparation is incomplete. Run it again, or collect the facts again without AI.')
+            overlaps = self.overlaps(meta)
+            if overlaps and acknowledge_overlap is not True:
+                raise ValueError('This period overlaps another finalized review. Check the periods and explicitly acknowledge the overlap.')
             now = _iso(dt.datetime.now(TZ))
             if meta['supersedes']:
                 old_dir = self._directory(meta['supersedes'])

@@ -1528,3 +1528,20 @@ label.required-label:has(.date-part-label)::after{content:none}
 .task-card-sources[open]>summary{margin-bottom:8px}
 .meeting-question-candidates,.question-history{margin-top:20px}
 .meeting-question-candidates>summary,.question-history>summary{cursor:pointer;padding:10px 0;color:var(--muted)}
+
+/* Person-centred review preparation: chronology first, sources and checks on request. */
+.team-person-picker{display:block;max-width:420px;margin:0 0 18px}
+.team-history-head,.team-next-conversation,.team-private-context{margin:16px 0}
+.team-review-timeline{border-left:2px solid var(--line);padding-left:16px;margin-top:18px;display:grid;gap:14px}
+.team-review-timeline .entity-card{margin:0}
+.team-history-agreement{padding:12px 0;border-bottom:1px solid var(--line)}
+.team-history-agreement p,.team-timeline-agreement{margin:5px 0}
+.team-review-versions,.team-review-section{margin:12px 0}
+.team-private-context>label,.team-agreement-result>label{display:block;margin:12px 0}
+.team-private-context textarea,.team-agreement-result textarea{width:100%;box-sizing:border-box}
+.team-agreement-result{grid-column:1/-1;width:100%}
+.team-observation-choice{display:flex;align-items:flex-start;gap:12px;margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:10px}
+.team-observation-choice input{flex:0 0 auto;width:auto;margin-top:4px}
+.team-context-observation{margin:12px 0;padding:12px;border-left:3px solid var(--line)}
+#team-review-archive{margin-top:24px}
+#team-context-dialog{max-width:850px}

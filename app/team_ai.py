@@ -26,8 +26,8 @@ from .prompts import digest, select_stages
 BATCH = 40
 MAX_OBSERVATIONS = 12
 MAX_QUESTIONS = 8
-SECTIONS = ('commitments', 'tasks', 'decisions', 'blockers', 'previous')
-SECTION_TITLES = dict(commitments='Commitments', tasks='Tasks', decisions='Decisions', blockers='Blockers', previous='Previous agreements and goals')
+SECTIONS = ('commitments', 'tasks', 'decisions', 'blockers', 'previous', 'context')
+SECTION_TITLES = dict(commitments='Commitments', tasks='Tasks', decisions='Decisions', blockers='Blockers', previous='Previous agreements and goals', context='Context for the conversation')
 VERSION = 1
 
 SYSTEM = """You help a manager prepare a 1:1 conversation with a member of the team.
@@ -44,6 +44,10 @@ Rules:
 - A task_transferred record means the task went to another owner. It does not mean the task is closed or done.
 - Use the section "previous" only for records of kind agreement or task_carried. Without such records, there is no
   earlier review: do not write about previous agreements or goals.
+- review_context is a perspective recorded by the manager, not independent confirmation. team_observation is an
+  earlier AI interpretation. Use them to suggest neutral questions; do not repeat them as established findings.
+- Include what support the manager owes and possible changes of scope or authority. Do not infer non-performance
+  from missing records. Keep a reported completion distinct from a checked result.
 Write in Bulgarian. Keep English technical terms."""
 
 SCHEMA = dict(type='object', additionalProperties=False, required=['observations', 'questions', 'not_enough_data'], properties=dict(
@@ -71,8 +75,9 @@ def schema(records):
 def ai_input(review):
     """The records that go to the AI: the facts of the review, without the person ID or local paths."""
     rows = []
-    for record in review.get('evidence', []):
-        facts = {k: v for k, v in (record.get('facts') or {}).items() if k in {'text', 'role', 'shared', 'state', 'until', 'to', 'before', 'after', 'owner', 'open_at_end', 'kind', 'status', 'task_state'}}
+    from .review_context import records
+    for record in [*review.get('evidence', []), *records(review)]:
+        facts = {k: v for k, v in (record.get('facts') or {}).items() if k in {'text', 'role', 'shared', 'state', 'until', 'to', 'before', 'after', 'owner', 'open_at_end', 'kind', 'status', 'task_state', 'criterion', 'checked_by', 'result_evidence'}}
         rows.append(dict(id=record['id'], kind=record['kind'], confirmation_basis=record.get('confirmation_basis', ''), facts=facts, quote=record.get('quote', '')))
     return dict(person=review['person_name'], records=rows)
 
@@ -240,7 +245,8 @@ class ReviewAI:
         checkpoint_path = directory / '.ai-checkpoint.json'
         checkpoint = json.loads(checkpoint_path.read_text(encoding='utf-8')) if checkpoint_path.exists() else {}
         incomplete = dict(model=target.get('local_ai_model'), base_url=target.get('local_ai_base_url'), provider=target.get('provider'),
-                          prompt=target['_prompt_snapshot'], input_digest=digest(data), complete=False, version=VERSION)
+                          prompt=target['_prompt_snapshot'], input_digest=digest(data), complete=False, version=VERSION,
+                          private=any(r['kind'] in {'review_context', 'team_observation'} for r in data['records']))
         reviews.set_generator(review_id, review['revision'], incomplete)
         review = reviews.get(review_id)
         for index, batch in enumerate(batches(data)):
@@ -269,7 +275,7 @@ class ReviewAI:
                 self.job.update(done=index + 1)
         joined = join(parts)
         generator = dict(incomplete, complete=True, at=time.strftime('%Y-%m-%dT%H:%M:%S%z'), rejected=joined['rejected'], not_enough_data=joined['not_enough_data'])
-        reviews.apply_ai(review_id, review['revision'], markdown(review['review_md'], joined), generator)
+        reviews.apply_ai(review_id, review['revision'], markdown('' if generator.get('private') else review['review_md'], joined), generator)
         checkpoint_path.unlink(missing_ok=True)
         with self.lock:
             self.job.update(status='Ready to review')

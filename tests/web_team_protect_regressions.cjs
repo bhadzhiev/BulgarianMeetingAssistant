@@ -5,8 +5,9 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 const card=slice('function agreementsCard(r,drafts={}){');
 assert.match(card,/'Only what you save here counts\./);
 assert.match(card,/api\('\/api\/team\/review\/agreements',\{id:r\.id,revision:teamReview\.revision,agreements:rows\.filter\(x=>x\.text\.trim\(\)\)\}\)/);
-assert.match(slice('function agreementRow('),/openManualTask\(null,\{text:row\.text,owner:row\.owner==='person'\?person:'',due:row\.due_date\|\|''\}\)/);
-assert.match(app,/async function openManualTask\(meetingId=null,\{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null\}=\{\}\)\{/);
+assert.match(slice('function agreementRow('),/api\('\/api\/team\/review\/link-task'/);
+assert.match(slice('function agreementRow('),/Save this agreement before making its task/);
+assert.match(app,/onCreated:null|onCreated=null/);
 // The last 1:1: each action and goal with its state, saved to that review.
 assert.match(slice('function previousAgreementsCard(previous,drafts={}){'),/api\('\/api\/team\/review\/agreements',\{id:previous\.review_id,revision:previous\.revision,agreements:rows\}\)/);
 // Delete is explicit, names what goes and that archives keep their copies.

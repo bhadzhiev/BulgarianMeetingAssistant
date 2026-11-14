@@ -13,6 +13,7 @@ import datetime as dt
 
 from . import meeting_types
 from .items import MATCH, similarity
+from .question_sources import tracked_question
 
 RECENT_MEETINGS = 3
 LIMIT = 5
@@ -66,11 +67,14 @@ def build(meetings: list[dict], minutes: dict, registry: list[dict], markers: di
                        if item['kind'] == 'decision' and item['status'] == 'proposed'), key=newest, reverse=True)
 
     by_id = {item['id']: item for item in in_scope}
+    all_items = {item['id']: item for item in registry}
     questions = []
     for meeting in reversed(meetings[-RECENT_MEETINGS:]):
         for field, kind in (('needs_decision', 'decide'), ('open_questions', 'discuss')):
             for entry in (minutes.get(meeting['id']) or {}).get(field, []):
                 text = entry['text'] if isinstance(entry, dict) else str(entry)
+                tracked = tracked_question(all_items, meeting['id'], entry) if isinstance(entry, dict) else None
+                if tracked and tracked['status'] == 'answered':continue
                 # A newer meeting asked the same thing already; keep the newest wording.
                 if any(similarity(text, known['text']) >= MATCH for known in questions):
                     continue

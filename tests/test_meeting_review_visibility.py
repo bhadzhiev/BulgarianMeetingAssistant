@@ -28,7 +28,7 @@ class MeetingReviewVisibilityTests(unittest.TestCase):
     def test_manual_mode_has_no_artificial_review_step(self):
         self.assertEqual(self.service.detail(self.mid)['meeting_review_count'], 0)
         self.service.create_task(dict(text='Изпрати оферта', owner='Иван', due_date=None,
-                                     meeting_id=self.mid, project_id=None, request_id='a' * 32, mention_index=0))
+                                     meeting_id=self.mid, project_id=None, request_id='a' * 32, mention_index=0, minutes_revision=self.service._minutes_revision(self.service.library.directory(self.mid))))
         self.assertEqual(self.service.detail(self.mid)['meeting_review_count'], 0)
 
     def test_pending_proposal_is_counted_and_confirming_it_clears_the_count(self):

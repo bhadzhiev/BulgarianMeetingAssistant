@@ -243,7 +243,7 @@ class Registry:
                 if any(l['meeting_id'] == meeting_id and l.get('manual_task') for l in item['links']):
                     minutes.setdefault('tasks', []).append(dict(task=item['text'], details=item.get('details') or None, owner=item.get('owner'),
                         deadline=item.get('deadline'), due_date=item.get('due_date'), status=item['status'],
-                        evidence_timestamp=None, review='verified', item_id=item['id']))
+                        evidence_timestamp=next(l.get('evidence_timestamp') for l in item['links'] if l['meeting_id'] == meeting_id and l.get('manual_task')), review='verified', item_id=item['id']))
                     changed = True
         for kind, field in FIELD.items():
             for mention in (minutes or {}).get(field, []):

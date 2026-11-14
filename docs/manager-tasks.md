@@ -57,3 +57,12 @@ Prepare me adds local updates, waiting tasks, due follow-ups and cached GitHub a
 Repository readiness verifies read access, repository identity and whether Issues are enabled. It does not claim to prove token Issues write permission from repository push access; that is checked by GitHub only after explicit publication approval. Existing preview, editable drafts, Copy Markdown and durable operation markers remain in use. Unknown publication outcomes can be found and checked from the task card after restart; there is no automatic POST retry. An issue closing or reopening offers a local review action, never an automatic status rewrite.
 
 Manual task capture and evidence linking work with AI disabled or unconfigured. Only **Draft with AI** requires a valid AI provider; no worker starts without it.
+
+
+## Meeting question sources and concurrent edits
+
+**Make task** on a meeting question creates or reuses its canonical tracked question and commits the task and `derives_from` relationship together. The meeting question shows buttons for its tasks; the task Sources section links back to the question and focuses its row in the meeting. A question stays open until the person records an answer. The same answer is shown in the meeting and prevents the question from returning as unresolved in **Prepare me**; reopening makes it eligible again.
+
+Tracked meeting questions inherit their meeting's project unless the person assigns their projects explicitly. A task made from a tracked question starts with its original meeting, project and source moment. Restoring a manual task into regenerated notes preserves its moment. Choosing **No project** for a new task is an explicit empty assignment; API callers that omit `project_id` retain meeting inheritance.
+
+Creating a task from a notes line or question sends the notes revision captured when its editor opened. If the notes changed, the server refuses to attach the old row index and the editor keeps the draft. Retry after an uncertain response uses the exact same request and revision, so it returns the existing task without creating a duplicate. Older tracked questions can still resolve to their original note by meeting, exact wording and moment; no fuzzy cross-project answer matching is used.

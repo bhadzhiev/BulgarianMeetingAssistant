@@ -296,6 +296,15 @@ class WorkGraph:
             return proposal
         return self._write(apply)
 
+    @staticmethod
+    def new_question(value: str, source: dict | None = None) -> dict:
+        item = dict(id=uuid.uuid4().hex[:16], kind='question', text=text(value, 'question', 10000 if source else 1000), status='open', answer=None,
+            managed_by='work_graph', links=[], source_evidence=[], created=now(), manual=['text', 'status'], history=[],
+            supersedes=[], superseded_by=None)
+        if source:
+            item['origin'] = dict(source)
+        return item
+
     def question(self, value, *, item_id=None, revision=None, answer=None, source=None):
         # A question from meeting notes keeps its meeting and moment, without a meeting link: new notes never remove it.
         if source is not None and (not isinstance(source, dict) or set(source) - {'meeting_id', 'evidence_timestamp'}
@@ -312,12 +321,8 @@ class WorkGraph:
                 item.update(status='answered' if answer is not None else 'open', answer=text(answer, 'answer', 10000) if answer is not None else None)
                 item.setdefault('manual', []).extend(name for name in ('status', 'answer') if name not in item['manual'])
             else:
-                key = uuid.uuid4().hex[:16]
-                item = dict(id=key, kind='question', text=text(value, 'question'), status='open', answer=None,
-                    managed_by='work_graph', links=[], source_evidence=[], created=now(), manual=['text', 'status'], history=[],
-                    supersedes=[], superseded_by=None)
-                if source:
-                    item['origin'] = dict(meeting_id=source['meeting_id'], evidence_timestamp=source.get('evidence_timestamp'))
+                item = self.new_question(value, source)
+                key = item['id']
                 if answer is not None:
                     item.update(status='answered', answer=text(answer, 'answer', 10000))
                 data['items'][key] = item

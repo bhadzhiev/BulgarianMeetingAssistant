@@ -39,6 +39,14 @@ class ReviewQueueTests(unittest.TestCase):
         pending = [r for r in snapshot(self.s, self.mid)['items'] if r['state'] == 'needs_review']
         self.assertEqual(row['items'], len(pending))
 
+    def test_items_follow_the_review_tab_when_ai_meeting_tasks_are_off(self):
+        # With AI meeting tasks off the meeting hides its Review tab; the queue must not count items there (2026-11-15).
+        self.assertEqual(self.row()['items'], self.s.detail(self.mid)['meeting_review_count'])
+        self.s.settings['meeting_task_ai'] = False
+        self.assertEqual(self.s.detail(self.mid)['meeting_review_count'], 0)
+        row = self.row()
+        self.assertEqual((row['items'], row['speakers']), (0, 1), 'unnamed speakers still keep the meeting in the queue')
+
     def test_names_then_updated_notes_then_confirm_empty_the_queue(self):
         revision = self.s.detail(self.mid)['transcript_revision']
         self.s.edit(self.mid, dict(speaker_name=dict(speaker='SPEAKER_00', name='Петър', revision=revision)))

@@ -34,6 +34,7 @@ from .repo_reports import RepoReports, read_store as read_report_store
 from . import backup
 from . import items
 from . import briefing
+from .question_sources import tracked_question
 from . import meeting_types
 from . import search
 from .events import Watcher
@@ -436,6 +437,19 @@ class MeetingService:
                     ids.add(mention.get('item_id'))
                     ids.update(c.get('item_id') for c in (mention.get('link') or {}).get('candidates', []))
             with self.items.lock:
+                meeting['question_items'] = {}
+                for field in ('open_questions', 'needs_decision'):
+                    for index, entry in enumerate((meeting['minutes'] or {}).get(field, []) if notes_valid else []):
+                        question = tracked_question(self.items.items, meeting_id, entry)
+                        if question:
+                            meeting['question_items'][f'{field}:{index}'] = question['id']
+                            ids.add(question['id'])
+                meeting['question_tasks'] = {}
+                for edge in self.items.data['relationships'].values():
+                    task = self.items.items.get(edge['from_id'])
+                    if edge['kind'] == 'derives_from' and edge['to_id'] in ids and task and task['kind'] == 'task':
+                        meeting['question_tasks'].setdefault(edge['to_id'], []).append(task['id'])
+                ids.update(key for keys in meeting['question_tasks'].values() for key in keys)
                 ids.update(i['id'] for i in self.items.items.values() if any(l['meeting_id']==meeting_id and l.get('manual_task') for l in i['links']))
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
@@ -2556,7 +2570,9 @@ class MeetingService:
         meetings = self._meeting_refs() if meetings is None else meetings
         known = {p['id'] for p in self.projects.data['projects']}
         assigned = item.get('project_ids')
-        effective = assigned if assigned is not None else [meetings.get(link['meeting_id'], {}).get('project_id') for link in item['links']]
+        source_ids = [link['meeting_id'] for link in item['links']]
+        if item['kind'] == 'question' and item.get('origin'):source_ids.append(item['origin']['meeting_id'])
+        effective = assigned if assigned is not None else [meetings.get(key, {}).get('project_id') for key in source_ids]
         return sorted({key for key in effective if key in known})
 
     def repository_bindings(self, project_ids):
@@ -2707,12 +2723,14 @@ class MeetingService:
         result = []
         for meeting_id in sorted(meetings, key=lambda key: meetings[key]['date'] or '', reverse=True):
             for field, kind in (('needs_decision', 'decide'), ('open_questions', 'discuss')):
-                for entry in (self._minutes(meeting_id) or {}).get(field, []):
+                for index, entry in enumerate((self._minutes(meeting_id) or {}).get(field, [])):
                     text = ((entry.get('text') if isinstance(entry, dict) else str(entry)) or '').strip()
+                    if isinstance(entry,dict) and tracked_question(self.items.items,meeting_id,entry):continue
                     if not text or any(items.similarity(text, known) >= items.MATCH for known in tracked + [q['text'] for q in result]):
                         continue
                     result.append(dict(text=text, kind=kind, meeting_id=meeting_id,
-                                       evidence_timestamp=entry.get('evidence_timestamp') if isinstance(entry, dict) else None))
+                                       evidence_timestamp=entry.get('evidence_timestamp') if isinstance(entry, dict) else None,
+                                       field=field, index=index, minutes_revision=self._minutes_revision(self.library.directory(meeting_id))))
         return result
 
     def _github_publish(self,account,record,suggestions,after=None):
@@ -2865,7 +2883,29 @@ class MeetingService:
                     target_id=body.get('target_id'), target_revision=body.get('target_revision'),
                     snoozed_until=body.get('snoozed_until'),edited_text=body.get('text'))
             if action == 'question':
-                return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'), source=body.get('source'))
+                source = body.get('source')
+                if source is not None and not body.get('id'):
+                    if (not isinstance(source, dict) or set(source) - {'meeting_id', 'evidence_timestamp'}
+                            or not isinstance(source.get('meeting_id'), str) or not re.fullmatch(r'[a-f0-9]{32}', source['meeting_id'])
+                            or source.get('evidence_timestamp') is not None and (not isinstance(source['evidence_timestamp'], str)
+                            or not re.fullmatch(r'\d{2}:\d{2}:\d{2}', source['evidence_timestamp']))):raise ValueError('Invalid question source')
+                    meeting_id = source.get('meeting_id')
+                    self.library.get(meeting_id)
+                    if meeting_id == self.active or meeting_id in self.busy:raise ValueError('Wait for recording or processing to finish')
+                    directory = self.library.directory(meeting_id)
+                    minutes = copy.deepcopy(self._minutes(meeting_id))
+                    entries = [entry for field in ('open_questions', 'needs_decision') for entry in (minutes or {}).get(field, [])
+                               if entry['text'] == body.get('text') and entry.get('evidence_timestamp') == source.get('evidence_timestamp')]
+                    if not entries:raise items.WorkItemConflict('This question changed. Reload the meeting.')
+                    question = tracked_question(self.items.items, meeting_id, entries[0])
+                    if question and body.get('answer') is None:result = copy.deepcopy(question)
+                    else:result = graph.question(body.get('text'), item_id=question['id'] if question else None,
+                        revision=question.get('revision') if question else None, answer=body.get('answer'), source=source)
+                    for entry in entries:entry['item_id'] = result['id']
+                    from meeting_assistant import save_minutes
+                    save_minutes(directory, minutes)
+                    return result
+                return graph.question(body.get('text'), item_id=body.get('id'), revision=body.get('revision'), answer=body.get('answer'), source=source)
             if action == 'relate':
                 return graph.relate(body['from_id'], body['to_id'], body['kind'], body['from_revision'], body['to_revision'])
             raise ValueError('Unknown work graph action')
@@ -2909,6 +2949,7 @@ class MeetingService:
         mention_index=body.get('mention_index')
         # question_id: an open question the person turns into a task; the task keeps a derives_from link (2026-11-14).
         question_id=body.get('question_id');evidence_timestamp=body.get('evidence_timestamp')
+        question_source=body.get('question_source');minutes_revision=body.get('minutes_revision')
         if not isinstance(text,str) or not text.strip() or len(text.strip())>1000:raise ValueError('Enter task text up to 1000 characters')
         if details is not None and (not isinstance(details,str) or len(details)>5000):raise ValueError('Description must be up to 5000 characters')
         criteria=body.get('completion_criteria')
@@ -2917,6 +2958,12 @@ class MeetingService:
         if owner is not None and (not isinstance(owner,str) or len(owner)>160):raise ValueError('Owner must be text up to 160 characters')
         if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{32}',request_id):raise ValueError('A task request ID is required')
         if question_id is not None and not isinstance(question_id,str):raise ValueError('Choose an existing question')
+        if question_source is not None and (question_id is not None or mention_index is not None or meeting_id is None
+                or not isinstance(question_source,dict) or set(question_source) != {'field','index','text','evidence_timestamp'}
+                or question_source.get('field') not in {'open_questions','needs_decision'} or type(question_source.get('index')) is not int):
+            raise ValueError('Choose a meeting question')
+        if (mention_index is not None or question_source is not None) and not isinstance(minutes_revision,str):
+            raise ValueError('Reload the meeting before creating a task from its notes')
         if evidence_timestamp is not None and (meeting_id is None or mention_index is not None
                 or not isinstance(evidence_timestamp,str) or not re.fullmatch(r'\d{2}:\d{2}:\d{2}',evidence_timestamp)):raise ValueError('Invalid question source moment')
         if due is not None:
@@ -2929,6 +2976,9 @@ class MeetingService:
         if mention_index is not None:payload['mention_index']=mention_index
         if question_id is not None:payload['question_id']=question_id
         if evidence_timestamp is not None:payload['evidence_timestamp']=evidence_timestamp
+        if question_source is not None:payload['question_source']=question_source
+        if minutes_revision is not None:payload['minutes_revision']=minutes_revision
+        if 'project_id' in body and project_id is None:payload['project_ids']=[]
         with self.lock,self.items.lock,self.items.store.serialized():
             self.items.data,self.items.revision=self.items.store.load()
             existing=next((i for i in self.items.items.values() if i.get('creation_request')==request_id),None)
@@ -2939,11 +2989,37 @@ class MeetingService:
             if question_id is not None:
                 question=self.items.items.get(question_id)
                 if not question or question['kind']!='question':raise ValueError('Choose an existing question')
+                if question['status']=='answered':raise items.WorkItemConflict('This question is already answered. Reload the meeting.')
+                origin = question.get('origin') or {}
+                if meeting_id is not None and origin.get('meeting_id') and meeting_id != origin['meeting_id']:
+                    raise ValueError('A task from this question must keep its original meeting')
+                if meeting_id is None and origin.get('meeting_id') in self._meeting_refs():
+                    meeting_id = origin['meeting_id']
+                if meeting_id == origin.get('meeting_id'):
+                    evidence_timestamp = origin.get('evidence_timestamp')
             if meeting_id is not None:
                 self.library.get(meeting_id)
                 if meeting_id==self.active or meeting_id in self.busy:raise ValueError('Wait for recording or processing to finish before adding a task')
             if project_id is not None and not self.projects.get('projects',project_id):raise ValueError('This project no longer exists')
-            minutes=mention=own=None
+            minutes=mention=own=question_minutes=question_entry=None
+            new_question=False
+            if mention_index is not None or question_source is not None:
+                if minutes_revision != self._minutes_revision(self.library.directory(meeting_id)):
+                    raise items.WorkItemConflict('These notes changed. Reload the meeting; your task draft has been kept.')
+            if question_source is not None:
+                question_minutes=copy.deepcopy(self._minutes(meeting_id))
+                lines=(question_minutes or {}).get(question_source['field'],[])
+                index=question_source['index']
+                if not 0<=index<len(lines):raise items.WorkItemConflict('This question changed. Reload the meeting.')
+                question_entry=lines[index]
+                if any(question_entry.get(key)!=question_source[key] for key in ('text','evidence_timestamp')):
+                    raise items.WorkItemConflict('This question changed. Reload the meeting.')
+                question=tracked_question(self.items.items,meeting_id,question_entry)
+                evidence_timestamp=question_entry.get('evidence_timestamp')
+                if question and question['status']=='answered':raise items.WorkItemConflict('This question is already answered. Reload the meeting.')
+                if question is None:
+                    question=WorkGraph.new_question(question_entry['text'],dict(meeting_id=meeting_id,evidence_timestamp=evidence_timestamp))
+                    new_question=True
             if mention_index is not None:
                 directory=self.library.directory(meeting_id)
                 minutes=read_json(directory/'minutes.json',None)
@@ -2960,6 +3036,7 @@ class MeetingService:
             if payload.get('details'):item['details']=payload['details'];item['manual'].append('details')
             if payload.get('completion_criteria'):item['completion_criteria']=payload['completion_criteria'];item['manual'].append('completion_criteria')
             if project_id is not None:item['project_ids']=[project_id]
+            elif 'project_ids' in payload:item['project_ids']=[]
             if mention is not None:
                 # The task keeps the line of the notes as its evidence; what the notes said stays as said.
                 item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=mention.get('evidence_timestamp'),seen=items.seen('task',mention)))
@@ -2968,6 +3045,10 @@ class MeetingService:
                     seen=dict(task=item['text'],owner=item['owner'],deadline=None,due_date=due,status='open')))
             self.items.items[key]=item
             self.items._event(item,'created',meeting_id,by='user');self.items._date_creation(item)
+            if new_question:
+                self.items.items[question['id']]=question
+                self.items._event(question,'created',None,by='user')
+                WorkGraph._activity(self.items.data,'question_changed',item_id=question['id'],status=question['status'])
             if question is not None:
                 # The question stays open; the relationship preserves that this task came from it (2026-11-14).
                 # A cycle is impossible: the new task has no relationships yet.
@@ -2983,6 +3064,10 @@ class MeetingService:
                     self.items._event(own,'removed',meeting_id,by='user')
                 else:self.items.remove(own['id'])
             self.items.save()
+            if question_entry is not None:
+                from meeting_assistant import save_minutes
+                question_entry['item_id']=question['id']
+                save_minutes(self.library.directory(meeting_id),question_minutes)
             if mention is not None:
                 from meeting_assistant import save_minutes
                 mention['item_id']=key;mention.pop('link',None)

@@ -38,8 +38,11 @@ class ManualMeetingTaskTests(unittest.TestCase):
         return json.loads((self.service.library.directory(meeting_id) / 'minutes.json').read_text())
 
     def create(self, meeting_id, index, text='Изпрати оферта', request='a' * 32, **extra):
+        if not hasattr(self, '_request_revisions'):self._request_revisions = {}
+        revision = self._request_revisions.setdefault(request, self.service._minutes_revision(self.service.library.directory(meeting_id)))
         return self.service.create_task(dict(text=text, owner='Иван', due_date=None, meeting_id=meeting_id,
-                                             project_id=None, request_id=request, mention_index=index, **extra))
+                                             project_id=None, request_id=request, mention_index=index,
+                                             minutes_revision=revision, **extra))
 
     def test_the_setting_is_off_by_default(self):
         self.assertFalse(self.service.settings['meeting_task_ai'])

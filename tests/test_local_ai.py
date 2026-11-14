@@ -109,6 +109,17 @@ class LocalAITests(unittest.TestCase):
             complete_json(dict(cloud, local_ai_reasoning='low'), [], SCHEMA, 'meeting_minutes')
             self.assertEqual(post.call_args.args[1]['reasoning_effort'], 'low')
 
+    def test_automatic_policy_asks_a_cloud_api_for_low_thinking_on_team_analysis_and_task_polish(self):
+        cloud = dict(DEFAULTS, local_ai_base_url='https://api.example.com/v1', local_ai_model='cloud-model')
+        for name, base, expected in [('team_analysis', cloud, 'low'), ('task_polish', cloud, 'low'), ('task_draft', cloud, None),
+                                     ('task_polish', DEFAULTS, None)]:
+            with self.subTest(name=name, url=base['local_ai_base_url']), patch('meeting_assistant.post_json', return_value=response({})) as post:
+                complete_json(base, [], SCHEMA, name)
+                self.assertEqual(post.call_args.args[1].get('reasoning_effort'), expected)
+        with patch('meeting_assistant.post_json', return_value=response({})) as post:
+            complete_json(dict(cloud, local_ai_reasoning='high'), [], SCHEMA, 'task_polish')
+            self.assertEqual(post.call_args.args[1]['reasoning_effort'], 'high')
+
     def test_explicit_reasoning_is_never_overridden_or_retried(self):
         from app.local_ai import OutputTruncatedError
         empty = {'choices': [{'finish_reason': 'length', 'message': {'content': None}}]}

@@ -9,7 +9,7 @@ assert.ok(src.includes('toast(\'Suggestion applied · review it before saving\')
 assert.ok(py.includes("if body.get('provider')=='task_edit':raise ValueError"),'task_edit can never create or change a task');
 assert.ok(py.includes('POLISH_SYSTEM'),'the polish prompt is separate from the draft prompt');
 const panel=src.slice(src.indexOf('async function openTaskPanel('),src.indexOf('// Native close and recovery'));
-assert.ok(panel.includes("btn('quiet small-action','Improve with AI')"),'the task editor offers Improve with AI');
+assert.ok(panel.includes("btn('secondary small-action','Improve with AI')"),'the task editor offers Improve with AI');
 assert.ok(panel.includes('criterion.value=result.completion_criteria||criterion.value'),'an empty suggestion never wipes a filled field');
 const manual=src.slice(src.indexOf('async function openManualTask('),src.indexOf("$('new-task').onclick"));
 assert.ok(manual.includes("btn('secondary','Improve with AI')"),'the new-task dialog offers Improve with AI');

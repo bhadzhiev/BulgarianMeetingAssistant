@@ -1408,7 +1408,7 @@ label.required-label:has(.date-part-label)::after{content:none}
 /* The Atlanta icon is a full tile: no teal tile and no glow behind it. */
 .brand-icon.has-image{background:none;box-shadow:none;border-radius:0}
 .brand-icon>img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
-/* A task with a saved Gmail draft shows an envelope beside its state. */
+/* A task with a saved Gmail draft shows an envelope beside its title. */
 .email-mark{display:inline-flex;align-items:center;gap:4px;color:var(--green);font-size:11px;font-weight:600;white-space:nowrap}
 /* An inline edit takes the place and the width of the title it replaces, next to the project chips. */
 .entity-top>.inline-editor{flex:1 1 0;min-width:0}
@@ -1437,7 +1437,7 @@ label.required-label:has(.date-part-label)::after{content:none}
 .task-update .task-last-when{justify-self:end;font-variant-numeric:tabular-nums}
 .task-update .task-last-line{font-size:14px}
 .task-update .task-last-line:last-child{grid-column:1/-1}
-.task-update .email-mark{justify-self:end;color:var(--green);font-weight:600}
+
 .task-meetings{display:flex;flex-direction:column}
 .task-meetings-title{margin:2px 0 4px;font-size:13px;color:var(--muted)}
 .task-meeting{display:grid;grid-template-columns:auto minmax(0,1fr) auto 76px;align-items:center;gap:12px;padding:6px 4px;font-size:13px}
@@ -1475,10 +1475,12 @@ label.required-label:has(.date-part-label)::after{content:none}
 .tracked-task.task-card.compact-task .compact-owner>select{padding-left:38px!important;min-width:200px}
 .tracked-task.task-card.compact-task .task-quick-fields>label:nth-child(2) select{min-width:140px}
 .tracked-task.task-card.compact-task>.tracked-main>.compact-flags{display:flex;flex:1 1 220px;flex-wrap:wrap;min-width:0;align-items:center;gap:8px 12px;min-height:36px}
-.compact-flags>.email-mark{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--ink)}
-.compact-flags>.email-mark .icon{color:var(--green)}
+.task-title-line{display:flex;align-items:flex-start;gap:8px;min-width:0;flex:1}
+.task-title-line>.task-title{min-width:0;flex:0 1 auto}
+.task-title-line>.email-mark{flex:none;align-self:center;line-height:1}
+.task-title-line>.email-mark .icon{color:var(--green)}
 .tracked-task.task-card.compact-task>.task-more{align-self:flex-start}
-@media(max-width:700px){.tracked-task.task-card.compact-task .task-quick-fields>label{flex:1 1 100%}.tracked-task.task-card.compact-task .task-quick-fields :is(select,input,.date-control){width:100%}.compact-flags>.email-mark{margin-left:0}}
+@media(max-width:700px){.tracked-task.task-card.compact-task .task-quick-fields>label{flex:1 1 100%}.tracked-task.task-card.compact-task .task-quick-fields :is(select,input,.date-control){width:100%}.task-title-line{max-width:100%}}
 .tracked-task.task-card.compact-task .task-quick-fields select{line-height:34px!important}
 
 /* New task dialog: the same field order and grid as the task editor (2026-11-12). */

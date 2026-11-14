@@ -7,11 +7,13 @@ assert.match(app,/box\.append\(label\('Title',area\),label\('Description',detail
 assert.match(app,/parts\.push\(label\('Title',text\),label\('Description',details\),label\('Expected result',criterion\),grid\);/);
 assert.match(app,/parts\.push\(status,note,actions\);box\.append\(\.\.\.parts\);/);
 assert.match(row,/label\('Owner',owner\),label\('State',stateSelect\),label\('Due date',due\)/);
-// The compact card: title, then the labelled fields with the owner's avatar, then the flags with the Emailed word.
+// The compact card: title, then the labelled fields with the owner's avatar, then the flags. The draft icon stays next to the title.
 assert.match(row,/const ownerField=quick\.firstElementChild;ownerField\.classList\.add\('compact-owner'\);owner\.before\(avatar\(item\.owner\|\|''\)\);/);
 assert.match(row,/main\.replaceChildren\(head,quick,\.\.\.\(flags\.childNodes\.length\?\[flags\]:\[\]\)\);/);
-assert.match(row,/const mailedFlag=emailMark\(item\);if\(mailedFlag\)flags\.append\(mailedFlag\);/);
+assert.match(row,/titleLine\.append\(title\);if\(mailed\)titleLine\.append\(mailed\);head\.append\(titleLine,chips\)/);
+assert.doesNotMatch(row,/flags\.append\(mailed/);
 assert.match(css,/:is\(#task-list,\.task-rows\)\.compact-list>\.tracked-task\.task-card\.compact-task\{margin:0 0 10px;padding:16px 18px;border:1px solid var\(--line\);border-radius:14px/);
 assert.match(css,/\.compact-owner>\.speaker-badge\{position:absolute;/);
-assert.match(css,/\.compact-flags>\.email-mark\{margin-left:auto;/);
+assert.match(css,/\.task-title-line>\.email-mark\{flex:none;/);
+assert.doesNotMatch(css,/\.compact-flags>\.email-mark/);
 console.log('Compact task card PASS: Title and Description labels, labelled fields with avatar, flags after the fields.');

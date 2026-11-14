@@ -10,9 +10,10 @@ assert.match(app,/head\.append\(el\('p','review-text',item\.text\),state\);row\.
 // An update of the notes shows a new description as part of the task change.
 assert.match(app,/function changeText\(field,item\) \{ return field==='tasks'\?\[item\.task,item\.details,item\.owner,/);
 assert.match(css,/\.task-description\{[^}]*-webkit-line-clamp:3/);
-// The last update is a box with its label, date and text; Emailed goes into the box when there is an update.
-assert.match(row,/box\.append\(el\('span','task-update-label','Last update'\),el\('span','task-last-when',dateTime\(update\.at\)\),last\);if\(mailed\)box\.append\(mailed\)/);
-assert.match(row,/if\(mailed&&!update\)meta\.append\(mailed\)/);
+// The last update is a box with its label, date and text; the draft indicator stays by the task title, never in its update.
+assert.match(row,/box\.append\(el\('span','task-update-label','Last update'\),el\('span','task-last-when',dateTime\(update\.at\)\),last\);main\.append\(box\)/);
+assert.match(row,/if\(mailed\)titleLine\.append\(mailed\)/);
+assert.doesNotMatch(row,/(?:meta|box|flags)\.append\(mailed\)/);
 // Meetings are rows; the other sources keep their chips.
 assert.match(row,/linked=taskMeetingList\(item,itemsData\.meetings\),others=sourceChips\(item,itemsData\.meetings,\{withMeetings:false\}\)/);
 // Mark done is the main action with a check; Timeline and Edit are quiet.

@@ -1044,6 +1044,13 @@ function noteSection(minutes,field,title,busy,hint) {
     else{const make=btn('secondary small-action','Make task');make.disabled=busy;make.title='Turn this question into a task for someone; the task stays linked to the question';make.onclick=()=>perform(()=>openManualTask(detail.id,{text:item.text,evidence:item.evidence_timestamp||null,questionSource:{field,index,text:item.text,evidence_timestamp:item.evidence_timestamp||null},minutesRevision:detail.minutes_revision}));meta.append(make);}
     for(const id of detail.question_tasks?.[questionId]||[]){const task=detail.items[id];if(task)meta.append(btn('quiet small-action','Task: '+task.text,()=>perform(()=>openTaskPanel(id))));}
    }
+   if(field==='decisions'){
+    const decisionId=detail.decision_items?.[String(index)]||item.item_id;
+    if(decisionId)li.setAttribute('data-decision-id',decisionId);
+    const make=btn('secondary small-action','Make task');make.disabled=busy;make.title='Create a task to carry out this decision; the task stays linked to the decision';
+    make.onclick=()=>perform(()=>openManualTask(detail.id,{text:item.text,details:item.rationale||'',evidence:item.evidence_timestamp||null,decisionSource:{index,text:item.text,evidence_timestamp:item.evidence_timestamp||null},minutesRevision:detail.minutes_revision}));meta.append(make);
+    for(const id of detail.decision_tasks?.[decisionId]||[]){const task=detail.items[id];if(task)meta.append(btn('quiet small-action','Task: '+task.text,()=>perform(()=>openTaskPanel(id))));}
+   }
    if(decision&&decisionState(decision).action){const accept=btn('primary small-action',decisionState(decision).action);accept.disabled=busy;accept.onclick=()=>perform(()=>changeItem(decision,{status:'accepted'}));meta.append(accept);} li.append(noteText);const why=noteExplanation(field,item);if(why)li.append(why);li.append(meta);if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions)evidence.append(el('p','',mention.text),sourceBlock(mention.evidence_timestamp));li.append(evidence);}
    if(decision&&decision.links.length>1){const also=meetingChips(decision,detail.item_meetings,detail.id);also.prepend(el('span','hint','Also in'));li.append(also);}
    if(field==='decisions'&&state.settings?.meeting_task_ai&&item.link&&!item.item_id) li.append(linkCard({meeting_id:detail.id,kind:'decision',field,index,mention:item,text:item.text,candidates:item.link.candidates},detail.item_meetings,detail.items||{}));
@@ -1814,17 +1821,17 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  meta.append(who,el('span','task-state',stateName),el('span','due-label '+kind,label),workReviewBadge(item.review_state,item));
- const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item);if(mailed&&!update)meta.append(mailed);
+ const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item,{compact:true});
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
 
- const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));head.append(title,chips);
+ const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));const titleLine=el('div','task-title-line');titleLine.append(title);if(mailed)titleLine.append(mailed);head.append(titleLine,chips);
  // A task is a title and a description; the card shows up to three lines of it, the panel shows all.
  const description=String(item.details||'').trim();
  main.append(head,...(description?[taskDescription(description)]:[]),meta);
  // The last update is a short box; Timeline holds the full text.
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
-  box.append(el('span','task-update-label','Last update'),el('span','task-last-when',dateTime(update.at)),last);if(mailed)box.append(mailed);main.append(box);}
+  box.append(el('span','task-update-label','Last update'),el('span','task-last-when',dateTime(update.at)),last);main.append(box);}
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
  if(linked||others.childNodes.length){const sources=el('details','task-card-sources');sources.append(el('summary','','Sources'));if(linked)sources.append(linked);if(others.childNodes.length)sources.append(others);main.append(sources);}
  if(item.acceptance_state!=='proposed'){
@@ -1863,7 +1870,6 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
    if(['overdue','today'].includes(kind))flags.append(el('span','due-label '+kind,dueInfo(item,today)[1]));
    const review=workReviewBadge(item.review_state,item);if(review)flags.append(review);
    if(co.length)flags.append(el('span','badge shared-badge','Shared · +'+co.length));
-   const mailedFlag=emailMark(item);if(mailedFlag)flags.append(mailedFlag);
    // The card in the compact view: the title, then Owner, State and Due date with their labels, then the flags.
    const ownerField=quick.firstElementChild;ownerField.classList.add('compact-owner');owner.before(avatar(item.owner||''));
    main.replaceChildren(head,quick,...(flags.childNodes.length?[flags]:[]));
@@ -2385,6 +2391,12 @@ function trackedQuestionCard(q){
   main.append(actions,projectAssignment(q),githubActions({kind:'item',id:q.id}),historyBlock(q,itemsData.meetings),evidenceBlock(q,itemsData.meetings));row.append(main);return row;
 }
 // The questions in meeting notes: the same list as Prepare me, from every meeting. Track or answer one to keep it here.
+async function openMeetingDecision(decision,meetingId){
+ await openMeeting(meetingId);switchTab('outcomes');
+ const row=document.querySelector('[data-decision-id="'+decision.id+'"]');
+ if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
+ else toast('The saved decision is kept as the task source. Its original line is no longer in these notes.');
+}
 async function openMeetingQuestion(question){
  await openMeeting(question.origin.meeting_id);
  const row=document.querySelector('[data-question-id="'+question.id+'"]');
@@ -4019,7 +4031,7 @@ function renderChannelProfile(profile){
 // One task dialog, wherever the task starts — My Work, a meeting, a notes line, an unanswered question,
 // Gmail, Chat, GitHub or a report (2026-11-14): same fields, same AI actions, same Create task.
 // With a source the dialog also shows the evidence and can link it to an existing task instead of creating one.
-async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null,expected:startExpected='',onCreated=null,question=null,evidence=null,questionSource=null,minutesRevision=null,source=null,sourcePreview=null}={}){
+async function openManualTask(meetingId=null,{text:startText='',details:startDetails='',owner:startOwner='',due:startDue='',mention=null,expected:startExpected='',onCreated=null,question=null,evidence=null,questionSource=null,decisionSource=null,minutesRevision=null,source=null,sourcePreview=null}={}){
  if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
  if(!(await leaveEdits()))return null;
  meetingId=meetingId||((state.meetings||[]).some(m=>m.id===question?.origin?.meeting_id)?question.origin.meeting_id:null);
@@ -4038,7 +4050,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const meeting=el('select');meeting.setAttribute('aria-label','Meeting');meeting.append(option('No meeting · standalone task',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=meetingId||'';
  // A task from a line of the notes stays with that meeting: the line links to the new task.
  if(mention!==null&&minutesRevision===null)minutesRevision=detail.minutes_revision;
- if(mention!==null||questionSource!==null||question?.origin)meeting.disabled=true;
+ if(mention!==null||questionSource!==null||decisionSource!==null||question?.origin)meeting.disabled=true;
  const project=el('select');project.setAttribute('aria-label','Project');
  const initial=source?(Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject()):((state.meetings||[]).find(m=>m.id===meetingId)?.project_id||(view==='projects'?contextProject():($('work-project').value!=='__none__'?$('work-project').value:'')));
  fillProjects(project,initial||'','No project');
@@ -4075,7 +4087,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   save.textContent=linking()?'Link evidence':'Create task';
   save.disabled=saving||generating||link?.value==='__choose__'||(!linking()&&!text.value.trim());
   text.disabled=details.disabled=criterion.disabled=owner.disabled=due.disabled=linking()||saving||generating;
-  meeting.disabled=mention!==null||questionSource!==null||!!question?.origin||linking()||saving||generating;project.disabled=saving||linking()||generating;
+  meeting.disabled=mention!==null||questionSource!==null||decisionSource!==null||!!question?.origin||linking()||saving||generating;project.disabled=saving||linking()||generating;
   if(link)link.disabled=saving||generating;
   draft.disabled=linking()||saving||generating||!!(source&&preview?.ai_available===false);
   improve.disabled=linking()||saving||generating;cancel.disabled=saving;
@@ -4133,6 +4145,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   if(criterion.value.trim())body.completion_criteria=criterion.value.trim();
   if(mention!==null){body.mention_index=mention;body.minutes_revision=minutesRevision;}
   if(questionSource){body.question_source=questionSource;body.minutes_revision=minutesRevision;}
+  if(decisionSource){body.decision_source=decisionSource;body.minutes_revision=minutesRevision;}
   // A task from a question keeps the question link server-side; from a notes question, its moment (2026-11-14).
   if(question)body.question_id=question.id;
   if(evidence)body.evidence_timestamp=evidence;
@@ -4257,7 +4270,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
   improveRow.append(improve,el('span','hint','Suggests sharper wording; you review it before saving.'));}
  box.append(label('Title',area),label('Description',details),label('Expected result',criterion),improveRow,core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,peopleSection,sourcesSection,historySection,footer);
  sectionNotes();
- const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));for(const edge of data.graph?.relationships||[]){if(edge.kind!=='derives_from'||edge.from_id!==item.id)continue;const question=data.items.find(q=>q.id===edge.to_id&&q.kind==='question');if(question)sources.append(btn('quiet small-action','Question: '+question.text,()=>perform(async()=>{if(!(await leaveEdits()))return;dialog.close();if(question.origin&&data.meetings[question.origin.meeting_id]){await openMeetingQuestion(question);}else{show('tasks');lastTasks='';await loadTasks();showWorkTab('questions');}})));}const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
+ const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));for(const edge of data.graph?.relationships||[]){if(!['derives_from','implements'].includes(edge.kind)||edge.from_id!==item.id)continue;const origin=data.items.find(q=>q.id===edge.to_id)||data.derived_sources?.[edge.to_id];if(!origin||!['question','decision'].includes(origin.kind))continue;sources.append(btn('quiet small-action',(origin.kind==='decision'?'Decision: ':'Question: ')+origin.text,()=>perform(async()=>{if(!(await leaveEdits()))return;dialog.close();const createdFrom=(item.history||[]).find(event=>event.event==='created_from_decision'&&event.decision_id===origin.id);const meetingId=createdFrom?.meeting_id||origin.origin?.meeting_id||origin.links?.at(-1)?.meeting_id;if(meetingId&&data.meetings[meetingId]){if(origin.kind==='decision')await openMeetingDecision(origin,meetingId);else await openMeetingQuestion(origin);}else{show('tasks');lastTasks='';await loadTasks();showWorkTab(origin.kind==='question'?'questions':'task');toast('The saved source is kept; its meeting is no longer available.');}})));}const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);
  const destinations=[...new Set((item.effective_project_ids||[]).flatMap(key=>projectList().find(p=>p.id===key)?.repositories||[]))];if(destinations.length){const repository=el('select');repository.setAttribute('aria-label','Repository readiness');repository.append(...destinations.map(name=>option(name,name)));const readiness=btn('quiet','Check repository access'),result=el('p','hint','Read access and issue publication permissions are separate.');readiness.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits first.');readiness.disabled=true;try{const value=await api('/api/items/'+item.id+'/readiness',{repository:repository.value});if(dialog.open&&sequence===taskPanelSequence)result.textContent=value.repository+' · '+value.account+' · '+(value.archived?'Archived or disabled':!value.issues_enabled?'Issues disabled':value.message);}finally{readiness.disabled=false;}});github.append(repository,readiness,result);}sourcesSection.append(github);
  const links=(itemsData.github_links||[]).filter(link=>link.resource.kind==='item'&&link.resource.id===item.id).length,records=(item.source_evidence||[]).length;

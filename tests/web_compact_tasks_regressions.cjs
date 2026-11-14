@@ -20,7 +20,7 @@ assert.match(css,/#task-panel \.task-section\[open\]>summary \.task-section-summ
 assert.match(app,/localStorage\.getItem\('task-density'\)==='cards'\?'cards':'compact'/);
 assert.match(slice('function renderBulkTasks(){'),/\[\['compact','Compact'\],\['cards','Cards'\]\]/);
 const row=slice('function globalTaskRow(');
-assert.match(row,/compactMenu=\[addUpdate,timeline,nextCheck\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
+assert.match(row,/compactMenu=\[addUpdate,timeline,toggle,nextCheck\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
 assert.match(row,/if\(compactMenu\)actions\.prepend\(\.\.\.compactMenu\);/);
 // Selection starts on request in both views.
 assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);

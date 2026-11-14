@@ -3,7 +3,7 @@
  const workflow=item=>item.workflow_state||(item.status==='done'?'done':'todo');
  function inView(item,view,{self='',people=[],today='',search='',proposalFilter='pending'}={}){
   if(search&&![item.text,item.details,item.owner].join(' ').toLowerCase().includes(search.toLowerCase()))return false;
-  const proposed=item.acceptance_state==='proposed';if(view==='inbox')return proposed&&(proposalFilter==='all'||(proposalFilter==='dismissed'?!!item.dismissed:!item.dismissed&&(proposalFilter==='snoozed'?item.snoozed_until>today:!item.snoozed_until||item.snoozed_until<=today)));
+  const proposed=item.acceptance_state==='proposed';if(view==='inbox')return proposalFilter!=='stale'&&proposed&&(proposalFilter==='all'||(proposalFilter==='dismissed'?!!item.dismissed:!item.dismissed&&(proposalFilter==='snoozed'?item.snoozed_until>today:!item.snoozed_until||item.snoozed_until<=today)));
   if(proposed)return false;
   const me=people.find(p=>p.id===self),names=me?[me.name,...(me.aliases||[])].map(n=>n.toLowerCase()):[];
   const mine=!!self&&(item.owner_person_id===self||!!item.manual?.includes('owner')&&names.includes((item.owner||'').toLowerCase()));

@@ -1545,3 +1545,59 @@ label.required-label:has(.date-part-label)::after{content:none}
 .team-context-observation{margin:12px 0;padding:12px;border-left:3px solid var(--line)}
 #team-review-archive{margin-top:24px}
 #team-context-dialog{max-width:850px}
+
+/* Audit: keep header actions distinct, and task titles sized by their content. */
+.page-header>.heading{display:flex;flex-wrap:wrap;gap:8px 12px}
+.page-header>.heading h1{flex:1 1 45%}
+.page-header>.heading .subheading{flex:1 0 100%;order:2}
+.tracked-task.task-card .entity-top .task-title-line>.task-title{flex:0 1 auto;width:auto}
+.manager-controls{margin-bottom:8px}.task-bulk-bar{padding:6px;margin:8px 0}
+.tracked-task.task-card{padding:14px 16px}.task-description{-webkit-line-clamp:2}
+.question-card .item-history,.decision .item-history{margin:4px 0}
+@media(max-width:700px){.entity-top{display:grid;grid-template-columns:minmax(0,1fr) auto}.entity-top>.entity-chips{grid-column:1/-1;max-width:100%}.entity-top>.menu{grid-column:2;grid-row:1}.task-title-line{grid-column:1}.manager-controls{gap:6px}.task-card-grid{gap:8px}}
+
+/* Shared work-card hierarchy: title, facts, content, action, secondary tools. */
+.work-card{position:relative}.work-card .entity-top{align-items:flex-start;gap:10px}
+.card-details{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+.card-details>summary{cursor:pointer;color:var(--muted);font-size:12px}
+.card-details[open]>:not(summary){margin-top:10px}
+.work-card-closed{background:var(--card);border-color:var(--line);color:var(--muted)}
+.work-card-closed .task-row-actions>.primary{background:var(--light);color:var(--ink)}
+.work-card-proposed{border-inline-start:3px solid var(--warn)}
+.question-card.work-card .entity-main{gap:8px}.question-card.work-card .action-group{margin-top:4px}
+.question-card.work-card .question-answer{padding:8px 10px;background:var(--ok-soft);border-radius:8px}
+.work-card .entity-top>.menu,.work-card>.task-more{flex:none}
+
+/* Summary facts already include urgency, review and sharing in compact cards. */
+.tracked-task.task-card.work-card.compact-task .compact-flags{display:none!important}
+
+/* Library: visible source scope, readable readiness and a stable title/menu grid. */
+.library-source-row{display:flex;align-items:center;margin-bottom:8px}
+.library-source-row>label{display:flex;align-items:center;gap:8px;margin:0;font-size:12px}
+.library-source-row select{max-width:100%;min-width:180px}
+.meeting-readiness{font-size:11px;color:var(--muted)}
+.meeting-card .entity-top,.conversation-card .entity-top{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:start}
+.meeting-card .entity-top>.entity-title,.conversation-card .entity-top>.entity-title{min-width:0;width:auto}
+.meeting-card .entity-top>.menu,.conversation-card .entity-top>.menu{grid-column:3;grid-row:1}
+.meeting-card .entity-top>.entity-chips,.conversation-card .entity-top>.entity-chips{max-width:none}
+.manager-identity-details{font-size:12px}.manager-identity-details>summary{cursor:pointer;color:var(--muted)}
+.manager-identity-details[open] .manager-identity{margin:6px 0}
+@media(max-width:700px){
+ .work-tabs,.library-tabs{flex-wrap:wrap!important;overflow:visible!important;gap:4px 12px;margin-bottom:10px}
+ .work-tabs>button,.library-tabs>button{font-size:12px;padding:8px 0;white-space:normal}
+ .meeting-card .entity-top,.conversation-card .entity-top{grid-template-columns:minmax(0,1fr) auto}
+ .meeting-card .entity-top>.menu,.conversation-card .entity-top>.menu{grid-column:2;grid-row:1}
+ .meeting-card .entity-top>.entity-chips,.conversation-card .entity-top>.entity-chips{grid-column:1/-1;grid-row:2;justify-content:flex-start;order:initial}
+ .meeting-card.compact .entity-top{grid-template-columns:auto minmax(0,1fr) auto}
+ .meeting-card.compact .entity-top>.menu{grid-column:3}
+ .manager-controls{display:flex!important;gap:8px!important;padding:0}
+ .manager-identity-details{flex-basis:100%}.manager-views{display:flex;flex-wrap:wrap;gap:4px}
+ .manager-controls>input[type=search]{width:100%;flex-basis:100%}
+ .library-source-row select{min-width:0;width:100%}.library-source-row>label{width:100%}
+ .library-search-row{gap:6px}.library-search-row .filter-search{min-width:0}
+}
+@media(max-width:700px){
+ .work-panel{padding:14px!important}
+ .manager-views .manager-view-button{min-width:0;padding:5px 7px!important;font-size:11px!important}
+ .task-bulk-bar{margin:6px 0;padding:4px}
+}

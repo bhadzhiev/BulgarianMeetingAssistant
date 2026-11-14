@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const src=fs.readFileSync('web/app.js','utf8');
-function node(tag,cls,text){return {tag,cls,text,type:'',disabled:false,children:[],attrs:{},append(...x){this.children.push(...x.filter(v=>typeof v==='object'))},replaceChildren(...x){this.children=x},setAttribute(k,v){this.attrs[k]=v},querySelector(){return null}};}
+function node(tag,cls,text){return {tag,cls,text,classList:{add(){}},type:'',disabled:false,children:[],attrs:{},append(...x){this.children.push(...x.filter(v=>typeof v==='object'))},replaceChildren(...x){this.children=x},setAttribute(k,v){this.attrs[k]=v},querySelector(){return null}};}
 const walk=n=>[n,...(n.children||[]).flatMap(walk)];
 const row=(over={})=>Object.assign({id:'task',kind:'task',text:'Shared task',state:'needs_review',content:'c',evidence:[],can_dismiss:true,dismiss_blocked_reason:null,confirmed_in:[]},over);
 async function render(item,audit=null){
@@ -11,6 +11,7 @@ async function render(item,audit=null){
   reviewRouting:()=>node('div'),listenButton:()=>node('button'),stampButton:()=>node('button'),
   perform:async fn=>fn(),openMeeting:async id=>opened.push(['meeting',id]),openTaskPanel:async id=>opened.push(['task',id]),
   undoToast:(message,fn)=>undos.push([message,fn]),toast(){},leaveEdits:async()=>true,show(){},loadTasks:async()=>{},showWorkTab(){}});
+ vm.runInContext(src.slice(src.indexOf('function cardDetails('),src.indexOf('function decisionRow(')),c);
  vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
  vm.runInContext('let reviewShownFor=null,lastTasks="";'+src.slice(src.indexOf('async function openMeetingReview('),src.indexOf('// The publication state')),c);
  await vm.runInContext('openMeetingReview()',c);

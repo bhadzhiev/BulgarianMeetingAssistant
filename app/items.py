@@ -127,7 +127,7 @@ class Registry:
         found = []
         for item in self.items.values():
             # An item from the earlier notes of this meeting goes away with them; it is never offered as a match.
-            if item['kind'] != kind or item['status'] in {'done', 'superseded'} or self._detached(item, meeting_id):
+            if item['kind'] != kind or item['status'] in {'done', 'superseded'} or item.get('workflow_state') == 'cancelled' or self._detached(item, meeting_id):
                 continue
             score = similarity(text, item['text'] or '')
             if kind == 'task' and mention.get('owner') and mention.get('owner') == item.get('owner'):

@@ -382,7 +382,7 @@ Name the speakers first, and choose your own name in **You in this meeting** (se
 **Analyze** shows the model, its address and the size of the transcript, and sends the transcript to the
 Notes & AI provider only after you confirm. The analysis runs in the background as two parallel requests
 — the people, and the team with the words and the coaching — and the tab shows the progress and a Stop.
-Each request has an output limit of 8,192 tokens and up to 20 minutes. A cloud API is asked for **low**
+Each request has an output limit of 16,384 tokens and up to 20 minutes. A cloud API is asked for **low**
 thinking on this analysis: the default level of a thinking model (for example Kimi K3.1 Pro) spent a
 whole output limit on thinking and returned nothing after 9.5 minutes. A local server keeps its own
 default.

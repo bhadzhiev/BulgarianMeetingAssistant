@@ -26,9 +26,11 @@ FILE = 'team-analysis.json'
 # Two parallel requests: the people are one answer; the team, the words and the coaching are the other. A thinking
 # model (Kimi K3.1 Pro, thinking at its default level by the person's choice) used the whole 16,384-token limit of
 # one request on thinking and returned nothing after 9.5 minutes (2026-11-13), so complete_json asks a cloud API
-# for low thinking on this stage and the output limit is sized for the JSON of one part, not for reasoning.
+# for low thinking on this stage. The evidence-first instructions (a hypothesis with an alternative explanation)
+# made one part longer: with low thinking, 8,192 tokens truncated the answer of a meeting with five people
+# (2026-11-14), so the limit is 16,384 again, now with low thinking.
 PARTS = (('people',), ('dynamics', 'discourse', 'coaching'))
-OUTPUT_LIMIT = 8192
+OUTPUT_LIMIT = 16384
 TIMEOUT = 1200
 TEXT_LIMIT = 1500
 MAX_ITEMS = 12

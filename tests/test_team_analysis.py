@@ -57,7 +57,7 @@ class TeamAnalysisTests(unittest.TestCase):
         # and a cloud API is asked for low thinking (2026-11-13).
         by_part = {tuple(call['schema']['required']): call for call in calls}
         self.assertEqual(set(by_part), {('people',), ('dynamics', 'discourse', 'coaching')})
-        self.assertEqual({call['target']['local_ai_max_tokens'] for call in calls}, {8192})
+        self.assertEqual({call['target']['local_ai_max_tokens'] for call in calls}, {16384})
         self.assertEqual({call['timeout'] for call in calls}, {1200})
         people, team = by_part[('people',)], by_part[('dynamics', 'discourse', 'coaching')]
         self.assertIn('В този отговор върни само: people.', people['messages'][0]['content'])

@@ -1503,6 +1503,15 @@ class MeetingService:
             self.library.update(meeting_id, **changes)
             return self.detail(meeting_id)
 
+    def set_done(self, meeting_id, done):
+        """Mark a meeting as done or not done. Only the person sets this status; processing never changes it (2026-11-14)."""
+        if type(done) is not bool:
+            raise ValueError('Choose done or not done')
+        with self.lock:
+            self.library.get(meeting_id)
+            self.library.update(meeting_id, done=done, done_at=dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds') if done else None)
+            return self.detail(meeting_id)
+
     def set_meeting_type(self, meeting_id, kind):
         """Change the type of one meeting. Saved notes stay; new notes for the type wait for review."""
         changes = self._type_changes(kind, 'manual')

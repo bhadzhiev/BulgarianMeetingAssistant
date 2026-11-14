@@ -597,7 +597,7 @@ function renderLibrary() {
  const signature=JSON.stringify([rows,selected,view]); if(signature===lastLibrary) return; lastLibrary=signature;
  $('library').replaceChildren();
  $('library').classList.toggle('empty',!rows.length);if(!rows.length) $('library').append(el('p','empty-library',query||filter?'No matching meetings.':'No recent meetings.'));
- for(const m of rows.slice(0,5)) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',(m.title.includes(date(m.created))?'':date(m.created)+' · ')+(statusNames[m.status]||m.status))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
+ for(const m of rows.slice(0,5)) { const button=el('button','meeting-item'+(m.id===selected&&view==='detail'?' current':'')); button.append(el('strong','',m.title),el('small','',(m.title.includes(date(m.created))?'':date(m.created)+' · ')+(statusNames[m.status]||m.status)+(m.done?' · Done':''))); button.onclick=()=>perform(()=>openMeeting(m.id)); $('library').append(button); }
  const all=btn('quiet library-all','All meetings →');all.title='Open every meeting in the Library';all.onclick=()=>perform(openConversations);if(meetings.length)$('library').append(all);
 }
 async function openMeeting(id,force=false) {
@@ -3871,14 +3871,16 @@ function meetingCard(m,{variant='list',participants=null,select=null,onChange=nu
  save.onclick=()=>perform(async()=>{await api('/api/meetings/'+m.id+'/scope',{project:pick.value?{id:pick.value}:null,series:pick.value&&pick.value===m.project_id&&m.series_id?{id:m.series_id}:null});picker.open=false;state=await api('/api/state');renderState();lastTasks='';toast(pick.value?'Meeting moved to '+(projectList().find(p=>p.id===pick.value)?.name||'the project'):'Meeting removed from its project');if(onChange)await onChange();});
  const pickBody=el('div','project-pick-body');pickBody.append(pick,save,cancel);picker.append(summary,pickBody);chips.append(picker);
  const change=btn('quiet',projects.length?'Change project…':'Add to a project…',()=>{picker.open=true;pick.focus();});
- const menu=rowMenu('More actions for '+m.title,btn('quiet','Open meeting',()=>perform(()=>openMeeting(m.id))),change);
+ // Done is the person's own mark that they finished with a meeting; processing never sets or clears it (2026-11-14).
+ const done=btn('quiet',m.done?'Mark as not done':'Mark as done',()=>perform(async()=>{await api('/api/meetings/'+m.id+'/done',{done:!m.done});state=await api('/api/state');renderState();toast(m.done?'Meeting marked as not done':'Meeting marked as done');if(onChange)await onChange();}));
+ const menu=rowMenu('More actions for '+m.title,btn('quiet','Open meeting',()=>perform(()=>openMeeting(m.id))),change,done);
  const meta=el('div','entity-meta'),facts=[];
  if(!compact)facts.push('Meeting',dateTime(m.started_at||m.created||m.date));
  if(m.duration)facts.push(shortDuration(m.duration));
  meta.append(el('span','',facts.join(' · ')));
  // The participant count is the control that shows their names.
  if(participants?.length){const people=el('details','entity-people');people.append(el('summary','',AtlantaUX.count(participants.length,'participant')),el('p','hint',participants.join(', ')));meta.append(people);}
- const status=meetingStatus(m);if(status)meta.append(statusBadge(status));
+ const status=meetingStatus(m);if(status)meta.append(statusBadge(status));if(m.done)meta.append(statusBadge({tone:'ok',label:'Done'}));
  // A compact card (Calendar) gives the title the width; the project joins the metadata row.
  if(compact){top.append(menu);meta.append(chips);}else top.append(chips,menu);
  main.append(top,meta);

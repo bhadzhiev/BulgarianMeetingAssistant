@@ -505,6 +505,12 @@ Decisions are **Proposed** until you accept them (checking a decision against it
 
 The app shows reminders only to you, in the app. It sends nothing to task owners.
 
+### Mark a meeting as done
+
+In the Library, open the **...** menu of a meeting and click **Mark as done**. The card then shows a
+**Done** badge, and the sidebar list shows "· Done". Click **Mark as not done** to remove the mark.
+Only you set this status. Processing, new notes and team analysis never change it.
+
 ### Projects, series and Prepare me
 
 Group meetings into **projects** (for example "DevOps" or "Client X") and recurring meetings into a

@@ -125,7 +125,7 @@ class Conversations:
                     excerpt_projects={p for a in attachments if a['kind']=='excerpt' and a['locator']['meeting_id']==m['id'] for p in a['project_ids']}
                     rows.append(dict(provider='meeting',id='meeting:'+m['id'],external_id=m['id'],title=m['title'],date=iso(m.get('started_at') or m['created']),
                         text=content['text'],participants=content['participants'],project_ids=[m['project_id']] if m.get('project_id') else [],excerpt_projects=sorted(excerpt_projects),
-                        series_id=m.get('series_id'),scope_revision=scope_revision(m),status=m['status'],duration=m.get('duration',0)))
+                        series_id=m.get('series_id'),scope_revision=scope_revision(m),status=m['status'],done=m.get('done') is True,duration=m.get('duration',0)))
                 except (OSError,ValueError,TypeError,KeyError,AttributeError):notices.append('A meeting transcript could not be indexed; its original files were kept.')
         if provider in {'gmail','google_chat','all'}:
             kinds=['gmail','google_chat'] if provider=='all' else [provider]

@@ -103,8 +103,9 @@ the settings it started with for automatic processing.
   JSON schema is the default; choose JSON object or Prompt only if your server needs it.
   All modes still validate generated notes and task evidence timestamps before saving.
   Reasoning effort defaults to **Automatic**: Qwen3.5 notes, transcript correction and titles
-  send `reasoning_effort=none` before the first request. The same applies to every model on a
-  cloud (non-local) API. Selected-email analysis resolves Automatic
+  send `reasoning_effort=none` before the first request. The same applies to models on a
+  cloud (non-local) API, except Kimi K3 models, which always think and reject `none` — there
+  Atlanta sends their lightest valid effort, `low`. Selected-email analysis resolves Automatic
   to Off for Qwen3.5 and shows the effective reasoning/output limit before approval. Other models
   keep the server default. Explicit Off/Low/Medium/High choices are kept. Choose
   **Server default** if your endpoint does not accept `reasoning_effort`. The shared maximum output defaults to

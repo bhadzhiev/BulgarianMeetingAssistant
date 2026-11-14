@@ -169,7 +169,12 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key='', max
             name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review', 'task_matching', 'task_titles', 'task_polish'}
             and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
             or name == 'topic_matches' and is_remote(base_url)):
-        reasoning = 'none'
+        # Kimi K3 models always think: their API accepts only low/high/max and rejects 'none'
+        # (2026-11-14), so there the lightest valid effort is low.
+        if is_remote(base_url) and isinstance(model, str) and re.search(r'(?:^|/)kimi-k3(?:[.\-/]|$)', model, re.I):
+            reasoning = 'low'
+        else:
+            reasoning = 'none'
     # Team analysis keeps some thinking for the behavioral judgment, but at low on a cloud API: the default
     # level of Kimi K3.1 Pro spent a whole 16,384-token budget and 9.5 minutes before any JSON (2026-11-13).
     if reasoning == 'default' and name == 'team_analysis' and is_remote(base_url):

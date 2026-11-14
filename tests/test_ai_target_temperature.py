@@ -24,7 +24,8 @@ class AITargetTemperatureTests(unittest.TestCase):
             complete_json(target, [dict(role='user', content='x')], {}, 'team_review')
         payload = post.call_args.args[1]
         self.assertNotIn('temperature', payload)
-        self.assertEqual(payload['reasoning_effort'], 'none')
+        # Kimi K3 always thinks and rejects 'none': the policy asks for its lightest valid effort.
+        self.assertEqual(payload['reasoning_effort'], 'low')
 
     def test_the_error_names_the_server_reason_without_a_key(self):
         body = json.dumps(dict(error=dict(message='invalid temperature: only 1 is allowed for this model, key sk-abcdefghijklmnop'))).encode()

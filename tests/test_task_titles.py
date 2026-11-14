@@ -92,12 +92,17 @@ class TaskTitleTests(unittest.TestCase):
         self.assertEqual(calls, ['task_titles', 'task_titles'])
         self.assertEqual(titles, {'t0': 'Първа задача'})
 
-    def test_titles_have_no_thinking_on_a_cloud_api(self):
+    def test_titles_have_the_lightest_thinking_on_a_kimi_cloud_api(self):
+        # Kimi K3 always thinks: reasoning_effort accepts only low/high/max, so 'none' is not
+        # sendable there (2026-11-14). A generic cloud API still gets 'none'.
         from app.local_ai import complete_json
         from app.service import DEFAULTS
         answer = dict(choices=[dict(message=dict(content='{"titles": []}'), finish_reason='stop')])
         with mock.patch('meeting_assistant.post_json', return_value=answer) as post:
             complete_json(dict(DEFAULTS, local_ai_base_url='https://api.moonshot.ai/v1', local_ai_model='kimi-k3.1-pro'), [], task_titles.SCHEMA, 'task_titles')
+        self.assertEqual(post.call_args.args[1].get('reasoning_effort'), 'low')
+        with mock.patch('meeting_assistant.post_json', return_value=answer) as post:
+            complete_json(dict(DEFAULTS, local_ai_base_url='https://api.example.com/v1', local_ai_model='cloud-model'), [], task_titles.SCHEMA, 'task_titles')
         self.assertEqual(post.call_args.args[1].get('reasoning_effort'), 'none')
 
 

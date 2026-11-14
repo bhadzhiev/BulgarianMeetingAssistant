@@ -31,7 +31,8 @@ check, cancels the job. The new-task dialog has the same **Expected result** fie
 task editor, so a suggested expected result is not lost.
 With reasoning on **Automatic**, a cloud API or a thinking local model (qwen3.5) is asked for
 **no** thinking on this improvement, so the editor does not wait for a reasoning pass at all.
-Another local server keeps its own default.
+Kimi K3 always thinks and rejects a no-thinking request, so there Atlanta asks for its lightest
+valid effort (**low**). Another local server keeps its own default.
 
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 

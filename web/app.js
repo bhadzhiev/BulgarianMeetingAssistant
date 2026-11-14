@@ -4191,7 +4191,8 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  if(item.acceptance_state==='proposed'){const accept=btn('primary','Accept task');accept.onclick=()=>persist(true);footer.append(accept);box.append(el('p','notice','Proposed action · accept it to add it to active work.'));}
  const progress=el('section','task-progress');progress.append(el('h3','','Progress'),label('Add an update',update));
  const improveRow=el('div','action-group');
- if(item.kind==='task'){const improve=btn('quiet small-action','Improve with AI');improve.type='button';
+ if(item.kind==='task'){// A framed button: the quiet style read as a caption, and people did not find it in Edit task (2026-11-14).
+  const improve=btn('secondary small-action','Improve with AI');improve.type='button';
   improve.onclick=()=>perform(async()=>{if(!area.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');
    const pid=project.value!=='keep'&&project.value!=='none'?project.value:(item.effective_project_ids||[])[0];
    const goal=pid&&(state.projects?.projects||[]).find(p=>p.id===pid)?.goal;

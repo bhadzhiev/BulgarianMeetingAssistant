@@ -122,7 +122,10 @@ class Collector:
     def add(self, kind, item, occurred_at, basis, facts, quote='', meeting_id=None, timestamp=None):
         record = dict(id='e' + str(len(self.evidence) + 1), kind=kind, person_id=self.person['id'],
                       source_ref=dict(item_id=item['id'] if item else None, meeting_id=meeting_id, timestamp=timestamp,
-                                      provider=self.provider(item) if item else 'meeting',
+                                      provider='manual' if kind == 'agreement' else self.provider(item) if item else 'meeting',
+                                      record_source='meeting_transcript' if meeting_id and timestamp else 'task_history' if item else 'review_agreement' if kind == 'agreement' else 'local_record',
+                                      origins=[{k: e[k] for k in ('provider', 'source_id', 'timestamp', 'id') if k in e}
+                                               for e in (item or {}).get('evidence', [])[:20]],
                                       # The item revision at collection time shows a later change of the source.
                                       revision=item.get('revision') if item else None),
                       occurred_at=occurred_at.isoformat() if isinstance(occurred_at, dt.datetime) else occurred_at,
@@ -133,7 +136,7 @@ class Collector:
     @staticmethod
     def provider(item):
         providers = {e.get('provider') for e in item.get('evidence', []) if e.get('provider')}
-        return 'meeting' if not providers or 'meeting' in providers else sorted(providers)[0]
+        return 'meeting' if 'meeting' in providers or any(not link.get('detached') and link.get('meeting_id') for link in item.get('links', [])) else sorted(providers)[0] if providers else 'manual'
 
     def in_period(self, moment):
         return moment is not None and self.start <= moment < self.end
@@ -170,7 +173,7 @@ class Collector:
         return any(re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text) for name in self.names)
 
     def own_words(self, item):
-        """The person's own words at the moment of the task in a meeting: evidence that they took it on."""
+        """The person's own words at the moment of the task in a meeting: this alone does not confirm personal acceptance."""
         for ev in item.get('evidence', []):
             if ev.get('provider') == 'meeting' and ev.get('timestamp') and ev.get('source_id') in self.meetings:
                 said = self.speaker_at(ev['source_id'], ev['timestamp'])
@@ -195,6 +198,12 @@ class Collector:
             if not any(role for _, role in roles):
                 self.exclude_task(item, line)
                 continue
+            end_state = line.state(self.end - dt.timedelta(microseconds=1)) or {}
+            active = any(self.in_period(_time(e['at'])) for e in line.events) or self.in_period(line.created)
+            if end_state.get('workflow_state') in {'done', 'cancelled'} or end_state.get('status') == 'done':
+                checked = any(self.in_period(_time(r['verified_at'])) for r in self.s.team_reviews.verified_results(item['id']))
+                if not active and not checked:
+                    continue
             rows.append(self.task_facts(item, line, roles))
         return rows
 
@@ -220,7 +229,7 @@ class Collector:
         last_role = next((role for _, role in reversed(roles) if role), None)
         shared = any(len((line.state(m) or {}).get('assignee_person_ids') or []) > 1 for m, role in roles if role)
         facts = dict(item_id=item['id'], text=item['text'], role=end_role or last_role, end_role=end_role, shared=shared, refs=[], marks=[],
-                     open_at_end=end_role is not None and end_state.get('status') != 'done' and end_state.get('workflow_state') != 'cancelled',
+                     open_at_end=end_role is not None and end_state.get('status') != 'done' and end_state.get('workflow_state') not in {'done', 'cancelled'},
                      state=end_state.get('workflow_state'), due_date=end_state.get('due_date'), requester=item.get('requester_person_id'))
         base = dict(text=item['text'], shared=shared)
         # Assigned in the period, or taken away.
@@ -251,8 +260,12 @@ class Collector:
             if words:
                 meeting_id, stamp, text = words
                 when = _time(self.meetings[meeting_id].get('started_at') or self.meetings[meeting_id].get('created'))
-                facts['refs'].append(self.add('task_taken_on', item, when, 'The person said it in a meeting (confirmed name)', base, text, meeting_id, stamp))
-                facts['marks'].append('taken on')
+                if when and when < self.start:
+                    facts['marks'].append('carried over')
+                    facts['refs'].append(self.add('task_existing', item, when, 'Taken on before this period; context only', base, text, meeting_id, stamp))
+                elif self.in_period(when):
+                    facts['refs'].append(self.add('task_taken_on', item, when, 'The person said it in a meeting (confirmed name)', base, text, meeting_id, stamp))
+                    facts['marks'].append('taken on')
         # Changes of the agreement: due dates.
         for event in line.events:
             moment = _time(event['at'])
@@ -260,6 +273,23 @@ class Collector:
             if self.in_period(moment) and event.get('by') == 'user' and isinstance(change, list) and line.role(line.state(moment), pid):
                 facts['refs'].append(self.add('due_changed', item, moment, 'A person changed the due date', dict(base, before=change[0], after=change[1])))
                 facts['marks'].append('due changed')
+        # Progress notes and intermediate states connect the promise to the eventual result. They are reports,
+        # not proof of progress or acceptance, and they keep the original history time and source.
+        for event in line.events:
+            when = _time(event.get('at'))
+            if not self.in_period(when) or not line.role(line.state(when), pid):
+                continue
+            if event.get('event') == 'progress_update' and event.get('text'):
+                facts['refs'].append(self.add('task_update', item, when, 'A saved progress report, not independent verification',
+                    dict(base, update=_quote(event['text']), recorded_by=event.get('by'), state=(line.state(when) or {}).get('workflow_state')),
+                    event.get('quote') or event['text'], event.get('meeting_id'), event.get('evidence_timestamp')))
+                self.evidence[-1]['quote_basis'] = 'source_excerpt' if event.get('quote') else 'recorded_update_text'
+                if event.get('evidence_id'):
+                    self.evidence[-1]['source_ref']['evidence_id'] = event['evidence_id']
+            state = (event.get('changes') or {}).get('workflow_state')
+            if event.get('by') == 'user' and isinstance(state, list) and len(state) == 2 and state[1] not in {'done', 'cancelled'}:
+                facts['refs'].append(self.add('task_state_changed', item, when, 'A person changed the recorded task state',
+                    dict(base, before=state[0], after=state[1])))
         # Done, cancelled, overdue.
         done = line.done_at()
         if done and self.in_period(done):
@@ -267,10 +297,17 @@ class Collector:
             if role:
                 facts['refs'].append(self.add('task_completed', item, done, 'A person set the state to done', dict(base, role=role)))
                 facts['marks'].append('completed')
-                verified = any(e.get('event') == 'progress_update' and e.get('evidence_id') and (_time(e['at']) or done) >= done for e in line.events)
-                if verified:
-                    facts['refs'].append(self.add('result_confirmed', item, done, 'An update after completion has evidence', base))
-                    facts['marks'].append('result confirmed')
+        # A progress note with a link is not acceptance. Only an explicit recorded check counts.
+        if done:
+            checks = self.s.team_reviews.verified_results(item['id'])
+            check = next((r for r in checks if self.in_period(_time(r['verified_at']))
+                          and _time(r['verified_at']) >= done and line.role(line.state(_time(r['verified_at'])), pid)), None)
+            if check:
+                facts['refs'].append(self.add('result_confirmed', item, check['verified_at'],
+                    'The manager recorded an explicit result check', dict(base, criterion=check['expected_result'],
+                    checked_by=check['verified_by'], result_evidence=check['result_evidence'])))
+                self.evidence[-1]['source_ref'].update(review_id=check.get('review_id'), agreement_id=check.get('id'), provider='manual', record_source='review_agreement')
+                facts['marks'].append('result confirmed')
         for event in line.events:
             moment = _time(event['at'])
             if self.in_period(moment) and (event.get('changes') or {}).get('workflow_state', [None, None])[1] == 'cancelled' and line.role(line.state(moment), pid):
@@ -341,7 +378,7 @@ class Collector:
             limitations.append('No confirmed Gmail or Chat identity: email and Chat facts come only from tasks and decisions with those sources.')
         if not self.names:
             limitations.append('The person has no unique confirmed name, so their words in transcripts cannot be found.')
-        return dict(sources=sources, limitations=limitations, meetings=len(meetings), transcribed=len(transcribed), speaking=len(speaking),
+        return dict(fact_version=2, sources=sources, limitations=limitations, meetings=len(meetings), transcribed=len(transcribed), speaking=len(speaking),
                     work_items=sum(1 for i in items if i['kind'] in {'task', 'decision'}), excluded=len(self.excluded))
 
     # Previous agreements --------------------------------------------------------------------------
@@ -393,11 +430,13 @@ def collect(service, person, start, end, previous=None):
     # The actions and goals of the last 1:1: each one is a record with its saved state and the state of its task.
     by_id = {i['id']: i for i in items}
     agreements = []
-    for row in (previous or {}).get('agreements', []):
+    for row in [*(previous or {}).get('agreements', []), *(previous or {}).get('outstanding', [])]:
         task = by_id.get(row.get('task_id')) if row.get('task_id') else None
         task_state = None if not row.get('task_id') else 'removed' if not task else 'done' if task.get('status') == 'done' else AtlantaState.get(task.get('workflow_state'), 'open')
-        ref = c.add('agreement', task, (previous or {}).get('period', {}).get('end'), 'Agreed in the last 1:1 and saved by the manager',
-                    dict(text=row['text'], kind=row['kind'], owner=row['owner'], status=row['status'], due_date=row.get('due_date'), task_state=task_state, open_at_end=row['status'] == 'open'))
+        ref = c.add('agreement', task, row.get('updated') or row.get('created'), 'Agreed in an earlier 1:1 and saved by the manager',
+                    dict(text=row['text'], kind=row['kind'], owner=row['owner'], status=row['status'], due_date=row.get('due_date'), task_state=task_state,
+                         agreed_at=row.get('created'), status_recorded_at=row.get('updated'), open_at_end=row['status'] == 'open'))
+        c.evidence[-1]['source_ref'].update(review_id=row.get('review_id') or (previous or {}).get('id'), agreement_id=row.get('id'), review_period_end=row.get('review_end') or (previous or {}).get('period', {}).get('end'))
         agreements.append(dict(row, ref=ref, task_state=task_state))
     waits = blockers(c, items, tasks)
     coverage = c.coverage(items)
@@ -427,6 +466,11 @@ def blockers(c, items, tasks):
     return rows
 
 
+def _duration(value):
+    minutes = round(value.total_seconds() / 60)
+    return f'{minutes // 1440} '+('day' if minutes == 1440 else 'days') if minutes % 1440 == 0 else f'{minutes // 60}h {minutes % 60}m'
+
+
 def comparable(previous, start, end, coverage):
     """Whether two periods compare: a similar length and the same sources. The reason when they do not."""
     before = previous.get('period') or {}
@@ -436,11 +480,13 @@ def comparable(previous, start, end, coverage):
         return False, 'The last review has no readable period.'
     new = end - start
     if not old.total_seconds() or not 0.75 <= new / old <= 1.33:
-        return False, f'The periods differ in length ({old.days} and {new.days} days).'
+        return False, f'The periods differ in length ({_duration(old)} and {_duration(new)}).'
     old_sources = set((previous.get('coverage') or {}).get('sources') or []) - {'github'}
     new_sources = set(coverage['sources']) - {'github'}
     if old_sources != new_sources:
         return False, 'The two reviews have different sources.'
+    if (previous.get('coverage') or {}).get('fact_version', 1) != coverage.get('fact_version', 1):
+        return False, 'The counting rules changed. Refresh a correction version before comparing counts.'
     return True, ''
 
 
@@ -492,10 +538,11 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts, agreements=(
     mine = [t for t in tasks if held(t)]
     if not mine:
         out.append('_No confirmed commitments in this period._')
-    for t in mine:
+    # New events and work brought from before the period are visibly different.
+    for t in sorted(mine, key=lambda t: 'carried over' in t['marks']):
         state = 'done' if 'completed' in t['marks'] else AtlantaState.get(t['state'] or '', t['state'] or 'open')
         due = f" · due {_fmt_day(t['due_date'])}" if t['due_date'] else ''
-        out.append(f"- {t['text']} · {state}{due}{shared(t)} · {', '.join(t['marks']) or 'open'}{ref(t['refs'])}")
+        out.append(f"- {'Carried from before this period · ' if 'carried over' in t['marks'] else ''}{t['text']} · {state}{due}{shared(t)} · {', '.join(t['marks']) or 'open'}{ref(t['refs'])}")
     out += ['', '## Tasks', '', '| Fact | Count |', '|---|---|']
     out += [f'| {label} | {counts[key]} |' for key, label in COUNTS]
     others = [t for t in tasks if not held(t)]
@@ -524,6 +571,8 @@ def markdown(c, tasks, decisions, waits, carried, coverage, counts, agreements=(
             task = f" · task {a['task_state']}" if a.get('task_state') else ''
             out.append(f"- {'Goal' if a['kind'] == 'goal' else 'Action'} ({owners[a['owner']]}): {a['text']} · {a['status']}{due}{task} [{a['ref']}]")
         out += [f"- {r['text']} · now {r['state']}" for r in carried] or ([] if agreements else ['_The last review had no open commitments and no saved actions or goals._'])
+        if agreements or carried:
+            out.append('- Follow-up states above are current at collection; the Commitments section shows the period-end task snapshot.')
         out.append('- The notes of the last 1:1 are in that review.')
     out += ['', '## Questions for the conversation', '', '_The AI step suggests questions later. Add your own here._', '']
     return '\n'.join(out)

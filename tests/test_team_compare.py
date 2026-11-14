@@ -28,7 +28,7 @@ class TeamCompareTests(unittest.TestCase):
 
     def test_comparable_periods_show_the_change(self):
         # A later week: the task of setUp has no new fact in it.
-        previous = dict(period=dict(start=DAY(13, 0), end=DAY(20, 0)), coverage=dict(sources=['meetings', 'tasks', 'decisions'], meetings=2, speaking=1, counts=dict(assigned=3)), evidence=[])
+        previous = dict(period=dict(start=DAY(13, 0), end=DAY(20, 0)), coverage=dict(fact_version=2, sources=['meetings', 'tasks', 'decisions'], meetings=2, speaking=1, counts=dict(assigned=3)), evidence=[])
         text = collect(self.s, self.maria, DAY(20, 0), DAY(27, 0), previous)['review_md']
         self.assertIn('| Fact | Last review | This review | Change |', text)
         self.assertIn('| Assigned | 3 | 0 | -3 |', text)
@@ -37,7 +37,7 @@ class TeamCompareTests(unittest.TestCase):
     def test_different_periods_are_not_comparable(self):
         previous = dict(period=dict(start=DAY(1, 0), end=DAY(3, 0)), coverage=dict(sources=['meetings', 'tasks', 'decisions'], counts=dict(assigned=1)), evidence=[])
         text = collect(self.s, self.maria, DAY(3, 0), DAY(17, 0), previous)['review_md']
-        self.assertIn('Not comparable: The periods differ in length (2 and 14 days).', text)
+        self.assertIn('Not comparable: The periods differ in length (2 days and 14 days).', text)
         self.assertNotIn('Change |', text)
         other = dict(previous, period=dict(start=DAY(1, 0), end=DAY(8, 0)), coverage=dict(sources=['meetings', 'gmail'], counts=dict(assigned=0)))
         self.assertIn('The two reviews have different sources.', collect(self.s, self.maria, DAY(8, 0), DAY(15, 0), other)['review_md'])

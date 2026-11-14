@@ -160,3 +160,5 @@ starts with safe defaults: no automatic processing, no calendar and no cloud AI.
 the original bytes to `settings.corrupt-<id>.json` and does not write `settings.json` until
 you save Settings. The same warning names the copy and opens **Settings**. Saving valid
 settings ends the safe mode; the copy stays.
+
+1:1 backups also preserve optional `review-context.json` and `private-preparation.md`. They are local private preparation data; Markdown review exports omit them.

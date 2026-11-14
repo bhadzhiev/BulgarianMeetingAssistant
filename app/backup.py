@@ -22,12 +22,12 @@ from contextlib import contextmanager, nullcontext
 FORMAT = 'meeting-assistant-backup'
 SHARED = ('commit-journal.json', 'capture-setup.json', 'ai-prompts.json', 'settings.json', 'speakers.json', 'trackers.json', 'projects.json', 'items.json', 'repo-reports.json', 'people.json', 'github-links.json', 'meeting-templates.json')
 ARCHIVE_NAME = re.compile(r'meetings-\d{8}-\d{6}(?:-[a-f0-9]{8})?\.tar\.gz')
-MEMBER = re.compile(r'(?:commit-journal|capture-setup|ai-prompts|settings|speakers|trackers|projects|items|repo-reports|people|github-links|meeting-templates|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*|team-reviews/[a-f0-9]{12}/[a-f0-9]{12}/(?:review\.md|conversation-notes\.md|metadata\.json|evidence\.json|agreements\.json)')
+MEMBER = re.compile(r'(?:commit-journal|capture-setup|ai-prompts|settings|speakers|trackers|projects|items|repo-reports|people|github-links|meeting-templates|manifest)\.json|[a-f0-9]{32}(?:/[^/]+)*|team-reviews/[a-f0-9]{12}/[a-f0-9]{12}/(?:review\.md|conversation-notes\.md|metadata\.json|evidence\.json|agreements\.json|review-context\.json|private-preparation\.md)')
 MEETING_ID = re.compile(r'[a-f0-9]{32}')
 # Derived from recording.wav and the saved settings; large, and not needed to restore a meeting.
 DERIVED = {'transcription.wav'}
 # 1:1 reviews: these files only. Checkpoints and folders of a write in progress start with a dot and stay out.
-REVIEW_FILES = ('review.md', 'conversation-notes.md', 'metadata.json', 'evidence.json', 'agreements.json')
+REVIEW_FILES = ('review.md', 'conversation-notes.md', 'metadata.json', 'evidence.json', 'agreements.json', 'review-context.json', 'private-preparation.md')
 REVIEW_ID = re.compile(r'[a-f0-9]{12}')
 
 

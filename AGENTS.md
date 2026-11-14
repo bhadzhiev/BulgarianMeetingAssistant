@@ -71,7 +71,7 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   or matching import `setUpModule`/`tearDownModule` from `tests/ai_meeting_tasks.py`.
 - **Team analysis is private and on request** (`app/team_analysis.py`, since 2026-11-13): one confirmed Analyze (two
   parallel requests, one background job) per Analyze, the result only in `team-analysis.json`, never in notes,
-  exports, search or emails. It is the only place that assesses people; the private observations of the notes
+  exports, search or emails. Selected observations may be used in private 1:1 preparation only: the manager chooses them, opts context into the AI preview, and approves that destination. This output stays in `private-preparation.md`, separate from exported `review.md`. The private observations of the notes
   still never judge a person.
 - **Nothing changes until the person decides:** AI proposals stay proposals until accepted or
   linked; meetings, owners, states the person edited are never overwritten by AI

@@ -134,7 +134,9 @@ def collect(reader, login, start, end, include, links, progress=lambda text: Non
             pull_shas[pull['merge_commit_sha']] = url
         if pull.get('head', {}).get('sha'):
             pull_shas[pull['head']['sha']] = url
-        linked = bool(links(repository, number))
+        matches = links(repository, number)
+        linked = bool(matches)
+        item_ids = sorted({r['resource']['id'] for r in matches if isinstance(r, dict) and r.get('resource', {}).get('kind') == 'item'}) if isinstance(matches, list) else []
         if author.casefold() == login.casefold():
             if is_noise(pull):
                 noise += 1
@@ -144,7 +146,7 @@ def collect(reader, login, start, end, include, links, progress=lambda text: Non
                 if pull.get('merged_at') and in_period(pull['merged_at']): events.append(('merged', pull['merged_at']))
                 elif pull.get('closed_at') and in_period(pull['closed_at']): events.append(('closed without merge', pull['closed_at']))
                 if not events: events.append(('changed', pull.get('updated_at')))
-                authored.append(dict(title=title, url=url, repository=repository, number=number, events=events, linked=linked,
+                authored.append(dict(title=title, url=url, repository=repository, number=number, events=events, linked=linked, linked_item_ids=item_ids,
                                      state='merged' if pull.get('merged_at') else pull.get('state'), hotfix=bool(HOTFIX.search(title) or HOTFIX.search((pull.get('head') or {}).get('ref') or '')), commits=0))
         elif ((pull.get('merged_by') or {}).get('login') or '').casefold() == login.casefold() and in_period(pull.get('merged_at')):
             merged_for_others += 1
@@ -153,7 +155,7 @@ def collect(reader, login, start, end, include, links, progress=lambda text: Non
             for review in page['data'] if isinstance(page['data'], list) else []:
                 if ((review.get('user') or {}).get('login') or '').casefold() == login.casefold() and in_period(review.get('submitted_at')):
                     reviews.append(dict(title=title, url=review.get('html_url') or url, pull_url=url, state=(review.get('state') or '').lower().replace('_', ' '),
-                                        at=review['submitted_at'], linked=linked))
+                                        at=review['submitted_at'], linked=linked, linked_item_ids=item_ids))
             if page.get('has_next'):
                 limitations.add('Some pull requests have more than 100 reviews; only the first 100 are read.')
     # Commits: a commit of a read pull request joins it; the others are listed apart.
@@ -200,18 +202,18 @@ def collect(reader, login, start, end, include, links, progress=lambda text: Non
 def records(result, person_id, first_id):
     """Evidence records for the GitHub facts, numbered after the other records."""
     rows, number = [], first_id
-    def add(kind, at, basis, facts, url):
+    def add(kind, at, basis, facts, url, item_ids=(), artifact_url=None):
         nonlocal number
-        rows.append(dict(id=f'e{number}', kind=kind, person_id=person_id, source_ref=dict(item_id=None, meeting_id=None, timestamp=None, provider='github', url=url),
+        rows.append(dict(id=f'e{number}', kind=kind, person_id=person_id, source_ref=dict(item_id=None, meeting_id=None, timestamp=None, provider='github', url=url, item_ids=list(item_ids), artifact_url=artifact_url or url),
                          occurred_at=at, confirmation_basis=basis, facts=facts, quote=''))
         number += 1
         return rows[-1]['id']
     for pull in result['authored']:
         pull['refs'] = [add('github_pr_' + event.replace(' ', '_'), at, 'GitHub: the person is the author of the pull request',
-                            dict(text=pull['title'], event=event, state=pull['state'], unlinked=not pull['linked'], hotfix=pull['hotfix'], commits=pull['commits']), pull['url'])
+                            dict(text=pull['title'], event=event, state=pull['state'], unlinked=not pull['linked'], hotfix=pull['hotfix'], commits=pull['commits']), pull['url'], pull.get('linked_item_ids', []))
                         for event, at in pull['events']]
     for review in result['reviews']:
-        review['ref'] = add('github_review', review['at'], 'GitHub: the person submitted the review', dict(text=review['title'], state=review['state'], unlinked=not review['linked']), review['url'])
+        review['ref'] = add('github_review', review['at'], 'GitHub: the person submitted the review', dict(text=review['title'], state=review['state'], unlinked=not review['linked']), review['url'], review.get('linked_item_ids', []), review.get('pull_url'))
     for commit in result['commits']:
         commit['ref'] = add('github_commit', commit['at'], 'GitHub: the person is the commit author; no pull request found', dict(text=commit['title'], unlinked=True), commit['url'])
     return rows

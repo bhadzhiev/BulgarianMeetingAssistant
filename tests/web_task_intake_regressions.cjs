@@ -49,5 +49,12 @@ const tick=()=>new Promise(r=>setImmediate(r));
  // Cancel creates nothing and resolves empty.
  const d=setup(),cancelled=d.start();await tick();await tick();await d.buttons()[0].onclick();
  assert.equal(await cancelled,null);assert.equal(d.requests.length,0);
- console.log('Task intake PASS: one dialog for every source, structured fields, optional owner/date, preserved network retries, changed-payload guard, evidence linking and cancellation.');
+ // The draft job outlives the click: the status poll keeps the dialog locked, and Cancel cancels the job.
+ const g=setup(),drafting=g.start();await tick();await tick();
+ g.c.api=async(path,body)=>{g.requests.push({path,body});if(path.startsWith('/api/task-draft/status'))return {running:true,status:'Generating',started_at:0};if(path==='/api/task-draft/start')return {id:'job1'};return g.preview;};
+ await g.buttons()[1].onclick();
+ assert(g.buttons()[3].disabled,'Create task stays locked while the draft job runs');assert(g.buttons()[1].disabled,'Draft with AI stays locked while the draft job runs');
+ await g.buttons()[0].onclick();assert.equal(await drafting,null);
+ assert(g.requests.some(r=>r.path==='/api/task-draft/cancel'&&r.body.id==='job1'),'closing the dialog cancels the running draft job');
+ console.log('Task intake PASS: one dialog for every source, structured fields, optional owner/date, preserved network retries, changed-payload guard, evidence linking, cancellation and a locked dialog while a draft job runs.');
 })().catch(e=>{console.error(e);process.exitCode=1});

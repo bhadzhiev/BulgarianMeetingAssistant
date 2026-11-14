@@ -4050,7 +4050,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
  }
  parts.push(status,note,actions);box.append(...parts);
- let createdTaskId=null,resolveClose=null,submitted=null,jobId='',poll=null,generating=false,saving=false,closed=false;
+ let createdTaskId=null,resolveClose=null,submitted=null,jobId='',poll=null,generating=false,polling=false,saving=false,closed=false;
  const dirtyKey=source?'task-draft':'dialog:manual-task-dialog',requestId=crypto.randomUUID().replaceAll('-','');
  const linking=()=>!!(link&&link.value);
  function controls(){
@@ -4081,10 +4081,11 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
    note.hidden=true;status.textContent='Generating draft… You can cancel this operation.';controls();
    const job=await api('/api/task-draft/start',{...src,preview_token:current.preview_token,approved:true});jobId=job.id;
    if(closed){await api('/api/task-draft/cancel',{id:jobId});return;}
-   const check=async()=>{if(closed)return;try{const state=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=state.status+' · '+Math.max(0,Math.floor(Date.now()/1000-state.started_at))+' s';if(state.running){poll=setTimeout(check,700);return;}generating=false;if(state.error){showError(note,state.error+' You can still write the task manually.');}else if(state.text){text.value=state.text;details.value=state.details||'';criterion.value=state.completion_criteria||'';editorDirty.set(dirtyKey,true);}controls();text.focus();}catch(e){generating=false;showError(note,e.message);controls();}};
-   await check();
+   const check=async()=>{if(closed)return;try{const state=await api('/api/task-draft/status?id='+encodeURIComponent(jobId));if(closed)return;status.textContent=state.status+' · '+Math.max(0,Math.floor(Date.now()/1000-state.started_at))+' s';if(state.running){poll=setTimeout(check,700);return;}polling=generating=false;if(state.error){showError(note,state.error+' You can still write the task manually.');}else if(state.text){text.value=state.text;details.value=state.details||'';criterion.value=state.completion_criteria||'';editorDirty.set(dirtyKey,true);}controls();text.focus();}catch(e){polling=generating=false;showError(note,e.message);controls();}};
+   polling=true;await check();
   }catch(e){showError(note,e.message);status.textContent='Generation failed. Write the task manually or try again.';}
-  finally{generating=false;controls();}
+  // The status poll outlives this handler: while it runs, the job still owns the dialog and Close cancels it.
+  finally{if(!polling)generating=false;controls();}
  });
  improve.onclick=()=>perform(async()=>{if(!text.value.trim()&&!details.value.trim())throw new Error('Enter a title or a description first');const goal=project.value&&(state.projects?.projects||[]).find(p=>p.id===project.value)?.goal;
   await improveWithAI(()=>({text:text.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{text.value=result.text||text.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;editorDirty.set(dirtyKey,true);text.focus();},improve,()=>dialog.open);});

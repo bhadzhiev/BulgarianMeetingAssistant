@@ -15,6 +15,7 @@ const c=vm.createContext({el,btn:button,actionBtn:button,state:{people:[]},proje
  dueInfo:()=>['none','No due date'],AtlantaTasks:{STATES:{todo:'To do'},workflow:()=> 'todo',lastUpdate:i=>i.update},workReviewBadge:()=>'',
  dateTime:x=>x,icon:()=>el('svg','icon'),document:{createTextNode:t=>t},itemsData:{meetings:{}},taskMeetingList:()=>null,sourceChips:()=>el('div'),
  personOptions:()=>[],option:(text,value)=>Object.assign(el('option','',text),{value}),personFor:()=>null,openTaskFields:new Set(),doneButton:()=>button('secondary','Mark done'),itemActions:()=>el('div')});
+ vm.runInContext(app.slice(app.indexOf('function cardDetails('),app.indexOf('function decisionRow(')),c);
 vm.runInContext(app.slice(app.indexOf('function emailMark('),app.indexOf('let taskEmailItems')),c);
 vm.runInContext(app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function taskDescription(')),c);
 const flatten=n=>[n,...(n.children||[]).filter(x=>x instanceof Node).flatMap(flatten)];

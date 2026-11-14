@@ -9,7 +9,7 @@ assert.match(section,/if\(\['open_questions','needs_decision'\]\.includes\(field
 assert.match(section,/questionSource:\{field,index,text:item\.text,evidence_timestamp:item\.evidence_timestamp\|\|null\},minutesRevision:detail\.minutes_revision/);
 // A tracked question in My Work offers Make task while open, and shows the tasks that came from it.
 const card=slice('function trackedQuestionCard(q){','\n// The questions in meeting notes');
-assert.match(card,/if\(q\.status!=='answered'\)\{const make=el\('button','secondary small-action','Make task'\)/);
+assert.ok(card.includes("'Add another task':'Make task'"));
 assert.match(card,/openManualTask\(null,\{text:q\.text,question:q\}\)/);
 assert.match(card,/edge\.kind==='derives_from'&&edge\.to_id===q\.id/);
 assert.match(card,/openTaskPanel\(task\.id\)/);

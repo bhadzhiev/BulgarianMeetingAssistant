@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const app=fs.readFileSync('web/app.js','utf8'),html=fs.readFileSync('web/index.html','utf8');
+const c=vm.createContext({el:(tag,cls,text)=>({tag,cls,text})});
+vm.runInContext(app.slice(app.indexOf('function meetingReadiness('),app.indexOf('function meetingCard(')),c);
+assert.equal(vm.runInContext('meetingReadiness({})',c),null);
+assert.match(vm.runInContext('meetingReadiness({readiness:{recording:true}})',c).text,/Transcription pending/);
+assert.match(vm.runInContext('meetingReadiness({readiness:{transcript:true}})',c).text,/Transcript ready · No notes yet/);
+assert.match(vm.runInContext('meetingReadiness({readiness:{transcript:true,notes:true}})',c).text,/Notes ready/);
+assert(html.indexOf('id="conversation-source"')<html.indexOf('id="conversation-advanced"'));
+console.log('Library readiness and visible source scope PASS.');

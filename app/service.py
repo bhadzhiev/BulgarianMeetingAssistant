@@ -2731,7 +2731,7 @@ class MeetingService:
     def meeting_questions(self, meetings):
         """The questions in the notes of every meeting, newest first. A question asked again shows once, with its
         newest source. A question that a person tracks in My Work shows there instead."""
-        tracked = [item['text'] for item in self.items.items.values() if item['kind'] == 'question']
+        tracked = []  # Canonical source identity below decides whether a note is already tracked.
         result = []
         for meeting_id in sorted(meetings, key=lambda key: meetings[key]['date'] or '', reverse=True):
             for field, kind in (('needs_decision', 'decide'), ('open_questions', 'discuss')):

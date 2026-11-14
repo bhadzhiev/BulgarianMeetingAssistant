@@ -73,3 +73,12 @@ Creating a task from a notes line or question sends the notes revision captured 
 **Make task** on a decision opens the same task editor as a question. Its wording and reason prefill the title and description; the person still reviews and creates the task. The task keeps the meeting and recording moment and an `implements` relationship to the canonical decision. The decision shows its tasks; the task's Sources section links back to the exact decision row. Creating a task does not accept a proposed decision or change the original wording. This works with AI meeting tasks off; the source remains a meeting note and does not appear as a new AI proposal in My Work. The captured notes revision guards against changed or removed rows, and retrying the same request cannot create a second task.
 
 A saved Gmail draft has one envelope indicator beside the task title in both compact and expanded My Work cards. It remains there whether the task has a last update or not; it is not part of the update or the state flags. Its accessible label and tooltip explain that a draft was saved, not sent.
+
+
+UI audit corrections: compact task cards show summary facts and offer Quick fields in the menu; Inbox keeps meeting proposals before connected-source proposals and excludes fresh proposals from Stale. Closed tasks no longer request review confirmation. Task-title draft markers use content-sized titles; header actions occupy separate flex slots.
+
+
+Work cards use active, proposed and closed lifecycle presentation. Questions and decisions keep History/GitHub and project administration under More details. Meeting review places routing after content, evidence and actions, inside the same secondary disclosure. Cancelled tasks offer Restore task rather than Mark done.
+
+
+Library exposes Source above advanced filters and applies it immediately. Meeting cards show recording/transcript/notes readiness from local file availability, separately from the manual Done mark. Narrow layouts wrap Library/My Work tabs, keep menus beside titles and place project chips below. My Work identity setup is a disclosure instead of a permanent form row.

@@ -17,7 +17,7 @@ assert.doesNotMatch(row,/(?:meta|box|flags)\.append\(mailed\)/);
 // Meetings are rows; the other sources keep their chips.
 assert.match(row,/linked=taskMeetingList\(item,itemsData\.meetings\),others=sourceChips\(item,itemsData\.meetings,\{withMeetings:false\}\)/);
 // Mark done is the main action with a check; Timeline and Edit are quiet.
-assert.match(row,/if\(item\.status!=='done'\)\{done\.classList\.replace\('secondary','primary'\);done\.prepend\(icon\('check'\)\);\}/);
+assert.match(row,/if\(item\.status!=='done'&&AtlantaTasks\.workflow\(item\)!=='cancelled'\)\{done\.classList\.replace\('secondary','primary'\);done\.prepend\(icon\('check'\)\);\}/);
 assert.match(row,/actionBtn\('quiet small-action task-timeline','Timeline'/);
 // taskMeetingList: one row per meeting in date order, a deleted meeting in plain words, the moment without 00: hours.
 {

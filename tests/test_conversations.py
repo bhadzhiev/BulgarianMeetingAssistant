@@ -43,6 +43,17 @@ class ConversationTests(unittest.TestCase):
         self.assertIs(meeting['done'],False);self.assertIsNone(meeting['done_at'])
         for wrong in (None,'yes',1):
             with self.assertRaises(ValueError):self.s.set_done(self.m['id'],wrong)
+    def test_library_filters_meetings_by_the_done_mark(self):
+        other=self.s.library.create('Retro','in_person',self.s.settings)
+        self.s.library.update(other['id'],created='2026-10-26T08:00:00Z',status='ready')
+        self.s.set_done(self.m['id'],True)
+        ids=lambda **f:[r['external_id'] for r in self.s.conversations.listing(f)['rows']]
+        self.assertEqual(ids(done='done'),[self.m['id']])
+        self.assertEqual(ids(done='not_done'),[other['id']])
+        self.assertEqual(sorted(ids()),sorted([self.m['id'],other['id']]))
+        self.excerpt()
+        self.assertEqual(ids(source='attached',done='not_done'),[],'the Done filter shows meetings only')
+        with self.assertRaises(ValueError):self.s.conversations.listing(dict(done='maybe'))
     def test_saved_excerpt_lists_a_preview_of_its_spoken_words(self):
         self.excerpt()
         row=self.s.conversations.listing(dict(source='attached'))['rows'][0]

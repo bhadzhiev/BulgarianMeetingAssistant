@@ -511,6 +511,9 @@ In the Library, open the **...** menu of a meeting and click **Mark as done**. T
 **Done** badge, and the sidebar list shows "· Done". Click **Mark as not done** to remove the mark.
 Only you set this status. Processing, new notes and team analysis never change it.
 
+To find meetings by this mark, open **Filters** in the Library and choose **Status**: **Not done** or
+**Done**. This filter shows meetings only. **Reset filters** clears it.
+
 ### Projects, series and Prepare me
 
 Group meetings into **projects** (for example "DevOps" or "Client X") and recurring meetings into a

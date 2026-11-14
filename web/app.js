@@ -3787,13 +3787,13 @@ function syncConversationFilters(){
  fillSeries($('conversation-bulk-series'),$('conversation-bulk-project').value,$('conversation-bulk-series').value,'Keep series when project stays the same');
 }
 async function openConversations(){
- if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('conversations');syncConversationFilters();if(!conversationPage){try{const saved=JSON.parse(sessionStorage.getItem('atlanta-library-filters')||'null');if(saved){for(const id of ['query','source','project','from','to'])$('conversation-'+id).value=saved[id]|| (id==='source'?'meeting':'');syncConversationFilters();$('conversation-participant').replaceChildren(option(saved.participant||'All participants',saved.participant||''));$('conversation-series').value=saved.series||'';conversationOffset=saved.offset||0;}}catch{}}await loadConversations();renderLibrary();
+ if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('conversations');syncConversationFilters();if(!conversationPage){try{const saved=JSON.parse(sessionStorage.getItem('atlanta-library-filters')||'null');if(saved){for(const id of ['query','source','project','from','to','done'])$('conversation-'+id).value=saved[id]|| (id==='source'?'meeting':'');syncConversationFilters();$('conversation-participant').replaceChildren(option(saved.participant||'All participants',saved.participant||''));$('conversation-series').value=saved.series||'';conversationOffset=saved.offset||0;}}catch{}}await loadConversations();renderLibrary();
 }
-function rememberConversationFilters(){const values={offset:conversationOffset};for(const id of ['query','source','project','series','participant','from','to'])values[id]=$('conversation-'+id).value;try{sessionStorage.setItem('atlanta-library-filters',JSON.stringify(values));}catch{};renderConversationFilterChips();}
-function renderConversationFilterChips(){const box=$('conversation-filter-chips');box.replaceChildren();let extra=0;for(const [id,label,empty] of [['query','Search',''],['project','Project',''],['from','From',''],['to','Through',''],['source','Source','meeting'],['series','Series',''],['participant','Participant','']]){const control=$('conversation-'+id);if(control.value===empty)continue;const value=id==='from'||id==='to'?date(control.value):control.selectedOptions?.[0]?.textContent||control.value;const remove=btn('quiet',label+': '+value+' ×');remove.onclick=()=>{control.value=empty;if(id==='project')fillSeries($('conversation-series'),'','','All series');conversationOffset=0;selectedConversations.clear();perform(loadConversations);};box.append(remove);if(id!=='query')extra++;}$('conversation-filter-count').textContent=extra?'('+extra+')':'';}
+function rememberConversationFilters(){const values={offset:conversationOffset};for(const id of ['query','source','project','series','participant','from','to','done'])values[id]=$('conversation-'+id).value;try{sessionStorage.setItem('atlanta-library-filters',JSON.stringify(values));}catch{};renderConversationFilterChips();}
+function renderConversationFilterChips(){const box=$('conversation-filter-chips');box.replaceChildren();let extra=0;for(const [id,label,empty] of [['query','Search',''],['project','Project',''],['from','From',''],['to','Through',''],['source','Source','meeting'],['series','Series',''],['participant','Participant',''],['done','Status','']]){const control=$('conversation-'+id);if(control.value===empty)continue;const value=id==='from'||id==='to'?date(control.value):control.selectedOptions?.[0]?.textContent||control.value;const remove=btn('quiet',label+': '+value+' ×');remove.onclick=()=>{control.value=empty;if(id==='project')fillSeries($('conversation-series'),'','','All series');conversationOffset=0;selectedConversations.clear();perform(loadConversations);};box.append(remove);if(id!=='query')extra++;}$('conversation-filter-count').textContent=extra?'('+extra+')':'';}
 async function loadConversations(){
  rememberConversationFilters();
- const sequence=++conversationSequence,query=new URLSearchParams({q:$('conversation-query').value,source:$('conversation-source').value,project:$('conversation-project').value,series:$('conversation-series').value,participant:$('conversation-participant').value,from:$('conversation-from').value,to:$('conversation-to').value,offset:String(conversationOffset)});
+ const sequence=++conversationSequence,query=new URLSearchParams({q:$('conversation-query').value,source:$('conversation-source').value,project:$('conversation-project').value,series:$('conversation-series').value,participant:$('conversation-participant').value,from:$('conversation-from').value,to:$('conversation-to').value,done:$('conversation-done').value,offset:String(conversationOffset)});
  const result=await api('/api/conversations?'+query);if(sequence!==conversationSequence||view!=='conversations')return;
  conversationPage=result;const select=$('conversation-participant'),old=select.value,names=result.participants;
  select.replaceChildren(option('All participants',''),...names.map(name=>option(name,name)),...(old&&!names.includes(old)?[option(old,old)]:[]));select.value=old;
@@ -3848,7 +3848,7 @@ function conversationCard(row,{onChange=null}={}){
 function renderConversations(){
  if(!conversationPage)return;const result=conversationPage,list=$('conversation-list');list.replaceChildren();
  $('conversation-select-page').disabled=!result.rows.some(row=>row.provider==='meeting');
- const hasFilters=['query','project','series','participant','from','to'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
+ const hasFilters=['query','project','series','participant','from','to','done'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
  const emptyLibrary=!result.total&&!state.meetings.length&&!hasFilters;
  $('conversation-empty').hidden=!emptyLibrary;$('conversation-filters').hidden=emptyLibrary;$('conversation-notices').hidden=emptyLibrary;
  $('conversation-count').textContent=AtlantaUX.count(result.total,'conversation')+(result.total>result.rows.length?' · '+(result.offset+1)+'–'+Math.min(result.offset+result.rows.length,result.total):'');
@@ -3861,7 +3861,7 @@ function renderConversations(){
  }
  if(!result.rows.length&&!emptyLibrary){
   // The chips above name the active conditions; here is an action for each scope.
-  const query=$('conversation-query').value,filtered=['project','series','participant','from','to'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
+  const query=$('conversation-query').value,filtered=['project','series','participant','from','to','done'].some(id=>$('conversation-'+id).value)||$('conversation-source').value!=='meeting';
   const box=el('div','empty-content no-match'),actions=el('div','action-group');box.append(el('p','','No conversations match.'),el('p','hint','The active conditions are above.'));
   if(filtered)actions.append(actionBtn('secondary small-action','Reset filters',()=>resetConversationFilters()));
   if(query)actions.append(actionBtn('secondary small-action','Clear search',()=>{$('conversation-query').value='';conversationOffset=0;perform(loadConversations);}));
@@ -3966,7 +3966,7 @@ $('conversation-project').onchange=()=>fillSeries($('conversation-series'),$('co
 $('conversation-bulk-project').onchange=()=>fillSeries($('conversation-bulk-series'),$('conversation-bulk-project').value,'','Keep series when project stays the same');
 // Reset filters keeps the search; Clear all also clears it.
 function resetConversationFilters({all=false}={}){
- for(const id of ['conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to',...(all?['conversation-query']:[])])$(id).value='';
+ for(const id of ['conversation-project','conversation-series','conversation-participant','conversation-from','conversation-to','conversation-done',...(all?['conversation-query']:[])])$(id).value='';
  $('conversation-source').value='meeting';syncConversationFilters();conversationOffset=0;selectedConversations.clear();perform(loadConversations);
 }
 $('conversation-reset').onclick=()=>resetConversationFilters();$('conversation-clear-all').onclick=()=>resetConversationFilters({all:true});

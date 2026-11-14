@@ -116,9 +116,10 @@ the reader says "too large to load" and the sync goes on. When the thread text i
 oldest bodies are left out first. Matching threads can contain older messages. This version does not send, modify,
 label or draft email. Email content reaches an AI endpoint only through the selected-message approval below.
 
-**Suggest a task** previews the AI provider and generates an editable task draft from this message.
-**Create task** confirms the edited text and saves an open task with a pinned source quote.
-Cancel discards the draft; owners and dates are not assigned automatically. Syncing a
+**Suggest a task** opens the same task editor used everywhere, with this message pinned as the
+source and the AI provider preview shown; **Draft with AI** is optional. **Create task** confirms
+the edited text and saves an open task with the pinned source quote. Cancel discards the draft;
+owners and dates are not assigned automatically. Syncing a
 changed previously-linked thread marks its old pending proposals stale. A removed/out-of-window
 thread becomes unavailable without completing its WorkItems. Review uses the last synced revision;
 it is not a live Gmail check at the instant you click Accept.

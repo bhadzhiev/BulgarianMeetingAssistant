@@ -345,7 +345,10 @@ recording, and that each point links to its source moment.
   date when the date is clear. Otherwise the due date stays empty. A task without a deadline in the
   words of the meeting gets no due date from AI. You can set it yourself.
 - **Open questions.** Each question has a **context**: who asked it, what is known and what is
-  still unclear. It is empty when the meeting said nothing more than the question.
+  still unclear. It is empty when the meeting said nothing more than the question. An unanswered
+  question also has **Make task**: it opens the task editor with the question as the source and
+  turns it into a task for someone. The task keeps a lasting link back to the question, and the
+  question shows the tasks made from it.
 - Each decision has a **reason**: why it was taken and how the people reacted, with their names.
   When nobody said a reason, the notes say "No reason was given in the meeting." Notes from before
   13.11.2026 have no reason and show nothing. Edit the reason and the context in the notes editor.

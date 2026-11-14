@@ -627,7 +627,6 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 #items-panel,#questions-panel{overflow:visible}#items-panel>.work-messages,#questions-panel>.work-messages{border-radius:18px 18px 0 0}
 .tracked-meta .date-control,.task-editor .date-control{width:155px;max-width:100%}.tracked-meta .date-control input,.task-editor .date-control input{height:32px;min-height:32px;padding:4px 34px 4px 8px;font-size:12px;line-height:22px;border-radius:8px}
 
-#task-draft-dialog{width:min(640px,calc(100vw - 32px));}#task-draft-text{width:100%;min-height:220px;resize:vertical;margin:12px 0;}
 
 /* Shared form rhythm: labels, date fields and actions align without positional offsets. */
 .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
@@ -644,7 +643,7 @@ details.import-card[open]>summary h2::after{content:' ▾'}
 @media(max-width:1400px){.conversation-filters{grid-template-columns:1fr 1fr}.conversation-filters .period-field{grid-column:1}.conversation-filters .filter-actions{grid-column:2;justify-self:end}.advanced-filter-fields{grid-template-columns:1fr 1fr}}
 @media(max-width:850px){.conversation-filters{grid-template-columns:1fr}.conversation-filters .period-field,.conversation-filters .filter-actions{grid-column:1}.conversation-filters .filter-actions{padding-top:0;justify-self:start}.advanced-filter-fields{grid-template-columns:1fr}.heading{margin-top:24px;margin-bottom:24px}}
 
-.task-source blockquote{white-space:pre-wrap;max-height:180px;overflow:auto;font-size:13px;margin:10px 0;padding:12px;background:var(--surface);border-radius:8px}.task-source summary{cursor:pointer;color:var(--muted)}#task-panel{width:min(720px,94vw)}#task-panel textarea{min-height:160px;margin:14px 0}#task-panel select{margin-bottom:14px}#task-panel button{margin:8px 8px 0 0}#task-draft-status{min-height:20px}#task-draft-dialog .review-footer{flex-wrap:wrap;gap:8px}#toast button{color:inherit;text-decoration:underline}
+.task-source blockquote{white-space:pre-wrap;max-height:180px;overflow:auto;font-size:13px;margin:10px 0;padding:12px;background:var(--surface);border-radius:8px}.task-source summary{cursor:pointer;color:var(--muted)}#task-panel{width:min(720px,94vw)}#task-panel textarea{min-height:160px;margin:14px 0}#task-panel select{margin-bottom:14px}#task-panel button{margin:8px 8px 0 0}#toast button{color:inherit;text-decoration:underline}
 
 .source-tabs{margin-top:-10px;padding-left:12px;border-left:2px solid var(--line)}.filter-search,.filter-project{min-width:0}.date-day:focus-visible{outline:2px solid var(--green);outline-offset:1px}#meeting-artifact-status{margin:8px 0}
 
@@ -784,7 +783,6 @@ main{margin-left:var(--rail-size);padding-left:var(--workspace-gutter);padding-r
 /* Compact task editor: the former single-text editor used a 160px minimum. */
 #task-panel textarea{min-height:64px;height:auto;margin:0;line-height:1.45}#task-panel select{margin-bottom:0}#task-panel label{margin:8px 0}.task-card-grid{gap:8px 12px}.task-more{align-self:start}.task-more>summary{cursor:pointer;color:var(--muted);padding:8px}.task-more[open]{padding:8px;border:1px solid var(--line);border-radius:10px}.task-more .tracked-actions{display:flex;flex-wrap:wrap;max-width:230px}
 
-#task-draft-dialog{max-height:90vh;width:min(850px,94vw)}#task-draft-dialog textarea{min-height:64px;margin:4px 0 12px}
 
 .task-quick-fields{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;margin-top:10px}.task-quick-fields label{display:grid;gap:4px}.task-quick-fields input,.task-quick-fields select{min-width:0;width:100%}.task-last-update{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:5em;overflow:auto}.task-responsibilities{font-size:12px}.task-row-marks{display:grid;gap:10px;align-content:start}.task-bulk-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:12px}.task-bulk-bar select{width:auto;max-width:240px}@media(max-width:900px){.task-quick-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
@@ -1484,7 +1482,7 @@ label.required-label:has(.date-part-label)::after{content:none}
 .tracked-task.task-card.compact-task .task-quick-fields select{line-height:34px!important}
 
 /* New task dialog: the same field order and grid as the task editor (2026-11-12). */
-#manual-task-dialog{width:min(640px,94vw)}
+#manual-task-dialog{width:min(850px,94vw);max-height:90vh}#manual-task-dialog textarea{min-height:64px;margin:4px 0 12px}#manual-task-dialog .review-footer,#manual-task-dialog .editor-actions{flex-wrap:wrap;gap:8px}
 #manual-task-body label{display:grid;gap:6px;margin:8px 0}
 #manual-task-body textarea{width:100%;margin:0;line-height:1.45}
 #manual-task-body select,#manual-task-body input{margin-bottom:0}

@@ -83,3 +83,23 @@ class ManualTaskTests(unittest.TestCase):
         task=self.create(meeting_id=self.meeting)
         self.service.delete_item(task['id'],task['text'],task['revision'])
         self.assertEqual(self.service.item_list()['items'],[])
+    def test_task_from_a_question_keeps_the_link_and_retries_safely(self):
+        from app.work_graph import WorkGraph
+        question=WorkGraph(self.service.items).question('Ще мигрираме ли базата към v2?')
+        task=self.create(question_id=question['id'])
+        edges=[e for e in self.service.items.data['relationships'].values() if e['kind']=='derives_from']
+        self.assertEqual(len(edges),1);self.assertEqual((edges[0]['from_id'],edges[0]['to_id']),(task['id'],question['id']))
+        # The question stays open; its history names the task that came from it.
+        self.assertEqual(self.service.items.items[question['id']]['status'],'open')
+        events=[e['event'] for e in self.service.items.items[question['id']]['history']]
+        self.assertIn('task_created',events)
+        # An idempotent retry returns the same task and never adds a second relationship.
+        self.assertEqual(self.create(question_id=question['id'])['id'],task['id'])
+        self.assertEqual(len(self.service.items.data['relationships']),1)
+        with self.assertRaises(ValueError):self.create(request_id='b'*32,question_id='missing')
+        with self.assertRaises(ValueError):self.create(request_id='b'*32,question_id=task['id'])
+    def test_task_from_a_notes_question_keeps_the_source_moment(self):
+        task=self.create(meeting_id=self.meeting,evidence_timestamp='00:12:30',request_id='c'*32)
+        self.assertEqual(task['links'][0]['evidence_timestamp'],'00:12:30')
+        with self.assertRaises(ValueError):self.create(request_id='d'*32,evidence_timestamp='12:30')
+        with self.assertRaises(ValueError):self.create(request_id='d'*32,evidence_timestamp='00:12:30')

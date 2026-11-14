@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from .work_graph import WorkGraph, validate_graph
+from .work_graph import WorkGraph, validate_graph, digest as graph_digest
 from .work_items import COLLECTIONS, normalize
 import copy
 import json
@@ -2898,6 +2898,8 @@ class MeetingService:
         request_id=body.get('request_id');meeting_id=body.get('meeting_id');project_id=body.get('project_id')
         # mention_index: the task line of the meeting notes that the person makes into a task.
         mention_index=body.get('mention_index')
+        # question_id: an open question the person turns into a task; the task keeps a derives_from link (2026-11-14).
+        question_id=body.get('question_id');evidence_timestamp=body.get('evidence_timestamp')
         if not isinstance(text,str) or not text.strip() or len(text.strip())>1000:raise ValueError('Enter task text up to 1000 characters')
         if details is not None and (not isinstance(details,str) or len(details)>5000):raise ValueError('Description must be up to 5000 characters')
         criteria=body.get('completion_criteria')
@@ -2905,6 +2907,9 @@ class MeetingService:
         if mention_index is not None and (meeting_id is None or type(mention_index) is not int):raise ValueError('Choose the meeting task line to create')
         if owner is not None and (not isinstance(owner,str) or len(owner)>160):raise ValueError('Owner must be text up to 160 characters')
         if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{32}',request_id):raise ValueError('A task request ID is required')
+        if question_id is not None and not isinstance(question_id,str):raise ValueError('Choose an existing question')
+        if evidence_timestamp is not None and (meeting_id is None or mention_index is not None
+                or not isinstance(evidence_timestamp,str) or not re.fullmatch(r'\d{2}:\d{2}:\d{2}',evidence_timestamp)):raise ValueError('Invalid question source moment')
         if due is not None:
             try:
                 if not isinstance(due,str) or dt.date.fromisoformat(due).isoformat()!=due:raise ValueError()
@@ -2913,12 +2918,18 @@ class MeetingService:
         if (details or '').strip():payload['details']=details.strip()
         if (criteria or '').strip():payload['completion_criteria']=criteria.strip()
         if mention_index is not None:payload['mention_index']=mention_index
+        if question_id is not None:payload['question_id']=question_id
+        if evidence_timestamp is not None:payload['evidence_timestamp']=evidence_timestamp
         with self.lock,self.items.lock,self.items.store.serialized():
             self.items.data,self.items.revision=self.items.store.load()
             existing=next((i for i in self.items.items.values() if i.get('creation_request')==request_id),None)
             if existing:
                 if existing.get('creation_payload')!=payload:raise items.WorkItemConflict('This request already created a different task. Reload the task list.')
                 return copy.deepcopy(existing)
+            question=None
+            if question_id is not None:
+                question=self.items.items.get(question_id)
+                if not question or question['kind']!='question':raise ValueError('Choose an existing question')
             if meeting_id is not None:
                 self.library.get(meeting_id)
                 if meeting_id==self.active or meeting_id in self.busy:raise ValueError('Wait for recording or processing to finish before adding a task')
@@ -2944,10 +2955,19 @@ class MeetingService:
                 # The task keeps the line of the notes as its evidence; what the notes said stays as said.
                 item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=mention.get('evidence_timestamp'),seen=items.seen('task',mention)))
             elif meeting_id is not None:
-                item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=None,
+                item['links'].append(dict(meeting_id=meeting_id,manual_task=True,evidence_timestamp=evidence_timestamp,
                     seen=dict(task=item['text'],owner=item['owner'],deadline=None,due_date=due,status='open')))
             self.items.items[key]=item
             self.items._event(item,'created',meeting_id,by='user');self.items._date_creation(item)
+            if question is not None:
+                # The question stays open; the relationship preserves that this task came from it (2026-11-14).
+                # A cycle is impossible: the new task has no relationships yet.
+                edge=dict(kind='derives_from',from_id=key,to_id=question['id'])
+                edge_id=graph_digest(edge)
+                self.items.data['relationships'][edge_id]=dict(edge,id=edge_id)
+                self.items._event(item,'created_from_question',meeting_id,by='user',question_id=question['id'])
+                self.items._event(question,'task_created',None,by='user',task_id=key)
+                WorkGraph._activity(self.items.data,'relationship_added',relationship_id=edge_id)
             if own:
                 if self.items.has_graph_links(own['id']):
                     own['dismissed']=True;own['links']=[l for l in own['links'] if l['meeting_id']!=meeting_id]

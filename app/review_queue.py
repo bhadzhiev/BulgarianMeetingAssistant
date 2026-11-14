@@ -1,7 +1,7 @@
 """One list of the meetings that still wait for a person, across the whole library.
 
 A meeting is in the queue when it has speakers without a name, items that its Review tab
-shows as needs_review, or notes that wait for an update. The queue reads only; each row
+shows as needs_review (only with AI meeting tasks on), or notes that wait for an update. The queue reads only; each row
 links to the meeting view where a person resolves it.
 """
 import hashlib
@@ -55,7 +55,7 @@ def _minutes(data):
 
 def build(service):
     with service.lock, service.items.lock:
-        rows = []
+        rows, ai_items = [], service.meeting_task_ai()
         for meeting in service.library.list():
             if meeting.get('status') != 'ready':
                 continue
@@ -75,8 +75,11 @@ def build(service):
             source = dict(source=source_digest(transcript['revision'], minutes['revision']),evidence=source_digest(transcript['revision'],minutes.get('evidence',minutes_evidence(None))),
                           legacy_evidence=source_digest(transcript['revision'],minutes.get('legacy_evidence',legacy_minutes_evidence(None))),
                           compatible=[source_digest(transcript['revision'],value) for value in minutes.get('variants',[])])
+            # The same count as the meeting's Review tab (service.detail): with AI meeting tasks off (2026-11-12)
+            # the tab is hidden, so the queue must not send the person to items they cannot see (2026-11-15).
             pending = [item for key in minutes['ids'] if (item := service.items.items.get(key))
-                       and linked(item, meeting['id']) and not closed(item) and meeting_state(item, meeting['id'], source) in {'needs_review','edited'}]
+                       and linked(item, meeting['id']) and not closed(item) and not item.get('dismissed')
+                       and meeting_state(item, meeting['id'], source) in {'needs_review','edited'}] if ai_items else []
             notes = ('proposal' if (directory / 'minutes.proposed.json').exists()
                      else 'refresh' if meeting.get('notes_need_refresh') or meeting.get('notes_refresh_error') else None)
             if not (pending or transcript['speakers'] or notes or repair):

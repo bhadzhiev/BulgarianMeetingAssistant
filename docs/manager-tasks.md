@@ -66,3 +66,10 @@ Manual task capture and evidence linking work with AI disabled or unconfigured. 
 Tracked meeting questions inherit their meeting's project unless the person assigns their projects explicitly. A task made from a tracked question starts with its original meeting, project and source moment. Restoring a manual task into regenerated notes preserves its moment. Choosing **No project** for a new task is an explicit empty assignment; API callers that omit `project_id` retain meeting inheritance.
 
 Creating a task from a notes line or question sends the notes revision captured when its editor opened. If the notes changed, the server refuses to attach the old row index and the editor keeps the draft. Retry after an uncertain response uses the exact same request and revision, so it returns the existing task without creating a duplicate. Older tracked questions can still resolve to their original note by meeting, exact wording and moment; no fuzzy cross-project answer matching is used.
+
+
+## Tasks that implement meeting decisions
+
+**Make task** on a decision opens the same task editor as a question. Its wording and reason prefill the title and description; the person still reviews and creates the task. The task keeps the meeting and recording moment and an `implements` relationship to the canonical decision. The decision shows its tasks; the task's Sources section links back to the exact decision row. Creating a task does not accept a proposed decision or change the original wording. This works with AI meeting tasks off; the source remains a meeting note and does not appear as a new AI proposal in My Work. The captured notes revision guards against changed or removed rows, and retrying the same request cannot create a second task.
+
+A saved Gmail draft has one envelope indicator beside the task title in both compact and expanded My Work cards. It remains there whether the task has a last update or not; it is not part of the update or the state flags. Its accessible label and tooltip explain that a draft was saved, not sent.

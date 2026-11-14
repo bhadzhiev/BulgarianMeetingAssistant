@@ -34,7 +34,7 @@ from .repo_reports import RepoReports, read_store as read_report_store
 from . import backup
 from . import items
 from . import briefing
-from .question_sources import tracked_question
+from .question_sources import tracked_question, tracked_decision
 from . import meeting_types
 from . import search
 from .events import Watcher
@@ -444,12 +444,21 @@ class MeetingService:
                         if question:
                             meeting['question_items'][f'{field}:{index}'] = question['id']
                             ids.add(question['id'])
+                meeting['decision_items'] = {}
+                for index, entry in enumerate((meeting['minutes'] or {}).get('decisions', []) if notes_valid else []):
+                    decision = tracked_decision(self.items.items, meeting_id, entry)
+                    if decision:
+                        meeting['decision_items'][str(index)] = decision['id']
+                        ids.add(decision['id'])
+                meeting['decision_tasks'] = {}
                 meeting['question_tasks'] = {}
                 for edge in self.items.data['relationships'].values():
                     task = self.items.items.get(edge['from_id'])
-                    if edge['kind'] == 'derives_from' and edge['to_id'] in ids and task and task['kind'] == 'task':
-                        meeting['question_tasks'].setdefault(edge['to_id'], []).append(task['id'])
-                ids.update(key for keys in meeting['question_tasks'].values() for key in keys)
+                    if edge['to_id'] in ids and task and task['kind'] == 'task':
+                        source = self.items.items[edge['to_id']]
+                        if edge['kind'] == 'derives_from' and source['kind'] == 'question':meeting['question_tasks'].setdefault(edge['to_id'], []).append(task['id'])
+                        elif edge['kind'] == 'implements' and source['kind'] == 'decision':meeting['decision_tasks'].setdefault(edge['to_id'], []).append(task['id'])
+                ids.update(key for mapping in (meeting['question_tasks'],meeting['decision_tasks']) for keys in mapping.values() for key in keys)
                 ids.update(i['id'] for i in self.items.items.values() if any(l['meeting_id']==meeting_id and l.get('manual_task') for l in i['links']))
                 meeting['items'] = {i: self.items.items[i] for i in ids if i in self.items.items}
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
@@ -2701,6 +2710,9 @@ class MeetingService:
                     for item in self.items.items.values()
                     if not (manual and (item.get('acceptance_state') == 'proposed' or item['kind'] == 'decision'))]
             graph = WorkGraph(self.items).snapshot()
+            visible_ids = {item['id'] for item in rows}
+            derived_sources = {edge['to_id']: copy.deepcopy(self.items.items[edge['to_id']]) for edge in graph['relationships']
+                if edge['kind'] == 'implements' and edge['from_id'] in visible_ids and self.items.items.get(edge['to_id'],{}).get('kind') == 'decision'}
             if manual:
                 graph['proposals'] = [p for p in graph['proposals'] if p.get('origin') != 'meeting_match']
             conversations = {source['id'] for source in graph['sources'] if source.get('remote',{}).get('authority')=='conversation'}
@@ -2713,7 +2725,7 @@ class MeetingService:
                 link.pop('observations',None)
                 if link.get('progress'):link['progress']={k:v for k,v in link['progress'].items() if k!='events'}
             # Tasks wait in For review as proposals; decisions keep the link review until they have proposals too.
-            return dict(items=rows, pending=[entry for entry in self.pending_links() if entry['kind'] == 'decision' and not manual], meetings=meetings, graph=graph, github_links=github_rows,
+            return dict(items=rows, derived_sources=derived_sources, pending=[entry for entry in self.pending_links() if entry['kind'] == 'decision' and not manual], meetings=meetings, graph=graph, github_links=github_rows,
                         meeting_questions=self.meeting_questions(meetings))
 
     def meeting_questions(self, meetings):
@@ -2949,7 +2961,7 @@ class MeetingService:
         mention_index=body.get('mention_index')
         # question_id: an open question the person turns into a task; the task keeps a derives_from link (2026-11-14).
         question_id=body.get('question_id');evidence_timestamp=body.get('evidence_timestamp')
-        question_source=body.get('question_source');minutes_revision=body.get('minutes_revision')
+        question_source=body.get('question_source');decision_source=body.get('decision_source');minutes_revision=body.get('minutes_revision')
         if not isinstance(text,str) or not text.strip() or len(text.strip())>1000:raise ValueError('Enter task text up to 1000 characters')
         if details is not None and (not isinstance(details,str) or len(details)>5000):raise ValueError('Description must be up to 5000 characters')
         criteria=body.get('completion_criteria')
@@ -2962,7 +2974,10 @@ class MeetingService:
                 or not isinstance(question_source,dict) or set(question_source) != {'field','index','text','evidence_timestamp'}
                 or question_source.get('field') not in {'open_questions','needs_decision'} or type(question_source.get('index')) is not int):
             raise ValueError('Choose a meeting question')
-        if (mention_index is not None or question_source is not None) and not isinstance(minutes_revision,str):
+        if decision_source is not None and (question_id is not None or question_source is not None or mention_index is not None or meeting_id is None
+                or not isinstance(decision_source,dict) or set(decision_source) != {'index','text','evidence_timestamp'}
+                or type(decision_source.get('index')) is not int):raise ValueError('Choose a meeting decision')
+        if (mention_index is not None or question_source is not None or decision_source is not None) and not isinstance(minutes_revision,str):
             raise ValueError('Reload the meeting before creating a task from its notes')
         if evidence_timestamp is not None and (meeting_id is None or mention_index is not None
                 or not isinstance(evidence_timestamp,str) or not re.fullmatch(r'\d{2}:\d{2}:\d{2}',evidence_timestamp)):raise ValueError('Invalid question source moment')
@@ -2977,6 +2992,7 @@ class MeetingService:
         if question_id is not None:payload['question_id']=question_id
         if evidence_timestamp is not None:payload['evidence_timestamp']=evidence_timestamp
         if question_source is not None:payload['question_source']=question_source
+        if decision_source is not None:payload['decision_source']=decision_source
         if minutes_revision is not None:payload['minutes_revision']=minutes_revision
         if 'project_id' in body and project_id is None:payload['project_ids']=[]
         with self.lock,self.items.lock,self.items.store.serialized():
@@ -3003,7 +3019,8 @@ class MeetingService:
             if project_id is not None and not self.projects.get('projects',project_id):raise ValueError('This project no longer exists')
             minutes=mention=own=question_minutes=question_entry=None
             new_question=False
-            if mention_index is not None or question_source is not None:
+            decision=decision_minutes=decision_entry=None
+            if mention_index is not None or question_source is not None or decision_source is not None:
                 if minutes_revision != self._minutes_revision(self.library.directory(meeting_id)):
                     raise items.WorkItemConflict('These notes changed. Reload the meeting; your task draft has been kept.')
             if question_source is not None:
@@ -3020,6 +3037,16 @@ class MeetingService:
                 if question is None:
                     question=WorkGraph.new_question(question_entry['text'],dict(meeting_id=meeting_id,evidence_timestamp=evidence_timestamp))
                     new_question=True
+            if decision_source is not None:
+                decision_minutes=copy.deepcopy(self._minutes(meeting_id))
+                lines=(decision_minutes or {}).get('decisions',[])
+                index=decision_source['index']
+                if not 0<=index<len(lines):raise items.WorkItemConflict('This decision changed. Reload the meeting.')
+                decision_entry=lines[index]
+                if any(decision_entry.get(key)!=decision_source[key] for key in ('text','evidence_timestamp')):
+                    raise items.WorkItemConflict('This decision changed. Reload the meeting.')
+                decision=tracked_decision(self.items.items,meeting_id,decision_entry)
+                evidence_timestamp=decision_entry.get('evidence_timestamp')
             if mention_index is not None:
                 directory=self.library.directory(meeting_id)
                 minutes=read_json(directory/'minutes.json',None)
@@ -3049,14 +3076,21 @@ class MeetingService:
                 self.items.items[question['id']]=question
                 self.items._event(question,'created',None,by='user')
                 WorkGraph._activity(self.items.data,'question_changed',item_id=question['id'],status=question['status'])
-            if question is not None:
-                # The question stays open; the relationship preserves that this task came from it (2026-11-14).
+            if decision_entry is not None and decision is None:
+                decision_id=self.items.create('decision',decision_entry,meeting_id)
+                decision=self.items.items[decision_id]
+                decision['origin']=dict(meeting_id=meeting_id,evidence_timestamp=evidence_timestamp)
+                decision['managed_by']='work_graph'
+            source_item=question if question is not None else decision
+            if source_item is not None:
+                # Making a task preserves the source's state; it does not answer a question or approve a decision.
                 # A cycle is impossible: the new task has no relationships yet.
-                edge=dict(kind='derives_from',from_id=key,to_id=question['id'])
+                source_kind=source_item['kind']
+                edge=dict(kind='derives_from' if source_kind=='question' else 'implements',from_id=key,to_id=source_item['id'])
                 edge_id=graph_digest(edge)
                 self.items.data['relationships'][edge_id]=dict(edge,id=edge_id)
-                self.items._event(item,'created_from_question',meeting_id,by='user',question_id=question['id'])
-                self.items._event(question,'task_created',None,by='user',task_id=key)
+                self.items._event(item,'created_from_'+source_kind,meeting_id,by='user',**{source_kind+'_id':source_item['id']})
+                self.items._event(source_item,'task_created',None,by='user',task_id=key)
                 WorkGraph._activity(self.items.data,'relationship_added',relationship_id=edge_id)
             if own:
                 if self.items.has_graph_links(own['id']):
@@ -3068,6 +3102,10 @@ class MeetingService:
                 from meeting_assistant import save_minutes
                 question_entry['item_id']=question['id']
                 save_minutes(self.library.directory(meeting_id),question_minutes)
+            if decision_entry is not None:
+                from meeting_assistant import save_minutes
+                decision_entry['item_id']=decision['id'];decision_entry.pop('link',None)
+                save_minutes(self.library.directory(meeting_id),decision_minutes)
             if mention is not None:
                 from meeting_assistant import save_minutes
                 mention['item_id']=key;mention.pop('link',None)

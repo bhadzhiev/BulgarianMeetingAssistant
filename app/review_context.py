@@ -60,10 +60,12 @@ def records(review: dict) -> list[dict]:
     for key, label in FIELDS.items():
         if context.get(key):
             rows.append(dict(kind='review_context', confirmation_basis='Context recorded by the manager; not independent confirmation',
-                             facts=dict(text=label + ': ' + context[key]), quote='', source_ref={}))
+                             facts=dict(text=label + ': ' + context[key]), quote='',
+                             source_ref=dict(review_id=review.get('id'), context_field=key, record_source='manager_context')))
     for observation in context.get('observations', []):
         rows.append(dict(kind='team_observation', confirmation_basis='AI interpretation selected for discussion; not a confirmed fact',
                          facts=dict(text=observation['text']), quote=observation['quote'],
-                         source_ref=dict(meeting_id=observation['meeting_id'], timestamp=observation['timestamp']),
+                         source_ref=dict(meeting_id=observation['meeting_id'], timestamp=observation['timestamp'],
+                                         review_id=review.get('id'), observation_id=observation['id'], record_source='team_analysis'),
                          occurred_at=observation['occurred_at']))
     return [dict(row, id='e' + str(first + i + 1)) for i, row in enumerate(rows)]

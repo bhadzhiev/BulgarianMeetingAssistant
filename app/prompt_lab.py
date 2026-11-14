@@ -93,8 +93,11 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
         return [dict(role='system',content=repo_reports.SYSTEM+suffix),dict(role='user',content=canonical(dict(untrusted_repository_evidence=[dict(id='preview',text=snippet)])))],repo_reports.SCHEMA
     if stage=='team_review':
         from . import team_ai
-        data=dict(person='Test person',records=[dict(id='e1',kind='task_assigned',confirmation_basis='A person chose the owner',facts=dict(text=snippet,role='accountable'),quote=snippet)])
-        return [dict(role='system',content=team_ai.SYSTEM),dict(role='user',content=canonical(dict(untrusted_records=data)))],team_ai.SCHEMA
+        data=team_ai.ai_input(dict(id='preview',person_name='Test person',period=dict(start='2026-01-01T00:00:00+02:00',end='2026-01-08T00:00:00+02:00',timezone='Europe/Sofia'),
+            evidence=[dict(id='e1',kind='task_assigned',occurred_at='2026-01-02T10:00:00+02:00',source_ref=dict(item_id='preview-task',provider='manual'),
+                           confirmation_basis='A person chose the owner',facts=dict(text=snippet,role='accountable'),quote=snippet)]))
+        batch=team_ai.batches(data)[0]
+        return [dict(role='system',content=team_ai.SYSTEM),dict(role='user',content=canonical(dict(untrusted_records=batch)))],team_ai.schema(batch['records'])
     if stage=='meeting_answer':
         sources=[dict(kind='transcript',meeting_title='Test excerpt',timestamp='00:00:00',meeting_date='',text=snippet)]
         return [dict(role='user',content=search.answer_prompt('Какво е обсъдено в този откъс?',sources))],search.ANSWER_SCHEMA

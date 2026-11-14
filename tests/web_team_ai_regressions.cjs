@@ -7,7 +7,7 @@ assert.match(html,/<input id="team-ai-approve" type="checkbox"> I approve: send 
 assert.match(html,/<button id="team-ai-start" class="primary" type="submit" disabled>/);
 const open=slice('async function openTeamAI(r){');
 assert.match(open,/\['Destination',/);assert.match(open,/if\(p\.remote\)box\.append\(el\('p','notice','This destination is outside this Mac\./);
-assert.match(open,/\$\('team-ai-input'\)\.textContent=JSON\.stringify\(p\.input,null,2\)/);
+assert.match(open,/\$\('team-ai-input'\)\.textContent=JSON\.stringify\(p\.batch_inputs,null,2\)/);
 assert.match(app,/\$\('team-ai-start'\)\.disabled=!\$\('team-ai-approve'\)\.checked\|\|!teamAIPreview\?\.ai_available;/);
 assert.match(app,/api\('\/api\/team\/review\/ai\/start',\{id:teamReview\.id,preview_token:teamAIPreview\.preview_token,approved:\$\('team-ai-approve'\)\.checked\}\)/);
 // The page shows the progress with Stop, and an incomplete run blocks Finalize in words.

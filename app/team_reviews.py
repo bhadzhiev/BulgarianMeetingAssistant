@@ -115,7 +115,7 @@ class TeamReviews:
                     continue
                 for row in self._agreements(self._directory(review['id'])):
                     if row.get('task_id') == task_id and row.get('verified_at') and row.get('expected_result') and row.get('result_evidence'):
-                        checks.append(row)
+                        checks.append(dict(row, review_id=review['id']))
             return sorted(checks, key=lambda row: row['verified_at'], reverse=True)
 
     def outstanding(self, person_id, before=None, exclude=()):

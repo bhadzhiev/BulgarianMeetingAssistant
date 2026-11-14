@@ -122,7 +122,10 @@ class Collector:
     def add(self, kind, item, occurred_at, basis, facts, quote='', meeting_id=None, timestamp=None):
         record = dict(id='e' + str(len(self.evidence) + 1), kind=kind, person_id=self.person['id'],
                       source_ref=dict(item_id=item['id'] if item else None, meeting_id=meeting_id, timestamp=timestamp,
-                                      provider=self.provider(item) if item else 'meeting',
+                                      provider='manual' if kind == 'agreement' else self.provider(item) if item else 'meeting',
+                                      record_source='meeting_transcript' if meeting_id and timestamp else 'task_history' if item else 'review_agreement' if kind == 'agreement' else 'local_record',
+                                      origins=[{k: e[k] for k in ('provider', 'source_id', 'timestamp', 'id') if k in e}
+                                               for e in (item or {}).get('evidence', [])[:20]],
                                       # The item revision at collection time shows a later change of the source.
                                       revision=item.get('revision') if item else None),
                       occurred_at=occurred_at.isoformat() if isinstance(occurred_at, dt.datetime) else occurred_at,
@@ -133,7 +136,7 @@ class Collector:
     @staticmethod
     def provider(item):
         providers = {e.get('provider') for e in item.get('evidence', []) if e.get('provider')}
-        return 'meeting' if not providers or 'meeting' in providers else sorted(providers)[0]
+        return 'meeting' if 'meeting' in providers or any(not link.get('detached') and link.get('meeting_id') for link in item.get('links', [])) else sorted(providers)[0] if providers else 'manual'
 
     def in_period(self, moment):
         return moment is not None and self.start <= moment < self.end
@@ -170,7 +173,7 @@ class Collector:
         return any(re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text) for name in self.names)
 
     def own_words(self, item):
-        """The person's own words at the moment of the task in a meeting: evidence that they took it on."""
+        """The person's own words at the moment of the task in a meeting: this alone does not confirm personal acceptance."""
         for ev in item.get('evidence', []):
             if ev.get('provider') == 'meeting' and ev.get('timestamp') and ev.get('source_id') in self.meetings:
                 said = self.speaker_at(ev['source_id'], ev['timestamp'])
@@ -270,6 +273,23 @@ class Collector:
             if self.in_period(moment) and event.get('by') == 'user' and isinstance(change, list) and line.role(line.state(moment), pid):
                 facts['refs'].append(self.add('due_changed', item, moment, 'A person changed the due date', dict(base, before=change[0], after=change[1])))
                 facts['marks'].append('due changed')
+        # Progress notes and intermediate states connect the promise to the eventual result. They are reports,
+        # not proof of progress or acceptance, and they keep the original history time and source.
+        for event in line.events:
+            when = _time(event.get('at'))
+            if not self.in_period(when) or not line.role(line.state(when), pid):
+                continue
+            if event.get('event') == 'progress_update' and event.get('text'):
+                facts['refs'].append(self.add('task_update', item, when, 'A saved progress report, not independent verification',
+                    dict(base, update=_quote(event['text']), recorded_by=event.get('by'), state=(line.state(when) or {}).get('workflow_state')),
+                    event.get('quote') or event['text'], event.get('meeting_id'), event.get('evidence_timestamp')))
+                self.evidence[-1]['quote_basis'] = 'source_excerpt' if event.get('quote') else 'recorded_update_text'
+                if event.get('evidence_id'):
+                    self.evidence[-1]['source_ref']['evidence_id'] = event['evidence_id']
+            state = (event.get('changes') or {}).get('workflow_state')
+            if event.get('by') == 'user' and isinstance(state, list) and len(state) == 2 and state[1] not in {'done', 'cancelled'}:
+                facts['refs'].append(self.add('task_state_changed', item, when, 'A person changed the recorded task state',
+                    dict(base, before=state[0], after=state[1])))
         # Done, cancelled, overdue.
         done = line.done_at()
         if done and self.in_period(done):
@@ -286,6 +306,7 @@ class Collector:
                 facts['refs'].append(self.add('result_confirmed', item, check['verified_at'],
                     'The manager recorded an explicit result check', dict(base, criterion=check['expected_result'],
                     checked_by=check['verified_by'], result_evidence=check['result_evidence'])))
+                self.evidence[-1]['source_ref'].update(review_id=check.get('review_id'), agreement_id=check.get('id'), provider='manual', record_source='review_agreement')
                 facts['marks'].append('result confirmed')
         for event in line.events:
             moment = _time(event['at'])
@@ -412,8 +433,10 @@ def collect(service, person, start, end, previous=None):
     for row in [*(previous or {}).get('agreements', []), *(previous or {}).get('outstanding', [])]:
         task = by_id.get(row.get('task_id')) if row.get('task_id') else None
         task_state = None if not row.get('task_id') else 'removed' if not task else 'done' if task.get('status') == 'done' else AtlantaState.get(task.get('workflow_state'), 'open')
-        ref = c.add('agreement', task, (previous or {}).get('period', {}).get('end'), 'Agreed in an earlier 1:1 and saved by the manager',
-                    dict(text=row['text'], kind=row['kind'], owner=row['owner'], status=row['status'], due_date=row.get('due_date'), task_state=task_state, open_at_end=row['status'] == 'open'))
+        ref = c.add('agreement', task, row.get('updated') or row.get('created'), 'Agreed in an earlier 1:1 and saved by the manager',
+                    dict(text=row['text'], kind=row['kind'], owner=row['owner'], status=row['status'], due_date=row.get('due_date'), task_state=task_state,
+                         agreed_at=row.get('created'), status_recorded_at=row.get('updated'), open_at_end=row['status'] == 'open'))
+        c.evidence[-1]['source_ref'].update(review_id=row.get('review_id') or (previous or {}).get('id'), agreement_id=row.get('id'), review_period_end=row.get('review_end') or (previous or {}).get('period', {}).get('end'))
         agreements.append(dict(row, ref=ref, task_state=task_state))
     waits = blockers(c, items, tasks)
     coverage = c.coverage(items)

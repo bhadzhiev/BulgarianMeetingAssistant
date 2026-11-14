@@ -3638,7 +3638,7 @@ async function previewTeamFacts(r){
  box.replaceChildren(el('h3','','Preview refreshed facts'),el('p','notice','Applying replaces the review text, including manual edits and the GitHub/AI sections. Conversation notes, context and agreements stay. Cancel keeps everything.'),current,markdownBlock(proposal.review_md),actionBtn('primary','Replace review text with these facts',async()=>{teamReview=await api('/api/team/review/apply-collect',{id:r.id,revision:r.revision,token:proposal.token});dialog.close();renderTeamReview();}));dialog.showModal();
 }
 // The evidence records that the review cites: what, when, why it counts, and the quote. Each opens its source.
-const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result checked',task_existing:'Taken on before this period',review_context:'Private context',team_observation:'AI interpretation',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
+const EVIDENCE_LABELS={task_assigned:'Assigned',task_taken_on:'Taken on',task_completed:'Completed',result_confirmed:'Result checked',task_existing:'Taken on before this period',task_update:'Reported update',task_state_changed:'State changed',review_context:'Private context',team_observation:'AI interpretation',task_overdue:'Overdue',task_cancelled:'Cancelled',task_transferred:'Transferred',task_left:'Took part until',due_changed:'Due date changed',task_open:'Open',task_carried:'Carried over',decision:'Decision',waits_for:'Waits for',github_pr_opened:'PR opened',github_pr_merged:'PR merged',github_pr_closed_without_merge:'PR closed',github_pr_changed:'PR changed',github_review:'Review given',github_commit:'Commit'};
 function evidenceList(r){
  const box=el('details','team-evidence'),rows=r.evidence||[];box.append(el('summary','','Evidence · '+rows.length));
  if(!rows.length){box.append(el('p','hint','No evidence records in this review.'));return box;}
@@ -3665,8 +3665,9 @@ async function openTeamAI(r){
  for(const [name,value] of facts){const row=el('p','team-ai-fact');row.append(el('strong','',name+': '),document.createTextNode(value));box.append(row);}
  if(p.remote)box.append(el('p','notice','This destination is outside this Mac. The records, with their quotes and the name '+r.person_name+', leave the Mac.'));
  if(p.input.records.some(row=>['review_context','team_observation'].includes(row.kind)))box.append(el('p','notice','Includes selected private context. The generated preparation stays private and is excluded from exports.'));
+ box.append(el('p','hint','Each part keeps connected work together in chronological order. Shared context repeats across parts; the preview shows the exact requests.'));
  if(!p.records)box.append(el('p','hint','This review has no records. The AI can only say that there is not enough data.'));
- $('team-ai-input').textContent=JSON.stringify(p.input,null,2);$('team-ai-dialog').showModal();
+ $('team-ai-input').textContent=JSON.stringify(p.batch_inputs,null,2);$('team-ai-dialog').showModal();
 }
 $('team-ai-approve').onchange=()=>{$('team-ai-start').disabled=!$('team-ai-approve').checked||!teamAIPreview?.ai_available;};
 $('team-ai-form').onsubmit=event=>{event?.preventDefault();return perform(async()=>{

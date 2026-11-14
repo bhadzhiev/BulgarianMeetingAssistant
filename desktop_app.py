@@ -607,7 +607,7 @@ class Handler(BaseHTTPRequestHandler):
                     result = service.merge_items(item_id, body['into'], body['revision'], body['into_revision'])
                 else: result = service.update_item(item_id, body['text'], body['changes'], body['revision'])
             else:
-                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope|type|type-export)', path)
+                match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope|done|type|type-export)', path)
                 if not match:
                     raise FileNotFoundError()
                 if match[2] == 'process': result = service.process(match[1], body['action'])
@@ -615,6 +615,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif match[2] == 'reanalyze': result = service.process(match[1], 'reanalyze')
                 elif match[2] == 'question': result = service.update_question(match[1], body['id'], body['answered'], body.get('text'))
                 elif match[2] == 'scope': result = service.set_scope(match[1], body.get('project'), body.get('series'))
+                elif match[2] == 'done': result = service.set_done(match[1], body.get('done'))
                 elif match[2] == 'type': result = service.set_meeting_type(match[1], body.get('meeting_type'))
                 elif match[2] == 'type-export': result = service.type_export(match[1])
                 elif match[2] == 'link': result = service.resolve_link(match[1], body['field'], body['index'], body['text'], body['action'], body.get('item_id'), body.get('fields'), body.get('revision'))

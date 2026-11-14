@@ -31,6 +31,18 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.s.conversations.listing(dict(participant='Missing'))['total'],0)
         self.rows[0]['speaker']='Elena';atomic_json(self.s.library.directory(self.m['id'])/'transcript.json',self.rows)
         self.assertIn('Elena',self.s.conversations.listing({})['participants'])
+    def test_done_is_a_manual_meeting_status_in_the_library(self):
+        self.assertFalse(self.s.conversations.listing({})['rows'][0]['done'])
+        self.s.set_done(self.m['id'],True)
+        meeting=self.s.library.get(self.m['id'])
+        self.assertIs(meeting['done'],True);self.assertTrue(meeting['done_at'])
+        self.assertTrue(self.s.conversations.listing({})['rows'][0]['done'])
+        self.assertTrue(next(m for m in self.s.library.list() if m['id']==self.m['id'])['done'])
+        self.s.set_done(self.m['id'],False)
+        meeting=self.s.library.get(self.m['id'])
+        self.assertIs(meeting['done'],False);self.assertIsNone(meeting['done_at'])
+        for wrong in (None,'yes',1):
+            with self.assertRaises(ValueError):self.s.set_done(self.m['id'],wrong)
     def test_saved_excerpt_lists_a_preview_of_its_spoken_words(self):
         self.excerpt()
         row=self.s.conversations.listing(dict(source='attached'))['rows'][0]

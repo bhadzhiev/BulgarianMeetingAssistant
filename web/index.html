@@ -126,7 +126,6 @@
     <div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div>
     <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
     <div class="card work-panel" id="items-panel" role="tabpanel">
-      <div class="work-messages"><p class="hint">Each task appears once, with every meeting that discussed it. Only you change its state and the fields you edited.</p></div>
       <div class="work-content">
         <div id="manager-controls" class="manager-controls"></div>
         <details id="manager-all-filters" class="manager-all-filters"><summary id="manager-filter-summary">Filters</summary><div id="manager-person-filters"></div>
@@ -139,11 +138,9 @@
       </div>
     </div>
     <div class="card work-panel" id="review-queue-panel" role="tabpanel" hidden>
-      <div class="work-messages"><p class="hint">Meetings that still wait for you: speakers to name, items to confirm or dismiss, and notes to update. Open a meeting to resolve each step.</p></div>
       <div class="work-content"><div id="review-queue"></div></div>
     </div>
     <div class="card work-panel" id="questions-panel" role="tabpanel" hidden>
-      <div class="work-messages"><p class="hint">Open questions from your meeting notes, and the questions that you track.</p></div>
       <div class="work-content"><div class="work-actions"><button type="button" class="secondary" id="new-work-question">＋ New question</button></div><div id="work-questions"></div></div>
     </div>
     <div class="card work-panel source-panel" id="gmail-panel" role="tabpanel" hidden>
@@ -242,12 +239,12 @@
     <p class="below-card">Built from saved notes, tasks, decisions and markers, not from a new AI run. Each line links to its meeting and moment.</p>
   </section>
   <section id="analytics" hidden>
-    <div class="heading"><p class="eyebrow">CONVERSATION INTELLIGENCE</p><h1>Conversation analytics</h1><p id="analytics-summary" class="subheading">Talk time, topics and questions from saved analytics.</p></div>
+    <div class="heading"><p class="eyebrow">CONVERSATION INTELLIGENCE</p><h1>Conversation analytics</h1><p id="analytics-summary" class="subheading">Speaking time from saved recordings.</p></div>
     <div class="card">
-      <div class="analytics-filters"><label>From<input id="analytics-from" type="date"></label><label>To<input id="analytics-to" type="date"></label><label>Speaker<select id="analytics-speaker"><option value="">All speakers</option></select></label><label>Topic<select id="analytics-topic"><option value="">All topics</option></select></label><div class="analytics-filter-actions"><button id="analytics-apply" class="secondary" type="button">Apply</button><button id="analytics-reset" class="quiet" type="button">Reset</button></div></div>
+      <div class="analytics-filters"><label>From<input id="analytics-from" type="date"></label><label>To<input id="analytics-to" type="date"></label><label>Speaker<select id="analytics-speaker"><option value="">All speakers</option></select></label><label hidden>Topic<select id="analytics-topic"><option value="">All topics</option></select></label><div class="analytics-filter-actions"><button id="analytics-apply" class="secondary" type="button">Apply</button><button id="analytics-reset" class="quiet" type="button">Reset</button></div></div>
       <div id="analytics-overview" class="metric-grid"></div>
       <h2>Speakers</h2><div id="analytics-speakers"></div>
-      <h2>Topics</h2><div id="analytics-topics" class="topic-summary-grid"></div>
+      <div id="analytics-topics" hidden></div>
       <h2>Meetings</h2><div id="analytics-meetings"></div>
     </div>
     <p class="below-card">Only meetings with generated analytics are included. Speaker names are meeting-local until you confirm them; these are descriptive metrics, not employee scores.</p>
@@ -267,7 +264,7 @@
     <div id="outcomes-panel" class="card" hidden><div class="card-heading"><h2>Decisions, tasks and next steps</h2><div class="note-actions"><button id="edit-outcomes" class="secondary" type="button">Edit</button><button id="cancel-outcomes" class="quiet" type="button" hidden>Cancel</button><button id="save-outcomes" class="primary" type="button" hidden disabled>Save changes</button></div></div><div id="outcomes"></div></div>
     <div id="notes-panel" class="card" hidden><div class="card-heading"><h2>Notes</h2><div class="note-actions"><button id="edit-notes" class="secondary" type="button">Edit</button><button id="cancel-notes" class="quiet" type="button" hidden>Cancel</button><button id="save-notes" class="primary" type="button" hidden disabled>Save notes</button></div></div><div id="notes"></div></div>
     <div id="team-analysis-panel" class="card" hidden><div class="card-heading"><div><p class="eyebrow">PRIVATE · NOT IN NOTES OR EXPORTS</p><h2>Team analysis</h2></div><button id="team-analysis-run" class="secondary" type="button">Analyze</button></div><div id="team-analysis-content"></div></div>
-    <div id="meeting-analytics-panel" class="card" hidden><div class="card-heading"><div><p class="eyebrow">TALK TIME · TOPICS · QUESTIONS</p><h2>Conversation analytics</h2></div><button id="reanalyze" class="secondary">Reanalyze</button></div><p id="diarization-status" class="notice warning" hidden></p><p id="meeting-analytics-error" class="notice warning" hidden></p><div id="meeting-analytics-content"></div><p class="hint">Talk time comes from offline speaker intervals and excludes silence. Topic hits link to transcript evidence.</p></div>
+    <div id="meeting-analytics-panel" class="card" hidden><div class="card-heading"><div><p class="eyebrow">SPEAKING TIME</p><h2>Conversation analytics</h2></div><button id="reanalyze" class="secondary">Reanalyze</button></div><p id="diarization-status" class="notice warning" hidden></p><p id="meeting-analytics-error" class="notice warning" hidden></p><div id="meeting-analytics-content"></div><p class="hint">Speaking time comes from offline speaker intervals and excludes silence. Speech intervals are not conversational turns.</p></div>
   </section>
 </main>
 <dialog id="excerpt-dialog" aria-labelledby="excerpt-title"><form id="excerpt-form" class="card">

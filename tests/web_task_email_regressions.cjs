@@ -16,6 +16,6 @@ const c=vm.createContext({el:(t,cls)=>new Node(cls),icon:()=>'svg',dateTime:v=>v
 vm.runInContext(src.slice(start,end),c);
 assert.equal(vm.runInContext('emailMark({})',c),null);
 const mark=vm.runInContext("emailMark({email_draft:{saved_at:'09.11.2026',to:['a@b.test']}})",c);
-assert.deepEqual(mark.children,['svg','Emailed']);assert.ok(mark.title.includes('a@b.test'));
+assert.deepEqual(mark.children,['svg','Gmail draft']);assert.ok(mark.title.includes('a@b.test'));
 assert.deepEqual(vm.runInContext("emailMark({email_draft:{saved_at:'x',to:[]}},{compact:true})",c).children,['svg']);
 console.log('Task email PASS: dialog, three entry points, history label and envelope mark.');

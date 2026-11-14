@@ -15,7 +15,7 @@ assert.match(app,/if\(managerView==='inbox'&&!inboxOnPurpose&&!waiting\)\{manage
 assert.match(app,/'Suggestions from Gmail, Google Chat and GitHub wait here for your decision\./);
 assert.match(app,/'New suggestions arrive after each source sync\.'/);
 assert.match(app,/AtlantaUX\.count\(proposalListEl\.children\.length,'suggestion'\)\+' from sources'/);
-assert.match(html,/Each task appears once, with every meeting that discussed it\. Only you change its state and the fields you edited\./);
+assert.doesNotMatch(html,/Each task appears once/);
 assert.match(app,/if\(q\.get\('tab'\)==='suggested'\)await openTaskInbox\(\)/,'old suggested routes still land in the Inbox');
 assert.doesNotMatch(app,/showWorkTab\('suggested'\)/);
 assert.ok(!app.includes("$('work-suggested')"),'no code moves proposal lists into the removed panel');

@@ -18,5 +18,5 @@ assert.match(app,/const titleNote=d\.title_status==='generated'&&!d\.title_error
 assert.match(app,/function taskSummary\(text\)\{if\(\['task','decision'\]\.includes\(workTab\)\)\$\('tasks-summary'\)\.textContent=text;\}/);
 const render=app.slice(app.indexOf('function renderTasks('),app.indexOf('\nfunction ',app.indexOf('function renderTasks(')+10));
 assert.doesNotMatch(render,/\$\('tasks-summary'\)\.textContent=/);
-assert.match(app,/questions:\(\)=>AtlantaUX\.count\(\(itemsData\?\.meeting_questions\|\|\[\]\)\.length,'question'\)\+' from meeting notes · '/);
+assert.match(app,/questions:\(\)=>AtlantaUX\.count\([^;]*'open tracked question'/);
 console.log('View consistency PASS: one header style, status dot, grouped actions, empty states, title colours, tab subtitles.');

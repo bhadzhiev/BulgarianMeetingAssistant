@@ -11,7 +11,7 @@ let liveMeetingId = null, liveSignature = '', lastSpeakers = '', settingsTab = '
 let lastTasks = '', itemEditing = false;
 let speakerNaming=false;
 let analyticsData = null, trackersData = [];
-let notesEditing = false, questionFilter = 'open', questionLimit = 10;
+let notesEditing = false;
 let initialRouteHandled=false, lastGoogleConnected=false;
 const statusNames = {starting:'Starting',recording:'Recording',paused:'Paused',stopping:'Saving',recorded:'Recorded',processing:'Processing',ready:'Ready',error:'Needs attention',interrupted:'Interrupted'};
 function el(tag, className, text) { const node = document.createElement(tag); if(className) node.className=className; if(text!==undefined) node.textContent=text; return node; }
@@ -665,7 +665,7 @@ async function openMeeting(id,force=false) {
  if(state.active?.id===id){selected=id;show('recording');renderState();return true;}
  const fresh=await api('/api/meetings/'+id);
  if(sequence!==meetingLoadSequence||!readers.current(request)||(!force&&hasEdits()))return false;
- if(detail?.id!==id){notesEditing=false;questionFilter='open';questionLimit=10;if(!routing)meetingTab=fresh.minutes?'outcomes':'transcript';}
+ if(detail?.id!==id){notesEditing=false;if(!routing)meetingTab=fresh.minutes?'outcomes':'transcript';}
  selected=id;detail=fresh;dirtyTranscript=dirtyNotes=false;detailChangedWhileEditing=false;
  lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');switchTab(meetingTab);renderLibrary();return true;
 }
@@ -811,7 +811,9 @@ function privacy(s) { let text=s.transcription==='elevenlabs'?'Audio and vocabul
  // Task matching adds the context of similar existing tasks, only with the permission for this address.
  if(s.meeting_task_ai&&s.summarizer==='local'&&remoteAPI(s.local_ai_base_url)&&s.task_matching_target===s.local_ai_base_url)text+=' Titles and short updates of similar existing tasks are sent to '+apiHost(s.local_ai_base_url)+' for task matching.';
  if(s.calendar_enabled)text+=' Meeting titles, times and local links are saved in Google Calendar.';return text; }
+function meetingReviewCount(d){return d?.meeting_review_count||0;}
 function switchTab(name) {
+ if(name==='review'&&!meetingReviewCount(detail))name='outcomes';
  for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['team','team-analysis-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
  meetingTab=name;syncRoute(true);
  if(detail&&view==='detail')placeActions(detail);
@@ -864,11 +866,13 @@ function transcriptSegmentTools(d,index,textarea,busy){
  tools.append(split,merge);return tools;
 }
 function renderDetail() {
+ $('tab-review').hidden=!meetingReviewCount(detail);
+ if(meetingTab==='review'&&!meetingReviewCount(detail))switchTab('outcomes');
  syncReviewPanel();
  $('detail-refresh-notice').hidden=!detailChangedWhileEditing;
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
  $('meeting-add-task').disabled=busy;
- $('detail-title').textContent=d.title;$('detail-title').title=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?'Ready for review':'Transcript ready'):statusNames[d.status]||d.status;
+ $('detail-title').textContent=d.title;$('detail-title').title=d.title; $('detail-date').textContent=date(d.created)+' · '+(d.mode==='online'?'Online meeting':d.mode==='imported'?'Imported transcript':d.mode==='audio'?'Imported audio':'In-person meeting')+(d.duration?' · '+shortDuration(d.duration):''); $('detail-status').textContent=d.status==='ready'?(d.notes_need_refresh?'Notes need update':d.minutes_proposal?'Review notes':d.minutes?(meetingReviewCount(d)?'Items to review':'Ready'):'Transcript ready'):statusNames[d.status]||d.status;
  const titleMessages={pending:'AI title pending',generating:'Generating AI title…',generated:'AI-generated title',waiting:'AI title waiting for a transcript',manual:'',error:'AI title could not be generated'};
  const titleNote=d.title_status==='generated'&&!d.title_error;if(titleNote)$('detail-date').textContent+=' · AI title';
  $('title-status').textContent=titleNote?'':(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
@@ -924,7 +928,7 @@ function renderDetail() {
 const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','followup-email','delete-meeting'];
 // One clear next step is a button; the other actions wait in the More menu.
 function placeActions(d) {
- const action=$('review-primary');action.hidden=!d.minutes_proposal&&(!d.minutes||d.notes_need_refresh||d.notes_refresh_error);action.textContent=d.minutes_proposal?'Review updated notes':'Review decisions and tasks';action.disabled=d.status==='processing';
+ const action=$('review-primary'),count=meetingReviewCount(d);action.hidden=!d.minutes_proposal&&(!count||d.notes_need_refresh||d.notes_refresh_error);action.textContent=d.minutes_proposal?'Review updated notes':'Review '+AtlantaUX.count(count,'item');action.disabled=d.status==='processing';
  if(!d.minutes_proposal&&meetingTab==='review')action.hidden=true;
  const audio=d.files.includes('recording.wav');
  const primary=d.minutes_proposal?null:!$('recover').hidden&&!audio?'recover':!$('process').hidden&&!d.transcript.length?'process':d.transcript.length&&(d.notes_need_refresh||d.notes_refresh_error)?'summarize':d.transcript.length&&!d.minutes?'summarize':null;
@@ -1083,7 +1087,7 @@ function noteSection(minutes,field,title,busy,hint) {
  section.append(el('h3','',title)); if(hint) section.append(el('p','hint',hint));
  const items=minutes[field]=minutes[field]||[];
  if(!notesEditing) {
-  if(!items.length) section.append(el('p','empty-note','Nothing recorded.'));
+  if(!items.length) section.hidden=true;
   else { const list=el('ul','note-list');const entries=field==='decisions'?AtlantaTasks.meetingGroups(items).map(({task,index,mentions})=>({item:task,index,mentions})):items.map((item,index)=>({item,index,mentions:[item]})); entries.forEach(({item,index,mentions})=>{ const li=el('li','note-item'+(item.review==='verified'?' verified':'')), meta=el('div','note-meta'), decision=field==='decisions'&&state.settings?.meeting_task_ai&&detail.items?.[item.item_id];
    if(decision) meta.append(decisionBadge(decision));
    const noteText=linkedText(el('p','note-text'),decision?.text||item.text),actions=decision?editDeleteButtons(decision,noteText):noteButtons(items,index,noteText,busy,title);for(const action of actions){action.disabled=busy;for(const inner of action.querySelectorAll?.('button')||[])inner.disabled=busy||inner.disabled;}meta.append(decision?'':reviewBadge(item,busy),mentions.length===1?sourceBlock(item.evidence_timestamp):'',...actions);
@@ -1276,7 +1280,7 @@ function renderNotes(busy=false) {
   const remove=el('button','quiet','Remove');remove.type='button';remove.disabled=busy;remove.onclick=()=>{minutes.tasks.splice(index,1);markNotes();drawTasks();};
   const bottom=el('div','task-bottom');bottom.append(remove);box.append(text,bottom);taskList.append(box);}); }
  if(!notesEditing) {
-  if(!minutes.tasks.length) taskList.append(el('p','empty-note','No tasks.'));
+  section.hidden=!minutes.tasks.length;
   // Who does what: the tasks by owner, as written meeting notes list them (2026-11-13). One owner needs no headings.
   const shown=AtlantaTasks.meetingGroups(minutes.tasks).filter(({task})=>!detail.items?.[task.item_id]?.dismissed);
   const owners=AtlantaTasks.ownerGroups(shown,({task})=>detail.items?.[task.item_id]?.owner||task.owner);
@@ -1342,7 +1346,7 @@ function seekEvidence(item) {
  switchTab('transcript');const row=transcriptElement(item.segment_index);if(row){row.scrollIntoView({block:'center'});row.classList.add('evidence-highlight');setTimeout(()=>row.classList.remove('evidence-highlight'),1800);}
 }
 function speakerStats(target,rows,global=false) {
- target.replaceChildren();if(!rows.length){target.append(emptyNote('No diarized speaker time is available. Imported transcripts only have topic and question analytics.'));return;}
+ target.replaceChildren();if(!rows.length){target.append(emptyNote('No diarized speaker time is available for this recording.'));return;}
  // Without diarized audio every talk-time number is zero; show only what is known.
  const timed=rows.some(row=>row.talk_seconds>0);
  if(!timed)target.append(el('p','hint','No talk time. Talk time needs a recording with speaker diarization; imported transcripts have none.'));
@@ -1350,8 +1354,8 @@ function speakerStats(target,rows,global=false) {
   const box=el('div','speaker-stat'),heading=el('div','speaker-stat-heading'),name=el('div','tracked-owner');
   name.append(speakerBadge(el('span'),row.speaker),el('strong','',row.speaker));if(row.meeting_title)name.append(el('span','hint speaker-meeting','· '+row.meeting_title));heading.append(name);box.append(heading);
   if(timed){heading.append(el('span','',shortDuration(row.talk_seconds)+' · '+row.talk_percent+'%'));const bar=el('div','talk-bar'),fill=el('span');fill.style.width=Math.max(0,Math.min(100,row.talk_percent))+'%';bar.append(fill);box.append(bar);}
-  const facts=timed?['Turns: '+row.turns,'Longest turn: '+shortDuration(row.longest_monologue_seconds),'Average turn: '+shortDuration(row.average_turn_seconds),'Questions: '+row.questions]:['Questions: '+row.questions];
-  if(global)facts.push('Not marked as answered: '+row.unanswered_questions,'Meetings: '+row.meetings);
+  const facts=timed?['Speech intervals: '+row.turns,'Longest interval: '+shortDuration(row.longest_monologue_seconds)]:[];
+  if(global)facts.push('Meetings: '+row.meetings);
   box.append(el('p','speaker-stat-meta',facts.join(' · ')));target.append(box);
  }
 }
@@ -1423,53 +1427,24 @@ function renderMeetingAnalytics(busy=false) {
  $('reanalyze').disabled=busy||!detail.transcript.length;
  $('diarization-status').hidden=!detail.diarization_error;$('diarization-status').textContent=detail.diarization_error?'Speaker diarization unavailable · '+detail.diarization_error:'';
  $('meeting-analytics-error').hidden=!detail.analytics_error;$('meeting-analytics-error').textContent=detail.analytics_error?'Some analytics need attention · '+detail.analytics_error:'';
- if(!data){target.append(emptyNote(detail.transcript.length?'Choose Reanalyze to build talk-time, topic and question analytics.':'Transcribe or import a meeting to build conversation analytics.'));return;}
+ if(!data){target.append(emptyNote(detail.transcript.length?'Choose Reanalyze to refresh speaking-time statistics.':'Transcribe or import a meeting to build conversation analytics.'));return;}
  const speakers=el('section','analytics-section'),speakerRows=el('div');speakers.append(el('h3','','Talk time'));if(data.total_speech_seconds)speakers.append(el('p','hint',shortDuration(data.total_speech_seconds)+' of diarized speech. Silence is excluded.'));speakers.append(speakerRows);speakerStats(speakerRows,data.speakers||[]);target.append(speakers);
- const topics=el('section','analytics-section');topics.append(el('h3','','Topic trackers'));
- if(!(data.topics||[]).length){const configure=el('button','secondary','Configure topic trackers');configure.onclick=()=>openSettings('trackers');topics.append(el('p','hint','No topic trackers are configured.'),configure);}
- for(const topic of data.topics||[]) {
-  const box=el('div','topic-result'),heading=el('div','speaker-stat-heading');heading.append(el('strong','',topic.name),el('span','',topic.match_count+(topic.match_count===1?' hit':' hits')));box.append(heading);
-  for(const hit of topic.matches||[]) {const evidence=el('div','evidence-row'),seek=listenButton(detail.id,hit.timestamp||0,{className:'quiet evidence-time'});const text=el('p','',hit.text);const meta=el('small','',(hit.speaker||'Unknown speaker')+(hit.semantic?' · AI match':' · '+(hit.phrases||[]).join(', ')));const main=el('div');main.append(text,meta);evidence.append(seek,main);box.append(evidence);}
-  topics.append(box);
- }
- target.append(topics);
- const all=data.questions||[],questions=el('section','analytics-section');
- questions.append(el('h3','','Questions'),el('p','hint',all.length+' detected from wording · '+all.filter(q=>!q.answered).length+' not marked as answered. The app does not detect answers. Tick a question when it was answered.'));
- if(!all.length)questions.append(emptyNote('No questions detected.'));
- else {
-  const filters=el('div','segmented question-filters');filters.setAttribute('role','group');filters.setAttribute('aria-label','Filter questions');
-  for(const [key,label] of [['open','Not answered'],['answered','Answered'],['all','All']]){const button=btn(key===questionFilter?'selected':'',label);button.onclick=()=>{questionFilter=key;questionLimit=10;renderMeetingAnalytics(busy);};filters.append(button);}
-  questions.append(filters);
- }
- const shown=all.filter(q=>questionFilter==='all'||(questionFilter==='answered')===!!q.answered);
- if(all.length&&!shown.length)questions.append(emptyNote('No questions match this filter.'));
- for(const question of shown.slice(0,questionLimit)) {
-  const row=el('div','question-row'+(question.answered?' answered':'')),toggle=el('input');toggle.type='checkbox';toggle.checked=question.answered;toggle.disabled=busy;toggle.setAttribute('aria-label','Mark question as answered');
-  toggle.onchange=()=>perform(async()=>{
-   const meetingId=detail.id,answered=toggle.checked;
-   const set=async value=>{const updated=await api('/api/meetings/'+meetingId+'/question',{id:question.id,text:question.text,answered:value});if(detail?.id!==meetingId)return;detail.analytics=updated;lastFingerprint=JSON.stringify(detail);renderMeetingAnalytics(false);};
-   try{await set(answered);}catch(e){toggle.checked=!answered;throw e;}
-   undoToast(answered?'Question marked as answered':'Question marked as open',()=>perform(async()=>{await set(!answered);toast('Undone');}));});
-  const main=el('div'),text=el('p','',question.text),meta=el('div','tracked-meta'),seek=listenButton(detail.id,question.timestamp||0,{className:'quiet tracked-source'});meta.append(el('span','',question.speaker||'Unknown speaker'),seek);main.append(text,meta);row.append(toggle,main);questions.append(row);
- }
- if(shown.length>questionLimit){const more=btn('secondary','Show all '+shown.length+' questions');more.onclick=()=>{questionLimit=Infinity;renderMeetingAnalytics(busy);};questions.append(more);}
- target.append(questions);
+ // Question detection and topic hits stay in saved analytics; they are not a work queue.
 }
+
 async function loadAnalytics() {
- const params=new URLSearchParams();for(const [key,id] of [['from','analytics-from'],['to','analytics-to'],['speaker','analytics-speaker'],['topic','analytics-topic']]){const value=$(id).value;if(value)params.set(key,value);}
+ const params=new URLSearchParams();for(const [key,id] of [['from','analytics-from'],['to','analytics-to'],['speaker','analytics-speaker']]){const value=$(id).value;if(value)params.set(key,value);}
  analyticsData=await api('/api/analytics'+(params.size?'?'+params:''));renderGlobalAnalytics();
 }
 function renderGlobalAnalytics() {
  const data=analyticsData;if(!data)return;
  for(const [id,values,placeholder] of [['analytics-speaker',data.available_speakers,'All speakers'],['analytics-topic',data.available_topics,'All topics']]) {const select=$(id),current=select.value;select.replaceChildren(option(placeholder,''),...values.map(value=>option(value,value)));select.value=[...select.options].some(option=>option.value===current)?current:'';}
  const speech=data.total_speech_seconds?shortDuration(data.total_speech_seconds):'—';
- $('analytics-summary').textContent=data.meeting_count+(data.meeting_count===1?' meeting':' meetings')+(data.total_speech_seconds?' · '+speech+' diarized speech':'')+' · '+AtlantaUX.count(data.questions,'question')+' · '+data.unanswered_questions+' not marked as answered';
- $('analytics-overview').replaceChildren(metric('Meetings',data.meeting_count),metric('Diarized speech',speech),metric('Questions',data.questions),metric('Not marked as answered',data.unanswered_questions));
+ $('analytics-summary').textContent=data.meeting_count+(data.meeting_count===1?' meeting':' meetings')+(data.total_speech_seconds?' · '+speech+' diarized speech':'');
+ $('analytics-overview').replaceChildren(metric('Meetings',data.meeting_count),metric('Diarized speech',speech));
  speakerStats($('analytics-speakers'),data.speakers,true);
- $('analytics-topics').replaceChildren();if(!data.topics.length)$('analytics-topics').append(emptyNote('No topic hits match these filters.'));
- for(const topic of data.topics){const box=el('div','metric');box.append(el('strong','',topic.matches),el('span','',topic.name+' · '+AtlantaUX.count(topic.meetings,'meeting')));$('analytics-topics').append(box);}
  $('analytics-meetings').replaceChildren();if(!data.meetings.length)$('analytics-meetings').append(emptyNote('No generated analytics match these filters.'));
- for(const meeting of data.meetings){const row=el('div','analytics-meeting'),button=el('button','quiet tracked-source',meeting.title);button.onclick=()=>perform(async()=>{await openMeeting(meeting.id);switchTab('analytics');});row.append(button,el('span','',date(meeting.date)),el('span','',meeting.talk_seconds?shortDuration(meeting.talk_seconds):'No talk time'),el('span','',AtlantaUX.count(meeting.questions,'question')+' · '+AtlantaUX.count(meeting.topic_matches,'topic hit')));$('analytics-meetings').append(row);}
+ for(const meeting of data.meetings){const row=el('div','analytics-meeting'),button=el('button','quiet tracked-source',meeting.title);button.onclick=()=>perform(async()=>{await openMeeting(meeting.id);switchTab('analytics');});row.append(button,el('span','',date(meeting.date)),el('span','',meeting.talk_seconds?shortDuration(meeting.talk_seconds):'No talk time'));$('analytics-meetings').append(row);}
 }
 function renderTrackers() {
  const target=$('tracker-list');target.replaceChildren();if(!trackersData.length)target.append(emptyNote('No topic trackers yet. Add topics such as Бюджет, Продажби or Риск.'));
@@ -1898,7 +1873,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(el('span','task-update-label','Last update'),el('span','task-last-when',dateTime(update.at)),last);if(mailed)box.append(mailed);main.append(box);}
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
- if(linked)main.append(linked);if(others.childNodes.length)main.append(others);
+ if(linked||others.childNodes.length){const sources=el('details','task-card-sources');sources.append(el('summary','','Sources'));if(linked)sources.append(linked);if(others.childNodes.length)sources.append(others);main.append(sources);}
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
@@ -1920,11 +1895,11 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
   // The card shows the task; the fields open on request and stay open across a refresh after a save.
   quick.id='task-fields-'+item.id;quick.hidden=!openTaskFields.has(item.id);
   const toggle=btn('quiet small-action task-fields-toggle','');toggle.type='button';toggle.setAttribute('aria-controls',quick.id);
-  const showFields=open=>{quick.hidden=!open;toggle.textContent=open?'Hide fields':'Edit';toggle.setAttribute('aria-expanded',String(open));if(open)openTaskFields.add(item.id);else openTaskFields.delete(item.id);};
+  const showFields=open=>{quick.hidden=!open;toggle.textContent=open?'Hide quick fields':'Quick fields';toggle.setAttribute('aria-expanded',String(open));if(open)openTaskFields.add(item.id);else openTaskFields.delete(item.id);};
   toggle.onclick=()=>showFields(quick.hidden);showFields(!quick.hidden);
-  // Add update and Timeline stay on the card: a progress note and the history are not fields to change.
+  // Progress stays on the card; history and quick editing are secondary actions.
   const done=doneButton(item);if(item.status!=='done'){done.classList.replace('secondary','primary');done.prepend(icon('check'));}
-  const rowActions=el('div','task-row-actions');rowActions.append(done,addUpdate,timeline,toggle);main.append(rowActions,quick);
+  const rowActions=el('div','task-row-actions');rowActions.append(done,addUpdate);main.append(rowActions,quick);compactMenu=[timeline,toggle];
   if(compact){
    // The compact row: the title, then owner, state and due date that change in place.
    // Add update, Timeline, the next check and the rare actions are in "…".
@@ -2418,11 +2393,12 @@ function renderWorkGraph(){
   card.append(actions);proposalListEl.append(card);
  }
  const questions=$('work-questions');questions.replaceChildren();
- renderMeetingQuestions(questions);
- const tracked=itemsData.items.filter(i=>i.kind==='question');
- if(tracked.length)questions.append(el('h3','','Tracked questions'));
- for(const q of tracked)questions.append(trackedQuestionCard(q));
- if(!questions.children.length)questions.append(el('p','hint','No questions yet. Questions from meeting notes appear here. You can also add one.'));
+ const tracked=itemsData.items.filter(i=>i.kind==='question'),open=tracked.filter(q=>q.status!=='answered'),answered=tracked.filter(q=>q.status==='answered');
+ if(open.length)questions.append(el('h3','','Open tracked questions'));
+ for(const q of open)questions.append(trackedQuestionCard(q));
+ if(!open.length)questions.append(el('p','hint','No open tracked questions. Add one or choose a question from meeting notes below.'));
+ if(answered.length){const history=el('details','question-history');history.append(el('summary','','Answered · '+answered.length));for(const q of answered)history.append(trackedQuestionCard(q));questions.append(history);}
+ const candidates=el('details','meeting-question-candidates');candidates.append(el('summary','','From meeting notes · '+(itemsData.meeting_questions||[]).length));renderMeetingQuestions(candidates);if((itemsData.meeting_questions||[]).length)questions.append(candidates);
 }
 // Single keys review the Inbox once a card is chosen: j/k move, a accept, s snooze, d dismiss, r restore.
 let proposalCursor=-1;
@@ -2453,7 +2429,7 @@ function trackedQuestionCard(q){
 function questionOrigin(origin){const meeting=origin&&itemsData.meetings?.[origin.meeting_id];return meeting?' · '+withDate(meeting.title,meeting.date):'';}
 function renderMeetingQuestions(target){
  const list=itemsData.meeting_questions||[];if(!list.length)return;
- target.append(el('h3','','From meeting notes'),el('p','hint','Questions that the notes of your meetings left open. Answer one, or track it to answer later.'));
+ target.append(el('p','hint','Choose a question to track, or save an answer.'));
  for(const q of list){
   const meeting=itemsData.meetings?.[q.meeting_id],row=el('div','entity-card question-card meeting-question'),main=el('div','entity-main'),top=el('div','entity-top'),meta=el('div','entity-meta'),actions=el('div','action-group');
   const source={meeting_id:q.meeting_id,evidence_timestamp:q.evidence_timestamp||null};
@@ -2498,7 +2474,7 @@ function renderBulkTasks(){
  const views=el('div','segmented task-density');views.setAttribute('role','group');views.setAttribute('aria-label','Task view');
  for(const [key,name] of [['compact','Compact'],['cards','Cards']]){const b=btn(taskDensity===key?'selected':'',name);b.setAttribute('aria-pressed',String(taskDensity===key));b.onclick=()=>{taskDensity=key;try{localStorage.setItem('task-density',key);}catch{}renderTasks();};views.append(b);}
  box.append(views);
- if(taskDensity==='compact'&&!taskSelection.size&&!bulkPending){
+ if(!taskSelection.size&&!bulkPending){
   const start=btn('secondary small-action',taskSelecting?'Done selecting':'Select tasks');start.setAttribute('aria-pressed',String(taskSelecting));start.onclick=()=>{taskSelecting=!taskSelecting;renderTasks();};box.append(start);
   if(!taskSelecting)return;
  }
@@ -2550,7 +2526,7 @@ function renderTasks() {
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','These mentions have wording close to existing items (text similarity). Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
  const noKindItems=!itemsData.items.some(item=>item.kind===itemKind);
- $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').closest('.task-filters').hidden=noKindItems||inbox;document.querySelector('#items-panel .work-messages').hidden=noKindItems;
+ $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').closest('.task-filters').hidden=noKindItems||inbox;
  const filter=itemKind==='task'&&managerView==='inbox'?'all':statusFilter[itemKind];
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=btn(key===filter?'selected':'',label);button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
  segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
@@ -2599,7 +2575,7 @@ function renderTasks() {
  const compact=taskDensity==='compact';if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
  // The compact list has one header row with the column names; it lines up with the rows.
  // Each compact card labels its own fields, so the list has no column header row.
- for(const item of rows) rowTarget.append(itemKind==='task'?globalTaskRow(item,today,{compact,select:!compact||taskSelecting||taskSelection.size>0,showProject:!project.value}):decisionRow(item,byId));
+ for(const item of rows) rowTarget.append(itemKind==='task'?globalTaskRow(item,today,{compact,select:taskSelecting||taskSelection.size>0,showProject:!project.value}):decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
 const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
@@ -2620,7 +2596,7 @@ function showWorkTab(tab){
  else if(tab==='review')perform(loadReviewQueue);
  else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(async()=>{await loadGitHub();showGitHubSection(ghSection);});
  // The subtitle describes the tab that is shown; Tasks and Decisions set their own counts.
- const summaries={questions:()=>AtlantaUX.count((itemsData?.meeting_questions||[]).length,'question')+' from meeting notes · '+(itemsData?.items||[]).filter(i=>i.kind==='question').length+' tracked',
+ const summaries={questions:()=>AtlantaUX.count((itemsData?.items||[]).filter(i=>i.kind==='question'&&i.status!=='answered').length,'open tracked question'),
   review:()=>'Meetings that still wait for your review',gmail:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',chat:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',github:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub'};
  if(summaries[tab])$('tasks-summary').textContent=summaries[tab]();
 }
@@ -4174,7 +4150,7 @@ function emailMark(item,{compact=false}={}){
  const draft=item.email_draft;if(!draft)return null;
  const mark=el('span','email-mark'),count=(draft.to||[]).length;
  mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
- mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));if(!compact)mark.append(document.createTextNode('Emailed'));return mark;
+ mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));if(!compact)mark.append(document.createTextNode('Gmail draft'));return mark;
 }
 let taskEmailItems=[];
 function taskEmailStatus(text,warning=false){const box=$('task-email-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}
@@ -4442,9 +4418,6 @@ async function openMeetingReview(){
  if(detail.id!==meetingId)return;
  reviewShownFor=meetingId;box.replaceChildren();
  if(detail.notes_consolidation)box.append(consolidationProof(detail.notes_consolidation));
- // What Atlanta understood: the saved summary statements, each with its moment.
- const summary=typeof data.summary==='string'?[{text:data.summary}]:(data.summary||[]).filter(entry=>entry?.text);
- if(summary.length){const list=el('ul','review-summary');for(const entry of summary){const line=el('li','',entry.text);if(entry.evidence_timestamp)line.append(' ',stampButton(entry.evidence_timestamp));list.append(line);}box.append(el('h3','','What Atlanta understood'),list);}
  // A closed task is not asked again: it shows its state, but does not count as waiting for a review.
  const waiting=item=>['needs_review','edited'].includes(item.state)&&!item.closed,open=data.items.filter(waiting).length;
  if(data.items.length)box.append(el('h3','',open?open+' of '+data.items.length+' need your review':'All '+data.items.length+' reviewed'));

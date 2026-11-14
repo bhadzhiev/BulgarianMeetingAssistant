@@ -22,8 +22,8 @@ assert.match(slice('function renderBulkTasks(){'),/\[\['compact','Compact'\],\['
 const row=slice('function globalTaskRow(');
 assert.match(row,/compactMenu=\[addUpdate,timeline,nextCheck\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
 assert.match(row,/if\(compactMenu\)actions\.prepend\(\.\.\.compactMenu\);/);
-// Selection starts on request in the compact view.
-assert.match(app,/select:!compact\|\|taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);
+// Selection starts on request in both views.
+assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);
 assert.match(slice('function renderBulkTasks(){'),/taskSelecting\?'Done selecting':'Select tasks'/);
 // A narrow window: the title on top, the owner on its own line, then state and due date.
 assert.match(css,/\.tracked-task\.task-card\.compact-task \.task-quick-fields>label:first-child\{grid-column:1 \/ -1\}/);

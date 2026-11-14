@@ -441,6 +441,11 @@ class MeetingService:
             meeting['item_meetings'] = self._meeting_refs() if meeting['items'] else {}
             review_sources=self.review_sources() if meeting['items'] else {}
             meeting['items']={key:dict(item,review_state=review_state(item,review_sources)) for key,item in meeting['items'].items()}
+            from .meeting_review import closed, linked, meeting_state
+            meeting['meeting_review_count'] = sum(
+                linked(item, meeting_id) and not closed(item) and not item.get('dismissed')
+                and meeting_state(item, meeting_id, review_sources.get(meeting_id)) in {'needs_review', 'edited'}
+                for item in meeting['items'].values()) if self.meeting_task_ai() else 0
             meeting['github_links'] = [link for i in meeting['items'] for link in self.github_links.for_resource('item', i)]
             meeting['live'] = read_json(directory / 'live.json', None)
             meeting['input_gaps'] = read_json(directory / 'capture.json', {}).get('input_gaps', [])

@@ -105,7 +105,9 @@ class Conversations:
     def listing(self, filters):
         s=self.service
         provider=filters.get('source','meeting');project=filters.get('project','');series=filters.get('series','');query=filters.get('q','').strip().casefold();person=filters.get('participant','')
-        if provider not in {'all','meeting','gmail','google_chat','attached'} or len(query)>500:raise ValueError('Invalid conversation filter')
+        # Done is a manual mark on a meeting (2026-11-14): this filter shows only meetings, done or not done.
+        done=filters.get('done','')
+        if provider not in {'all','meeting','gmail','google_chat','attached'} or len(query)>500 or done not in {'','done','not_done'}:raise ValueError('Invalid conversation filter')
         try:offset=int(filters.get('offset',0))
         except (TypeError,ValueError):raise ValueError('Invalid conversation page') from None
         if not 0<=offset<=100000:raise ValueError('Invalid conversation page')
@@ -152,6 +154,7 @@ class Conversations:
             return ((not project or (not ids if project=='__none__' else project in ids))
                 and (not series or row.get('series_id')==series)
                 and (not person or person in row['participants'])
+                and (not done or row['provider']=='meeting' and row.get('done') is (done=='done'))
                 and (not bounds[0] or day>=bounds[0]) and (not bounds[1] or day<=bounds[1])
                 and (not query or query in (row['title']+'\n'+row['text']).casefold()))
         found=sorted((r for r in rows if matches(r)),key=lambda r:(dt.datetime.fromisoformat(r['date']).timestamp(),r['id']),reverse=True)

@@ -21,7 +21,7 @@ function actionBtn(className, label, fn, title) { return btn(className, label, (
 function openMeetingBtn(title, id, className='quiet') { return btn(className, title, () => perform(() => openMeeting(id)), 'Open the meeting'); }
 function emptyNote(text) { return el('p', 'hint empty-note', text); }
 // Inline SVG icons on a 24px grid in the nav-icon style: 2px stroke, currentColor, no fill.
-const ICON_PATHS={branch:'M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0M6 8v8M18 11c0 4-6 3-12 5',link:'M10 13a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-3 3M14 11a4 4 0 0 0-6 0l-4 4a4 4 0 0 0 6 6l3-3',copy:'M8 8h13v13H8zM16 8V3H3v13h5',plus:'M12 4v16M4 12h16',transcript:'M4 5h16M4 10h10M4 15h16M4 20h10',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',taskAdd:'M4 4h11v5M4 4v16h11v-5M7 9h4M7 13h3M18 10v10M13 15h10',update:'M4 4h16v12H9l-5 4V4zM8 8h8M8 12h5',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-2a8 8 0 0 1 16 0v2',circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18',progress:'M12 3a9 9 0 1 0 9 9M12 3v9h9',blocked:'M6 3h12l3 3v12l-3 3H6l-3-3V6zM12 7v6M12 16v1',verified:'M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4zM8 12l3 3 5-6',warning:'M12 3l10 18H2L12 3zM12 9v5M12 17v1',notes:'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
+const ICON_PATHS={quote:'M4 5h6v7H6v3l-3 3M14 5h6v7h-4v3l-3 3',branch:'M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0M6 8v8M18 11c0 4-6 3-12 5',link:'M10 13a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-3 3M14 11a4 4 0 0 0-6 0l-4 4a4 4 0 0 0 6 6l3-3',copy:'M8 8h13v13H8zM16 8V3H3v13h5',plus:'M12 4v16M4 12h16',transcript:'M4 5h16M4 10h10M4 15h16M4 20h10',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',taskAdd:'M4 4h11v5M4 4v16h11v-5M7 9h4M7 13h3M18 10v10M13 15h10',update:'M4 4h16v12H9l-5 4V4zM8 8h8M8 12h5',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-2a8 8 0 0 1 16 0v2',circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18',progress:'M12 3a9 9 0 1 0 9 9M12 3v9h9',blocked:'M6 3h12l3 3v12l-3 3H6l-3-3V6zM12 7v6M12 16v1',verified:'M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4zM8 12l3 3 5-6',warning:'M12 3l10 18H2L12 3zM12 9v5M12 17v1',notes:'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('icon');svg.setAttribute('data-icon',name);const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',ICON_PATHS[name]||ICON_PATHS.sparkle);svg.append(path);return svg;}
 // Status marks never look like controls; compact actions always keep their accessible name.
 function compactAction(button,name,{label=false}={}){
@@ -36,6 +36,13 @@ function workflowIcon(value){return {todo:'circle',in_progress:'progress',doing:
 // Context stays on the facts line while closed and expands to the card width when opened.
 function cardContext(label,name,parts,{text=false}={}){
  const box=el('details','card-context'),summary=el('summary','detail-control');summary.title=label;summary.setAttribute('aria-label',label);summary.append(icon(name),el('span',text?'':'sr-only',label));box.append(summary);for(const part of parts)if(part)box.append(part);return box;
+}
+let cardPanelSequence=0;
+// Expanded context has its own row, so opening it never displaces the facts or their controls.
+function cardDisclosure(label,name,content,host){
+ const button=compactAction(btn('quiet',label),name),panel=el('section','card-expansion-panel');panel.id='card-context-'+(++cardPanelSequence);panel.hidden=true;panel.setAttribute('aria-label',label);panel.append(el('div','card-expansion-label',label),...content);
+ button.setAttribute('aria-controls',panel.id);button.setAttribute('aria-expanded','false');host.hidden=true;host.append(panel);const group=host.cardDisclosures||(host.cardDisclosures=[]);group.push({button,panel});
+ button.onclick=()=>{const opening=panel.hidden;for(const entry of group){const show=opening&&entry.button===button;entry.panel.hidden=!show;entry.button.setAttribute('aria-expanded',String(show));}host.hidden=!opening;};return button;
 }
 function option(text, value) { const node = el('option', '', text); node.value = value; return node; }
 // People for an owner choice: my team first, then the others. Each group is in alphabetical order.
@@ -994,7 +1001,7 @@ function segmentAt(stamp) {
  const speakers=new Set(rows.map(s=>s.speaker||''));
  return {start:rows[0].start,end:rows.at(-1).end,text:rows.map(s=>s.text.trim()).join(' '),speaker:speakers.size===1?rows[0].speaker:''};
 }
-function sourceBlock(stamp) {
+function sourceBlock(stamp,{panels=null}={}) {
  const box=el('div','note-source');
  if(!stamp) { box.append(el('span','no-source','No source moment')); return box; }
  const segment=segmentAt(stamp);
@@ -1002,7 +1009,7 @@ function sourceBlock(stamp) {
   // Play only the cited segment and stay in the notes.
   box.append(listenButton(detail.id,segment?segment.start:stampSeconds(stamp),{label:stamp,until:segment?.end,className:'quiet stamp',title:'Play this moment'}));
  }else{const show=btn('quiet stamp',stamp);show.title='Show this moment in the transcript';show.onclick=()=>showMoment(stamp);box.append(show);}
- if(segment) { const quote=el('button','quote',(segment.speaker?segment.speaker+': ':'')+'“'+segment.text+'”'); quote.type='button'; quote.title='Show in the transcript'; quote.onclick=()=>showMoment(stamp);const evidence=el('details','source-quote'),summary=el('summary','detail-control');summary.title='Source quotation';summary.setAttribute('aria-label','Source quotation');summary.append(icon('notes'),el('span','sr-only','Source quotation'));evidence.append(summary,quote);box.append(evidence); }
+ if(segment) { const quote=el('button','quote',(segment.speaker?segment.speaker+': ':'')+'“'+segment.text+'”'); quote.type='button'; quote.title='Show in the transcript'; quote.onclick=()=>showMoment(stamp);if(panels){box.append(cardDisclosure('Source quotation','quote',[quote],panels));return box;}const evidence=el('details','source-quote'),summary=el('summary','detail-control');summary.title='Source quotation';summary.setAttribute('aria-label','Source quotation');summary.append(icon('quote'),el('span','sr-only','Source quotation'));evidence.append(summary,quote);box.append(evidence); }
  return box;
 }
 let notesBase=null;
@@ -1210,17 +1217,17 @@ function taskRow(task,index,busy,mentions=[task]) {
  const linked=detail.items?.[task.item_id], item=handMade&&linked?.acceptance_state==='proposed'?undefined:linked, current=item||{text:task.task,owner:task.owner,deadline:task.deadline,due_date:task.due_date,status:task.status};
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(current,today);
  const row=el('div','tracked-task meeting-task '+kind);
- const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
+ const main=el('div','tracked-main'), meta=el('div','tracked-meta'), panels=el('div','card-expansions'), who=el('span','tracked-owner');
  who.append(avatar(current.owner||''),el('span','',current.owner||'No owner'));
  meta.append(item?workReviewBadge(item.review_state,item):handMade?'':reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
  if(current.deadline) meta.append(el('span','hint','Said: '+current.deadline));
  if(item&&!current.due_date&&current.deadline){const suggested=AtlantaTasks.suggestDueDate(current.deadline,(detail.created||'').slice(0,10));if(suggested){const applyDue=btn('secondary small-action','Set due '+date(suggested));applyDue.title='Apply the date said in the meeting as the due date';applyDue.onclick=()=>perform(()=>changeItem(item,{due_date:suggested}));meta.append(applyDue);}}
- const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp));
+ const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp,{panels}));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
- const description=String((item?item.details:task.details)||'').trim();if(description){const more=el('details','card-description'),summary=el('summary','detail-control');summary.title='Description';summary.setAttribute('aria-label','Description');summary.append(icon('notes'),el('span','sr-only','Description'));more.append(summary,taskDescription(description));meta.append(more);}
+ const description=String((item?item.details:task.details)||'').trim();if(description)meta.append(cardDisclosure('Description','notes',[taskDescription(description)],panels));
  if(item&&item.text!==task.task&&String(item.details||'').trim()!==task.task.trim()) main.append(el('p','hint said-here','Said here: '+task.task));
  if(item){const workflow=AtlantaTasks.workflow(item),status=el('span','meeting-task-state',AtlantaTasks.STATES[workflow]);status.prepend(icon(workflowIcon(workflow)));meta.prepend(status);}
- main.append(meta);
+ panels.hidden=true;main.append(meta,panels);
  if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions){const citation=el('div','meeting-task-citation');citation.append(el('p','',mention.task),sourceBlock(mention.evidence_timestamp));evidence.append(citation);}main.append(evidence);}
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.

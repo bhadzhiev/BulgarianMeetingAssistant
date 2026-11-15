@@ -1609,7 +1609,7 @@ async function changeWithUndo(item,changes,message,undo){
 function doneButton(item,busy=false){
  const finished=item.status==='done',previous=AtlantaTasks.workflow(item),button=el('button','secondary small-action task-done',finished?'Reopen':'Mark done');
  button.type='button';button.disabled=busy;
- button.onclick=()=>perform(()=>finished?changeItem(item,{workflow_state:'todo'}):changeWithUndo(item,{workflow_state:'done'},'Marked done: '+item.text,{workflow_state:previous==='done'?'todo':previous}));
+ button.onclick=()=>perform(()=>finished?changeWithUndo(item,{workflow_state:'todo'},'Reopened: '+item.text,{workflow_state:'done'}):changeWithUndo(item,{workflow_state:'done'},'Marked done: '+item.text,{workflow_state:previous==='done'?'todo':previous}));
  return button;
 }
 async function changeItem(item,changes,finishEdit=false) {if(!validDates($('tasks')))return; await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});if(finishEdit)setItemEditing(false);await refreshAfterItemChange(); }
@@ -1689,7 +1689,7 @@ function rowMenu(label,...buttons){
 }
 function editDeleteButtons(item,textNode){
  const edit=el('button','quiet','Edit'),remove=el('button','quiet danger-text','Delete');edit.type=remove.type='button';
- edit.onclick=()=>inlineEdit(textNode,item.text,async value=>{await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{text:value}});await refreshAfterItemChange();toast('Saved');},'Edit '+item.kind);
+ edit.onclick=()=>inlineEdit(textNode,item.text,async value=>{const saved=await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes:{text:value}});await refreshAfterItemChange();undoToast('Saved',()=>perform(async()=>{await api('/api/items/'+saved.id,{text:saved.text,revision:saved.revision,changes:{text:item.text}});await refreshAfterItemChange();toast('Undone');}));},'Edit '+item.kind);
  remove.onclick=()=>perform(()=>deleteItem(item));return [compactAction(edit,'edit'),compactAction(remove,'trash')];
 }
 function itemActions(item,row,{direct=false}={}) {
@@ -1700,7 +1700,7 @@ function itemActions(item,row,{direct=false}={}) {
   if(itemEditing)return;setItemEditing(true,row);
   const bar=el('div','tracked-edit-bar'),select=el('select'),go=el('button','primary','Merge'),cancel=el('button','secondary','Cancel');
   select.setAttribute('aria-label','Merge into');select.append(option('Same as…',''),...others.map(other=>option(other.text.slice(0,100),other.id)));
-  go.onclick=()=>{if(!select.value)return;perform(async()=>{await api('/api/items/'+item.id+'/merge',{into:select.value,revision:item.revision,into_revision:itemsData.items.find(other=>other.id===select.value)?.revision});setItemEditing(false);await refreshAfterItemChange();toast('Merged · both histories are kept');});};
+  go.onclick=()=>{if(!select.value)return;perform(async()=>{if(!(await ask('Merge "'+item.text+'" into "'+(select.selectedOptions[0]?.textContent||'the chosen item')+'"? Both histories are kept. A merge cannot be undone.',{ok:'Merge',danger:true})))return;await api('/api/items/'+item.id+'/merge',{into:select.value,revision:item.revision,into_revision:itemsData.items.find(other=>other.id===select.value)?.revision});setItemEditing(false);await refreshAfterItemChange();toast('Merged · both histories are kept');});};
   cancel.onclick=()=>{setItemEditing(false);bar.remove();actions.hidden=false;lastTasks='';perform(loadTasks);};bar.append(select,cancel,go);main.append(bar);actions.hidden=true;};
  remove.onclick=()=>perform(()=>deleteItem(item));
  const snooze=el('button','quiet',item.snoozed_until?'Unsnooze':'Snooze'),dismiss=el('button','quiet',item.dismissed?'Restore to My Work':'Hide item');
@@ -1871,7 +1871,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
   const commit=(input,previous,changes,message,undo)=>perform(async()=>{if(!validDates(row)){input.value=previous;return;}try{await withEditorSave(row,()=>changeWithUndo(item,changes,message,undo));}catch(e){input.value=previous;throw e;}});
   const ownerUndo=item.owner_person_id?{owner_person_id:item.owner_person_id}:item.owner?{owner_person_id:null,owner:item.owner}:{owner_person_id:null,owner:null};
   const dayText=(name,value)=>value?name+': '+date(value):name+' removed';
-  stateSelect.onchange=()=>commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value},'State: '+AtlantaTasks.STATES[stateSelect.value],{workflow_state:AtlantaTasks.workflow(item)});
+  stateSelect.onchange=()=>perform(async()=>{if(stateSelect.value==='cancelled'&&!(await ask('Cancel this task? It leaves active work. You can reopen it later.',{ok:'Cancel task',cancel:'Keep task',danger:true}))){stateSelect.value=AtlantaTasks.workflow(item);return;}await commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value},'State: '+AtlantaTasks.STATES[stateSelect.value],{workflow_state:AtlantaTasks.workflow(item)});});
   owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,shownOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null},owner.value?'Owner: '+owner.selectedOptions[0].textContent:'Owner removed',ownerUndo);};
   due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null},dayText('Due date',due.value),{due_date:item.due_date||null});
   follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null},dayText('Next follow-up',follow.value),{follow_up_date:item.follow_up_date||null});
@@ -2498,7 +2498,7 @@ function renderBulkTasks(){
   const body={items:[...taskSelection.values()],changes,request_id:bulkPending?.request_id||crypto.randomUUID().replaceAll('-','')};
   if(bulkPending&&JSON.stringify({...body,request_id:''})!==JSON.stringify({...bulkPending,request_id:''}))throw new Error('Previous result uncertain. Retry the same action, or clear the selection and check the list.');
   const summary=action.selectedOptions[0].textContent+': '+(value.tagName==='SELECT'?value.selectedOptions[0]?.textContent:value.value?date(value.value):'Clear date');
-  if(!(await ask(summary+' for '+body.items.length+' selected tasks?\n'+taskVisibleRows.filter(t=>taskSelection.has(t.id)).slice(0,6).map(t=>'• '+t.text).join('\n')+(body.items.length>6?'\n…':''),{ok:'Apply to '+body.items.length,cancel:'Cancel'})))return;
+  if(!(await ask(summary+' for '+body.items.length+' selected tasks?\n'+taskVisibleRows.filter(t=>taskSelection.has(t.id)).slice(0,6).map(t=>'• '+t.text).join('\n')+(body.items.length>6?'\n…':''),{ok:'Apply to '+body.items.length,cancel:'Cancel',danger:action.value==='workflow_state'&&value.value==='cancelled'})))return;
   bulkPending=body;bulkSaving=false;await sendBulkTasks(body);
   }finally{bulkSaving=false;apply.disabled=false;}
  });
@@ -4231,6 +4231,19 @@ function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,o
  const more=btn('quiet','Show more timeline events');more.onclick=()=>{limit+=60;draw();};draw();box.append(list,more);
  if(progress.revision!==item.revision)box.prepend(el('p','notice','The task changed since this editor opened. Reopen it before saving; your current text has been kept.'));
 }
+// The changes that bring a saved task back to how it was before an Edit task save. A progress update is history
+// and stays; acceptance is a separate decision and is not undone (2026-11-16).
+function taskEditUndo(item,changes){
+ const undo={};
+ for(const key of ['text','details','completion_criteria'])if(key in changes&&changes[key]!==(item[key]||(key==='text'?item.text:'')))undo[key]=item[key]||'';
+ for(const key of ['due_date','follow_up_date'])if(key in changes)undo[key]=item[key]||null;
+ if('workflow_state' in changes)undo.workflow_state=AtlantaTasks.workflow(item);
+ const owner=item.owner_person_id?{owner_person_id:item.owner_person_id}:item.owner?{owner_person_id:null,owner:item.owner}:{owner_person_id:null,owner:null};
+ if('assignee_person_ids' in changes){undo.assignee_person_ids=item.assignee_person_ids||[];if(!undo.assignee_person_ids.length)Object.assign(undo,owner);}
+ else if('owner_person_id' in changes)Object.assign(undo,owner);
+ if('project_ids' in changes)undo.project_ids=Object.hasOwn(item,'project_ids')?item.project_ids:null;
+ return undo;
+}
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
  const dialog=$('task-panel'),box=$('task-panel-body');
@@ -4289,7 +4302,13 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
   if(update.value.trim())changes.update_note=update.value.trim();const reviewed=area.value!==item.text||details.value!==(item.details||'')||criterion.value!==(item.completion_criteria||'')||'owner_person_id' in changes||'assignee_person_ids' in changes||'due_date' in changes;
   // Only a pending review or a changed commitment confirms; a progress note or a state change does not.
   if(accept||item.legacy_unreviewed||item.acceptance_state!=='proposed'&&(['needs_review','edited'].includes(item.review_state)||reviewed))changes.acceptance_state='accepted';
-  await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});editing=false;editorDirty.clear('task-panel');dialog.close();toast(accept?'Task accepted':'Task saved');await refreshAfterItemChange();
+  // Risky actions ask first; other saves show the result with Undo (2026-11-16). Cancelling takes the task out of active work.
+  if(changes.workflow_state==='cancelled'&&!(await ask('Cancel this task? It leaves active work. You can reopen it later.',{ok:'Cancel task',cancel:'Keep task',danger:true})))return;
+  const saved=await api('/api/items/'+item.id,{text:item.text,revision:item.revision,changes});editing=false;editorDirty.clear('task-panel');dialog.close();
+  const undo=taskEditUndo(item,changes),note=!!changes.update_note;
+  if(accept||!Object.keys(undo).length)toast(accept?'Task accepted':note?'Update added':'Task saved');
+  else undoToast(changes.workflow_state==='cancelled'?'Task cancelled':note?'Task saved · update added':'Task saved',()=>perform(async()=>{await api('/api/items/'+saved.id,{text:saved.text,revision:saved.revision,changes:undo});await refreshAfterItemChange();toast(note?'Undone · the update stays in the history':'Undone');}));
+  await refreshAfterItemChange();
  }));save.onclick=()=>persist(false);footer.append(close,save);
  if(item.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(item))){const cancelTask=btn('danger-action footer-aside','Cancel task…');cancelTask.onclick=()=>{workflow.value='cancelled';dirty();workflow.focus();cancelTask.textContent='Cancellation selected · Save changes to apply';};footer.prepend(cancelTask);}
  // Cancel task and Send by email stay available on the left, apart from Close and Save changes (2026-11-16).

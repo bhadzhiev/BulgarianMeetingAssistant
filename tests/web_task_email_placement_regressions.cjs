@@ -7,6 +7,7 @@ class Node{
  prepend(...nodes){for(const n of nodes.reverse()){if(n instanceof Node){if(n.parent)n.parent.children=n.parent.children.filter(x=>x!==n);n.parent=this;}this.children.unshift(n);}}
  before(n){const p=this.parent;p.children.splice(p.children.indexOf(this),0,n);n.parent=p;}
  replaceChildren(...nodes){for(const n of this.children)if(n instanceof Node)n.parent=null;this.children=[];this.append(...nodes);}
+ closest(){return null;}focus(){this.focused=true;}
  setAttribute(k,v){this.attrs[k]=v;}removeAttribute(k){delete this.attrs[k];}
  get childNodes(){return this.children;}get firstElementChild(){return this.children.find(n=>n instanceof Node);}get lastElementChild(){return this.children.filter(n=>n instanceof Node).at(-1);}
 }
@@ -14,7 +15,8 @@ const el=(...args)=>new Node(...args),button=(cls,text,fn)=>Object.assign(el('bu
 const c=vm.createContext({el,btn:button,actionBtn:button,state:{people:[]},projectList:()=>[],taskCoAssignees:()=>[],avatar:()=>el('span','speaker-badge'),
  dueInfo:()=>['none','No due date'],AtlantaTasks:{STATES:{todo:'To do'},workflow:()=> 'todo',lastUpdate:i=>i.update},workReviewBadge:()=>'',
  dateTime:x=>x,icon:()=>el('svg','icon'),document:{createTextNode:t=>t},itemsData:{meetings:{}},taskMeetingList:()=>null,sourceChips:()=>el('div'),
- personOptions:()=>[],option:(text,value)=>Object.assign(el('option','',text),{value}),personFor:()=>null,openTaskFields:new Set(),doneButton:()=>button('secondary','Mark done'),itemActions:()=>el('div')});
+ personOptions:()=>[],option:(text,value)=>Object.assign(el('option','',text),{value}),personFor:()=>null,openTaskFields:new Set(),openTaskFieldKinds:new Map(),doneButton:()=>button('secondary','Mark done'),itemActions:()=>el('div')});
+ vm.runInContext(app.slice(app.indexOf('function compactAction('),app.indexOf('function option(')),c);
  vm.runInContext(app.slice(app.indexOf('function cardDetails('),app.indexOf('function decisionRow(')),c);
 vm.runInContext(app.slice(app.indexOf('function emailMark('),app.indexOf('let taskEmailItems')),c);
 vm.runInContext(app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function taskDescription(')),c);
@@ -23,6 +25,9 @@ for(const compact of [false,true])for(const withUpdate of [false,true]){
  const item={id:'t',kind:'task',text:'Провери backup',owner:null,links:[],status:'open',acceptance_state:'accepted',email_draft:{saved_at:'2026-11-15',to:['a@example.test']},update:withUpdate?{text:'Backup checked',at:'2026-11-15'}:null};
  c.item=item;c.compact=compact;
  const row=vm.runInContext("globalTaskRow(item,'2026-11-15',{select:false,compact})",c),all=flatten(row),marks=all.filter(n=>n.className==='email-mark');
+ const state=all.find(n=>n.className.includes('fact-control task-state')),quick=all.find(n=>n.className==='task-quick-fields');
+ assert.equal(quick.hidden,true);state.onclick();assert.equal(quick.hidden,false);assert.equal(quick.children.filter(n=>n.tag==='label'&&!n.hidden).length,1);assert.equal(quick.children[1].children[0].focused,true);
+ quick.children.find(n=>n.attrs['aria-label']==='Close quick fields').onclick();assert.equal(quick.hidden,true);
  assert.equal(marks.length,1);assert.equal(marks[0].parent.className,'task-title-line');assert.equal(marks[0].parent.children[0].textContent,item.text);
  assert.equal(marks[0].children.length,1);assert(marks[0].attrs['aria-label'].includes('Email draft saved in Gmail'));
  assert(!all.filter(n=>['compact-flags','tracked-meta','task-update'].includes(n.className)).some(n=>n.children.includes(marks[0])));

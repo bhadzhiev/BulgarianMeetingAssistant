@@ -82,3 +82,22 @@ Work cards use active, proposed and closed lifecycle presentation. Questions and
 
 
 Library exposes Source above advanced filters and applies it immediately. Meeting cards show recording/transcript/notes readiness from local file availability, separately from the manual Done mark. Narrow layouts wrap Library/My Work tabs, keep menus beside titles and place project chips below. My Work identity setup is a disclosure instead of a permanent form row.
+
+## Compact cards (2026-11-15)
+
+- Tasks share a title/tools row and an editable facts row in My Work and Projects. Mark done/Reopen, Add update and Edit are direct icon buttons with accessible names and tooltips. Timeline and secondary actions stay in the overflow menu.
+- Click Owner, State or Due date to open that field alone; close it with the visible close button. Quick fields in the menu opens the full four-field editor. The chosen field stays open across revision-checked saves.
+- Description and Sources share the facts row as labelled icon disclosures and expand in place. The last update takes one line; the full update remains in Timeline. Follow-up dates show when assigned and gain an attention colour when due.
+- In meeting notes, checked-against-source is a passive shield indicator, separate from Check/Undo check. Edit and Delete are direct buttons; no menu hides a single Delete action. Card actions, including Create task and Confirm, use icons; names and explanations stay in accessible labels and tooltips. Source timestamps stay direct; quotations expand beside them. Existing confirmation and undo behavior is preserved.
+- Meeting readiness uses accessible indicators for completed stages; missing stages and processing problems retain visible text. The personal Done action is separate from notes readiness.
+- Compact layouts wrap at narrow widths. Status uses shape plus meaning, warnings keep text, and controls stay visible without hovering. Light and dark themes use the same theme variables.
+
+Meeting task rows keep state, due date, description disclosure, source moment and GitHub on a shared wrapping facts line. Within an owner group the repeated owner is hidden; standalone rows retain it. Description opens on demand; completed state appears once.
+
+The two-row hierarchy also applies to decisions, tracked questions, meeting-question candidates, Library conversations and meeting review. Projects, source access and secondary context share the facts row. Related question tasks and conversation previews expand in place. Meeting-review evidence and blocking notices remain readable below the two primary rows; Confirm/Edit/Skip retain their handlers and disabled states beside the title.
+
+All direct card actions are icon-only, including Add another task, Make task, Confirm, acceptance/skip controls and the GitHub trigger. Expanded menus retain named choices. Status values, dates, people and context counts remain readable.
+
+Matrix appearance: dark surfaces use the prepared black/green palette and quiet monospace metadata. Action buttons and context disclosures have green outlines at rest, with a restrained glow on hover/focus. Passive statuses keep their semantic colours; destructive hover remains red. Reduced-motion users get static controls without hover glow.
+
+Card action buttons and context triggers use one 32px-high box; icon-only controls are 32px wide, and symbols are 16px. Their border stays green, including destructive hover. The symbols carry action meaning: green complete/accept, blue edit/copy, cyan create/update, red delete, amber check/restore, purple source/link/GitHub, and muted neutral tools. Shapes, names and tooltips remain available alongside colour.

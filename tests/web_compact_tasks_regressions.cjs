@@ -20,13 +20,13 @@ assert.match(css,/#task-panel \.task-section\[open\]>summary \.task-section-summ
 assert.match(app,/localStorage\.getItem\('task-density'\)==='cards'\?'cards':'compact'/);
 assert.match(slice('function renderBulkTasks(){'),/\[\['compact','Compact'\],\['cards','Cards'\]\]/);
 const row=slice('function globalTaskRow(');
-assert.match(row,/compactMenu=\[addUpdate,timeline,toggle,nextCheck\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
+assert.match(row,/compactMenu=\[timeline,toggle\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
 assert.match(row,/if\(compactMenu\)actions\.prepend\(\.\.\.compactMenu\);/);
 // Selection starts on request in both views.
 assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);
 assert.match(slice('function renderBulkTasks(){'),/taskSelecting\?'Done selecting':'Select tasks'/);
 // A narrow window: the title on top, the owner on its own line, then state and due date.
-assert.match(css,/\.tracked-task\.task-card\.compact-task \.task-quick-fields>label:first-child\{grid-column:1 \/ -1\}/);
+assert.match(css,/\.task-card \.task-quick-fields\[hidden\]\{display:none!important\}/);
 // The calendar button inside the task menu does not close the menu.
 assert.match(app,/\.task-more>\.tracked-actions>button'\)\)closeMenus\(\)/);
 console.log('Compact tasks PASS: fixed editor order, compact list by default, cards view, selection on request, narrow rows.');

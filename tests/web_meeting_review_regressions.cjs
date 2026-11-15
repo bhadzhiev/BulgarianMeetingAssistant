@@ -13,6 +13,7 @@ async function render(item,audit=null){
   undoToast:(message,fn)=>undos.push([message,fn]),toast(){},leaveEdits:async()=>true,show(){},loadTasks:async()=>{},showWorkTab(){}});
  vm.runInContext(src.slice(src.indexOf('function cardDetails('),src.indexOf('function decisionRow(')),c);
  vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
+ vm.runInContext('icon=name=>el("svg","icon "+name)',c);
  vm.runInContext('let reviewShownFor=null,lastTasks="";'+src.slice(src.indexOf('async function openMeetingReview('),src.indexOf('// The publication state')),c);
  await vm.runInContext('openMeetingReview()',c);
  const nodes=walk(box),buttons=nodes.filter(n=>n.tag==='button');

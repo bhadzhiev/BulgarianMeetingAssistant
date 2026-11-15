@@ -17,7 +17,7 @@ assert.match(css,/\.tracked-task\.task-card \.due-label\.overdue\{background:var
 // Review: text and state first, then kind and owner, a short quote, and Confirm · Edit · Skip.
 const review=slice('async function openMeetingReview(','// The publication state');
 assert.match(review,/row=el\('section','entity-card review-card'/);
-assert.match(review,/head\.append\(el\('p','review-text',item\.text\),state\)/);
+assert.match(review,/head\.append\(el\('p','review-text',item\.text\)\);meta\.append\(state,/);
 assert.match(review,/for\(const button of \[ordered\.confirm,showEdit\?edit:null,ordered\.dismiss,ordered\.restore\]\)if\(button\)actions\.append\(button\)/);
 assert.match(css,/\.review-card \.review-evidence blockquote\{margin:0;flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2/);
 console.log('Task and Review cards PASS: shared card, project line, one meta row, one-line update, Accept·Edit·Skip, Confirm·Edit·Skip.');

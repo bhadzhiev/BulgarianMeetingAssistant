@@ -1674,7 +1674,7 @@ label.required-label:has(.date-part-label)::after{content:none}
 .meeting-card.compact .entity-top>.entity-time{grid-column:1;grid-row:1}
 
 /* The work panel already supplies padding; its content must not add a second inset. */
-#items-panel>.work-content{padding:0}
+.work-panel>.work-content{padding:0}
 @media(max-width:700px){
  .question-card .entity-top>.question-text{grid-column:1/-1}
  .question-card .entity-top>.card-tools{grid-column:1/-1;grid-row:auto;justify-content:flex-start}
@@ -1699,3 +1699,47 @@ label.required-label:has(.date-part-label)::after{content:none}
 .meeting-task .card-description .task-description{display:block;margin:4px 0;overflow:visible;-webkit-line-clamp:unset;white-space:pre-wrap}
 .meeting-task .tracked-meta>.card-description{margin:0}
 .note-section>.owner-group,.note-section .owner-group{margin:10px 0 3px}
+
+/* Every work card uses title/tools and one wrapping facts/context line. */
+.card-context{min-width:0;max-width:100%;margin:0;font-size:12px;color:var(--muted)}
+.card-context>.detail-control{gap:5px;padding:2px 6px;font-size:11px;line-height:1.4;max-width:100%}
+.card-context[open]{flex:1 1 100%;order:10}
+.card-context[open]>:not(summary){margin:6px 0 0;max-width:100%}
+.card-context .task-description,.card-context .entity-preview{display:block;overflow:visible;-webkit-line-clamp:unset;white-space:pre-wrap;margin:6px 0}
+.card-context .context-links{display:flex;flex-direction:column;gap:4px}
+.card-context .relation-line{white-space:normal;text-align:left;overflow-wrap:anywhere;padding:3px 0}
+.entity-meta,.tracked-meta{align-items:center;gap:4px 10px}
+.entity-meta>.entity-chips,.tracked-meta>.entity-chips{display:inline-flex;gap:4px;flex:0 1 auto;min-width:0}
+.entity-meta .project-chip,.tracked-meta .project-chip{font-size:11px;padding:2px 6px}
+.decision .entity-top>.tracked-text,.question-card .entity-top>.question-text{flex:1;min-width:0}
+.decision .tracked-meta>.card-context{border:0;padding:0;margin:0}
+.meeting-card:not(.compact) .entity-top,.conversation-card .entity-top{grid-template-columns:minmax(0,1fr) auto}
+.meeting-card:not(.compact) .entity-top>.card-tools,.conversation-card .entity-top>.menu{grid-column:2;grid-row:1}
+.conversation-card .entity-meta>.card-context[open]{flex-basis:100%}
+.review-card{display:flex;flex-direction:column;gap:4px}
+.review-card>.entity-top,.review-card>.entity-meta{width:100%;margin:0}
+.review-card .review-text{flex:1;min-width:0;margin:0;font-size:14px;line-height:1.4}
+.review-card .review-item-actions.card-tools{margin:0;flex:none;gap:4px}
+.review-card .review-evidence{margin:2px 0;width:100%}
+.review-card .review-inline-editor,.review-card .notice{width:100%}
+@media(max-width:700px){
+ .decision .entity-top,.question-card .entity-top,.review-card>.entity-top{display:flex;flex-wrap:wrap}
+ .decision .entity-top>.tracked-text,.question-card .entity-top>.question-text,.review-card .review-text{flex-basis:100%}
+ .decision .entity-top>.card-tools,.question-card .entity-top>.card-tools,.review-card .card-tools{justify-content:flex-start}
+}
+
+.link-card{padding:10px 12px;margin:6px 0}
+.link-head{flex-wrap:wrap;gap:3px 10px}
+.link-text{margin:3px 0 5px;font-size:14px}
+.link-candidate{padding:6px 0;gap:8px}
+.link-candidate .entity-meta{display:flex;flex-wrap:wrap;gap:4px 8px}
+.link-actions button{padding:4px 8px;font-size:13px}
+.review-card .review-confirmation-context{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 10px;margin:2px 0}
+.review-card .review-confirmation-context>p{flex:1 1 260px;margin:0;font-size:12px;line-height:1.45}
+.review-card .review-confirmation-context>button{padding:4px 8px;font-size:13px}
+
+:is(#questions-panel,#review-queue-panel){padding:14px 16px}
+.card-tools{max-width:100%;min-width:0}
+@media(max-width:700px){
+ .question-card .entity-top>.card-tools,.review-card>.entity-top>.card-tools{flex:1 1 100%;max-width:100%}
+}

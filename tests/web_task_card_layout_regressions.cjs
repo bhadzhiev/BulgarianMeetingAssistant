@@ -6,7 +6,7 @@ const row=slice('function globalTaskRow(','function decisionRow(');
 assert.match(app,/function taskDescription\(text\)\{const node=el\('p','task-description',text\);node\.title=text;return node;\}/);
 assert.match(row,/descriptionBox\.append\(summary,taskDescription\(description\)\);meta\.append\(descriptionBox\)/);
 assert.match(slice('function taskRow(','function renderNotes('),/more\.append\(summary,taskDescription\(description\)\);meta\.append\(more\)/);
-assert.match(app,/head\.append\(el\('p','review-text',item\.text\),state\);row\.append\(head\);if\(item\.details\)row\.append\(taskDescription\(item\.details\)\)/);
+assert.match(app,/if\(item\.details\)meta\.append\(cardContext\('Description','notes',\[taskDescription\(item\.details\)\]\)\)/);
 // An update of the notes shows a new description as part of the task change.
 assert.match(app,/function changeText\(field,item\) \{ return field==='tasks'\?\[item\.task,item\.details,item\.owner,/);
 assert.match(css,/\.task-description\{[^}]*-webkit-line-clamp:3/);

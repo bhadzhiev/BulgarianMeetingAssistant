@@ -45,6 +45,6 @@ async function render(item,audit=null){
  assert.ok(!accepted.texts.some(t=>t.includes('another meeting')));
 
  // The task panel action has the same name as the text that points to it.
- assert.ok(src.includes("btn('danger-action','Cancel task…')"));
+ assert.ok(src.includes("btn('danger-action footer-aside','Cancel task…')"));
  console.log('Meeting review PASS: Dismiss only when allowed, confirming meeting link, Open task, and Cancel task wording.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

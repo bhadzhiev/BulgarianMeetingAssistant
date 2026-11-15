@@ -4,8 +4,12 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 // P02, changed 2026-11-12: one fixed order. What the task is, then who and when, then progress; rare people fields in a section.
 const panel=slice('async function openTaskPanel(');
 assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
-assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('History'\);/);
-assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,[^;]*progress,peopleSection,sourcesSection,historySection,footer\);/);
+assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('Activity history'\);/);
+assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,[^;]*progress,historySection,peopleSection,sourcesSection,footer\);/);
+// Edit task (2026-11-16): a one-line Title, a framed update composer and the history right below it; Cancel task and Send by email on the left.
+assert.match(panel,/area\.maxLength=1000;area\.rows=1;/);
+assert.match(panel,/progress\.append\(el\('h3','','Progress & activity'\),composer\);/);
+assert.match(panel,/btn\('secondary footer-aside','Send by email…'\)[^;]*;[^\n]*const aside=footer\.querySelector\('\.footer-aside'\);if\(aside\)aside\.after\(mail\);/);
 // No field moves: the follow-up date and the expected result keep one place.
 assert.doesNotMatch(panel,/placeFollow|placeCriterion|detailsSection/);
 // Fields the person does not use are not in the editor; saving does not send them, so saved values stay.

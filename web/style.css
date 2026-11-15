@@ -1880,3 +1880,23 @@ input:where(:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=
 /* Helper text under a page title reads as text, not as the spaced topbar caption. */
 #page-header .subheading{font-size:13px;letter-spacing:0}
 
+/* Edit task and New task (2026-11-16): text fields grow with their content up to a limit; the Title is one
+   line until it needs more. Older WebKit without field-sizing keeps the fixed rows. */
+:is(#task-panel,#manual-task-body) textarea{field-sizing:content}
+:is(#task-panel,#manual-task-body) textarea[aria-label=Title]{min-height:40px;max-height:132px;padding-top:9px;padding-bottom:9px;resize:none}
+:is(#task-panel,#manual-task-body) textarea[aria-label=Description]{max-height:320px}
+:is(#task-panel,#manual-task-body) textarea:is([aria-label="Expected result"],[aria-label="Add an update"]){max-height:240px}
+/* The footer keeps Cancel task and Send by email on the left, Close and Save changes on the right. */
+#task-panel .task-card-footer>.footer-aside.footer-aside{margin-inline-end:0}
+#task-panel .task-card-footer>.footer-aside+button:not(.footer-aside){margin-inline-start:auto}
+/* A new progress update has its own frame; the activity history follows right below it. */
+#task-panel .task-update-composer{padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+#task-panel .task-update-composer label{margin:0}
+#task-panel .task-update-composer textarea{background:var(--field)}
+#task-panel .task-progress>h3{margin:0 0 10px}
+/* The sticky dialog head and foot also cover the side padding, so a focus ring of a scrolled field
+   never shows beside them. */
+dialog .dialog-head{box-shadow:0 calc(-1 * var(--dialog-pad-top)) 0 12px var(--modal),-12px 0 0 var(--modal),12px 0 0 var(--modal)}
+dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-12px 0 0 var(--modal),12px 0 0 var(--modal)}
+
+#task-panel .task-update-composer{margin-bottom:12px}

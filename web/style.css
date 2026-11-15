@@ -1743,3 +1743,35 @@ label.required-label:has(.date-part-label)::after{content:none}
 @media(max-width:700px){
  .question-card .entity-top>.card-tools,.review-card>.entity-top>.card-tools{flex:1 1 100%;max-width:100%}
 }
+
+/* Matrix-inspired terminal accents: readable prose, restrained light and static texture. */
+:root{--mono:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace}
+.row-when,.history-date,.task-state,.due-label,.meeting-readiness,.task-last-when,.entity-time,.count-badge,.status-badge{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:0}
+@media (prefers-color-scheme:dark){
+ :root{
+  --paper:#060c09;--card:#0c1711;--surface:#101f17;--surface-2:#15291e;--field:#08120d;
+  --ink:#e1ece5;--muted:#9aafa0;--placeholder:#7b9182;
+  --line:#233b2b;--line-soft:#192d20;--line-strong:#365840;
+  --green:#54dc88;--accent-strong:#83edab;--light:#153824;--accent-soft:#102b1c;--accent-soft-2:#1b452e;
+  --on-accent:#051b0d;--focus:#54dc8859;
+  --glow:linear-gradient(135deg,#67df96 0%,#40bb72 65%,#268d50 100%);
+  --side-bg:#040b07;--side-card:#0c1b11;--side-line:#1b3523;--side-ink:#dbece0;--side-muted:#95af9e;--side-active:#54dc881a;
+ }
+ .sidebar{background-image:repeating-linear-gradient(0deg,transparent 0,transparent 7px,#54dc8805 7px,#54dc8805 8px)}
+ .card,.entity-card,dialog,.work-panel{border-radius:10px;box-shadow:0 1px 2px #0003}
+ :is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task{border-radius:10px}
+ .tracked-task.task-card,.task-update{border-radius:8px}
+ button,.primary,.secondary{border-radius:6px}
+ .primary,.sidebar #new-meeting{box-shadow:none}
+ .primary:hover:not(:disabled){box-shadow:0 0 12px #54dc881f}
+ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--green);outline-offset:3px;box-shadow:0 0 0 4px var(--focus)}
+ .tabs .selected{border-bottom-color:var(--green)}
+ .brand strong{letter-spacing:2px}
+}
+@media(prefers-reduced-motion:reduce){.primary:hover:not(:disabled){box-shadow:none}}
+
+/* Green outlines identify controls; passive status marks keep their own shapes and colours. */
+:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,.segmented button,.manager-view-button,button.primary,button.secondary,button.danger,a.button){border-color:var(--green);border-style:solid;border-width:1px}
+:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,button.secondary):hover:not(:disabled){box-shadow:0 0 8px var(--focus)}
+:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary):focus-visible{outline:2px solid var(--green);outline-offset:3px;box-shadow:0 0 10px var(--focus)}
+@media(prefers-reduced-motion:reduce){:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,button.secondary):hover:not(:disabled){box-shadow:none}}

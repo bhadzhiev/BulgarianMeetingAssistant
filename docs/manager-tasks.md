@@ -97,3 +97,5 @@ Meeting task rows keep state, due date, description disclosure, source moment an
 The two-row hierarchy also applies to decisions, tracked questions, meeting-question candidates, Library conversations and meeting review. Projects, source access and secondary context share the facts row. Related question tasks and conversation previews expand in place. Meeting-review evidence and blocking notices remain readable below the two primary rows; Confirm/Edit/Skip retain their handlers and disabled states beside the title.
 
 All direct card actions are icon-only, including Add another task, Make task, Confirm, acceptance/skip controls and the GitHub trigger. Expanded menus retain named choices. Status values, dates, people and context counts remain readable.
+
+Matrix appearance: dark surfaces use the prepared black/green palette and quiet monospace metadata. Action buttons and context disclosures have green outlines at rest, with a restrained glow on hover/focus. Passive statuses keep their semantic colours; destructive hover remains red. Reduced-motion users get static controls without hover glow.

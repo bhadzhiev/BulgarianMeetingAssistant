@@ -1684,3 +1684,18 @@ label.required-label:has(.date-part-label)::after{content:none}
 .note-source:has(.source-quote[open]){flex-basis:100%}
 .source-quote[open]{flex:1}
 .source-quote[open]>.quote{display:block;max-width:none;overflow:visible;margin:4px 0;font-style:italic;white-space:normal}
+
+/* Meeting tasks: title/tools, then one shared facts/context line. */
+.meeting-task .tracked-meta{gap:4px 10px;align-items:center}
+.meeting-task.owner-grouped .tracked-meta>.tracked-owner{display:none}
+.meeting-task.done .tracked-meta>.due-label.done{display:none}
+.meeting-task .meeting-task-state{display:inline-flex;align-items:center;gap:5px}
+.meeting-task .meeting-task-state>.icon{width:15px;height:15px}
+.meeting-task .tracked-meta>.note-source{flex:0 1 auto;align-items:center}
+.meeting-task .tracked-meta>.note-source:has(.source-quote[open]){flex-basis:100%}
+.meeting-task .tracked-meta>.github-actions{display:inline-flex;gap:4px;margin:0;max-width:100%}
+.meeting-task .github-menu>summary{display:inline-flex;align-items:center;min-height:28px;padding:2px 7px;border:1px solid var(--line);border-radius:5px;background:transparent;color:var(--muted);font-size:11px;box-shadow:none}
+.meeting-task .tracked-meta>.card-description[open]{flex-basis:100%;order:10}
+.meeting-task .card-description .task-description{display:block;margin:4px 0;overflow:visible;-webkit-line-clamp:unset;white-space:pre-wrap}
+.meeting-task .tracked-meta>.card-description{margin:0}
+.note-section>.owner-group,.note-section .owner-group{margin:10px 0 3px}

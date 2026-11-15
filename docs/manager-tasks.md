@@ -91,3 +91,5 @@ Library exposes Source above advanced filters and applies it immediately. Meetin
 - In meeting notes, checked-against-source is a passive shield indicator, separate from Check/Undo check. Edit and Delete are direct buttons; no menu hides a single Delete action. Create task retains its short label. Source timestamps stay direct; quotations expand beside them. Existing confirmation and undo behavior is preserved.
 - Meeting readiness uses accessible indicators for completed stages; missing stages and processing problems retain visible text. The personal Done action is separate from notes readiness.
 - Compact layouts wrap at narrow widths. Status uses shape plus meaning, warnings keep text, and controls stay visible without hovering. Light and dark themes use the same theme variables.
+
+Meeting task rows keep state, due date, description disclosure, source moment and GitHub on a shared wrapping facts line. Within an owner group the repeated owner is hidden; standalone rows retain it. Description opens on demand; completed state appears once.

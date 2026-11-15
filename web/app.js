@@ -1205,7 +1205,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  // The persistent task holds the current state; the mention holds what this meeting said.
  const linked=detail.items?.[task.item_id], item=handMade&&linked?.acceptance_state==='proposed'?undefined:linked, current=item||{text:task.task,owner:task.owner,deadline:task.deadline,due_date:task.due_date,status:task.status};
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), [kind,label]=dueInfo(current,today);
- const row=el('div','tracked-task '+kind);
+ const row=el('div','tracked-task meeting-task '+kind);
  const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
  who.append(avatar(current.owner||''),el('span','',current.owner||'No owner'));
  meta.append(item?workReviewBadge(item.review_state,item):handMade?'':reviewBadge(task,busy),who,el('span','due-label '+kind,current.due_date&&current.status!=='done'?label+' · '+date(current.due_date):label));
@@ -1213,15 +1213,16 @@ function taskRow(task,index,busy,mentions=[task]) {
  if(item&&!current.due_date&&current.deadline){const suggested=AtlantaTasks.suggestDueDate(current.deadline,(detail.created||'').slice(0,10));if(suggested){const applyDue=btn('secondary small-action','Set due '+date(suggested));applyDue.title='Apply the date said in the meeting as the due date';applyDue.onclick=()=>perform(()=>changeItem(item,{due_date:suggested}));meta.append(applyDue);}}
  const evidenceStamp=task.evidence_timestamp||item?.links?.find(l=>l.meeting_id===detail.id&&!l.detached)?.evidence_timestamp;if(evidenceStamp&&mentions.length===1)meta.append(sourceBlock(evidenceStamp));
  main.append(el('p','tracked-text',current.text||'Untitled task'));
- const description=String((item?item.details:task.details)||'').trim();if(description)main.append(taskDescription(description));
+ const description=String((item?item.details:task.details)||'').trim();if(description){const more=el('details','card-description'),summary=el('summary','detail-control');summary.title='Description';summary.setAttribute('aria-label','Description');summary.append(icon('notes'),el('span','sr-only','Description'));more.append(summary,taskDescription(description));meta.append(more);}
  if(item&&item.text!==task.task&&String(item.details||'').trim()!==task.task.trim()) main.append(el('p','hint said-here','Said here: '+task.task));
+ if(item){const workflow=AtlantaTasks.workflow(item),status=el('span','meeting-task-state',AtlantaTasks.STATES[workflow]);status.prepend(icon(workflowIcon(workflow)));meta.prepend(status);}
  main.append(meta);
  if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions){const citation=el('div','meeting-task-citation');citation.append(el('p','',mention.task),sourceBlock(mention.evidence_timestamp));evidence.append(citation);}main.append(evidence);}
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
  // A task, for example a corrective action, becomes a GitHub draft or links to an existing issue.
  if(item){const edit=el('button','secondary small-action','Edit task'),remove=el('button','quiet small-action danger-text','Delete');edit.type=remove.type='button';edit.disabled=remove.disabled=busy;edit.onclick=()=>perform(()=>openTaskPanel(item.id));remove.onclick=()=>perform(()=>deleteItem(item));if(item.acceptance_state!=='proposed'){const actions=el('div','action-group task-item-actions');actions.append(compactAction(doneButton(item,busy),item.status==='done'?'restore':'check'),compactAction(edit,'edit'),compactAction(remove,'trash'));main.append(actions);}else main.append(edit);}
  if(item?.acceptance_state==='proposed'){const accept=el('button','primary small-action','Accept task'),skip=el('button','secondary small-action','Skip proposal');accept.type=skip.type='button';accept.disabled=skip.disabled=busy;accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));const link=btn('secondary small-action','Link to existing task');link.disabled=busy;link.onclick=()=>perform(async()=>{const at=stampSeconds(task.evidence_timestamp||'00:00:00'),first=detail.transcript.findIndex(s=>s.start<=at&&s.end>=at);if(first<0)throw new Error('Select the supporting transcript passage to link this action.');await suggestTask(link,{provider:'meeting',id:detail.id,revision:detail.transcript_revision,first,last:first,link_only:true,proposal_item_id:item.id,proposal_item_revision:item.revision});});const actions=el('div','action-group proposal-actions');actions.append(accept,link,skip);main.append(actions);}
- if(item&&item.acceptance_state!=='proposed') main.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
+ if(item&&item.acceptance_state!=='proposed') meta.append(githubActions({kind:'item',id:item.id},(detail.github_links||[]).filter(l=>l.resource.id===item.id)));
  if(!item&&handMade){const create=btn('secondary small-action','Create task');create.disabled=busy;create.title='Make this line of the notes a task in My Work';create.onclick=()=>perform(()=>openManualTask(detail.id,{text:task.task||'',details:task.details||'',owner:task.owner||'',due:task.due_date||'',mention:index}));const actions=el('div','action-group task-item-actions');actions.append(compactAction(create,'taskAdd',{label:true}));main.append(actions);}
  row.append(el('span'),main); return row;
 }
@@ -1257,7 +1258,7 @@ function renderNotes(busy=false) {
   const owners=AtlantaTasks.ownerGroups(shown,({task})=>detail.items?.[task.item_id]?.owner||task.owner);
   for(const {owner,groups} of owners){
    if(owners.length>1){const head=el('h4','owner-group');head.append(avatar(owner||''),el('span','',owner||'No owner'),el('span','hint',AtlantaUX.count(groups.length,'task')));taskList.append(head);}
-   for(const {task,index,mentions} of groups)taskList.append(taskRow(task,index,busy,mentions));
+   for(const {task,index,mentions} of groups){const row=taskRow(task,index,busy,mentions);if(owners.length>1)row.classList.add('owner-grouped');taskList.append(row);}
   }
  } else {
   if(minutes.tasks.some(task=>detail.items?.[task.item_id]))section.append(el('p','hint','Linked tasks are edited in their task card. Save or cancel these note edits first.'));

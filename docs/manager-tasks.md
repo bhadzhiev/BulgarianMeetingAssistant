@@ -99,3 +99,5 @@ The two-row hierarchy also applies to decisions, tracked questions, meeting-ques
 All direct card actions are icon-only, including Add another task, Make task, Confirm, acceptance/skip controls and the GitHub trigger. Expanded menus retain named choices. Status values, dates, people and context counts remain readable.
 
 Matrix appearance: dark surfaces use the prepared black/green palette and quiet monospace metadata. Action buttons and context disclosures have green outlines at rest, with a restrained glow on hover/focus. Passive statuses keep their semantic colours; destructive hover remains red. Reduced-motion users get static controls without hover glow.
+
+Card action buttons and context triggers use one 32px-high box; icon-only controls are 32px wide, and symbols are 16px. Their border stays green, including destructive hover. The symbols carry action meaning: green complete/accept, blue edit/copy, cyan create/update, red delete, amber check/restore, purple source/link/GitHub, and muted neutral tools. Shapes, names and tooltips remain available alongside colour.

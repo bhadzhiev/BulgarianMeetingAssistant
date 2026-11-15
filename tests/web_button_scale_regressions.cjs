@@ -9,3 +9,5 @@ assert.match(tail,/:is\(button,a\):is\(\.small-action\),\n\.task-more>summary\.o
 const after=tail.slice(tail.indexOf('}}',tail.indexOf('@media(max-width:480px)'))+2);
 for(const [,sel,body] of after.matchAll(/([^{}]+)\{([^{}]*)\}/g))if(/\bbutton\b|\.primary|\.secondary|small-action|overflow-trigger/.test(sel))assert.doesNotMatch(body,/height:/,sel.trim());
 console.log('Button scale PASS: 32px standard, 28px in rows, Start recording keeps its size.');
+
+assert.match(css,/\.card-action\.card-action,\.detail-control\.detail-control,\.fact-control\.fact-control,\.menu\.menu>summary,\.task-more\.task-more>summary,\.tracked-task \.menu\.menu>summary,\.note-source\.note-source \.stamp\{\s*box-sizing:border-box!important;height:32px!important;min-height:32px!important;max-height:32px!important/);

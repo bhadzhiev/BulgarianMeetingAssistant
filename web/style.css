@@ -1775,3 +1775,22 @@ label.required-label:has(.date-part-label)::after{content:none}
 :is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,button.secondary):hover:not(:disabled){box-shadow:0 0 8px var(--focus)}
 :is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary):focus-visible{outline:2px solid var(--green);outline-offset:3px;box-shadow:0 0 10px var(--focus)}
 @media(prefers-reduced-motion:reduce){:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,button.secondary):hover:not(:disabled){box-shadow:none}}
+
+/* Card controls share one measured box. Semantic colour belongs to the symbol, never its frame. */
+:root{--action-edit:#1d5dbd;--action-create:#007b83;--action-danger:#b42318;--action-link:#7950b5}
+@media (prefers-color-scheme:dark){:root{--action-edit:#77b7ff;--action-create:#6adbe4;--action-danger:#ff7d78;--action-link:#c4a5ff}}
+.card-action.card-action,.detail-control.detail-control,.fact-control.fact-control,.menu.menu>summary,.task-more.task-more>summary,.tracked-task .menu.menu>summary,.note-source.note-source .stamp{
+ box-sizing:border-box!important;height:32px!important;min-height:32px!important;max-height:32px!important;
+ display:inline-flex!important;align-items:center;justify-content:center;gap:6px;padding:0 8px!important;line-height:1!important;vertical-align:middle}
+.card-action.icon-action,.detail-control:has(>.sr-only){width:32px!important;min-width:32px!important;padding:0!important}
+:is(.card-action,.detail-control,.fact-control)>.icon{width:16px;height:16px;flex:none;color:var(--muted)}
+:is(.card-action,.detail-control)>.icon[data-icon=check]{color:var(--green)}
+:is(.card-action,.detail-control)>.icon:is([data-icon=edit],[data-icon=copy]){color:var(--action-edit)}
+:is(.card-action,.detail-control)>.icon:is([data-icon=taskAdd],[data-icon=plus],[data-icon=update]){color:var(--action-create)}
+:is(.card-action,.detail-control)>.icon[data-icon=trash]{color:var(--action-danger)}
+:is(.card-action,.detail-control)>.icon:is([data-icon=verified],[data-icon=restore],[data-icon=star]){color:var(--warn-ink)}
+:is(.card-action,.detail-control)>.icon:is([data-icon=external],[data-icon=link],[data-icon=branch]){color:var(--action-link)}
+.card-action.danger-text:hover:not(:disabled){border-color:var(--green)}
+.fact-control{white-space:nowrap;overflow:hidden}
+.owner-fact .tracked-owner{flex-wrap:nowrap;min-width:0}
+.owner-fact .tracked-owner>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

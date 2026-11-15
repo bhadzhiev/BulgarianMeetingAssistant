@@ -1226,7 +1226,7 @@ function taskRow(task,index,busy,mentions=[task]) {
  main.append(el('p','tracked-text',current.text||'Untitled task'));
  const description=String((item?item.details:task.details)||'').trim();if(description)meta.append(cardDisclosure('Description','notes',[taskDescription(description)],panels));
  if(item&&item.text!==task.task&&String(item.details||'').trim()!==task.task.trim()) main.append(el('p','hint said-here','Said here: '+task.task));
- if(item){const workflow=AtlantaTasks.workflow(item),status=el('span','meeting-task-state',AtlantaTasks.STATES[workflow]);status.prepend(icon(workflowIcon(workflow)));meta.prepend(status);}
+ if(item){const workflow=AtlantaTasks.workflow(item),status=el('span','meeting-task-state',AtlantaTasks.STATES[workflow]);status.setAttribute?.('data-state',workflow);status.prepend(icon(workflowIcon(workflow)));meta.prepend(status);}
  panels.hidden=true;main.append(meta,panels);
  if(mentions.length>1){const evidence=el('details','item-history meeting-task-evidence');evidence.append(el('summary','',mentions.length+' mentions in this meeting'));for(const mention of mentions){const citation=el('div','meeting-task-citation');citation.append(el('p','',mention.task),sourceBlock(mention.evidence_timestamp));evidence.append(citation);}main.append(evidence);}
  if(item&&item.links.length>1) { const also=meetingChips(item,detail.item_meetings,detail.id); also.prepend(el('span','hint','Also in')); main.append(also,historyBlock(item,detail.item_meetings)); }
@@ -1844,7 +1844,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  }
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
- const stateFact=btn('fact-control task-state',stateName),dueFact=btn('fact-control due-label '+kind,label),ownerFact=btn('fact-control owner-fact');ownerFact.append(who);stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));dueFact.prepend(icon('calendar'));
+ const stateFact=btn('fact-control task-state',stateName),dueFact=btn('fact-control due-label '+kind,label),ownerFact=btn('fact-control owner-fact');ownerFact.append(who);stateFact.setAttribute?.('data-state',AtlantaTasks.workflow(item));stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));dueFact.prepend(icon('calendar'));
  meta.append(ownerFact,stateFact,dueFact,workReviewBadge(item.review_state,item));
  const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item,{compact:true});
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
@@ -2658,7 +2658,8 @@ function typeSections(type,minutes) {
  const own=type.sections, other=[...typeList().filter(t=>!t.custom).flatMap(t=>t.sections),...['custom_1','custom_2','custom_3'].map(key=>({key,title:FIELD_TITLES[key]}))].filter(s=>!own.some(o=>o.key===s.key)&&(minutes[s.key]||[]).length);
  return [...own,...other.filter((s,i)=>other.findIndex(o=>o.key===s.key)===i)];
 }
-const PROJECT_PALETTE=['#5b8def','#4cb782','#e2b33c','#c9699e','#8d6fd1','#d97b54','#3fa9ad','#b15b5b'];
+// New projects pick from muted colours that read on the dark surfaces; a saved project colour never changes (2026-11-16).
+const PROJECT_PALETTE=['#79afff','#79c995','#d9c56f','#d97bac','#b69af5','#e6a36b','#64c7ba','#d98282','#929d96'];
 function projectDot(project){const dot=el('span','project-dot');if(project?.color)dot.style.background=project.color;dot.title=project?.color?'Project color':'No project color';return dot;}
 function fillProjects(select,value,none,extra=[]) { select.replaceChildren(option(none,''),...projectList().map(p=>option(p.name,p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
 function fillSeries(select,projectId,value,none,extra=[]) { select.replaceChildren(option(none,''),...seriesOf(projectId).map(s=>option(s.name,s.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; select.disabled=!projectId&&!extra.length; }

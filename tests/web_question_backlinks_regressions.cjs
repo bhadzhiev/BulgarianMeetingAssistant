@@ -5,7 +5,7 @@ function node(tag,cls,text){return {tag,cls,text,children:[],attrs:{},append(...
 const q={id:'q1',kind:'question',status:'open',text:'Who checks backup?',answer:null};
 const detail={id:'m1',minutes_revision:'v1',items:{q1:q,t1:{id:'t1',kind:'task',text:'Check restore'}},question_items:{'open_questions:0':'q1'},question_tasks:{q1:['t1']}};
 const opened=[],created=[],tabs=[];
-const c=vm.createContext({detail,state:{settings:{}},notesEditing:false,el:node,linkedText:n=>n,noteButtons:()=>[],reviewBadge:()=>'',sourceBlock:()=>'',noteExplanation:()=>null,
+const c=vm.createContext({detail,state:{settings:{}},notesEditing:false,el:node,compactAction:n=>n,linkedText:n=>n,noteButtons:()=>[],reviewBadge:()=>'',sourceBlock:()=>'',noteExplanation:()=>null,
  statusBadge:s=>node('span','',s.label),btn:(cls,text,fn)=>Object.assign(node('button',cls,text),{onclick:fn}),perform:fn=>fn(),
  openTaskPanel:async id=>opened.push(id),openManualTask:async (...args)=>created.push(args)});
 const start=app.indexOf('function noteSection('),end=app.indexOf('\n// Old one-line tasks',start);

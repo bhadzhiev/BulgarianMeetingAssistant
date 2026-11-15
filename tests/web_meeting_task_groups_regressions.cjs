@@ -5,7 +5,7 @@ assert.equal(groups.length,3);assert.deepEqual(groups[0].mentions,[first,second]
 function node(tag,cls='',text=''){return {tag,cls,text,children:[],append(...x){this.children.push(...x)},prepend(...x){this.children.unshift(...x)}};}
 const walk=n=>[n,...(n.children||[]).filter(n=>n&&typeof n==='object').flatMap(walk)];
 const item={id:'t',text:'Check rollout',kind:'task',owner:null,status:'open',acceptance_state:'accepted',review_state:'confirmed',links:[{meeting_id:'m'}]};
-const c=vm.createContext({el:node,detail:{id:'m',items:{t:item}},state:{task_summary:{today:'2026-11-06'}},dueInfo:()=>['normal','No date'],avatar:()=>node('span'),workReviewBadge:s=>node('span','review',s),
+const c=vm.createContext({el:node,compactAction:n=>n,detail:{id:'m',items:{t:item}},state:{task_summary:{today:'2026-11-06'}},dueInfo:()=>['normal','No date'],avatar:()=>node('span'),workReviewBadge:s=>node('span','review',s),
  reviewBadge:()=>{throw new Error('Canonical tasks must not expose a second note Checked button')},sourceBlock:stamp=>node('button','source',stamp),doneButton:()=>node('button'),rowMenu:()=>node('details'),githubActions:()=>node('div'),perform:fn=>fn(),mentions:[first,second],task:first});
 const source=fs.readFileSync('web/app.js','utf8');vm.runInContext(source.slice(source.indexOf('function taskRow('),source.indexOf('function renderNotes(')),c);
 const rendered=vm.runInContext('taskRow(task,0,false,mentions)',c),nodes=walk(rendered);

@@ -10,14 +10,14 @@ const card=slice('function meetingCard(','\n}\n');
 assert.match(card,/el\('summary','add-project','＋ Add project'\)/);assert.doesNotMatch(card,/Unassigned/);
 assert.match(card,/if\(projects\.length===1&&projects\[0\]\.color\)\{card\.classList\.add\('has-project-line'\)/);
 // The … menu holds the rare actions; the participant count opens the names; Calendar does not repeat the date.
-assert.match(card,/rowMenu\('More actions for '\+m\.title,btn\('quiet','Open meeting'/);
+assert.match(card,/menu\.append\(compactAction\(done,m\.done\?'restore':'check'\)\);if\(projects\.length\)menu\.append\(compactAction\(change,'gear'\)\)/);
 assert.match(card,/el\('summary','',AtlantaUX\.count\(participants\.length,'participant'\)\)/);
 assert.match(card,/if\(!compact\)facts\.push\('Meeting',dateTime\(/);
 // Done is a manual mark: the menu toggles it through /done and the card shows a Done badge (2026-11-14).
 assert.match(card,/btn\('quiet',m\.done\?'Mark as not done':'Mark as done'/);
 assert.match(card,/api\('\/api\/meetings\/'\+m\.id\+'\/done',\{done:!m\.done\}\)/);
-assert.match(card,/if\(m\.done\)meta\.append\(statusBadge\(\{tone:'ok',label:'Done'\}\)\)/);
-assert.match(card,/rowMenu\('More actions for '\+m\.title,[^\n]*,change,done\)/);
+assert.match(card,/if\(m\.done\)meta\.append\(statusMark\('check','Meeting marked done','status-ok'\)\)/);
+assert.match(card,/done\.setAttribute\('aria-pressed',String\(!!m\.done\)\)/);
 // A status shows only when a meeting needs something, always with text.
 const status=slice('function meetingStatus(','\n}\n');
 assert.match(status,/'Processing stopped'/);assert.match(status,/'Notes need update'/);assert.match(status,/return null;/);

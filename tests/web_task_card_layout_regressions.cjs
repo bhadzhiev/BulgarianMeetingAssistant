@@ -4,14 +4,14 @@ const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.
 const row=slice('function globalTaskRow(','function decisionRow(');
 // A task is a title and a description: the card, the meeting task and the review card show the description.
 assert.match(app,/function taskDescription\(text\)\{const node=el\('p','task-description',text\);node\.title=text;return node;\}/);
-assert.match(row,/main\.append\(head,\.\.\.\(description\?\[taskDescription\(description\)\]:\[\]\),meta\)/);
+assert.match(row,/descriptionBox\.append\(summary,taskDescription\(description\)\);meta\.append\(descriptionBox\)/);
 assert.match(slice('function taskRow(','function renderNotes('),/const description=String\(\(item\?item\.details:task\.details\)\|\|''\)\.trim\(\);if\(description\)main\.append\(taskDescription\(description\)\)/);
 assert.match(app,/head\.append\(el\('p','review-text',item\.text\),state\);row\.append\(head\);if\(item\.details\)row\.append\(taskDescription\(item\.details\)\)/);
 // An update of the notes shows a new description as part of the task change.
 assert.match(app,/function changeText\(field,item\) \{ return field==='tasks'\?\[item\.task,item\.details,item\.owner,/);
 assert.match(css,/\.task-description\{[^}]*-webkit-line-clamp:3/);
-// The last update is a box with its label, date and text; the draft indicator stays by the task title, never in its update.
-assert.match(row,/box\.append\(el\('span','task-update-label','Last update'\),el\('span','task-last-when',dateTime\(update\.at\)\),last\);main\.append\(box\)/);
+// The last update is one line with an icon, date and text; the draft indicator stays by the task title, never in its update.
+assert.match(row,/box\.append\(icon\('update'\),el\('span','task-last-when',dateTime\(update\.at\)\),last\)/);
 assert.match(row,/if\(mailed\)titleLine\.append\(mailed\)/);
 assert.doesNotMatch(row,/(?:meta|box|flags)\.append\(mailed\)/);
 // Meetings are rows; the other sources keep their chips.
@@ -33,7 +33,7 @@ assert.match(row,/actionBtn\('quiet small-action task-timeline','Timeline'/);
  assert.equal(rows[2].children[3].textContent,'20:19@1219');assert.equal(rows[1].children[3].tag,'span');
  assert.equal(vm.runInContext('taskMeetingList',c)({links:[]},meetings),null);
 }
-// The card styles: actions under a divider, Timeline pushed right, the update box on the surface color.
+// Legacy task variants retain their styling; compact controls override the spacing in the shared card.
 assert.match(css,/\.tracked-task\.task-card \.tracked-main>\.task-row-actions\{[^}]*border-top:1px solid var\(--line\)/);
 assert.match(css,/\.task-row-actions \.task-timeline\{margin-left:auto\}/);
 assert.match(css,/\.task-update\{[^}]*background:var\(--surface\)/);

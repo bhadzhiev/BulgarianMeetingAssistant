@@ -82,3 +82,12 @@ Work cards use active, proposed and closed lifecycle presentation. Questions and
 
 
 Library exposes Source above advanced filters and applies it immediately. Meeting cards show recording/transcript/notes readiness from local file availability, separately from the manual Done mark. Narrow layouts wrap Library/My Work tabs, keep menus beside titles and place project chips below. My Work identity setup is a disclosure instead of a permanent form row.
+
+## Compact cards (2026-11-15)
+
+- Tasks share a title/tools row and an editable facts row in My Work and Projects. Mark done/Reopen, Add update and Edit are direct icon buttons with accessible names and tooltips. Timeline and secondary actions stay in the overflow menu.
+- Click Owner, State or Due date to open that field alone; close it with the visible close button. Quick fields in the menu opens the full four-field editor. The chosen field stays open across revision-checked saves.
+- Description and Sources share the facts row as labelled icon disclosures and expand in place. The last update takes one line; the full update remains in Timeline. Follow-up dates show when assigned and gain an attention colour when due.
+- In meeting notes, checked-against-source is a passive shield indicator, separate from Check/Undo check. Edit and Delete are direct buttons; no menu hides a single Delete action. Create task retains its short label. Source timestamps stay direct; quotations expand beside them. Existing confirmation and undo behavior is preserved.
+- Meeting readiness uses accessible indicators for completed stages; missing stages and processing problems retain visible text. The personal Done action is separate from notes readiness.
+- Compact layouts wrap at narrow widths. Status uses shape plus meaning, warnings keep text, and controls stay visible without hovering. Light and dark themes use the same theme variables.

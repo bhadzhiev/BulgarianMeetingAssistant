@@ -16,12 +16,12 @@ const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.
  menu.open=true;menu.children[1].onclick();assert.equal(menu.open,false);
  vm.runInContext('rowMenu',c)('Second');assert.equal(listeners.length,1,'one document listener for every menu');
 }
-// Delete is no longer a loose red link on notes lines, meeting tasks and item cards.
-assert.match(slice('function noteButtons(','\nfunction '),/return \[edit,rowMenu\('More actions for this statement',remove\)\];/);
-assert.match(slice('function editDeleteButtons(','function itemActions('),/return \[edit,rowMenu\('More actions for this '\+item\.kind,remove\)\];/);
-assert.match(slice('function taskRow(','function renderNotes('),/actions\.append\(doneButton\(item,busy\),edit,rowMenu\('More actions for this task',remove\)\)/);
+// Edit and Delete are direct icon controls on notes lines and meeting tasks.
+assert.match(slice('function noteButtons(','\nfunction '),/return \[compactAction\(edit,'edit'\),compactAction\(remove,'trash'\)\];/);
+assert.match(slice('function editDeleteButtons(','function itemActions('),/return \[compactAction\(edit,'edit'\),compactAction\(remove,'trash'\)\];/);
+assert.match(slice('function taskRow(','function renderNotes('),/actions\.append\(compactAction\(doneButton\(item,busy\),item\.status==='done'\?'restore':'check'\),compactAction\(edit,'edit'\),compactAction\(remove,'trash'\)\)/);
 // My Work decisions keep their actions in the same menu as tasks, so the text has the width.
-assert.match(slice('function decisionRow(','async function loadTasks('),/const menuActions=itemActions\(item,row\);if\(item\.status!=='proposed'\)menuActions\.prepend\(change\);more\.append\(trigger,menuActions\);row\.append\(more\)/);
+assert.match(slice('function decisionRow(','async function loadTasks('),/const menuActions=itemActions\(item,row,\{direct:true\}\);if\(item\.status!=='proposed'\)menuActions\.prepend\(change\);more\.append\(trigger,menuActions\);row\.append\(more\)/);
 // Projects use the My Work rows for tasks and decisions, without the bulk selection box.
 const workspace=slice('function renderWorkspace(){','\nfunction ');
 assert.match(workspace,/if\(full\.kind==='task'\)return globalTaskRow\(full,today,\{select:false\}\)/);
@@ -31,4 +31,4 @@ assert.match(app,/function globalTaskRow\(item,today,\{select=true,compact=false
 assert.match(app,/if\(select&&item\.acceptance_state!=='proposed'&&!item\.dismissed\)/);
 // The overview heading counts every item, and a button opens the rest.
 assert.match(workspace,/if\(rows\.length>5\)box\.append\(actionBtn\('secondary small-action workspace-show-all','All '\+title\.toLowerCase\(\)\+' in Work →'/);
-console.log('One task card PASS: row menu, no loose Delete, wide decisions, shared rows in Projects, Show all.');
+console.log('One task card PASS: row menu, direct Edit/Delete, wide decisions, shared rows in Projects, Show all.');

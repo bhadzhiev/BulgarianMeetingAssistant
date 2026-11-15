@@ -6,7 +6,7 @@ const decision=slice('function decisionRow(','async function loadTasks(');
 assert.match(decision,/row=el\('div','tracked-task decision entity-card task-card '\+item\.status\)/);
 assert.match(decision,/if\(item\.status==='proposed'\)meta\.append\(change\)/);
 assert.match(decision,/if\(item\.status!=='proposed'\)menuActions\.prepend\(change\)/);
-// Questions: the shared card, a status badge, Mark answered… and Reopen; Edit and Delete share the … menu.
+// Questions: the shared card, a status badge, Mark answered… and Reopen; Edit and Delete are direct controls.
 const notes=slice('function renderMeetingQuestions(','\n}\n');
 assert.match(notes,/el\('div','entity-card question-card meeting-question'\)/);assert.match(notes,/'Mark answered…'/);
 const tracked=slice('function trackedQuestionCard(q){','\n}\n');
@@ -14,7 +14,7 @@ const tracked=slice('function trackedQuestionCard(q){','\n}\n');
 assert.match(app,/if\(full\.kind==='question'&&byId\[item\.id\]\)return trackedQuestionCard\(full\)/);
 assert.match(tracked,/statusBadge\(q\.status==='answered'\?\{tone:'ok',label:'Answered'\}:\{tone:'muted',label:'Open'\}\)/);
 assert.match(tracked,/q\.status==='answered'\?'Reopen':'Mark answered…'/);
-assert.match(tracked,/menu\.querySelector\('\.menu-items'\)\?\.prepend\(edit\)/);
+assert.match(tracked,/tools\.append\(edit,remove\)/);
 // The … column has one width and the menu floats: a closed <details> sized an auto column in WebKit.
 assert.match(css,/\.tracked-task\.task-card\{display:flex;align-items:flex-start;gap:12px\}/);
 assert.match(css,/\.tracked-task\.task-card>\.task-more>\.tracked-actions\{position:absolute;right:0;top:calc\(100% \+ 6px\);z-index:30/);

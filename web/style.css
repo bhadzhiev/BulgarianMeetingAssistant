@@ -1345,34 +1345,8 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 #task-panel .task-section[open]>summary .task-section-summary{display:none}
 #task-panel .task-section[open]{padding-bottom:12px}
 #task-panel .task-section .note-section{margin:8px 0}
-/* Compact task list (the default view): one row per task. Title, owner, state, due date and "…" line up under a header. The Inbox wraps its rows in .task-rows so the box borders only the table. */
-:is(#task-list,.task-rows).compact-list{display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:visible}
-:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task{margin:0;padding:8px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none;align-items:center;gap:10px}
-:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task:last-child{border-bottom:0}
-:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.has-project-line{border-left:3px solid var(--project-color)}
-.work-section{margin:22px 0 4px;font-size:13px}
-.tracked-task.task-card.compact-task>.tracked-main{flex:1 1 0;width:auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 170px 130px 150px;align-items:center;column-gap:10px;row-gap:2px}
-.tracked-task.task-card.compact-task>.tracked-main>.entity-top{grid-column:1;grid-row:1}
-.tracked-task.task-card.compact-task>.tracked-main>.compact-flags{grid-column:1;grid-row:2;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.tracked-task.task-card.compact-task .task-quick-fields{display:contents}
-.tracked-task.task-card.compact-task .task-quick-fields>label{grid-row:1 / span 2;align-self:center;font-size:0;margin:0}
-.tracked-task.task-card.compact-task .task-quick-fields>label>*{font-size:13px}
-.tracked-task.task-card.compact-task .entity-top .tracked-text{font-size:13px}
-.tracked-task.task-card.compact-task>.task-more>.tracked-actions .compact-next-check{display:grid;gap:4px;padding:6px 8px;font-size:12px;color:var(--muted)}
-.compact-head{font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);padding-top:10px!important;padding-bottom:6px!important}
-.compact-head>.tracked-main>span{grid-row:1}
-.compact-head .compact-col-more{flex:none;width:32px}
+.work-section{margin:14px 0 4px;font-size:13px}
 .task-bulk-bar .task-density{margin-right:6px}
-@media(max-width:720px){
- .compact-head{display:none!important}
- .tracked-task.task-card.compact-task>.tracked-main{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:6px}
- .tracked-task.task-card.compact-task .task-quick-fields>label:first-child{grid-column:1 / -1}
- .tracked-task.task-card.compact-task .task-quick-fields>label :is(select,input,.date-control){width:100%}
- .tracked-task.task-card.compact-task>.tracked-main>.entity-top,.tracked-task.task-card.compact-task>.tracked-main>.compact-flags{grid-column:1 / -1;grid-row:auto}
- .tracked-task.task-card.compact-task .task-quick-fields>label{grid-row:auto}
- .tracked-task.task-card.compact-task .entity-top .tracked-text{-webkit-line-clamp:2}
-}
-.tracked-task.task-card.compact-task>.task-more{align-self:center}
 #task-panel .task-panel-head h2{overflow-wrap:anywhere;max-width:100%}
 /* The background jobs: a failed job turns the status line red and shows no spinner. The list opens under the line. */
 #activity-status.failed{background:var(--danger-ink,#9b1c1c)}
@@ -1459,29 +1433,10 @@ label.required-label:has(.date-part-label)::after{content:none}
 .task-title-row>input[type=checkbox]{margin-top:9px}
 .task-title-fields{display:flex;flex-direction:column;gap:6px;min-width:0}
 .task-title-fields .task-description{margin:0}
-/* Compact task card (2026-11-12): each task is a small card. The title on top, then Owner, State and Due date
-   with their labels, then the overdue badge and Emailed. Add update, Timeline and the next check stay in "…". */
-:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task{margin:0 0 10px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--card);align-items:flex-start}
-:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task:last-child{border-bottom:1px solid var(--line)}
-:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.has-project-line{border-left:3px solid var(--project-color)}
-.tracked-task.task-card.compact-task>.tracked-main{display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:12px 14px}
-.tracked-task.task-card.compact-task>.tracked-main>.entity-top{flex:1 0 100%;align-items:flex-start}
-.tracked-task.task-card.compact-task .entity-top .tracked-text{font-size:15px;font-weight:700;line-height:1.35;-webkit-line-clamp:2}
-.tracked-task.task-card.compact-task .task-quick-fields>label{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;font-weight:500;color:var(--muted)}
-.tracked-task.task-card.compact-task .task-quick-fields>label>*{font-size:13px}
-.tracked-task.task-card.compact-task .task-quick-fields :is(select,input:not([type=checkbox])){height:36px!important;min-height:36px!important;border-radius:9px}
-.compact-owner{position:relative}
-.compact-owner>.speaker-badge{position:absolute;left:6px;bottom:6px;width:24px;height:24px;min-width:24px;border-radius:50%;z-index:1;pointer-events:none}
-.tracked-task.task-card.compact-task .compact-owner>select{padding-left:38px!important;min-width:200px}
-.tracked-task.task-card.compact-task .task-quick-fields>label:nth-child(2) select{min-width:140px}
-.tracked-task.task-card.compact-task>.tracked-main>.compact-flags{display:flex;flex:1 1 220px;flex-wrap:wrap;min-width:0;align-items:center;gap:8px 12px;min-height:36px}
-.task-title-line{display:flex;align-items:flex-start;gap:8px;min-width:0;flex:1}
+.task-title-line{display:flex;align-items:flex-start;gap:6px;min-width:0;flex:1}
 .task-title-line>.task-title{min-width:0;flex:0 1 auto}
 .task-title-line>.email-mark{flex:none;align-self:center;line-height:1}
 .task-title-line>.email-mark .icon{color:var(--green)}
-.tracked-task.task-card.compact-task>.task-more{align-self:flex-start}
-@media(max-width:700px){.tracked-task.task-card.compact-task .task-quick-fields>label{flex:1 1 100%}.tracked-task.task-card.compact-task .task-quick-fields :is(select,input,.date-control){width:100%}.task-title-line{max-width:100%}}
-.tracked-task.task-card.compact-task .task-quick-fields select{line-height:34px!important}
 
 /* New task dialog: the same field order and grid as the task editor (2026-11-12). */
 #manual-task-dialog{width:min(850px,94vw);max-height:90vh}#manual-task-dialog textarea{min-height:64px;margin:4px 0 12px}#manual-task-dialog .review-footer,#manual-task-dialog .editor-actions{flex-wrap:wrap;gap:8px}
@@ -1568,8 +1523,6 @@ label.required-label:has(.date-part-label)::after{content:none}
 .question-card.work-card .question-answer{padding:8px 10px;background:var(--ok-soft);border-radius:8px}
 .work-card .entity-top>.menu,.work-card>.task-more{flex:none}
 
-/* Summary facts already include urgency, review and sharing in compact cards. */
-.tracked-task.task-card.work-card.compact-task .compact-flags{display:none!important}
 
 /* Library: visible source scope, readable readiness and a stable title/menu grid. */
 .library-source-row{display:flex;align-items:center;margin-bottom:8px}
@@ -1601,3 +1554,133 @@ label.required-label:has(.date-part-label)::after{content:none}
  .manager-views .manager-view-button{min-width:0;padding:5px 7px!important;font-size:11px!important}
  .task-bulk-bar{margin:6px 0;padding:4px}
 }
+
+/* Compact cards (2026-11-15): title/tools, editable facts, optional content.
+   The same hierarchy applies in My Work, Projects, Library and meeting notes. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.card-tools,.review-state,.status-mark,.status-badge,.meeting-readiness{display:inline-flex;align-items:center;gap:6px}
+.card-tools{flex:none;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.card-action{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:32px;min-height:32px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink);font-size:12px;line-height:1.2;white-space:nowrap;box-shadow:none}
+.card-action.icon-action{width:32px;padding:6px}
+.card-action .icon,.status-mark .icon,.status-badge .icon,.fact-control>.icon{width:16px;height:16px;flex:none}
+.card-action:hover:not(:disabled){background:var(--light);border-color:var(--green);color:var(--green)}
+.card-action.danger-text{color:var(--muted)}
+.card-action.danger-text:hover:not(:disabled){color:var(--danger-ink);border-color:var(--danger-ink);background:var(--danger-soft)}
+.card-action[aria-pressed=true]{border-color:var(--green);color:var(--green)}
+.card-action:focus-visible,.fact-control:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.status-mark{padding:0;background:none;border:0;color:var(--muted);line-height:1}
+.status-mark.verified,.status-mark.status-ok{color:var(--ok)}
+.status-badge{font-size:11px;letter-spacing:0;padding:2px 5px;line-height:1.4;white-space:normal}
+.entity-card,.tracked-task.task-card{padding:10px 12px;margin-bottom:6px;gap:8px;border-radius:9px}
+.entity-main,.tracked-task.task-card .tracked-main{gap:4px;min-width:0}
+.entity-top,.tracked-task.task-card .entity-top{gap:6px 8px;align-items:flex-start}
+.entity-title,.tracked-task.task-card:not(.decision) .entity-top .tracked-text{font-size:14px;line-height:1.4}
+.tracked-task.task-card .tracked-meta{gap:2px 10px;min-height:26px}
+.tracked-task.task-card .tracked-meta>*+*{border:0;margin:0;padding:0}
+.tracked-task.task-card .tracked-meta>.due-label.overdue,.tracked-task.task-card .tracked-meta>.due-label.today{margin:0;padding:2px 5px}
+.fact-control{display:inline-flex;align-items:center;gap:5px;min-height:28px;max-width:100%;padding:2px 4px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--muted);font-size:12px;line-height:1.4;text-align:left;white-space:normal}
+.fact-control:hover:not(:disabled){background:var(--light);border-color:var(--line);color:var(--ink)}
+.fact-control.static-fact:disabled{opacity:1;cursor:default}
+.fact-control .tracked-owner{flex-wrap:wrap;min-width:0;font-size:12px}
+.tracked-task.task-card .tracked-owner .speaker-badge{width:22px;height:22px;min-width:22px;font-size:10px}
+.check-due{color:var(--warn-ink)}
+.task-row-marks{padding-top:5px}.task-pick{margin:0;min-height:24px}
+.task-card .task-quick-fields{margin:4px 0 0;gap:6px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.task-card .task-quick-fields[hidden]{display:none!important}
+.task-card .task-quick-fields label{font-size:11px;margin:0}
+.task-card .task-quick-fields :is(select,input){min-height:32px;height:32px;padding:4px 7px;margin:0;font-size:12px}
+.task-card .task-quick-fields .date-control{min-width:0}
+.task-row-actions.card-tools{margin:0;padding:0;border:0}
+:is(#task-list,.task-rows).compact-list{display:flex;flex-direction:column;gap:0;border:0;background:none;overflow:visible}
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task{padding:10px 12px;margin:0 0 6px;border:1px solid var(--line);border-radius:9px}
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.has-project-line{border-left:3px solid var(--project-color)}
+.task-card.compact-task>.tracked-main{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.task-card.compact-task .entity-top{width:100%}
+.card-description,.task-card-sources{margin:0;font-size:12px;color:var(--muted)}
+.card-description>summary,.task-card-sources>summary{cursor:pointer;padding:2px 0}
+.card-description .task-description{display:block;margin:4px 0;overflow:visible;white-space:pre-wrap;-webkit-line-clamp:unset}
+.task-update{display:flex;align-items:center;gap:6px;padding:3px 0;margin:0;border:0;border-radius:0;background:none;min-width:0}
+.task-update>.icon{flex:none;width:14px;height:14px;color:var(--muted)}
+.task-update .task-last-when{flex:none;font-size:11px}.task-update .task-last-line{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;margin:0}
+.task-card .entity-chips .project-chip{padding:2px 6px;font-size:11px}
+.card-details{margin-top:2px;padding-top:2px;border:0}
+.question-card.work-card .entity-main{gap:4px}.question-card.work-card .action-group{margin:0}
+.question-card .question-text,.decision .tracked-text{font-size:14px;line-height:1.4;margin:0}
+.meeting-card .entity-top,.conversation-card .entity-top{gap:6px 8px}
+.meeting-card .entity-top>.card-tools{grid-column:3;grid-row:1}
+.meeting-card .entity-meta{gap:3px 10px;font-size:12px}
+.meeting-readiness{font-size:11px;flex-wrap:wrap;gap:5px}
+.note-list{margin:0;padding:0;list-style:none}
+.note-item{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;row-gap:3px;padding:10px 12px;margin:0 0 6px}
+.note-item>.note-text{grid-column:1;grid-row:1;margin:0;font-size:14px;line-height:1.45}
+.note-item>.card-tools{grid-column:2;grid-row:1;align-self:start}
+.note-item>:is(.note-meta,.note-explanation,.item-history,.link-card){grid-column:1/-1;margin:0}
+.note-meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin:0;font-size:12px}
+.note-meta .note-source{flex:0 1 auto;min-width:0}
+.note-source .quote{max-width:60ch}
+.note-explanation{font-size:12px;line-height:1.45}
+.note-section .tracked-task{grid-template-columns:minmax(0,1fr);padding:10px 12px;gap:4px}
+.note-section .tracked-task>span:empty{display:none}
+.note-section .tracked-task .tracked-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px}
+.note-section .tracked-task .tracked-main>.tracked-text{grid-column:1;margin:0;font-size:14px}
+.note-section .tracked-task .tracked-main>.task-item-actions{grid-column:2;grid-row:1;margin:0;align-self:start;display:flex;gap:4px}
+.note-section .tracked-task .tracked-main>:not(.tracked-text):not(.task-item-actions){grid-column:1/-1}
+@media(max-width:700px){
+ .task-card .entity-top{display:flex;flex-wrap:wrap}.task-card .entity-top>.task-title-line{flex:1 1 180px}
+ .task-card .entity-top>.entity-chips{order:3;flex:1 1 100%}
+ .task-card .entity-top>.card-tools{margin-left:auto}
+ .entity-top>.card-tools{grid-column:2;grid-row:1}
+ .meeting-card .entity-top>.card-tools{grid-column:2}
+ .note-item{grid-template-columns:minmax(0,1fr)}
+ .note-item>.card-tools{grid-column:1;grid-row:2;justify-content:flex-start}
+ .note-item>.note-meta{grid-row:3}
+ .note-section .tracked-task .tracked-main{grid-template-columns:minmax(0,1fr)}
+ .note-section .tracked-task .tracked-main>.task-item-actions{grid-column:1;grid-row:auto}
+ .task-update{flex-wrap:wrap}.task-update .task-last-line{flex-basis:100%}
+}
+
+/* Secondary context shares the facts row until expanded. */
+.task-card .tracked-meta>details{align-self:center;max-width:100%}
+.task-card .tracked-meta>details[open]{flex-basis:100%;order:10}
+.detail-control{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:5px;color:var(--muted)}
+.detail-control::-webkit-details-marker{display:none}.detail-control .icon{width:15px;height:15px}
+.detail-control:hover{background:var(--light);color:var(--green)}
+.detail-control:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.decision-status{display:inline-flex;align-items:center;gap:5px}.decision-status .icon{width:16px;height:16px}
+#items-panel .manager-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-bottom:4px}
+#items-panel .manager-controls .manager-identity{flex:0 1 auto;grid-column:auto}
+#items-panel .manager-controls .manager-view{flex:0 1 auto}
+#items-panel .manager-controls>input[type=search]{flex:1 1 180px;width:auto;min-width:120px;height:32px}
+#items-panel .manager-controls .segmented{flex-wrap:wrap}
+#items-panel .manager-all-filters{margin-bottom:4px}
+#items-panel .manager-all-filters>summary{padding:4px 0}
+#items-panel .task-bulk-bar{border:0;border-radius:0;padding:0;margin:4px 0 8px}
+@media(max-width:700px){#items-panel .manager-controls>input[type=search]{flex-basis:100%}}
+
+.task-card .task-quick-fields>[hidden]{display:none!important}
+.task-card .task-quick-fields>.card-action{justify-self:end;align-self:end}
+
+#items-panel{padding:14px 16px}
+.task-card .tracked-meta>.entity-chips{display:inline-flex;flex:0 1 auto;gap:4px;min-width:0}
+@media(max-width:700px){
+ #items-panel{padding:10px 12px}
+ .task-card .entity-top>.task-title-line{flex-basis:100%}
+ .task-card .entity-top>.card-tools{margin-left:0;justify-content:flex-start}
+}
+
+.meeting-card.compact .entity-top{grid-template-columns:auto minmax(0,1fr) auto}
+.meeting-card.compact .entity-top>.entity-title{grid-column:2;grid-row:1}
+.meeting-card.compact .entity-top>.card-tools{grid-column:3;grid-row:1}
+.meeting-card.compact .entity-top>.entity-time{grid-column:1;grid-row:1}
+
+/* The work panel already supplies padding; its content must not add a second inset. */
+#items-panel>.work-content{padding:0}
+@media(max-width:700px){
+ .question-card .entity-top>.question-text{grid-column:1/-1}
+ .question-card .entity-top>.card-tools{grid-column:1/-1;grid-row:auto;justify-content:flex-start}
+}
+
+.note-source .source-quote{min-width:0;max-width:100%}
+.note-source:has(.source-quote[open]){flex-basis:100%}
+.source-quote[open]{flex:1}
+.source-quote[open]>.quote{display:block;max-width:none;overflow:visible;margin:4px 0;font-style:italic;white-space:normal}

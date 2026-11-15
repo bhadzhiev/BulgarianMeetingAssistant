@@ -1794,3 +1794,25 @@ label.required-label:has(.date-part-label)::after{content:none}
 .fact-control{white-space:nowrap;overflow:hidden}
 .owner-fact .tracked-owner{flex-wrap:nowrap;min-width:0}
 .owner-fact .tracked-owner>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Quiet controls: the saved-email mark is the reference, with thin frames and no emitted light. */
+:root{--control-line:#387a5f66;--control-hover:#235f4809;--action-positive:#34775a;--action-edit:#536f83;--action-create:#427572;--action-danger:#a35f59;--action-link:#736781;--action-review:#847046}
+@media (prefers-color-scheme:dark){:root{--control-line:#739b8059;--control-hover:#8bad9510;--action-positive:#8db39a;--action-edit:#91a7b6;--action-create:#8eafa9;--action-danger:#bd9390;--action-link:#aaa0b8;--action-review:#b6ac8b}}
+:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,button.primary,button.secondary,button.danger,a.button){border-color:var(--control-line);border-width:.5px;box-shadow:none!important}
+:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary):hover:not(:disabled){background:var(--control-hover);border-color:var(--control-line);box-shadow:none!important;color:var(--muted)}
+.card-action.danger-text:hover:not(:disabled){border-color:var(--control-line);background:var(--control-hover)}
+:is(.card-action,.detail-control,.fact-control,.menu>summary,.task-more>summary,button.primary,button.secondary):focus-visible{outline:1px solid var(--action-positive);outline-offset:2px;box-shadow:none!important}
+:is(.primary,.sidebar #new-meeting):hover:not(:disabled){box-shadow:none!important}
+.card-action{background:transparent}
+:is(.card-action,.detail-control)>.icon[data-icon=check]{color:var(--action-positive)}
+:is(.card-action,.detail-control)>.icon:is([data-icon=verified],[data-icon=restore],[data-icon=star]){color:var(--action-review)}
+:is(.card-action,.detail-control)>.icon[data-icon=quote]{color:var(--action-link)}
+.card-action[aria-expanded=true]{background:var(--control-hover);border-color:var(--control-line)}
+.card-expansions{min-width:0;margin:0}
+.card-expansion-panel{padding:6px 0 0;border-top:.5px solid var(--line);min-width:0}
+.card-expansion-label{font-size:11px;color:var(--muted);margin-bottom:3px}
+.card-expansion-panel .quote,.card-expansion-panel .task-description{display:block;max-width:none;overflow:visible;white-space:pre-wrap;-webkit-line-clamp:unset;margin:0;font-size:12px;line-height:1.5}
+.meeting-task.overdue,.meeting-task.today{background:transparent}
+.meeting-task.overdue{border-left-color:var(--action-danger)}
+.meeting-task .due-label.overdue{color:var(--action-danger)}
+.meeting-task .due-label.today{color:var(--action-review)}

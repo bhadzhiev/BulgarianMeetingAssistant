@@ -1931,3 +1931,11 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 @media(max-width:540px){.task-subtasks{margin-left:8px;padding-left:8px}.hierarchy-child{align-items:flex-start}}
 
 .email-task-choice{display:flex;gap:10px;align-items:flex-start;padding:6px 0}.email-task-choice input{flex:none;width:auto}.email-task-child{margin-left:20px}.email-preview-subtask{margin-left:20px}
+
+/* Meeting notes separate uncreated suggestions from persistent My Work tasks. */
+.meeting-task-stage{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px}
+.meeting-task-kind{display:inline-flex;border:1px solid var(--line);border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600;color:var(--ink);line-height:1.5}
+.meeting-task-suggestion .meeting-task-kind{border-style:dashed;color:var(--muted)}
+.meeting-task-suggestion .task-item-actions,.meeting-task-suggestion .proposal-actions{margin-top:10px}
+.meeting-task-suggestion .tracked-owner{display:inline-flex!important}
+.meeting-task-legend{margin:8px 0 16px;line-height:1.6}

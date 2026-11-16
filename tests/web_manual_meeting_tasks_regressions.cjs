@@ -11,7 +11,7 @@ assert.match(slice('function renderTaskMatching(){'),/\$\('task-matching-field'\
 const row=slice('function taskRow(task,index,busy,mentions=[task]) {','\nfunction renderNotes(');
 assert.match(row,/const handMade=!state\.settings\?\.meeting_task_ai;/);
 assert.match(row,/item=handMade&&linked\?\.acceptance_state==='proposed'\?undefined:linked/);
-assert.match(row,/if\(!item&&handMade\)\{const create=btn\('secondary small-action','Create task'\)/);
+assert.match(row,/if\(!item\)\{const create=btn\('secondary small-action','Create task in My Work…'\)/);
 assert.match(row,/openManualTask\(detail\.id,\{text:task\.task\|\|'',details:task\.details\|\|'',owner:task\.owner\|\|'',due:task\.due_date\|\|'',mention:index\}\)/);
 // The meeting checklist asks nothing about task links, owners or matching without AI meeting tasks.
 const attention=slice('function renderAttention(busy){');

@@ -4,7 +4,7 @@ const app=fs.readFileSync('web/app.js','utf8'),html=fs.readFileSync('web/index.h
 assert.match(app,/\['inbox','Inbox'\]/,'the task view is called Inbox');
 assert.match(app,/el\('h2','','Inbox'\)/,'the screen heading is Inbox');
 assert.doesNotMatch(app,/Proposed actions/,'the old heading is gone');
-assert.match(app,/This may be an existing task\. It waits in My Work → Inbox\./);
+assert.match(app,/Not linked yet\. Review the suggested match in My Work → Inbox\./);
 // The dead Suggestions tab and its panel are gone; old routes and buttons land in the Inbox view.
 assert.doesNotMatch(html,/data-work-tab="suggested"/,'no hidden Suggestions tab');
 assert.doesNotMatch(html,/id="work-suggested"/,'no vestigial suggested panel');

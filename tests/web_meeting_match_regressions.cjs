@@ -19,6 +19,6 @@ assert.match(card,/task_id:t\.id,task_revision:t\.revision/);
 assert.match(app,/if\(p\.origin==='meeting_match'&&p\.match\)\{meetingProposalListEl\.append\(meetingMatchCard\(p,evidence\[p\.evidence_id\]\)\);continue;\}/);
 assert.match(card,/graphAction\('meeting-review',/);
 // A task in the meeting notes points to the Inbox instead of the old link review.
-assert.match(app,/This may be an existing task\. It waits in My Work → Inbox\./);
+assert.match(app,/Not linked yet\. Review the suggested match in My Work → Inbox\./);
 assert.match(fs.readFileSync('desktop_app.py','utf8'),/elif path == '\/api\/work\/meeting-review':/);
 console.log('Meeting match PASS: one main action per type, evidence and reason, unchecked changes, editable update, revision, own endpoint.');

@@ -125,3 +125,7 @@ My Work nests matching subtasks beneath their main task with a collapsible list.
 The email composer explicitly lists the selected main tasks and available subtasks. Only checked tasks are included. **Apply selection and rebuild letter** updates the letter and preserves recipients; replacing edited text asks first, and saving is disabled while an unapplied selection is pending. Selected children follow their selected parent as 1.1, 1.2, etc., retaining individual owners and deadlines. A child sent alone names its main task for context. Suggested related tasks are never automatically added to the email.
 
 Task lists use one compact layout. The Compact/Cards switch and its stored density preference have been removed; task selection and hierarchy controls remain available.
+
+### Tasks versus suggestions in meeting notes
+
+Meeting notes label accepted linked tasks **Task in My Work**, pending registry proposals **Task proposal · Waiting for acceptance in Inbox**, and uncreated note lines **Suggestion from notes · Not in My Work**. Only created tasks show a workflow state. Suggested owners and deadlines are labelled as suggestions. **Create task in My Work…** remains a visible text action and opens the existing review editor; **Accept into My Work** accepts a pending proposal. Section and owner counts distinguish tasks from suggestions. These labels do not create or accept tasks automatically.

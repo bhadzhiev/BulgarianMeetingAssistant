@@ -110,3 +110,8 @@ Edit task layout (2026-11-16): the Title is one line and grows only when the tex
 
 Confirmations and Undo (2026-11-16): risky actions ask first, and the confirm button is red for actions that remove or end something. Cancelling a task (in Edit task, in the State field of a card or for selected tasks), merging two items, deleting and discarding ask before anything changes; a merge cannot be undone. Other changes are saved at once and show the result with **Undo** for a few seconds: Save changes in Edit task, editing a title in place, Mark done and Reopen, and the Owner, State, Due date and Next follow-up fields of a card. Undo after Save changes restores only the fields that changed; a progress update stays in the task history.
 
+### Email several meeting tasks
+
+In a meeting's Tasks section, **Email tasks…** opens a checklist of accepted, visible tasks linked to that meeting. Select individual tasks or up to 100 together, then choose **Compose email**. My Work also supports multiple tasks through **Select tasks → Send by email…**. The composer lists the included tasks and lets you edit recipients, subject and text with a live formatting preview.
+
+The default Bulgarian letter presents numbered tasks, details, expected results, owners, deadlines and states. A shared meeting appears once in the introduction and subject. Quotes and change history are omitted from the default letter. Saving creates one multipart Gmail draft with a plain-text fallback and escaped HTML formatting derived from the edited text; every selected task receives the draft marker. Atlanta never sends the email.

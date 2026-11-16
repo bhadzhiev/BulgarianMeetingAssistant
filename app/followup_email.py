@@ -185,11 +185,13 @@ def addresses(values):
     return result
 
 
-def mime(to, subject, text):
+def mime(to, subject, text, *, html=None):
     message = EmailMessage()
     message['To'] = ', '.join(formataddr(('', email)) for email in to)
     message['Subject'] = subject
     message.set_content(text)
+    if html is not None:
+        message.add_alternative(html, subtype='html')
     return base64.urlsafe_b64encode(message.as_bytes()).decode()
 
 

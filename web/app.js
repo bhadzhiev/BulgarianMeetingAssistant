@@ -21,7 +21,7 @@ function actionBtn(className, label, fn, title) { return btn(className, label, (
 function openMeetingBtn(title, id, className='quiet') { return btn(className, title, () => perform(() => openMeeting(id)), 'Open the meeting'); }
 function emptyNote(text) { return el('p', 'hint empty-note', text); }
 // Inline SVG icons on a 24px grid in the nav-icon style: 2px stroke, currentColor, no fill.
-const ICON_PATHS={quote:'M4 5h6v7H6v3l-3 3M14 5h6v7h-4v3l-3 3',branch:'M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0M6 8v8M18 11c0 4-6 3-12 5',link:'M10 13a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-3 3M14 11a4 4 0 0 0-6 0l-4 4a4 4 0 0 0 6 6l3-3',copy:'M8 8h13v13H8zM16 8V3H3v13h5',plus:'M12 4v16M4 12h16',transcript:'M4 5h16M4 10h10M4 15h16M4 20h10',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',taskAdd:'M4 4h11v5M4 4v16h11v-5M7 9h4M7 13h3M18 10v10M13 15h10',update:'M4 4h16v12H9l-5 4V4zM8 8h8M8 12h5',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-2a8 8 0 0 1 16 0v2',circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18',progress:'M12 3a9 9 0 1 0 9 9M12 3v9h9',blocked:'M6 3h12l3 3v12l-3 3H6l-3-3V6zM12 7v6M12 16v1',verified:'M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4zM8 12l3 3 5-6',warning:'M12 3l10 18H2L12 3zM12 9v5M12 17v1',notes:'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
+const ICON_PATHS={quote:'M4 5h6v7H6v3l-3 3M14 5h6v7h-4v3l-3 3',branch:'M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0M6 8v8M18 11c0 4-6 3-12 5',link:'M10 13a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-3 3M14 11a4 4 0 0 0-6 0l-4 4a4 4 0 0 0 6 6l3-3',copy:'M8 8h13v13H8zM16 8V3H3v13h5',plus:'M12 4v16M4 12h16',transcript:'M4 5h16M4 10h10M4 15h16M4 20h10',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',taskAdd:'M4 4h11v5M4 4v16h11v-5M7 9h4M7 13h3M18 10v10M13 15h10',update:'M4 4h16v12H9l-5 4V4zM8 8h8M8 12h5',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-2a8 8 0 0 1 16 0v2',circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18',progress:'M12 3a9 9 0 1 0 9 9M12 3v9h9',blocked:'M6 3h12l3 3v12l-3 3H6l-3-3V6zM12 7v6M12 16v1',verified:'M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4zM8 12l3 3 5-6',warning:'M12 3l10 18H2L12 3zM12 9v5M12 17v1',notes:'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',flag:'M5 21V3h13l-3 4 3 4H5',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('icon');svg.setAttribute('data-icon',name);const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',ICON_PATHS[name]||ICON_PATHS.sparkle);svg.append(path);return svg;}
 // Status marks never look like controls; compact actions always keep their accessible name.
 function compactAction(button,name,{label=false}={}){
@@ -1852,85 +1852,56 @@ function workReviewBadge(state,item){return ['needs_review','edited'].includes(s
 // The people who work on a shared task: the owner first (accountable), then the others.
 function taskCoAssignees(item){return (item.assignee_person_ids||[]).slice(1).map(id=>(state.people||[]).find(p=>p.id===id)).filter(Boolean);}
 function taskPeopleNames(item){return [item.owner,...taskCoAssignees(item).map(p=>p.name)].filter(Boolean);}
-const openTaskFields=new Set();
-const openTaskFieldKinds=new Map();
 function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={}) {
- let compactMenu=null;
- const [kind,label]=dueInfo(item,today), row=el('div','tracked-task entity-card task-card '+kind);row.dataset.itemId=item.id;const main=el('div','tracked-main'), meta=el('div','tracked-meta'), who=el('span','tracked-owner');
- // The shared card: title and tools, editable facts, optional update; descriptions and sources expand in place.
+ const [kind,label]=dueInfo(item,today),row=el('div','tracked-task entity-card task-card task-list-row '+kind);row.dataset.itemId=item.id;
+ const main=el('div','tracked-main'),meta=el('div','tracked-meta'),who=el('span','tracked-owner');
  const projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
- if(projects.length===1&&projects[0].color){row.classList.add('has-project-line');row.style.setProperty('--project-color',projects[0].color);}
  const co=taskCoAssignees(item);
- who.append(avatar(item.owner||''),...co.slice(0,3).map(p=>avatar(p.name)),el('span','',(item.owner||'No owner')+(co.length?' +'+co.length:'')));
- // A shared task names its owner as accountable and the others apart.
- if(co.length){who.classList.add('shared');who.title='Owner (accountable): '+(item.owner||'none')+' · Also working on it: '+co.map(p=>p.name).join(', ');who.append(el('span','badge shared-badge','Shared'));}
- if(item.owner&&!item.manual?.includes('owner')){
-  if(/^SPEAKER[ _-]?\d+$/i.test(item.owner))who.append(el('span','hint','Unidentified speaker · choose an owner'));
-  else if(item.acceptance_state==='proposed')who.append(el('span','hint','Suggested owner · confirmed when accepted'));
-  else{const confirm=btn('quiet small-action owner-confirm','Confirm owner');confirm.title='Confirm this person as the task owner.';confirm.onclick=()=>perform(()=>changeItem(item,{owner:item.owner}));meta.append(compactAction(confirm,'verified'));}
- }
+ who.append(avatar(item.owner||''),el('span','task-owner-name',(item.owner||'No owner')+(co.length?' +'+co.length:'')));
+ who.title='Owner: '+(item.owner||'none')+(co.length?' · Also working on it: '+co.map(p=>p.name).join(', '):'');
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
- const stateFact=btn('fact-control task-state',stateName),dueFact=btn('fact-control due-label '+kind,label),ownerFact=btn('fact-control owner-fact');ownerFact.append(who);stateFact.setAttribute?.('data-state',AtlantaTasks.workflow(item));stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));dueFact.prepend(icon('calendar'));
+ // Facts are read-only. Opening a task is the single place for editing its owner, state, priority and dates.
+ const stateFact=el('span','task-fact task-state',stateName),dueFact=el('span','task-fact due-label '+kind),ownerFact=el('span','task-fact owner-fact');ownerFact.append(who);
+ stateFact.setAttribute('data-state',AtlantaTasks.workflow(item));stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));
+ dueFact.title=item.due_date?date(item.due_date)+' · '+label:label;
+ dueFact.append(icon('calendar'),el('span','task-due-date',item.due_date?date(item.due_date):label));
+ if(item.due_date)dueFact.append(el('span','task-due-relative',label));
  const priority=item.priority||'normal',priorityLabel=({critical:'Critical',high:'High',normal:'Normal',low:'Low'})[priority]||'Normal';
- const priorityBadge=el('span','task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);meta.append(ownerFact,stateFact,priorityBadge,dueFact,workReviewBadge(item.review_state,item));
- const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item,{compact:true});
- if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
- const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
-
- const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));const titleLine=el('div','task-title-line');titleLine.append(title);if(mailed)titleLine.append(mailed);head.append(titleLine,chips);
- // Description stays available on demand without adding a permanent row to every task.
- const description=String(item.details||'').trim(),panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
- if(description)contextTools.append(cardDisclosure('Description','notes',[taskDescription(description)],panels));
- main.append(head,meta);
- // The last update is a single line; Timeline holds the full text.
+ const priorityBadge=el('span','task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);priorityBadge.prepend(icon('flag'));
+ meta.append(ownerFact,stateFact,priorityBadge,dueFact);
+ const head=el('div','entity-top'),chips=el('div','entity-chips');if(showProject)for(const project of projects){const chip=projectChip(project);chip.title=project.name;chips.append(chip);}
+ const titleLine=el('div','task-title-line');titleLine.append(title);const mailed=emailMark(item,{compact:true});if(mailed)titleLine.append(mailed);
+ const open=compactAction(actionBtn('quiet task-open','Open task',()=>openTaskPanel(item.id)),'external');head.append(titleLine,chips,open);main.append(head,meta);
+ const panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
+ // Fixed slots keep Description and Sources aligned even when a row lacks either piece of context.
+ const description=String(item.details||'').trim();
+ if(description){const control=cardDisclosure('Description','notes',[taskDescription(description)],panels);control.classList.add('task-description-control');contextTools.append(control);}
+ const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
+ if(linked||others.childNodes.length){const control=cardDisclosure('Sources','external',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels);control.classList.add('task-sources-control');contextTools.append(control);}
+ meta.append(contextTools);
+ const notices=el('div','task-row-notices'),review=workReviewBadge(item.review_state,item);if(review)notices.append(review);
+ if(item.legacy_unreviewed&&item.review_state!=='confirmed')notices.append(el('span','badge','Existing task · review gradually'));
+ if(item.follow_up_date)notices.append(el('span','task-follow-up'+(item.follow_up_date<=today?' check-due':''),'Next check · '+date(item.follow_up_date)));
+ if(typeof taskHierarchyBadge==='function'){const hierarchy=taskHierarchyBadge(item);if(hierarchy)notices.append(hierarchy);}
+ if(notices.childNodes.length)main.append(notices);
+ // The comment and all expanded content belong to the task; the row's bottom divider follows them.
+ const update=AtlantaTasks.lastUpdate(item);
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;main.append(box);}
- const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
- if(linked||others.childNodes.length)contextTools.append(cardDisclosure('Sources','external',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels));
- if(contextTools.childNodes.length)meta.append(contextTools);main.append(panels);
- if(item.acceptance_state!=='proposed'){
-  const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
-  const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);
-  const owner=el('select');owner.setAttribute('aria-label','Owner for '+item.text);owner.append(option('No owner',''),...personOptions(people));let oldOwner=item.owner_person_id||'';
-  // An owner name that matches one person shows as that person, not as a second entry with the same name.
-  const ownerPerson=!oldOwner&&item.owner?personFor(item.owner):null;
-  if(!oldOwner&&item.owner&&!ownerPerson){owner.append(option(item.owner+' · not in People','__current__'));oldOwner='__current__';}owner.value=oldOwner||ownerPerson?.id||'';const shownOwner=owner.value;
-  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date for '+item.text);
-  const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up for '+item.text);
-  const commit=(input,previous,changes,message,undo)=>perform(async()=>{if(!validDates(row)){input.value=previous;return;}try{await withEditorSave(row,()=>changeWithUndo(item,changes,message,undo));}catch(e){input.value=previous;throw e;}});
-  const ownerUndo=item.owner_person_id?{owner_person_id:item.owner_person_id}:item.owner?{owner_person_id:null,owner:item.owner}:{owner_person_id:null,owner:null};
-  const dayText=(name,value)=>value?name+': '+date(value):name+' removed';
-  stateSelect.onchange=()=>perform(async()=>{if(stateSelect.value==='cancelled'&&!(await ask('Cancel this task? It leaves active work. You can reopen it later.',{ok:'Cancel task',cancel:'Keep task',danger:true}))){stateSelect.value=AtlantaTasks.workflow(item);return;}await commit(stateSelect,AtlantaTasks.workflow(item),{workflow_state:stateSelect.value},'State: '+AtlantaTasks.STATES[stateSelect.value],{workflow_state:AtlantaTasks.workflow(item)});});
-  owner.onchange=()=>{if(owner.value==='__current__')return;return commit(owner,shownOwner,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null},owner.value?'Owner: '+owner.selectedOptions[0].textContent:'Owner removed',ownerUndo);};
-  due.onchange=()=>commit(due,item.due_date||'',{due_date:due.value||null},dayText('Due date',due.value),{due_date:item.due_date||null});
-  follow.onchange=()=>commit(follow,item.follow_up_date||'',{follow_up_date:follow.value||null},dayText('Next follow-up',follow.value),{follow_up_date:item.follow_up_date||null});
-  const addUpdate=actionBtn('secondary small-action','Add update',()=>openTaskPanel(item.id,{focusUpdate:true}));
-  const timeline=actionBtn('quiet small-action task-timeline','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));quick.append(label('Owner',owner),label('State',stateSelect),label('Due date',due),label('Next check',follow));
-  // The card shows the task; the fields open on request and stay open across a refresh after a save.
-  quick.id='task-fields-'+item.id;quick.hidden=!openTaskFields.has(item.id);
-  const toggle=btn('quiet small-action task-fields-toggle','');toggle.type='button';toggle.setAttribute('aria-controls',quick.id);
-  const showFields=open=>{quick.hidden=!open;for(const [index,part] of [...quick.children].entries())part.hidden=index<4&&openTaskFieldKinds.has(item.id)&&index!==openTaskFieldKinds.get(item.id);toggle.textContent=open?'Hide quick fields':'Quick fields';toggle.setAttribute('aria-expanded',String(open));if(open)openTaskFields.add(item.id);else openTaskFields.delete(item.id);};
-  const closeFields=compactAction(btn('quiet','Close quick fields',()=>{openTaskFieldKinds.delete(item.id);showFields(false);}),'close');quick.append(closeFields);
-  toggle.onclick=()=>{openTaskFieldKinds.delete(item.id);showFields(quick.hidden);};showFields(!quick.hidden);
-  // Progress and updates stay direct; history and multi-field editing are secondary actions.
-  const done=AtlantaTasks.workflow(item)==='cancelled'?actionBtn('secondary small-action','Restore task',()=>changeItem(item,{workflow_state:'todo'})):doneButton(item);if(item.status!=='done'&&AtlantaTasks.workflow(item)!=='cancelled'){done.classList.replace('secondary','primary');done.prepend(icon('check'));}
-  const rowActions=el('div','task-row-actions card-tools');
-  const editTask=actionBtn('quiet','Edit task',()=>openTaskPanel(item.id));
-  rowActions.append(compactAction(done,item.status==='done'?'restore':'check'),compactAction(addUpdate,'update'),compactAction(editTask,'edit'));head.append(rowActions);main.append(quick);compactMenu=[timeline,toggle];
-  const editFact=(field,control)=>{openTaskFieldKinds.set(item.id,{owner:0,state:1,due:2,follow:3}[field]);showFields(true);(control.closest('.date-control')?.querySelector('input:not([type=hidden])')||control).focus();};
-  ownerFact.title='Change owner';stateFact.title='Change state';dueFact.title='Change due date'+(item.due_date?' · '+date(item.due_date):'');
-  ownerFact.onclick=()=>editFact('owner',owner);stateFact.onclick=()=>editFact('state',stateSelect);dueFact.onclick=()=>editFact('due',due);
-  if(item.follow_up_date){const followFact=btn('fact-control follow-up-fact','Check '+date(item.follow_up_date),()=>editFact('follow',follow));followFact.prepend(icon('clock'));if(item.follow_up_date<=today)followFact.classList.add('check-due');meta.append(followFact);}
-  if(compact){row.classList.add('compact-task');if(!showProject)chips.replaceChildren();}
+ main.append(panels);
+ if(compact)row.classList.add('compact-task');
 
- }
- if(item.acceptance_state==='proposed'){for(const fact of [ownerFact,stateFact,dueFact]){fact.disabled=true;fact.classList.add('static-fact');}const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
+ if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','sr-only','Select'));marks.append(pick);}
- // A card without bulk selection (Projects, Prepare me) has no empty selection column.
- if(typeof taskHierarchyBadge==='function'){const hierarchy=taskHierarchyBadge(item);if(hierarchy)meta.append(hierarchy);}
+
  cardLifecycle(row,['done','cancelled'].includes(AtlantaTasks.workflow(item))?'closed':item.acceptance_state==='proposed'?'proposed':'active');
- row.append(...(select?[marks]:[]),main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';const actions=itemActions(item,row);if(compactMenu)actions.prepend(...compactMenu);more.append(trigger,actions);row.append(more);}return row;
+ row.append(...(select?[marks]:[]),main);
+ if(item.acceptance_state!=='proposed'){
+  const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';
+  const actions=itemActions(item,row),timeline=actionBtn('quiet','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));actions.prepend(timeline);more.append(trigger,actions);row.append(more);
+ }
+ return row;
 }
 function taskDescription(text){const node=el('p','task-description',text);node.title=text;return node;}
 // Secondary tools share one disclosure; content and the current action stay outside it.

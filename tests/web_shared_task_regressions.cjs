@@ -5,7 +5,7 @@ const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);ret
 const row=slice('function globalTaskRow(');
 assert.match(row,/const co=taskCoAssignees\(item\);/);
 assert.match(row,/\(co\.length\?' \+'\+co\.length:''\)/);
-assert.match(row,/'Owner \(accountable\): '/);assert.match(row,/el\('span','badge shared-badge','Shared'\)/);
+assert.match(row,/'Owner: '/);assert.match(row,/' · Also working on it: '/);
 // The owner filter finds a shared task under each person on it.
 assert.match(app,/owners=\[\.\.\.new Set\(tasks\.flatMap\(taskPeopleNames\)\)\]/);
 assert.match(app,/taskPeopleNames\(t\)\.includes\(\$\('task-owner'\)\.value\)/);

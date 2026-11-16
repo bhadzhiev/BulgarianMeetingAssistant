@@ -25,9 +25,9 @@ for(const compact of [false,true])for(const withUpdate of [false,true]){
  const item={id:'t',kind:'task',text:'Провери backup',owner:null,links:[],status:'open',acceptance_state:'accepted',email_draft:{saved_at:'2026-11-15',to:['a@example.test']},update:withUpdate?{text:'Backup checked',at:'2026-11-15'}:null};
  c.item=item;c.compact=compact;
  const row=vm.runInContext("globalTaskRow(item,'2026-11-15',{select:false,compact})",c),all=flatten(row),marks=all.filter(n=>n.className==='email-mark');
- const state=all.find(n=>n.className.includes('fact-control task-state')),quick=all.find(n=>n.className==='task-quick-fields');
- assert.equal(quick.hidden,true);state.onclick();assert.equal(quick.hidden,false);assert.equal(quick.children.filter(n=>n.tag==='label'&&!n.hidden).length,1);assert.equal(quick.children[1].children[0].focused,true);
- quick.children.find(n=>n.attrs['aria-label']==='Close quick fields').onclick();assert.equal(quick.hidden,true);
+ const state=all.find(n=>n.className==='task-fact task-state');
+ assert.equal(state.tag,'span');assert.equal(state.onclick,undefined);assert(!all.some(n=>n.tag==='select'||n.tag==='input'||n.className==='task-quick-fields'));
+ const open=all.find(n=>n.attrs['aria-label']==='Open task');assert(open,'the task has an explicit open action');
  assert.equal(marks.length,1);assert.equal(marks[0].parent.className,'task-title-line');assert.equal(marks[0].parent.children[0].textContent,item.text);
  assert.equal(marks[0].children.length,1);assert(marks[0].attrs['aria-label'].includes('Email draft saved in Gmail'));
  assert(!all.filter(n=>['compact-flags','tracked-meta','task-update'].includes(n.className)).some(n=>n.children.includes(marks[0])));

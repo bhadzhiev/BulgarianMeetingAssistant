@@ -16,7 +16,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(c.taskEditUndo(item,{text:'Old title'
 const panel=slice('async function openTaskPanel(','\n}\n');
 assert.match(panel,/if\(changes\.workflow_state==='cancelled'&&!\(await ask\('Cancel this task\? It leaves active work\. You can reopen it later\.',\{ok:'Cancel task',cancel:'Keep task',danger:true\}\)\)\)return;/);
 assert.match(panel,/undoToast\(changes\.workflow_state==='cancelled'\?'Task cancelled':note\?'Task saved · update added':'Task saved'/);
-assert.match(src,/stateSelect\.onchange=\(\)=>perform\(async\(\)=>\{if\(stateSelect\.value==='cancelled'&&!\(await ask\('Cancel this task\?/);
+assert.doesNotMatch(slice('function globalTaskRow(','function taskDescription('),/stateSelect|owner\.onchange|due\.onchange/);
 assert.match(src,/A merge cannot be undone\.',\{ok:'Merge',danger:true\}\)\)\)return;await api\('\/api\/items\/'\+item\.id\+'\/merge'/);
 assert.match(src,/danger:action\.value==='workflow_state'&&value\.value==='cancelled'\}\)\)\)return;/);
 // Other changes: a result message with Undo.

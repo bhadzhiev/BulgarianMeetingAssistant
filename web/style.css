@@ -1959,3 +1959,74 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
  .task-card .tracked-meta>.task-context-tools{margin-left:0}
  .task-card .entity-top>.entity-chips{order:0;flex:0 1 auto;max-width:100%;justify-content:flex-start}
 }
+
+/* Approved task list (2026-11-17): flat rows, aligned facts, editing only inside the task. */
+.tracked-task.task-card.task-list-row,
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.task-list-row{
+ display:grid;grid-template-columns:minmax(0,1fr) 28px;gap:8px;padding:12px 0;margin:0;
+ background:transparent;border:0;border-bottom:1px solid color-mix(in srgb,var(--ink) 9%,transparent);border-radius:0;box-shadow:none;container-type:inline-size
+}
+.task-list-row:last-child{border-bottom:0!important}
+.tracked-task.task-card.task-list-row:has(>.task-row-marks:not(:empty)){grid-template-columns:24px minmax(0,1fr) 28px}
+.task-list-row>.task-row-marks:empty{display:none}
+.tracked-task.task-card.task-list-row>.tracked-main{width:auto;display:flex;flex-direction:column;gap:0;min-width:0}
+.tracked-task.task-card.task-list-row .entity-top{display:grid;grid-template-columns:minmax(0,1fr) 106px 26px;gap:10px;align-items:start;min-height:24px}
+.task-list-row .task-title-line{min-width:0;display:flex;align-items:center;gap:6px;grid-column:1}
+.tracked-task.task-card.task-list-row .entity-top .task-title{font-size:14px;font-weight:600;line-height:1.4;min-width:0;width:auto;white-space:normal;text-align:left;padding:2px 0 0;max-width:100%;-webkit-line-clamp:unset}
+.task-list-row .entity-top>.entity-chips{grid-column:2;grid-row:1;display:flex;flex-direction:column;align-items:stretch;max-width:106px;gap:3px;order:0}
+.task-list-row .entity-chips .project-chip{display:inline-flex;align-items:center;gap:6px;max-width:106px;padding:3px 7px;border:0;border-radius:4px;background:var(--surface-2);color:var(--ink);font-size:11px;font-weight:500;line-height:17px;overflow:hidden;white-space:nowrap}
+.task-list-row .entity-chips .project-dot{width:6px;height:6px;flex:none}
+.task-list-row .task-open{grid-column:3;grid-row:1;justify-self:end}
+.task-list-row .task-open.card-action{border:0;background:transparent}
+.tracked-task.task-card.task-list-row .tracked-meta{display:grid;grid-template-columns:190px 80px 80px minmax(160px,1fr) 64px;gap:4px 12px;align-items:center;margin:13px 0 0;min-height:24px}
+.tracked-task.task-card.task-list-row .tracked-meta>*{min-width:0;margin:0;padding:0;border:0}
+.task-list-row .task-fact{display:flex;align-items:center;gap:6px;min-height:24px;font-size:12px;line-height:1.4;color:var(--muted)}
+.task-list-row .task-fact>.icon,.task-list-row .task-priority>.icon{width:14px;height:14px;flex:none}
+.task-list-row .owner-fact .tracked-owner{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;min-width:0;font-size:12px}
+.tracked-task.task-card.task-list-row .tracked-owner .speaker-badge{width:20px;height:20px;min-width:20px;font-size:9px}
+.task-list-row .task-owner-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-list-row .task-priority{font-size:12px;font-weight:400;min-height:24px;gap:6px;align-items:center}
+.task-list-row .task-priority::before{display:none}
+.tracked-task.task-card.task-list-row .tracked-meta>.due-label{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:3px 5px;padding:0;margin:0;border:0;border-radius:0;background:transparent;font-size:12px;font-weight:400;color:var(--muted)}
+.task-list-row .task-due-date{color:var(--ink);white-space:nowrap}
+.task-list-row .task-due-relative{font-size:11px;white-space:nowrap}
+.task-list-row .task-due-relative::before{content:'· ';color:var(--muted)}
+.task-list-row.overdue .task-due-relative{color:var(--action-danger)}
+.task-list-row.today .task-due-relative{color:var(--warn-ink)}
+.tracked-task.task-card.task-list-row .tracked-meta>.task-context-tools{display:grid;grid-template-columns:28px 28px;gap:8px;width:64px;justify-self:end;margin:0;align-items:center}
+.task-list-row .task-description-control{grid-column:1;grid-row:1}
+.task-list-row .task-sources-control{grid-column:2;grid-row:1}
+.task-list-row .task-context-tools>.card-action{border:0;background:transparent}
+.task-list-row .task-row-notices{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);margin-top:6px}
+.task-list-row .task-update{display:flex;align-items:baseline;gap:6px;padding:0;margin:6px 0 0;border:0;background:transparent;border-radius:0}
+.task-list-row .task-update>.icon{align-self:center;flex:none;width:14px;height:14px}
+.task-list-row .task-update .task-last-line{flex:1;min-width:0;font-size:12px;line-height:1.45;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.task-list-row .task-update .task-last-when{font-size:11px;white-space:nowrap}
+.task-list-row .card-expansions{margin:0}
+.task-list-row .card-expansion-panel{margin-top:6px;padding:0;border:0}
+.task-list-row .proposal-actions{margin-top:6px}
+.task-list-row>.task-more{grid-row:1;grid-column:2;margin:0;align-self:start;justify-self:end}
+.task-list-row:has(>.task-row-marks:not(:empty))>.task-more{grid-column:3}
+@container(max-width:700px){
+ .tracked-task.task-card.task-list-row .tracked-meta{grid-template-columns:minmax(0,1.4fr) 80px 80px;gap:4px 10px}
+ .task-list-row .tracked-meta>.due-label{grid-column:1/3;grid-row:2}
+ .task-list-row .tracked-meta>.task-context-tools{grid-column:3;grid-row:2}
+}
+@container(max-width:430px){
+ .tracked-task.task-card.task-list-row .entity-top{grid-template-columns:minmax(0,1fr) 26px;gap:5px 8px}
+ .task-list-row .entity-top>.entity-chips{grid-column:1;grid-row:2;max-width:100%;flex-direction:row;flex-wrap:wrap}
+ .task-list-row .task-open{grid-column:2}
+ .tracked-task.task-card.task-list-row .tracked-meta{grid-template-columns:minmax(0,1fr) 72px 72px;margin-top:11px}
+ .task-list-row .task-update{flex-wrap:wrap}
+ .task-list-row .task-update .task-last-line{flex-basis:100%}
+}
+/* Smaller supporting actions preserve the approved two-line row on fine pointers. */
+.tracked-task.task-card.task-list-row .tracked-meta>.task-priority{min-height:24px}
+.task-list-row :is(.task-open,.task-context-tools>.card-action){height:24px!important;min-height:24px!important;max-height:24px!important;width:28px!important;min-width:28px!important;padding:0!important}
+.task-list-row .task-open>.icon{width:14px;height:14px}
+@media(pointer:coarse){.task-list-row :is(.task-open,.task-context-tools>.card-action){height:32px!important;min-height:32px!important;max-height:32px!important}}
+/* Selection reserves one small track without changing the content column. */
+.tracked-task.task-card.task-list-row:has(.task-pick),
+:is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.task-list-row:has(.task-pick){grid-template-columns:24px minmax(0,1fr) 28px}
+.tracked-task.task-card.task-list-row>.task-row-marks{width:24px;min-width:0}
+.task-list-row .task-pick{width:24px;display:flex;justify-content:center;min-height:24px}

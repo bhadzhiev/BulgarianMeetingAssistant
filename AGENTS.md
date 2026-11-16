@@ -91,8 +91,10 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
 - Comments in this repo explain **why** (product decisions, invariants), not what. A comment
   citing a dated decision is intentional — keep it current when the code changes.
 - CSS: single `style.css`, section comments, themed via `var(--…)` (dark/light). No frameworks.
-- Every task/decision/question has exactly one card pattern shared between My Work, projects
-  and meeting views — reuse it instead of inventing a variant.
+- Reuse the shared renderer for each item kind. Persistent tasks use flat, read-only list rows
+  in My Work and project views: title/project, aligned facts, optional update/context, bottom divider.
+  Open the task editor to change facts; do not restore inline task fields. Decisions, questions and
+  uncreated meeting-note suggestions keep their own shared patterns.
 
 ## Workflow
 

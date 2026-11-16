@@ -24,8 +24,8 @@ assert.match(css,/#task-panel \.task-section\[open\]>summary \.task-section-summ
 assert.doesNotMatch(app,/taskDensity|task-density|\[\['compact','Compact'\],\['cards','Cards'\]\]/);
 assert.match(app,/const compact=true;/);
 const row=slice('function globalTaskRow(');
-assert.match(row,/compactMenu=\[timeline,toggle\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
-assert.match(row,/if\(compactMenu\)actions\.prepend\(\.\.\.compactMenu\);/);
+assert.match(row,/if\(showProject\)for\(const project of projects\)/);assert.doesNotMatch(row,/task-quick-fields|openTaskFields/);
+assert.match(row,/actions\.prepend\(timeline\)/);
 // Selection starts on request in the unified view.
 assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);
 assert.match(slice('function renderBulkTasks(){'),/taskSelecting\?'Done selecting':'Select tasks'/);

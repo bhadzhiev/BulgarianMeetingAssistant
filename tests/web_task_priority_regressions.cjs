@@ -3,8 +3,8 @@ const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.cs
 const card=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function decisionRow('));
 const badge=card.slice(card.indexOf(" const priority=item.priority"),card.indexOf(' const update=AtlantaTasks.lastUpdate'));
 for(const [priority,label] of [['critical','Critical'],['high','High'],['normal','Normal'],['low','Low'],[undefined,'Normal']]){
- const nodes=[],c=vm.createContext({item:{priority},el:(tag,cls,text)=>({tag,cls,text,setAttribute(k,v){this[k]=v}}),meta:{append(n){nodes.push(n)}}});
- vm.runInContext(badge,c);assert.equal(nodes[0].text,label);assert.equal(nodes[0]['aria-label'],'Priority: '+label);
+ const nodes=[],c=vm.createContext({item:{priority},ownerFact:null,stateFact:null,dueFact:null,workReviewBadge:()=>null,el:(tag,cls,text)=>({tag,cls,text,setAttribute(k,v){this[k]=v}}),meta:{append(...n){nodes.push(...n)}}});
+ vm.runInContext(badge,c);assert.equal(nodes[2].text,label);assert.equal(nodes[2]['aria-label'],'Priority: '+label);
 }
 const undo=app.slice(app.indexOf('function taskEditUndo('),app.indexOf('\n}',app.indexOf('function taskEditUndo('))+2);
 const c=vm.createContext({AtlantaTasks:{workflow:i=>i.workflow_state||'todo'}});vm.runInContext(undo,c);

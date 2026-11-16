@@ -29,9 +29,10 @@ class MeetingEmailTests(unittest.TestCase):
         directory = self.s.library.directory(self.mid)
         notes = minutes('Accepted work', 'Suggested work')
         notes.update(summary=[dict(text='Public unchecked summary', review='ai')],
-                     decisions=[dict(text='Verified decision', review='verified'), dict(text='Decision awaiting confirmation')],
+                     decisions=[dict(text='Verified decision', review='verified', rationale='Public decision rationale'), dict(text='Decision awaiting confirmation')],
                      discussion=[dict(topic='Environment', points=[dict(text='Public discussion')])],
                      custom_1=[dict(text='Public additional notes')],
+                     open_questions=[dict(text='Public question', context='Public question context')],
                      observations=[dict(text='PRIVATE OBSERVATION')])
         for field, rows in notes.items():
             for row in rows:
@@ -49,7 +50,7 @@ class MeetingEmailTests(unittest.TestCase):
     def test_public_notes_tasks_and_decisions_are_shared_without_private_observations(self):
         body = self.prepare()['body']
         for text in ['Public unchecked summary', 'Public discussion', 'Public additional notes', 'Verified decision',
-                     'Decision awaiting confirmation', 'Accepted work', 'Suggested work']:
+                     'Decision awaiting confirmation', 'Accepted work', 'Suggested work', 'Public decision rationale', 'Public question context']:
             self.assertIn(text, body)
         self.assertIn('Задачи в My Work:', body)
         self.assertIn('Предложения за задачи — още не са приети:', body)

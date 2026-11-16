@@ -56,7 +56,8 @@ def template(service, meeting: dict) -> dict:
             lines.extend(['', title + ':', ''] + ['- ' + text for text in rows])
 
     def texts(field):
-        return [row['text'] for row in minutes.get(field, []) if isinstance(row, dict) and row.get('text')]
+        return [row['text'] + ('\n  Контекст: ' + row['context'] if row.get('context') else '')
+                for row in minutes.get(field, []) if isinstance(row, dict) and row.get('text')]
 
     section('Обобщение', texts('summary'))
     for topic in minutes.get('discussion', []):
@@ -74,7 +75,7 @@ def template(service, meeting: dict) -> dict:
         if text and text not in seen:
             seen.add(text)
             (decisions if (item.get('status') == 'accepted' if item else note.get('review') == 'verified')
-             else proposed_decisions).append(text)
+             else proposed_decisions).append(text + ('\n  Основание: ' + note['rationale'] if note.get('rationale') else ''))
     section('Решения', decisions)
     section('Решения от бележките — за потвърждение', proposed_decisions)
     tasks, suggestions, seen = [], [], set()
@@ -102,6 +103,9 @@ def template(service, meeting: dict) -> dict:
         ordered = [t for t in tasks if t.get('parent_task_id') not in selected]
         for number, task in enumerate(ordered, 1):
             block = task_email._block(service, task, number, full=False)
+            parent = service.items.items.get(task.get('parent_task_id'))
+            if parent and parent['id'] not in selected:
+                block.insert(1, 'Основна задача: ' + parent['text'])
             lines.extend([line for line in block if not line.startswith('От срещата:')])
             lines.append('')
             for index, child in enumerate([t for t in tasks if t.get('parent_task_id') == task['id']], 1):

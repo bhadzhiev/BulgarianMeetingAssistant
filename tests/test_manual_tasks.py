@@ -60,6 +60,28 @@ class ManualTaskTests(unittest.TestCase):
         task=self.create(completion_criteria='  Restore работи на staging  ')
         self.assertEqual(task['completion_criteria'],'Restore работи на staging');self.assertIn('completion_criteria',task['manual'])
         self.assertNotIn('completion_criteria',self.create(request_id='b'*32,completion_criteria='  ')['manual'])
+    def test_priority_persists_edits_history_and_idempotent_retry(self):
+        task=self.create(priority='high')
+        self.assertEqual(task['priority'],'high')
+        self.assertEqual(self.create(priority='high')['id'],task['id'])
+        with self.assertRaises(WorkItemConflict):self.create(priority='low')
+        updated=self.service.update_item(task['id'],task['text'],{'priority':'critical'},task['revision'])
+        self.assertEqual(updated['priority'],'critical')
+        self.assertEqual(updated['history'][-1]['changes']['priority'],['high','critical'])
+        self.assertEqual(Registry(self.service.items.path).items[task['id']]['priority'],'critical')
+        self.assertEqual(self.create(request_id='b'*32)['priority'],'normal')
+
+    def test_invalid_priorities_do_not_create_or_change_tasks(self):
+        task=self.create()
+        for value in ['urgent','',None,1,[],{}]:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):self.create(priority=value,request_id='b'*32)
+                with self.assertRaises(ValueError):self.service.update_item(task['id'],task['text'],{'priority':value},task['revision'])
+        self.assertEqual(len(self.service.item_list()['items']),1)
+        legacy=copy.deepcopy(task);legacy.pop('priority')
+        from app.work_items import normalize
+        self.assertEqual(normalize(legacy)['priority'],'normal')
+
     def test_invalid_inputs_and_busy_meeting_never_create(self):
         for change in [dict(text=' '),dict(text='x'*1001),dict(owner=42),dict(completion_criteria=7),dict(completion_criteria='x'*5001),dict(due_date='2026-02-30'),dict(due_date='20261110'),dict(project_id='missing'),dict(meeting_id='missing'),dict(request_id='bad')]:
             with self.subTest(change=change),self.assertRaises((ValueError,FileNotFoundError)):self.create(**change)

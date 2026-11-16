@@ -18,9 +18,9 @@ function setup(){
  const projectContext=setup();vm.runInContext("view='projects';contextProject=()=> 'workspace-project';",projectContext.c);await vm.runInContext('openManualTask()',projectContext.c);assert.equal(projectContext.fields().Project.value,'workspace-project');
  const f=setup();await vm.runInContext("openManualTask('meeting')",f.c);const fields=f.fields(),[save,cancel]=f.actions();
  assert.equal(fields.Meeting.value,'meeting');assert.equal(fields.Project.value,'project');
- fields.Title.value='Провери Kubernetes backup';fields.Owner.value='p1';fields['Due date'].value='2026-11-10';
+ assert.equal(fields.Priority.value,'normal');fields.Priority.value='high';fields.Title.value='Провери Kubernetes backup';fields.Owner.value='p1';fields['Due date'].value='2026-11-10';
  const pending=save.onclick();await Promise.resolve();await save.onclick();assert.equal(f.requests.length,1);assert(f.nodes['manual-task-body'].inert);
- const body=f.requests[0].body;assert.equal(body.text,'Провери Kubernetes backup');assert.equal(body.owner,'Иван');assert.equal(body.meeting_id,'meeting');assert.equal(body.project_id,'project');assert.equal(body.request_id.length,32);
+ const body=f.requests[0].body;assert.equal(body.priority,'high');assert.equal(body.text,'Провери Kubernetes backup');assert.equal(body.owner,'Иван');assert.equal(body.meeting_id,'meeting');assert.equal(body.project_id,'project');assert.equal(body.request_id.length,32);
  f.finish();await pending;assert.equal(f.nodes['manual-task-dialog'].open,false);
  const g=setup();await vm.runInContext('openManualTask()',g.c);g.fields().Title.value='Самостоятелна задача';
  let job=g.actions()[0].onclick();await Promise.resolve();g.finish(new Error('Network lost'));await job;assert(g.nodes['manual-task-dialog'].open);assert.equal(g.fields().Title.value,'Самостоятелна задача');

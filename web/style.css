@@ -1941,3 +1941,10 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 .meeting-task-legend{margin:8px 0 16px;line-height:1.6}
 
 #followup-preview .email-preview-heading,#task-email-preview .email-preview-heading{font:600 17px/1.5 Arial,Helvetica,sans-serif;color:#172b4d;margin:24px 0 12px}
+
+/* Task priority is a small text fact, independent of deadline and workflow state. */
+.task-priority{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+.task-priority::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.task-priority.critical{color:var(--red)}
+.task-priority.high{color:var(--warn-ink)}
+.task-priority.normal::before{display:none}

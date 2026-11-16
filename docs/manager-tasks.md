@@ -135,3 +135,11 @@ Meeting notes label accepted linked tasks **Task in My Work**, pending registry 
 **Email meeting…** beside Add task opens a deterministic Bulgarian letter containing the saved public summary, discussion and meeting-type sections, decisions, tasks, task suggestions, questions and next steps. It works without an accepted task. Pending decisions and task suggestions are labelled separately; private observations and team analysis are never included. Stale notes must be updated first. This sharing template is separate from the reviewed-only AI Follow-up email in the meeting menu.
 
 Participants identified from the transcript and People are preselected, with one address per person. The connected Gmail account and all addresses in its People profile, plus the profile selected with **This is me**, are excluded from the recipient picker and rechecked on save. Participants without a known email are listed for manual completion. Other contacts and manually entered addresses remain available. The user can edit the text and preview its formatting before saving one HTML/plain-text Gmail draft; Atlanta never sends it. Each saved letter ends with **Генерирано от АТЛАНТА**. Meeting-sharing drafts have their own saved draft reference, separate from the reviewed-only follow-up.
+
+### Task priority
+
+The shared New task dialog and task editor offer Critical, High, Normal (default), and Low.
+The shared task card always shows the priority as text: red for Critical, amber for High,
+and neutral for Normal/Low, without a colored card background or glow. Priority is a manual
+choice independent of due date and state; AI drafting does not set it. Existing tasks default
+to Normal. Source linking keeps the existing task's priority. Editing priority supports Undo.

@@ -39,7 +39,7 @@ const c=vm.createContext({detail:{minutes_revision:'notes-v1'},taskEvidenceTarge
 vm.runInContext(app.slice(app.indexOf('function btn('),app.indexOf('function option(')),c);
 vm.runInContext(slice('async function openManualTask(',"$('new-task').onclick="),c);
 (async()=>{
- await vm.runInContext("openManualTask('meeting',{text:'Изпрати оферта',details:'До петък',owner:'Иван',due:'',mention:2})",c);
+ await vm.runInContext("openManualTask('meeting',{priority:'normal',text:'Изпрати оферта',details:'До петък',owner:'Иван',due:'',mention:2})",c);
  const body=nodes['manual-task-body'],fields=Object.fromEntries(body.children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  // A name from the notes that is not in People stays as said.
  assert.deepEqual([fields.Title.value,fields.Description.value,fields.Owner.value,fields.Meeting.value,fields.Meeting.disabled],['Изпрати оферта','До петък','__named__','meeting',true]);
@@ -47,6 +47,6 @@ vm.runInContext(slice('async function openManualTask(',"$('new-task').onclick=")
  const buttons=body.children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Draft with AI…','Improve with AI','Create task']);
  await buttons[3].onclick();
  assert.equal(requests[0].path,'/api/items/create');
- assert.deepEqual({...requests[0].body,request_id:''},{text:'Изпрати оферта',details:'До петък',owner:'Иван',due_date:null,meeting_id:'meeting',project_id:null,request_id:'',mention_index:2,minutes_revision:'notes-v1'});
+ assert.deepEqual({...requests[0].body,request_id:''},{priority:'normal',text:'Изпрати оферта',details:'До петък',owner:'Иван',due_date:null,meeting_id:'meeting',project_id:null,request_id:'',mention_index:2,minutes_revision:'notes-v1'});
  console.log('Manual meeting tasks PASS: setting, Create task on a notes line, hidden proposals, quiet checklist, linked editor.');
 })().catch(e=>{console.error(e);process.exitCode=1});

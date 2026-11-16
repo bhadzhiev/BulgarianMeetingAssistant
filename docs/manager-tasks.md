@@ -144,7 +144,15 @@ and neutral for Normal/Low, without a colored card background or glow. Priority 
 choice independent of due date and state; AI drafting does not set it. Existing tasks default
 to Normal. Source linking keeps the existing task's priority. Editing priority supports Undo.
 
-Task cards keep Description and Sources controls together on the facts row. Their content opens
-in a separate full-width row below, with only one panel open at a time; the controls stay in place.
-The working facts read Owner → State → Priority → Due date. Project belongs beside the title;
-Description and Sources form a separate group at the end of the facts row.
+### Task list layout
+
+Tasks share a flat list row in My Work and project views: title and a compact project label,
+then fixed columns for Owner → State → Priority → Due date → Description/Sources controls.
+Facts are read-only; the title or Open task opens the task editor. There are no inline owner,
+state or date editors and no instant completion action in the list. Selection, proposal review,
+source playback and the secondary task menu remain available. Shared ownership shows +N beside
+the accountable owner, with the names in its tooltip.
+
+Description and Sources have fixed slots and mutually exclusive expansion panels. The last
+update, expanded context and review notices stay within the task row, above its subtle bottom
+divider. Narrow containers wrap the same columns into a consistent two-line facts layout.

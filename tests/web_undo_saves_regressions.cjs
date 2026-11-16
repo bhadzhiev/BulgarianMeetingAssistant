@@ -5,18 +5,14 @@ const handler=(start,end)=>{const at=source.indexOf(start);assert.notEqual(at,-1
 
 // A control that saves at once says so and offers Undo.
 const instant={
- 'task state, owner and dates':handler("const commit=(input,previous,changes,message,undo)","const addUpdate="),
  'review project':handler("project.onchange=()=>perform(","const projectLabel="),
  'review destination':handler("destination.onchange=()=>perform(","const destinationLabel="),
  'series type':handler("type.onchange=()=>perform(async()=>{const previous=entry.type","line.insertBefore(type,rename)"),
  'project color':handler("color.onchange=()=>perform(","line.insertBefore(color,rename)"),
 };
 for(const [name,code] of Object.entries(instant))assert.match(code,/undoToast\(|changeWithUndo\(/,name+' must offer Undo');
-// Every quick task field passes its own message and the value that Undo restores.
-const task=instant['task state, owner and dates'];
-for(const [field,undo] of [['stateSelect','{workflow_state:AtlantaTasks.workflow(item)}'],['owner','ownerUndo'],['due','{due_date:item.due_date||null}'],['follow','{follow_up_date:item.follow_up_date||null}']]){
- const line=task.split('\n').find(l=>l.trimStart().startsWith(field+'.onchange='));assert(line,field);assert(line.includes(','+undo+')'),field+' restores its old value');
-}
+// Task facts no longer save instantly: edits happen in the task editor, with its existing Undo.
+assert.doesNotMatch(handler('function globalTaskRow(','function taskDescription('),/stateFact.onclick|ownerFact.onclick|dueFact.onclick|stateSelect/);
 // The punctuation-based question checkbox no longer creates an instant-save workflow.
 assert.doesNotMatch(source,/toggle\.onchange=\(\)=>perform\(/);
 

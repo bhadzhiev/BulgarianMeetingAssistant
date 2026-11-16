@@ -1,9 +1,9 @@
 const fs=require('node:fs'),assert=require('node:assert/strict'),vm=require('node:vm');
 const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.css','utf8');
 const card=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function decisionRow('));
-const badge=card.slice(card.indexOf(" const priority=item.priority"),card.indexOf(' const update=AtlantaTasks.lastUpdate'));
+const badge=card.slice(card.indexOf(" const priority=item.priority"),card.indexOf(' const head=el('));
 for(const [priority,label] of [['critical','Critical'],['high','High'],['normal','Normal'],['low','Low'],[undefined,'Normal']]){
- const nodes=[],c=vm.createContext({item:{priority},ownerFact:null,stateFact:null,dueFact:null,workReviewBadge:()=>null,el:(tag,cls,text)=>({tag,cls,text,setAttribute(k,v){this[k]=v}}),meta:{append(...n){nodes.push(...n)}}});
+ const nodes=[],c=vm.createContext({item:{priority},ownerFact:null,stateFact:null,dueFact:null,workReviewBadge:()=>null,icon:()=>null,el:(tag,cls,text)=>({tag,cls,text,prepend(){},setAttribute(k,v){this[k]=v}}),meta:{append(...n){nodes.push(...n)}}});
  vm.runInContext(badge,c);assert.equal(nodes[2].text,label);assert.equal(nodes[2]['aria-label'],'Priority: '+label);
 }
 const undo=app.slice(app.indexOf('function taskEditUndo('),app.indexOf('\n}',app.indexOf('function taskEditUndo('))+2);

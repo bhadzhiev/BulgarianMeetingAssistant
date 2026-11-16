@@ -6,13 +6,10 @@ const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function
 assert.match(app,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,/);
 assert.match(app,/parts\.push\(label\('Title',text\),label\('Description',details\),label\('Expected result',criterion\),grid\);/);
 assert.match(app,/parts\.push\(status,note,actions\);box\.append\(\.\.\.parts\);/);
-assert.match(row,/label\('Owner',owner\),label\('State',stateSelect\),label\('Due date',due\)/);
-// The compact card: title/tools, editable facts and on-demand fields. The draft icon stays next to the title.
-assert.match(row,/titleLine\.append\(title\);if\(mailed\)titleLine\.append\(mailed\);head\.append\(titleLine,chips\)/);
-assert.doesNotMatch(row,/flags\.append\(mailed/);
+// The list is read-only; the title and Open task action open the full editor.
+assert.match(row,/ownerFact=el\('span','task-fact owner-fact'\)/);
+assert.match(row,/actionBtn\('quiet task-open','Open task',\(\)=>openTaskPanel\(item.id\)\)/);
+assert.doesNotMatch(row,/task-quick-fields|stateSelect|rowActions/);
+assert.match(row,/if\(mailed\)titleLine\.append\(mailed\)/);
 assert.match(css,/\.task-title-line>\.email-mark\{flex:none;/);
-assert.doesNotMatch(css,/\.compact-flags>\.email-mark/);
-console.log('Compact task card PASS: Title and Description labels, editable facts, direct tools and compact spacing.');
-assert.match(row,/ownerFact=btn\('fact-control owner-fact'\)/);
-assert.match(row,/rowActions\.append\(compactAction\(done/);
-assert.match(css,/padding:10px 12px;margin:0 0 6px/);
+console.log('Compact task list PASS: one editor, read-only facts and a stable saved-email mark.');

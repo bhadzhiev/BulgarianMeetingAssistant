@@ -1,19 +1,10 @@
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const app=fs.readFileSync('web/app.js','utf8');
-const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function decisionRow('));
-// The quick fields start closed, open with one button, and stay open after the refresh that a save causes.
-assert.match(app,/const openTaskFields=new Set\(\);\nconst openTaskFieldKinds=new Map\(\);\nfunction globalTaskRow\(/);
-assert.match(row,/quick\.hidden=!openTaskFields\.has\(item\.id\)/);
-assert.match(row,/toggle\.textContent=open\?'Hide quick fields':'Quick fields'/);
-assert.match(row,/toggle\.setAttribute\('aria-expanded',String\(open\)\)/);
-assert.match(row,/if\(open\)openTaskFields\.add\(item\.id\);else openTaskFields\.delete\(item\.id\)/);
-// Mark done, Add update, Timeline and Edit stay on the card; only the fields open with Edit.
-assert.match(row,/rowActions\.append\(compactAction\(done,[^;]+compactAction\(addUpdate,'update'\)/);
-assert.doesNotMatch(row,/fieldActions/);
-// An owner name without a People entry says so in plain words.
-assert.match(row,/' · not in People'/);assert.doesNotMatch(row,/current name/);
-// A matching People entry is selected instead of a second option with the same name; Undo restores the plain name.
-assert.match(row,/const ownerPerson=!oldOwner&&item\.owner\?personFor\(item\.owner\):null/);
-assert.match(row,/if\(!oldOwner&&item\.owner&&!ownerPerson\)/);
-assert.match(row,/ownerUndo=item\.owner_person_id\?\{owner_person_id:item\.owner_person_id\}:item\.owner\?\{owner_person_id:null,owner:item\.owner\}/);
-console.log('Task card PASS: fields closed by default, one toggle, open state kept, plain owner label.');
+const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function taskDescription('));
+assert.doesNotMatch(row,/task-quick-fields|openTaskFields|stateSelect|editFact|stateFact.onclick|ownerFact.onclick|dueFact.onclick|doneButton/);
+for(const field of ['stateFact','dueFact','ownerFact'])assert.match(row,new RegExp(field+"=el\\('span'"));
+assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact\)/);
+assert.match(row,/const title=actionBtn\([^\n]+openTaskPanel\(item.id\)/);
+assert.match(row,/'Open task',\(\)=>openTaskPanel\(item.id\)/);
+assert.match(row,/actions\.prepend\(timeline\)/);
+console.log('Task list PASS: static facts, one task editor, no inline mutations, timeline remains accessible.');

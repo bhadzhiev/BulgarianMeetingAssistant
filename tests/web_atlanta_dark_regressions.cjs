@@ -10,6 +10,6 @@ assert.match(css,/\.manager-view-button\.manager-view-button\[aria-pressed=true\
 assert.match(css,/\.project-chip\.project-chip\{background:var\(--surface\)\}/);
 // Task states carry data-state and one colour each.
 for(const s of ['todo','in_progress','done','waiting','cancelled'])assert.match(css,new RegExp('\\[data-state='+s+'\\]\\{color:var\\(--state-'));
-assert.match(app,/status\.setAttribute\?\.\('data-state',workflow\)/);assert.match(app,/stateFact\.setAttribute\?\.\('data-state',AtlantaTasks\.workflow\(item\)\)/);
+assert.match(app,/status\.setAttribute\?\.\('data-state',workflow\)/);assert.match(app,/stateFact\.setAttribute\('data-state',AtlantaTasks\.workflow\(item\)\)/);
 assert.match(app,/const PROJECT_PALETTE=\['#79afff','#79c995','#d9c56f','#d97bac','#b69af5','#e6a36b','#64c7ba','#d98282','#929d96'\]/);
 console.log('Atlanta Dark PASS: palette tokens, no Matrix green or texture, neutral labels and switches, state colours, project palette.');

@@ -3,9 +3,9 @@ const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.cs
 const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 const row=slice('function globalTaskRow(','\nfunction ');
 // A task is a shared card: project chips beside the title, one project draws its line.
-assert.match(row,/row=el\('div','tracked-task entity-card task-card '\+kind\)/);
-assert.match(row,/if\(projects\.length===1&&projects\[0\]\.color\)\{row\.classList\.add\('has-project-line'\)/);
-assert.match(row,/const head=el\('div','entity-top'\),chips=el\('div','entity-chips'\);for\(const project of projects\)chips\.append\(projectChip\(project\)\);const titleLine=el\('div','task-title-line'\);titleLine\.append\(title\);if\(mailed\)titleLine\.append\(mailed\);head\.append\(titleLine,chips\);/);
+assert.match(row,/row=el\('div','tracked-task entity-card task-card task-list-row '\+kind\)/);
+assert.doesNotMatch(row,/'has-project-line'/);
+assert.match(row,/head\.append\(titleLine,chips,open\)/);
 // Owner, state and due date in one row; the last update is one line in its box.
 assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact/);
 assert.match(row,/last=el\('p','task-last-line'\)/);assert.doesNotMatch(row,/markdownBlock\(update\.text\)/);

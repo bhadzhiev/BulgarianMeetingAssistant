@@ -26,7 +26,7 @@ assert.match(app,/section\.hidden=!minutes\.tasks\.length/);
 // Selection is explicit in Cards as well as Compact. Sources and history remain reachable.
 assert.match(slice('function renderBulkTasks(){','// Only the Tasks'),/if\(!taskSelection\.size&&!bulkPending\)/);
 assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0/);
-assert.match(app,/el\('details','task-card-sources'\)/);
+assert.match(app,/cardDisclosure\('Sources','external'/);
 assert.match(app,/compactMenu=\[timeline,toggle\]/);
 assert.doesNotMatch(slice('async function openMeetingReview(','// The publication state'),/What Atlanta understood|review-summary/);
 console.log('UI simplification PASS: Review routes, pending reviews, analytics without question chores, explicit selection and retained sources.');

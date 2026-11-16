@@ -1881,13 +1881,15 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
 
  const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));const titleLine=el('div','task-title-line');titleLine.append(title);if(mailed)titleLine.append(mailed);head.append(titleLine,chips);meta.append(chips);
  // Description stays available on demand without adding a permanent row to every task.
- const description=String(item.details||'').trim();
- main.append(head,meta);if(description){const descriptionBox=el('details','card-description');const summary=el('summary','detail-control');summary.title='Description';summary.setAttribute('aria-label','Description');summary.append(icon('notes'),el('span','sr-only','Description'));descriptionBox.append(summary,taskDescription(description));meta.append(descriptionBox);}
+ const description=String(item.details||'').trim(),panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
+ if(description)contextTools.append(cardDisclosure('Description','notes',[taskDescription(description)],panels));
+ main.append(head,meta);
  // The last update is a single line; Timeline holds the full text.
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;main.append(box);}
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
- if(linked||others.childNodes.length){const sources=el('details','task-card-sources');const summary=el('summary','detail-control');summary.title='Sources';summary.setAttribute('aria-label','Sources');summary.append(icon('external'),el('span','sr-only','Sources'));sources.append(summary);if(linked)sources.append(linked);if(others.childNodes.length)sources.append(others);meta.append(sources);}
+ if(linked||others.childNodes.length)contextTools.append(cardDisclosure('Sources','external',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels));
+ if(contextTools.childNodes.length)meta.append(contextTools);main.append(panels);
  if(item.acceptance_state!=='proposed'){
   const quick=el('div','task-quick-fields'),label=(text,input)=>{const l=el('label','hint',text);l.append(input);return l;};
   const stateSelect=el('select');stateSelect.setAttribute('aria-label','State for '+item.text);stateSelect.append(...Object.entries(AtlantaTasks.STATES).map(([key,name])=>option(name,key)));stateSelect.value=AtlantaTasks.workflow(item);

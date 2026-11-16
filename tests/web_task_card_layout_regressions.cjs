@@ -4,7 +4,7 @@ const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.
 const row=slice('function globalTaskRow(','function decisionRow(');
 // A task is a title and a description: the card, the meeting task and the review card show the description.
 assert.match(app,/function taskDescription\(text\)\{const node=el\('p','task-description',text\);node\.title=text;return node;\}/);
-assert.match(row,/descriptionBox\.append\(summary,taskDescription\(description\)\);meta\.append\(descriptionBox\)/);
+assert.match(row,/contextTools\.append\(cardDisclosure\('Description','notes',\[taskDescription\(description\)\],panels\)\)/);
 assert.match(slice('function taskRow(','function renderNotes('),/meta\.append\(cardDisclosure\('Description','notes',\[taskDescription\(description\)\],panels\)\)/);
 assert.match(app,/if\(item\.details\)meta\.append\(cardContext\('Description','notes',\[taskDescription\(item\.details\)\]\)\)/);
 // An update of the notes shows a new description as part of the task change.
@@ -16,6 +16,12 @@ assert.match(row,/if\(mailed\)titleLine\.append\(mailed\)/);
 assert.doesNotMatch(row,/(?:meta|box|flags)\.append\(mailed\)/);
 // Meetings are rows; the other sources keep their chips.
 assert.match(row,/linked=taskMeetingList\(item,itemsData\.meetings\),others=sourceChips\(item,itemsData\.meetings,\{withMeetings:false\}\)/);
+// Context controls stay together on the facts line; the shared disclosure helper owns separate, exclusive panels.
+assert.match(row,/contextTools=el\('div','task-context-tools'\)/);
+assert.match(row,/contextTools\.append\(cardDisclosure\('Sources','external'/);
+assert.match(row,/meta\.append\(contextTools\);main\.append\(panels\)/);
+assert.doesNotMatch(row,/el\('details','(?:task-card-sources|card-description)'\)/);
+assert.match(css,/\.task-card \.tracked-meta>\.task-context-tools\{[^}]*display:inline-flex;[^}]*flex:0 0 auto/);
 // Mark done is the main action with a check; Timeline and Edit are quiet.
 assert.match(row,/if\(item\.status!=='done'&&AtlantaTasks\.workflow\(item\)!=='cancelled'\)\{done\.classList\.replace\('secondary','primary'\);done\.prepend\(icon\('check'\)\);\}/);
 assert.match(row,/actionBtn\('quiet small-action task-timeline','Timeline'/);

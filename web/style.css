@@ -1950,7 +1950,12 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 .task-priority.normal::before{display:none}
 
 /* Keep context controls together; expanded content has its own row below the facts. */
-.task-card .tracked-meta>.task-context-tools{display:inline-flex;flex:0 0 auto;align-items:center;gap:4px;margin:0;padding:0;border:0}
+.task-card .tracked-meta>.task-context-tools{display:inline-flex;flex:0 0 auto;align-items:center;gap:4px;margin:0 0 0 auto;padding:0;border:0}
 .task-card .tracked-meta>.task-priority{min-height:32px}
 .task-card .card-expansions{width:100%}
 .task-card .card-expansion-panel .task-meetings{margin:0}
+
+@media(max-width:700px){
+ .task-card .tracked-meta>.task-context-tools{margin-left:0}
+ .task-card .entity-top>.entity-chips{order:0;flex:0 1 auto;max-width:100%;justify-content:flex-start}
+}

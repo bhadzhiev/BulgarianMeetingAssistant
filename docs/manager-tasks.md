@@ -146,3 +146,5 @@ to Normal. Source linking keeps the existing task's priority. Editing priority s
 
 Task cards keep Description and Sources controls together on the facts row. Their content opens
 in a separate full-width row below, with only one panel open at a time; the controls stay in place.
+The working facts read Owner → State → Priority → Due date. Project belongs beside the title;
+Description and Sources form a separate group at the end of the facts row.

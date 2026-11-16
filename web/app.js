@@ -1872,14 +1872,13 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  const stateFact=btn('fact-control task-state',stateName),dueFact=btn('fact-control due-label '+kind,label),ownerFact=btn('fact-control owner-fact');ownerFact.append(who);stateFact.setAttribute?.('data-state',AtlantaTasks.workflow(item));stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));dueFact.prepend(icon('calendar'));
- meta.append(ownerFact,stateFact,dueFact,workReviewBadge(item.review_state,item));
  const priority=item.priority||'normal',priorityLabel=({critical:'Critical',high:'High',normal:'Normal',low:'Low'})[priority]||'Normal';
- const priorityBadge=el('span','task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);meta.append(priorityBadge);
+ const priorityBadge=el('span','task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);meta.append(ownerFact,stateFact,priorityBadge,dueFact,workReviewBadge(item.review_state,item));
  const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item,{compact:true});
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
 
- const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));const titleLine=el('div','task-title-line');titleLine.append(title);if(mailed)titleLine.append(mailed);head.append(titleLine,chips);meta.append(chips);
+ const head=el('div','entity-top'),chips=el('div','entity-chips');for(const project of projects)chips.append(projectChip(project));const titleLine=el('div','task-title-line');titleLine.append(title);if(mailed)titleLine.append(mailed);head.append(titleLine,chips);
  // Description stays available on demand without adding a permanent row to every task.
  const description=String(item.details||'').trim(),panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
  if(description)contextTools.append(cardDisclosure('Description','notes',[taskDescription(description)],panels));

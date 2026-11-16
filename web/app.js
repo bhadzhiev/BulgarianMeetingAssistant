@@ -1873,6 +1873,8 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  const stateFact=btn('fact-control task-state',stateName),dueFact=btn('fact-control due-label '+kind,label),ownerFact=btn('fact-control owner-fact');ownerFact.append(who);stateFact.setAttribute?.('data-state',AtlantaTasks.workflow(item));stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));dueFact.prepend(icon('calendar'));
  meta.append(ownerFact,stateFact,dueFact,workReviewBadge(item.review_state,item));
+ const priority=item.priority||'normal',priorityLabel=({critical:'Critical',high:'High',normal:'Normal',low:'Low'})[priority]||'Normal';
+ const priorityBadge=el('span','task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);meta.append(priorityBadge);
  const update=AtlantaTasks.lastUpdate(item),mailed=emailMark(item,{compact:true});
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')meta.append(el('span','badge','Existing task · review gradually'));
  const people=state.people||[],whoName=id=>people.find(p=>p.id===id)?.name||'Not specified';
@@ -4107,6 +4109,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const owner=el('select');owner.setAttribute('aria-label','Owner');owner.append(option('No owner',''),...personOptions());
  if(named&&!known)owner.append(option(named+' · not in People','__named__'));owner.value=known?known.id:named?'__named__':'';
  const ownerName=()=>owner.value==='__named__'?named:(state.people||[]).find(p=>p.id===owner.value)?.name||'';
+ const priority=el('select');priority.setAttribute('aria-label','Priority');priority.append(...[['critical','Critical'],['high','High'],['normal','Normal'],['low','Low']].map(([key,name])=>option(name,key)));priority.value='normal';
  const due=el('input');due.type='date';due.setAttribute('aria-label','Due date');
  const meeting=el('select');meeting.setAttribute('aria-label','Meeting');meeting.append(option('No meeting · standalone task',''),...(state.meetings||[]).map(m=>option(m.title,m.id)));meeting.value=meetingId||'';
  // A task from a line of the notes stays with that meeting: the line links to the new task.
@@ -4119,7 +4122,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel'),draft=btn('secondary','Draft with AI…'),improve=btn('secondary','Improve with AI');save.type=cancel.type=draft.type=improve.type='button';actions.append(cancel,draft,improve,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
  text.value=startText;details.value=startDetails||'';due.value=startDue||source?.capture_due_date||'';criterion.value=startExpected;
- const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Due date',due),label('Project',project));
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Priority',priority),label('Due date',due),label('Project',project));
  // A meeting source already names its meeting; a typed draft can still choose one.
  const withMeeting=!source||source.provider==='manual';if(withMeeting)grid.append(label('Meeting',meeting));
  const note=el('p','notice');note.setAttribute('role','alert');note.hidden=true;
@@ -4147,14 +4150,14 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  function controls(){
   save.textContent=linking()?'Link evidence':'Create task';
   save.disabled=saving||generating||link?.value==='__choose__'||(!linking()&&!text.value.trim());
-  text.disabled=details.disabled=criterion.disabled=owner.disabled=due.disabled=linking()||saving||generating;
+  text.disabled=details.disabled=criterion.disabled=owner.disabled=priority.disabled=due.disabled=linking()||saving||generating;
   meeting.disabled=mention!==null||questionSource!==null||decisionSource!==null||!!question?.origin||linking()||saving||generating;project.disabled=saving||linking()||generating;
   if(link)link.disabled=saving||generating;
   draft.disabled=linking()||saving||generating||!!(source&&preview?.ai_available===false);
   improve.disabled=linking()||saving||generating;cancel.disabled=saving;
  }
  text.oninput=()=>{text.setCustomValidity('');editorDirty.set(dirtyKey,true);controls();};
- details.oninput=criterion.oninput=()=>editorDirty.set(dirtyKey,true);owner.oninput=due.onchange=()=>editorDirty.set(dirtyKey,true);
+ details.oninput=criterion.oninput=()=>editorDirty.set(dirtyKey,true);owner.oninput=priority.onchange=due.onchange=()=>editorDirty.set(dirtyKey,true);
  async function stop(){closed=true;if(poll)clearTimeout(poll);if(jobId&&generating){try{await api('/api/task-draft/cancel',{id:jobId});}catch{}}}
  // Draft with AI works the same with or without a source: without one, the current title is the source.
  draft.onclick=()=>perform(async()=>{
@@ -4190,7 +4193,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   if(source){
    saving=true;note.hidden=true;controls();
    try{
-    const payload={...source,preview_token:preview.preview_token,operation_id:requestId,title:text.value.trim()||'Link source evidence',details:details.value,completion_criteria:criterion.value,owner:ownerName()||null,due_date:due.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
+    const payload={...source,preview_token:preview.preview_token,operation_id:requestId,title:text.value.trim()||'Link source evidence',details:details.value,completion_criteria:criterion.value,priority:priority.value,owner:ownerName()||null,due_date:due.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
     if(source.provider==='manual')payload.capture_meeting_id=meeting.value||null;
     if(submitted&&JSON.stringify(submitted)!==JSON.stringify(payload))throw new Error('Previous result uncertain. Retry unchanged or check My Work.');submitted=payload;
     const created=await api('/api/task-draft/create',payload);
@@ -4202,7 +4205,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
    finally{saving=false;controls();}
    return;
   }
-  const body={text:text.value.trim(),details:details.value.trim()||null,owner:ownerName()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
+  const body={priority:priority.value,text:text.value.trim(),details:details.value.trim()||null,owner:ownerName()||null,due_date:due.value||null,meeting_id:meeting.value||null,project_id:project.value||null,request_id:requestId};
   if(criterion.value.trim())body.completion_criteria=criterion.value.trim();
   if(mention!==null){body.mention_index=mention;body.minutes_revision=minutesRevision;}
   if(questionSource){body.question_source=questionSource;body.minutes_revision=minutesRevision;}
@@ -4224,7 +4227,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
 $('new-task').onclick=()=>perform(()=>openManualTask());
 $('meeting-add-task').onclick=()=>perform(()=>openManualTask(selected));
 
-function progressChangeText(changes){return Object.entries(changes||{}).filter(([key])=>!['legacy_unreviewed'].includes(key)).map(([key,[before,after]])=>{const name={owner:'Owner',owner_person_id:'Owner',assignee_person_ids:'Assignees',requester_person_id:'Received from',assigned_by_person_id:'Assigned by',follower_person_id:'Followed by',workflow_state:'State',follow_up_date:'Next check',due_date:'Due',text:'Title',acceptance_state:'Acceptance'}[key]||key.replaceAll('_',' ');const format=value=>key==='assignee_person_ids'?(value||[]).map(id=>(state.people||[]).find(p=>p.id===id)?.name||'Removed person').join(', ')||'—':key.endsWith('_person_id')?(state.people||[]).find(p=>p.id===value)?.name||(value?'Removed person':'—'):['due_date','follow_up_date'].includes(key)&&value?date(value):key==='workflow_state'?AtlantaTasks.STATES[value]||value:typeof value==='string'?value.slice(0,300):value==null?'—':Array.isArray(value)?value.join(', '):String(value);return name+': '+format(before)+' → '+format(after);}).join(' · ');}
+function progressChangeText(changes){return Object.entries(changes||{}).filter(([key])=>!['legacy_unreviewed'].includes(key)).map(([key,[before,after]])=>{const name={owner:'Owner',owner_person_id:'Owner',assignee_person_ids:'Assignees',requester_person_id:'Received from',assigned_by_person_id:'Assigned by',follower_person_id:'Followed by',workflow_state:'State',priority:'Priority',follow_up_date:'Next check',due_date:'Due',text:'Title',acceptance_state:'Acceptance'}[key]||key.replaceAll('_',' ');const format=value=>key==='assignee_person_ids'?(value||[]).map(id=>(state.people||[]).find(p=>p.id===id)?.name||'Removed person').join(', ')||'—':key.endsWith('_person_id')?(state.people||[]).find(p=>p.id===value)?.name||(value?'Removed person':'—'):['due_date','follow_up_date'].includes(key)&&value?date(value):key==='workflow_state'?AtlantaTasks.STATES[value]||value:typeof value==='string'?value.slice(0,300):value==null?'—':Array.isArray(value)?value.join(', '):String(value);return name+': '+format(before)+' → '+format(after);}).join(' · ');}
 function renderTaskProgress(box,progress,item,{alive,dirty,editing,setWorkflow,onLinks=()=>{}}){
  box.replaceChildren(el('h3','','Task timeline'),el('span','badge','Local: '+(AtlantaTasks.STATES[progress.local_state]||progress.local_state)),el('p','hint','Your task state is kept separate from GitHub. Check GitHub activity to refresh its status.'));onLinks(progress.links||[]);
  const links=el('div','task-progress-links');
@@ -4263,6 +4266,7 @@ function taskEditUndo(item,changes){
  const undo={};
  for(const key of ['text','details','completion_criteria'])if(key in changes&&changes[key]!==(item[key]||(key==='text'?item.text:'')))undo[key]=item[key]||'';
  for(const key of ['due_date','follow_up_date'])if(key in changes)undo[key]=item[key]||null;
+ if('priority' in changes)undo.priority=item.priority||'normal';
  if('workflow_state' in changes)undo.workflow_state=AtlantaTasks.workflow(item);
  const owner=item.owner_person_id?{owner_person_id:item.owner_person_id}:item.owner?{owner_person_id:null,owner:item.owner}:{owner_person_id:null,owner:null};
  if('assignee_person_ids' in changes){undo.assignee_person_ids=item.assignee_person_ids||[];if(!undo.assignee_person_ids.length)Object.assign(undo,owner);}
@@ -4351,6 +4355,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  // The others who work on the task. The owner stays accountable; adding people is a manual choice.
  const coStart=(item.assignee_person_ids||[]).slice(1),coBox=el('div','assignee-choices');coBox.setAttribute('role','group');coBox.setAttribute('aria-label','Also working on it');
  const coChecks=(({team,others})=>[...team,...others])(peopleByTeam()).map(p=>{const l=el('label','project-choice'),c=el('input');c.type='checkbox';c.value=p.id;c.checked=coStart.includes(p.id);l.append(c,document.createTextNode(p.name));coBox.append(l);return c;});
+ const priority=el('select');priority.setAttribute('aria-label','Priority');priority.append(...[['critical','Critical'],['high','High'],['normal','Normal'],['low','Low']].map(([key,name])=>option(name,key)));priority.value=item.priority||'normal';
  const due=el('input');due.type='date';due.value=item.due_date||'';due.setAttribute('aria-label','Due date');
  const follow=el('input');follow.type='date';follow.value=item.follow_up_date||'';follow.setAttribute('aria-label','Next follow-up');
  const workflow=el('select');workflow.setAttribute('aria-label','State');workflow.append(...Object.entries(AtlantaTasks.STATES).map(([key,title])=>option(title,key)));workflow.value=AtlantaTasks.workflow(item);
@@ -4360,7 +4365,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  // Received from, Assigned by, Followed by and the evidence of an update are not in the editor (2026-11-12): the
  // person does not use them. Saving keeps their saved values, because the editor sends only the fields it shows.
  const core=el('div','task-card-grid task-core');
- core.append(label('Owner',owner),label('State',workflow),label('Project',project),label('Due date',due),label('Next follow-up',follow));
+ core.append(label('Owner',owner),label('State',workflow),label('Priority',priority),label('Project',project),label('Due date',due),label('Next follow-up',follow));
  const coField=el('div','assignee-field');coField.append(el('p','hint','The owner is accountable. The others share the task and its state.'),coBox);
  const section=(title,...nodes)=>{const box=el('details','task-section'),head=el('summary'),note=el('span','task-section-summary');head.append(el('span','task-section-title',title),note);box.append(head,...nodes);box.note=note;return box;};
  const peopleSection=section('Also working on it',coField),sourcesSection=section('Sources and GitHub'),historySection=section('Activity history');
@@ -4368,7 +4373,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
   const names=coChecks.filter(c=>c.checked).map(c=>(state.people||[]).find(p=>p.id===c.value)?.name).filter(Boolean);
   peopleSection.note.textContent=names.join(', ');
  };
- let editing=false;const dirty=()=>{editing=true;close.textContent='Cancel';github.inert=true;editorDirty.set('task-panel',true);};for(const control of [...coChecks,area,details,criterion,owner,due,follow,project,workflow,update]){control.oninput=control.onchange=()=>{dirty();sectionNotes();};}
+ let editing=false;const dirty=()=>{editing=true;close.textContent='Cancel';github.inert=true;editorDirty.set('task-panel',true);};for(const control of [...coChecks,area,details,criterion,owner,priority,due,follow,project,workflow,update]){control.oninput=control.onchange=()=>{dirty();sectionNotes();};}
  // The owner is not in the list of the others: choosing an owner takes them out of it.
  const syncCo=()=>{for(const c of coChecks){const own=c.value===owner.value;c.closest('label').hidden=own;if(own)c.checked=false;}};syncCo();owner.addEventListener('change',syncCo);
  const save=el('button',item.acceptance_state==='proposed'?'secondary':'primary',item.acceptance_state==='proposed'?'Save draft':item.review_state==='needs_review'||item.review_state==='edited'?'Save & confirm':'Save changes'),close=el('button','secondary','Close'),footer=el('div','task-card-footer');save.type=close.type='button';
@@ -4387,6 +4392,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
    else changes.assignee_person_ids=[owner.value,...co];
   }else if(ownerChanged)Object.assign(changes,owner.value?{owner_person_id:owner.value}:{owner_person_id:null,owner:null});
   for(const [key,value] of [['due_date',due.value||null],['follow_up_date',follow.value||null],['workflow_state',workflow.value]])if(value!==(item[key]??(key==='workflow_state'?AtlantaTasks.workflow(item):null)))changes[key]=value;
+  if(priority.value!==(item.priority||'normal'))changes.priority=priority.value;
   if(project.value!=='keep')changes.project_ids=project.value==='none'?[]:[project.value];
   if(update.value.trim())changes.update_note=update.value.trim();const reviewed=area.value!==item.text||details.value!==(item.details||'')||criterion.value!==(item.completion_criteria||'')||'owner_person_id' in changes||'assignee_person_ids' in changes||'due_date' in changes;
   // Only a pending review or a changed commitment confirms; a progress note or a state change does not.

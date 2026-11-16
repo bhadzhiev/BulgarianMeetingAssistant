@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from .work_graph import WorkGraph, validate_graph, digest as graph_digest
-from .work_items import COLLECTIONS, normalize
+from .work_items import COLLECTIONS, normalize, task_priority
 import copy
 import json
 import re
@@ -2955,6 +2955,7 @@ class MeetingService:
     def create_task(self, body):
         """A user-authored WorkItem; no invented transcript evidence or AI execution."""
         if not isinstance(body, dict):raise ValueError('Task fields are required')
+        priority=task_priority(body.get('priority','normal'))
         text=body.get('text');owner=body.get('owner');due=body.get('due_date');details=body.get('details')
         request_id=body.get('request_id');meeting_id=body.get('meeting_id');project_id=body.get('project_id')
         # mention_index: the task line of the meeting notes that the person makes into a task.
@@ -2986,6 +2987,7 @@ class MeetingService:
                 if not isinstance(due,str) or dt.date.fromisoformat(due).isoformat()!=due:raise ValueError()
             except (TypeError,ValueError):raise ValueError('Due date must use YYYY-MM-DD') from None
         payload=dict(text=text.strip(),owner=(owner or '').strip() or None,due_date=due,meeting_id=meeting_id,project_id=project_id)
+        if priority!='normal':payload['priority']=priority
         if (details or '').strip():payload['details']=details.strip()
         if (criteria or '').strip():payload['completion_criteria']=criteria.strip()
         if mention_index is not None:payload['mention_index']=mention_index
@@ -3057,8 +3059,8 @@ class MeetingService:
                 # A hidden AI proposal of the same line gives way to the person's task; any other task stays.
                 if own and own.get('acceptance_state')!='proposed':raise items.WorkItemConflict('This task line is already a task. Reload the meeting.')
             key=uuid.uuid4().hex[:16]
-            item=dict(id=key,kind='task',text=payload['text'],owner=payload['owner'],due_date=due,deadline=None,status='open',
-                created=self.items.created_at(meeting_id),created_by='user',manual=['text','owner','deadline','due_date','status'],links=[],history=[],
+            item=dict(id=key,kind='task',priority=priority,text=payload['text'],owner=payload['owner'],due_date=due,deadline=None,status='open',
+                created=self.items.created_at(meeting_id),created_by='user',manual=['text','owner','deadline','due_date','status','priority'],links=[],history=[],
                 supersedes=[],superseded_by=None,creation_request=request_id,creation_payload=payload)
             if payload.get('details'):item['details']=payload['details'];item['manual'].append('details')
             if payload.get('completion_criteria'):item['completion_criteria']=payload['completion_criteria'];item['manual'].append('completion_criteria')
@@ -3116,7 +3118,7 @@ class MeetingService:
     def _clean_item_changes(self, item, changes):
         allowed = {'text', 'owner', 'owner_person_id', 'assignee_person_ids', 'destination_repository', 'deadline', 'due_date', 'status'} if item['kind'] == 'task' else {'text', 'status'}
         allowed |= {'dismissed', 'snoozed_until'}
-        if item['kind']=='task':allowed |= {'project_ids','details','completion_criteria','workflow_state','acceptance_state','requester_person_id','assigned_by_person_id','follower_person_id','follow_up_date','update_note','update_evidence_id'}
+        if item['kind']=='task':allowed |= {'priority','project_ids','details','completion_criteria','workflow_state','acceptance_state','requester_person_id','assigned_by_person_id','follower_person_id','follow_up_date','update_note','update_evidence_id'}
         if set(changes) - allowed:
             raise ValueError('These fields cannot change here')
         clean = {}
@@ -3133,6 +3135,8 @@ class MeetingService:
             elif name in {'details','completion_criteria','update_note'}:
                 if not isinstance(value,str) or len(value)>5000:raise ValueError('Text must be up to 5000 characters')
                 clean[name]=value.strip()
+            elif name=='priority':
+                clean[name]=task_priority(value)
             elif name=='workflow_state':
                 if value not in {'todo','in_progress','waiting','done','cancelled'}:raise ValueError('Choose a task state')
                 clean[name]=value

@@ -96,6 +96,15 @@ class DraftTests(unittest.TestCase):
         self.assertEqual(seen['name'],'task_draft');self.assertEqual(seen['system'],task_draft.SYSTEM)
         self.assertIs(seen['max_tokens'],None,'a draft keeps the settings output budget')
 
+    def test_source_task_keeps_person_selected_priority(self):
+        body=dict(self.approved(),title='Check backup',priority='high',operation_id='c'*32)
+        result=task_draft.create(self.s,body)
+        task=self.s.items.items[result['item_id']]
+        self.assertEqual(task['priority'],'high')
+        self.assertIn('priority',task['manual'])
+        self.assertEqual(task_draft.create(self.s,body),result)
+        with self.assertRaises(WorkItemConflict):task_draft.create(self.s,dict(body,priority='low'))
+
     def test_task_edit_never_creates_a_task(self):
         with self.assertRaisesRegex(ValueError,'never creates'):task_draft.create(None,dict(provider='task_edit'))
 

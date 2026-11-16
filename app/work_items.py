@@ -31,6 +31,12 @@ COLLECTIONS = ('sources', 'source_revisions', 'source_evidence', 'proposals', 'r
 MAX_ASSIGNEES = 10
 
 
+TASK_PRIORITIES = ('critical', 'high', 'normal', 'low')
+
+def task_priority(value: str) -> str:
+    if not isinstance(value, str) or value not in TASK_PRIORITIES:raise ValueError('Choose a task priority')
+    return value
+
 def normalize(item):
     states = {'task': {'open', 'done'}, 'decision': {'proposed', 'accepted', 'superseded'}, 'question': {'open', 'answered'}}
     if (item.get('kind') not in states or item.get('status') not in states[item['kind']]
@@ -44,6 +50,7 @@ def normalize(item):
                 or any(not isinstance(key, str) or not re.fullmatch(r'[a-f0-9]{12}', key) for key in ids) or len(set(ids)) != len(ids)):
             raise ValueError('Invalid WorkItem projects')
     if item['kind']=='task':
+        item['priority']=task_priority(item.get('priority','normal'))
         if item.get('parent_task_id') is not None and (not isinstance(item['parent_task_id'], str) or not re.fullmatch(r'[a-f0-9]{1,64}', item['parent_task_id']) or item['parent_task_id'] == item['id']):
             raise ValueError('Invalid parent task')
         item.setdefault('task_model_version',1)

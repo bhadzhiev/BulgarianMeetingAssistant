@@ -12,7 +12,7 @@ from pathlib import Path
 from .jobs import JobCancelled
 from .local_ai import complete_json
 from .work_graph import digest, text
-from .work_items import WorkItemConflict, canonical
+from .work_items import WorkItemConflict, canonical, task_priority
 
 SCHEMA = dict(type='object', additionalProperties=False, required=['text','details','completion_criteria'],
               properties=dict(text=dict(type='string', minLength=1, maxLength=1000),details=dict(type='string',maxLength=5000),completion_criteria=dict(type='string',maxLength=5000)))
@@ -189,6 +189,7 @@ def create(service, body):
     title=text(body.get('title'),'task text')
     fields=draft_fields(dict(text=title,**{key:body[key] for key in ('details','completion_criteria') if key in body}))
     fields.pop('text')
+    fields['priority']=task_priority(body.get('priority','normal'))
     owner=body.get('owner');due=body.get('due_date');requester=body.get('requester_person_id')
     if owner is not None:
         if not isinstance(owner,str) or len(owner)>160:raise ValueError('Owner must be text up to 160 characters')

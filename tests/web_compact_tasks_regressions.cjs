@@ -3,7 +3,7 @@ const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.cs
 const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 // P02, changed 2026-11-12: one fixed order. What the task is, then who and when, then progress; rare people fields in a section.
 const panel=slice('async function openTaskPanel(');
-assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
+assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Priority',priority\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
 assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('Activity history'\);/);
 assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,[^;]*progress,historySection,peopleSection,sourcesSection,footer\);/);
 // Edit task (2026-11-16): a one-line Title, a framed update composer and the history right below it; Cancel task and Send by email on the left.

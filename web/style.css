@@ -1907,12 +1907,12 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 .meeting-email-choice>span{min-width:0;overflow-wrap:anywhere}
 .meeting-email-choice strong,.meeting-email-choice .hint{display:block}
 .task-email-selection,.task-email-preview-wrap{margin:16px 0}
-#task-email-preview{background:#fff;color:#243247;border:1px solid #dbe2ea;border-radius:8px;padding:32px;font:15px/1.65 Arial,Helvetica,sans-serif;overflow-wrap:anywhere}
-#task-email-preview p{margin:0 0 18px;white-space:pre-wrap}
+#task-email-preview,#followup-preview{background:#fff;color:#243247;border:1px solid #dbe2ea;border-radius:8px;padding:32px;font:15px/1.65 Arial,Helvetica,sans-serif;overflow-wrap:anywhere}
+#task-email-preview p,#followup-preview p{margin:0 0 18px;white-space:pre-wrap}
 .email-preview-task{border-top:1px solid #dbe2ea;padding:20px 0;color:#42526e;white-space:pre-wrap}
 .email-preview-task strong{display:block;font-size:17px;font-weight:600;color:#172b4d;margin-bottom:10px}
-#task-email-preview .email-preview-footer{font-size:12px;color:#6b778c}
-@media(max-width:540px){#task-email-preview{padding:18px}}
+#task-email-preview .email-preview-footer,#followup-preview .email-preview-footer{font-size:12px;color:#6b778c}
+@media(max-width:540px){#task-email-preview,#followup-preview{padding:18px}}
 
 /* A one-level hierarchy retains the shared task card and its controls. */
 #task-hierarchy-dialog{width:min(760px,95vw)}
@@ -1931,3 +1931,13 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 @media(max-width:540px){.task-subtasks{margin-left:8px;padding-left:8px}.hierarchy-child{align-items:flex-start}}
 
 .email-task-choice{display:flex;gap:10px;align-items:flex-start;padding:6px 0}.email-task-choice input{flex:none;width:auto}.email-task-child{margin-left:20px}.email-preview-subtask{margin-left:20px}
+
+/* Meeting notes separate uncreated suggestions from persistent My Work tasks. */
+.meeting-task-stage{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px}
+.meeting-task-kind{display:inline-flex;border:1px solid var(--line);border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600;color:var(--ink);line-height:1.5}
+.meeting-task-suggestion .meeting-task-kind{border-style:dashed;color:var(--muted)}
+.meeting-task-suggestion .task-item-actions,.meeting-task-suggestion .proposal-actions{margin-top:10px}
+.meeting-task-suggestion .tracked-owner{display:inline-flex!important}
+.meeting-task-legend{margin:8px 0 16px;line-height:1.6}
+
+#followup-preview .email-preview-heading,#task-email-preview .email-preview-heading{font:600 17px/1.5 Arial,Helvetica,sans-serif;color:#172b4d;margin:24px 0 12px}

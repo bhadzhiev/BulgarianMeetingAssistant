@@ -421,6 +421,9 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.prompt_lab.start(body)
             elif path == '/api/prompts/test/cancel':
                 result=service.prompt_lab.stop(body['id'])
+            elif path in {'/api/meeting-email/prepare', '/api/meeting-email/draft'}:
+                from app import meeting_email
+                result = meeting_email.prepare(service, body) if path.endswith('/prepare') else meeting_email.save_draft(service, body)
             elif path in {'/api/followup-email/prepare', '/api/followup-email/generate', '/api/followup-email/draft'}:
                 from app import followup_email
                 action = path.rsplit('/', 1)[-1]

@@ -125,3 +125,13 @@ My Work nests matching subtasks beneath their main task with a collapsible list.
 The email composer explicitly lists the selected main tasks and available subtasks. Only checked tasks are included. **Apply selection and rebuild letter** updates the letter and preserves recipients; replacing edited text asks first, and saving is disabled while an unapplied selection is pending. Selected children follow their selected parent as 1.1, 1.2, etc., retaining individual owners and deadlines. A child sent alone names its main task for context. Suggested related tasks are never automatically added to the email.
 
 Task lists use one compact layout. The Compact/Cards switch and its stored density preference have been removed; task selection and hierarchy controls remain available.
+
+### Tasks versus suggestions in meeting notes
+
+Meeting notes label accepted linked tasks **Task in My Work**, pending registry proposals **Task proposal · Waiting for acceptance in Inbox**, and uncreated note lines **Suggestion from notes · Not in My Work**. Only created tasks show a workflow state. Suggested owners and deadlines are labelled as suggestions. **Create task in My Work…** remains a visible text action and opens the existing review editor; **Accept into My Work** accepts a pending proposal. Section and owner counts distinguish tasks from suggestions. These labels do not create or accept tasks automatically.
+
+### Share a meeting with participants
+
+**Email meeting…** beside Add task opens a deterministic Bulgarian letter containing the saved public summary, discussion and meeting-type sections, decisions, tasks, task suggestions, questions and next steps. It works without an accepted task. Pending decisions and task suggestions are labelled separately; private observations and team analysis are never included. Stale notes must be updated first. This sharing template is separate from the reviewed-only AI Follow-up email in the meeting menu.
+
+Participants identified from the transcript and People are preselected, with one address per person. The connected Gmail account and all addresses in its People profile, plus the profile selected with **This is me**, are excluded from the recipient picker and rechecked on save. Participants without a known email are listed for manual completion. Other contacts and manually entered addresses remain available. The user can edit the text and preview its formatting before saving one HTML/plain-text Gmail draft; Atlanta never sends it. Each saved letter ends with **Генерирано от АТЛАНТА**. Meeting-sharing drafts have their own saved draft reference, separate from the reviewed-only follow-up.

@@ -1353,7 +1353,6 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 #task-panel .task-section[open]{padding-bottom:12px}
 #task-panel .task-section .note-section{margin:8px 0}
 .work-section{margin:14px 0 4px;font-size:13px}
-.task-bulk-bar .task-density{margin-right:6px}
 #task-panel .task-panel-head h2{overflow-wrap:anywhere;max-width:100%}
 /* The background jobs: a failed job turns the status line red and shows no spinner. The list opens under the line. */
 #activity-status.failed{background:var(--danger-ink,#9b1c1c)}
@@ -1914,3 +1913,21 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 .email-preview-task strong{display:block;font-size:17px;font-weight:600;color:#172b4d;margin-bottom:10px}
 #task-email-preview .email-preview-footer{font-size:12px;color:#6b778c}
 @media(max-width:540px){#task-email-preview{padding:18px}}
+
+/* A one-level hierarchy retains the shared task card and its controls. */
+#task-hierarchy-dialog{width:min(760px,95vw)}
+#task-hierarchy-body>input,#task-hierarchy-body>select{width:100%;margin:8px 0}
+.hierarchy-picker-list{max-height:45vh;overflow:auto;margin-top:12px}
+.hierarchy-choice{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer}
+.hierarchy-choice[hidden]{display:none}
+.hierarchy-choice input{width:auto;flex:none;margin-top:5px}
+.hierarchy-choice>span{min-width:0;overflow-wrap:anywhere}
+.hierarchy-choice strong,.hierarchy-choice .hint{display:block}
+.hierarchy-child{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding:10px 0}
+.hierarchy-child>div{min-width:0;display:grid}.hierarchy-child button{white-space:normal;text-align:left}
+.task-parent-link{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-hierarchy-group{min-width:0}.task-subtasks{margin:0 0 12px 20px;padding-left:12px;border-left:1px solid var(--border)}
+.task-subtasks>summary{cursor:pointer;font-size:13px;padding:8px 0;color:var(--muted)}
+@media(max-width:540px){.task-subtasks{margin-left:8px;padding-left:8px}.hierarchy-child{align-items:flex-start}}
+
+.email-task-choice{display:flex;gap:10px;align-items:flex-start;padding:6px 0}.email-task-choice input{flex:none;width:auto}.email-task-child{margin-left:20px}.email-preview-subtask{margin-left:20px}

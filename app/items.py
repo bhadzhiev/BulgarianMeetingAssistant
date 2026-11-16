@@ -322,6 +322,12 @@ class Registry:
         if self.has_graph_links(item_id):
             raise ValueError('This item has work graph links. Dismiss it to keep its source history.')
         item = self.items.pop(item_id)
+        for task in self.items.values():
+            if task.get('parent_task_id') == item_id:
+                task['parent_task_id'] = None
+                self._event(task, 'parent_changed', changes={'parent_task_id': [item_id, None]}, by='user', text='Main task deleted; this task was kept')
+        if item.get('parent_task_id') in self.items:
+            self._event(self.items[item['parent_task_id']], 'subtask_removed', by='user', text=item['text'])
         for old_id in item.get('supersedes', []):
             old = self.items.get(old_id)
             if old and old.get('superseded_by') == item_id:

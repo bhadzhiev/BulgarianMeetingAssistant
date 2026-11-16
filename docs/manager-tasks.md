@@ -115,3 +115,13 @@ Confirmations and Undo (2026-11-16): risky actions ask first, and the confirm bu
 In a meeting's Tasks section, **Email tasks…** opens a checklist of accepted, visible tasks linked to that meeting. Select individual tasks or up to 100 together, then choose **Compose email**. My Work also supports multiple tasks through **Select tasks → Send by email…**. The composer lists the included tasks and lets you edit recipients, subject and text with a live formatting preview.
 
 The default Bulgarian letter presents numbered tasks, details, expected results, owners, deadlines and states. A shared meeting appears once in the introduction and subject. Quotes and change history are omitted from the default letter. Saving creates one multipart Gmail draft with a plain-text fallback and escaped HTML formatting derived from the edited text; every selected task receives the draft marker. Atlanta never sends the email.
+
+### Main tasks and subtasks
+
+Tasks support one main task and one level of subtasks. In My Work select existing tasks and choose **Add to main task…** to select an existing main task or create one atomically. The task menu provides the same action. In Edit task, **Subtasks → Add existing subtasks…** offers search and select/clear matching tasks. A subtask can move to another main task or detach; its owner, dates, state, history and source evidence stay intact. Main tasks cannot themselves become subtasks while they have children. Grouping uses revision checks and an idempotent request ID; a failed or uncertain request can be retried unchanged.
+
+My Work nests matching subtasks beneath their main task with a collapsible list. Filters still apply to each task: a matching subtask remains visible on its own if its parent does not match. Main cards show completed/total subtasks. Completing a main task with unfinished subtasks requires explicit confirmation and never completes the children. Deleting a main task detaches and keeps its children; merging duplicates requires detaching hierarchy links first.
+
+The email composer explicitly lists the selected main tasks and available subtasks. Only checked tasks are included. **Apply selection and rebuild letter** updates the letter and preserves recipients; replacing edited text asks first, and saving is disabled while an unapplied selection is pending. Selected children follow their selected parent as 1.1, 1.2, etc., retaining individual owners and deadlines. A child sent alone names its main task for context. Suggested related tasks are never automatically added to the email.
+
+Task lists use one compact layout. The Compact/Cards switch and its stored density preference have been removed; task selection and hierarchy controls remain available.

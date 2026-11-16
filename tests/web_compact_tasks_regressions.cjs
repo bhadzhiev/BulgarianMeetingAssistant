@@ -20,13 +20,13 @@ assert.match(panel,/el\('h2','task-card-title',item\.acceptance_state==='propose
 assert.match(panel,/if\(part\.querySelector\(':invalid,\[aria-invalid=true\]'\)\)part\.open=true;/);
 assert.match(panel,/historySection\.open=true;timeline\.scrollIntoView/);
 assert.match(css,/#task-panel \.task-section\[open\]>summary \.task-section-summary\{display:none\}/);
-// P03: the compact list is the default view; the cards stay as the other view.
-assert.match(app,/localStorage\.getItem\('task-density'\)==='cards'\?'cards':'compact'/);
-assert.match(slice('function renderBulkTasks(){'),/\[\['compact','Compact'\],\['cards','Cards'\]\]/);
+// One compact task view; no density toggle or stored alternate layout.
+assert.doesNotMatch(app,/taskDensity|task-density|\[\['compact','Compact'\],\['cards','Cards'\]\]/);
+assert.match(app,/const compact=true;/);
 const row=slice('function globalTaskRow(');
 assert.match(row,/compactMenu=\[timeline,toggle\];/);assert.match(row,/if\(!showProject\)chips\.replaceChildren\(\);/);
 assert.match(row,/if\(compactMenu\)actions\.prepend\(\.\.\.compactMenu\);/);
-// Selection starts on request in both views.
+// Selection starts on request in the unified view.
 assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);
 assert.match(slice('function renderBulkTasks(){'),/taskSelecting\?'Done selecting':'Select tasks'/);
 // A narrow window: the title on top, the owner on its own line, then state and due date.

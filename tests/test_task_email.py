@@ -45,7 +45,7 @@ class TaskEmailTests(unittest.TestCase):
         self.assertFalse(result['updated'])
         self.assertEqual(self.message()['To'], 'maria@example.test')
         # A text without the Atlanta note gets it at the end.
-        self.assertTrue(self.message().get_content().rstrip().endswith('Текст\n\n—\nГенерирано от Atlanta'))
+        self.assertTrue(self.message().get_body(preferencelist=('plain',)).get_content().rstrip().endswith('Текст\n\n—\nГенерирано от Atlanta'))
         item = self.s.items.items[self.first['id']]
         self.assertEqual(item['email_draft']['draft_id'], result['draft_id'])
         self.assertEqual(item['email_draft']['to'], ['maria@example.test'])
@@ -87,7 +87,7 @@ class TaskEmailTests(unittest.TestCase):
             data.setdefault('sources', {})['s1'] = dict(id='s1', provider='gmail', account='me@example.test')
             data.setdefault('source_evidence', {})['e1'] = dict(id='e1', source_id='s1', quote='Моля, обновете   ръководството', locator={})
             self.s.items.items[item['id']]['source_evidence'] = ['e1']
-        body = task_email.prepare(self.s, dict(item_id=item['id']))['body']
+        body = task_email.prepare(self.s, dict(item_id=item['id'], include_context=True))['body']
         self.assertIn('Статус: в процес', body)
         self.assertIn('Проект: Labels', body)
         self.assertIn('Цитати:\n- „Моля, обновете ръководството“ (Gmail)', body)
@@ -106,7 +106,7 @@ class TaskEmailTests(unittest.TestCase):
             history += [dict(at=f'2026-11-09T10:{n:02d}:00+02:00', event='progress_update', by='user', changes={}, text=f'Стъпка {n}')
                         for n in range(12)]
             history.append(dict(at='2026-11-09T11:00:00+02:00', event='discussed', by='ai', changes={}, meeting_id='missing'))
-        body = task_email.prepare(self.s, dict(item_id=self.first['id']))['body']
+        body = task_email.prepare(self.s, dict(item_id=self.first['id'], include_context=True))['body']
         lines = body.split('История:\n')[1].split('\n\n')[0].splitlines()
         self.assertEqual(len(lines), task_email.MAX_HISTORY)
         self.assertIn('Създадена', lines[0]);self.assertIn('Стъпка 11', lines[-1]);self.assertNotIn('Стъпка 0', body)
@@ -127,6 +127,33 @@ class TaskEmailTests(unittest.TestCase):
         body = task_email.prepare(self.s, dict(item_ids=ids))['body']
         self.assertLessEqual(len(body), 20000)
         self.assertNotIn('История:', body);self.assertIn('40. Task 39', body)
+
+    def test_default_letter_is_concise_and_draft_has_safe_formatted_alternative(self):
+        data = task_email.prepare(self.s, dict(item_ids=[self.first['id'], self.second['id']]))
+        self.assertNotIn('История:', data['body'])
+        self.assertNotIn('Цитати:', data['body'])
+        self.assertIn('потвърдете предвидените срокове', data['body'])
+        edited = data['body'].replace('Update the runbook', '<script>alert("x")</script> & revised')
+        task_email.save_draft(self.s, dict(item_ids=[self.first['id'], self.second['id']],
+                                         to=['guest@example.test'], subject=data['subject'], body=edited))
+        message = self.message()
+        self.assertEqual(message.get_content_type(), 'multipart/alternative')
+        self.assertEqual(message.get_body(preferencelist=('plain',)).get_content().strip(), edited)
+        formatted = message.get_body(preferencelist=('html',)).get_content()
+        self.assertNotIn('<script>', formatted)
+        self.assertIn('&lt;script&gt;', formatted)
+        self.assertIn('&amp; revised', formatted)
+        self.assertIn('2. Check the backup', formatted)
+        self.assertIn('border-top:', formatted)
+
+    def test_shared_meeting_is_presented_once(self):
+        from unittest.mock import patch
+        with patch.object(task_email, '_meeting', return_value=('Daily Infrastructure', '11.11.2026')):
+            data = task_email.prepare(self.s, dict(item_ids=[self.first['id'], self.second['id']]))
+        self.assertEqual(data['subject'], 'Задачи от среща: Daily Infrastructure | 11.11.2026')
+        self.assertEqual(data['body'].count('Daily Infrastructure'), 1)
+        self.assertIn('1. Update the runbook', data['body'])
+        self.assertIn('2. Check the backup', data['body'])
 
     def test_invalid_input_is_refused_before_gmail(self):
         for body in [dict(item_ids=[]), dict(item_ids=['missing']), dict(item_ids=[self.first['id']] * 2)]:

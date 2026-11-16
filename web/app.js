@@ -1237,6 +1237,21 @@ function taskRow(task,index,busy,mentions=[task]) {
  if(!item&&handMade){const create=btn('secondary small-action','Create task');create.disabled=busy;create.title='Make this line of the notes a task in My Work';create.onclick=()=>perform(()=>openManualTask(detail.id,{text:task.task||'',details:task.details||'',owner:task.owner||'',due:task.due_date||'',mention:index}));const actions=el('div','action-group task-item-actions');actions.append(compactAction(create,'taskAdd'));main.append(actions);}
  row.append(el('span'),main); return row;
 }
+function meetingTaskEmailButton(busy=false){
+ const tasks=Object.values(detail.items||{}).filter(item=>item.kind==='task'&&item.acceptance_state!=='proposed'&&!item.dismissed&&(item.links||[]).some(link=>link.meeting_id===detail.id&&!link.detached));
+ const button=btn('secondary small-action','Email tasks…');button.disabled=busy||!tasks.length;button.title='Choose tasks from this meeting for one email';
+ button.onclick=()=>{
+  const list=$('meeting-email-tasks'),save=$('meeting-email-continue'),selected=new Set();list.replaceChildren();
+  $('meeting-email-context').textContent=detail.title||'Meeting tasks';
+  const update=()=>{save.disabled=!selected.size;save.textContent='Compose email · '+selected.size+' selected';};
+  const checks=[];
+  for(const task of tasks){const label=el('label','meeting-email-choice'),check=el('input');check.type='checkbox';check.value=task.id;check.onchange=()=>{if(check.checked){if(selected.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}selected.add(task.id);}else selected.delete(task.id);update();};
+   const info=el('span');info.append(el('strong','',task.text),el('span','hint',(task.owner||'No owner')+' · '+(task.due_date?date(task.due_date):'No due date')));label.append(check,info);list.append(label);checks.push(check);}
+  $('meeting-email-all').onclick=()=>{const all=selected.size===Math.min(tasks.length,100);selected.clear();checks.forEach((check,index)=>{check.checked=!all&&index<100;if(check.checked)selected.add(check.value);});update();};
+  save.onclick=()=>perform(async()=>{if(save.disabled)return;save.disabled=true;try{await openTaskEmail([...selected],detail.id);$('meeting-email-dialog').close();}finally{update();}});
+  update();$('meeting-email-dialog').showModal();
+ };return button;
+}
 function renderNotes(busy=false) {
  $('notes').replaceChildren();$('outcomes').replaceChildren();
  if(!detail.minutes||busy) notesEditing=false;
@@ -1245,6 +1260,7 @@ function renderNotes(busy=false) {
   const manual=Object.values(detail.items||{}).filter(i=>i.kind==='task'&&i.links.some(l=>l.meeting_id===detail.id&&l.manual_task));
   for(const item of manual)$('outcomes').append(taskRow({item_id:item.id,task:item.text,review:'verified'},0,busy));
  }
+ if(!detail.minutes&&!notesEditing)$('outcomes').prepend(meetingTaskEmailButton(busy));
  if(!detail.minutes) { for(const id of ['notes','outcomes']) $(id).append(emptyNote('Generate meeting notes to see the decisions, tasks, unresolved questions and next steps.')); return; }
  const minutes=detail.minutes;
  if(!notesEditing)$('notes').append(notesOverview(minutes));
@@ -1254,7 +1270,7 @@ function renderNotes(busy=false) {
  $('outcomes').append(noteSection(minutes,'decisions','Decisions',busy));
  // Updates on work that started before the meeting. Older notes have none, so the section shows only when it has content.
  if(minutes.updates?.length||notesEditing)$('outcomes').append(noteSection(minutes,'updates','Updates on work in progress',busy,state.settings?.meeting_task_ai?'Progress, blockers and clarifications about work that started before this meeting. A later step suggests the task each one belongs to.':'Progress, blockers and clarifications about work that started before this meeting. Use them to update your tasks.'));
- const section=el('section','note-section');section.append(el('h3','',meetingType(detail).task_title));
+ const section=el('section','note-section');section.append(el('h3','',meetingType(detail).task_title));if(!notesEditing)section.append(meetingTaskEmailButton(busy));
  const taskList=el('div');section.append(taskList);
  function drawTasks() { taskList.replaceChildren(); AtlantaTasks.meetingGroups(minutes.tasks).forEach(({task,index,mentions})=>{
   if(detail.items?.[task.item_id]){taskList.append(taskRow(task,index,true,mentions));return;}
@@ -4408,17 +4424,29 @@ function renderTaskEmail(data){
  for(const row of data.recipients){const label=el('label','checkbox followup-person'),check=el('input');check.type='checkbox';check.value=row.email;check.checked=before.size?before.has(row.email):row.involved;
   label.append(check,el('span','',row.name),el('span','hint',row.email+(row.involved?' · on this task':'')));people.append(label);}
  $('task-email-extra').value=[...before].filter(email=>!data.recipients.some(row=>row.email===email)).join(', ');
- $('task-email-subject').value=data.subject;$('task-email-body').value=data.body;
+ $('task-email-subject').value=data.subject;$('task-email-body').value=data.body;renderTaskEmailPreview();
+ const selected=$('task-email-selected');selected.replaceChildren(...data.tasks.map(task=>el('li','',task.text)));
  $('task-email-title').textContent=data.tasks.length>1?'Send '+data.tasks.length+' tasks in one email':'Send the task by email';
  const drafts=data.gmail.drafts;$('task-email-connect').hidden=drafts;$('task-email-save').hidden=!drafts;
  $('task-email-save').textContent=data.draft?'Update Gmail draft':'Save Gmail draft';
  taskEmailStatus(drafts?(data.draft?(data.tasks.length>1?'These tasks already share':'This task already has')+' a Gmail draft from '+dateTime(data.draft.saved_at)+'. Saving updates it. If you sent it, saving makes a new draft.':''):'Gmail drafts need one more Google permission: compose drafts. Atlanta never sends email.');
  $('task-email-result').hidden=true;$('task-email-auth-link').hidden=true;
 }
-async function openTaskEmail(ids){
- ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids});taskEmailItems=ids;
+async function openTaskEmail(ids,meetingId=null){
+ ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId});taskEmailItems=ids;
  renderTaskEmail(data);editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').showModal();$('task-email-subject').focus();
 }
+function renderTaskEmailPreview(){
+ const preview=$('task-email-preview');preview.replaceChildren();
+ for(const block of $('task-email-body').value.trim().split('\n\n')){
+  const lines=block.split('\n');if(!lines.length)continue;
+  if(/^\d+\. /.test(lines[0])){const card=el('div','email-preview-task');card.append(el('strong','',lines[0]));for(const line of lines.slice(1))card.append(el('div','',line));preview.append(card);}
+  else preview.append(el('p',block.startsWith('—')?'email-preview-footer':'',block));
+ }
+}
+$('task-email-body').oninput=renderTaskEmailPreview;
+$('meeting-email-close').onclick=()=>$('meeting-email-dialog').close();
+$('meeting-email-cancel').onclick=()=>$('meeting-email-dialog').close();
 $('task-email-close').onclick=()=>$('task-email-dialog').close();
 $('task-email-copy').onclick=()=>perform(async()=>{await copyText($('task-email-subject').value+'\n\n'+$('task-email-body').value);toast('Copied the subject and text');});
 $('task-email-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail_compose'});$('task-email-auth-link').href=result.authorization_url;$('task-email-auth-link').hidden=false;
@@ -4458,6 +4486,7 @@ const dialogPolicies={
  'followup-dialog':{close:'followup-close',cancel:'followup-cancel'},
  'task-titles-dialog':{close:'task-titles-close',cancel:'task-titles-cancel'},
  'task-email-dialog':{close:'task-email-close',cancel:'task-email-cancel'},
+ 'meeting-email-dialog':{close:'meeting-email-close',cancel:'meeting-email-cancel',transient:true},
  'ask-dialog':{transient:true},// A typed project name is an edit: Cancel and Escape ask before they discard it.
  'project-dialog':{cancel:'project-cancel',dismiss:()=>$('project-dialog').close()}
 };

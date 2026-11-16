@@ -1900,3 +1900,17 @@ dialog .dialog-head{box-shadow:0 calc(-1 * var(--dialog-pad-top)) 0 12px var(--m
 dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-12px 0 0 var(--modal),12px 0 0 var(--modal)}
 
 #task-panel .task-update-composer{margin-bottom:12px}
+/* Meeting task selection and the recipient-facing email preview. */
+#meeting-email-dialog{width:min(720px,95vw)}
+#meeting-email-tasks{max-height:50vh;overflow:auto;margin:16px 0}
+.meeting-email-choice{display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid var(--border);cursor:pointer}
+.meeting-email-choice input{width:auto;flex:none;margin-top:5px}
+.meeting-email-choice>span{min-width:0;overflow-wrap:anywhere}
+.meeting-email-choice strong,.meeting-email-choice .hint{display:block}
+.task-email-selection,.task-email-preview-wrap{margin:16px 0}
+#task-email-preview{background:#fff;color:#243247;border:1px solid #dbe2ea;border-radius:8px;padding:32px;font:15px/1.65 Arial,Helvetica,sans-serif;overflow-wrap:anywhere}
+#task-email-preview p{margin:0 0 18px;white-space:pre-wrap}
+.email-preview-task{border-top:1px solid #dbe2ea;padding:20px 0;color:#42526e;white-space:pre-wrap}
+.email-preview-task strong{display:block;font-size:17px;font-weight:600;color:#172b4d;margin-bottom:10px}
+#task-email-preview .email-preview-footer{font-size:12px;color:#6b778c}
+@media(max-width:540px){#task-email-preview{padding:18px}}

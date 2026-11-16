@@ -6,6 +6,8 @@ A saved draft marks each task (email_draft) and adds an entry to the history of 
 from __future__ import annotations
 
 import datetime as dt
+import html
+import re
 
 from . import items
 from .followup_email import PLACEHOLDER, addresses, clean, draft_url, mime
@@ -68,8 +70,9 @@ def _owner(service, item):
     return None if not owner or PLACEHOLDER.fullmatch(owner) else dict(id=None, name=owner)
 
 
-def _meeting(service, item):
-    for link in item.get('links') or []:
+def _meeting(service, item, meeting_id=None):
+    links = item.get('links') or []
+    for link in sorted(links, key=lambda link: link.get('meeting_id') != meeting_id):
         if link.get('detached'):
             continue
         try:
@@ -219,24 +222,57 @@ def _block(service, item, number=None, full=True):
     return lines
 
 
-def template(service, tasks):
-    """The email text from the task fields, the saved quotes and the task history. No AI."""
+def template(service, tasks, *, include_context=False, meeting_id=None):
+    """A concise action summary; evidence and audit history are opt-in context."""
+    meetings = list(dict.fromkeys(_meeting(service, task, meeting_id) for task in tasks))
+    shared = meetings[0] if len(meetings) == 1 and meetings[0][0] else None
+
     def text(full):
-        if len(tasks) == 1:
-            lines = ['Здравейте,', '', 'Изпращам ви задача:', ''] + _block(service, tasks[0], full=full)
-        else:
-            lines = ['Здравейте,', '', f'Изпращам ви {len(tasks)} задачи:']
-            for number, item in enumerate(tasks, 1):
-                lines += [''] + _block(service, item, number, full)
-        return '\n'.join(lines + ['', FOOTER])
-    body = text(True)
-    if len(body) > FULL_TEXT_CHARS:
-        body = text(False)  # Too long for one email; the task fields stay.
-    if len(tasks) == 1:
+        intro = ('Във връзка със срещата „' + shared[0] + '“' + (' от ' + shared[1] if shared[1] else '')
+                 + ' изпращам обобщение на задачите и договорените отговорности:' if shared
+                 else 'Изпращам обобщение на задачите и отговорностите за изпълнение:')
+        lines = ['Здравейте,', '', intro]
+        for number, item in enumerate(tasks, 1):
+            block = _block(service, item, number, full)
+            if shared:
+                block = [line for line in block if not line.startswith('От срещата:')]
+            lines += [''] + block
+        return '\n'.join(lines + ['', 'Моля, прегледайте задачите и потвърдете предвидените срокове. '
+                                 'При необходимост от уточнение или промяна, моля, отговорете на това писмо.',
+                                 '', 'Благодаря за съдействието.', '', FOOTER])
+    body = text(include_context)
+    if len(body) > FULL_TEXT_CHARS and include_context:
+        body = text(False)
+    if shared:
+        subject = f'Задачи от среща: {shared[0]}' + (' | ' + shared[1] if shared[1] else '')
+    elif len(tasks) == 1:
         subject = 'Задача: ' + ' '.join(tasks[0]['text'].split())
     else:
         subject = f'Задачи ({len(tasks)}): ' + '; '.join(' '.join(t['text'].split()) for t in tasks[:3])
     return dict(subject=subject[:200], body=body)
+
+
+def formatted_body(text: str) -> str:
+    """Render the editable text safely, with email-compatible inline styles."""
+    parts = []
+    for block in text.strip().split('\n\n'):
+        lines = block.splitlines()
+        if not lines:
+            continue
+        if re.match(r'^\d+\. ', lines[0]):
+            title = html.escape(lines[0])
+            rest = '<br>'.join(html.escape(line) for line in lines[1:])
+            parts.append('<div style="border-top:1px solid #dbe2ea;padding:20px 0">'
+                         '<div style="font-size:17px;font-weight:600;color:#172b4d;margin-bottom:10px">'
+                         + title + '</div><div style="color:#42526e">' + rest + '</div></div>')
+        else:
+            style = 'font-size:12px;color:#6b778c' if block.startswith('—') else 'margin:0 0 18px'
+            parts.append('<p style="' + style + '">' + '<br>'.join(html.escape(line) for line in lines) + '</p>')
+    return ('<!doctype html><html lang="bg"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;background:#f3f5f8;padding:24px 12px">'
+            '<div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ea;'
+            'border-radius:8px;padding:32px;font:15px/1.65 Arial,Helvetica,sans-serif;color:#243247">'
+            + ''.join(parts) + '</div></body></html>')
 
 
 def _previous(tasks, account):
@@ -253,7 +289,7 @@ def prepare(service, body):
     tasks = _tasks(service, _ids(body))
     status = service.google.status()
     previous = _previous(tasks, status.get('account'))
-    return dict(template(service, tasks), tasks=[dict(id=t['id'], text=t['text']) for t in tasks],
+    return dict(template(service, tasks, include_context=body.get('include_context') is True, meeting_id=body.get('meeting_id')), tasks=[dict(id=t['id'], text=t['text']) for t in tasks],
                 recipients=recipients(service, tasks),
                 draft=dict(previous, url=draft_url(previous['account'], previous.get('message_id'))) if previous else None,
                 gmail=dict(account=status.get('account', ''), drafts=bool(status.get('capabilities', {}).get('gmail_compose'))))
@@ -267,7 +303,7 @@ def save_draft(service, body):
     content = clean(dict(subject=body.get('subject'), body=body.get('body')))
     if FOOTER not in content['body']:
         content['body'] += '\n\n' + FOOTER
-    raw = mime(to, content['subject'], content['body'])
+    raw = mime(to, content['subject'], content['body'], html=formatted_body(content['body']))
     account = service.google.status().get('account')
     previous = _previous(tasks, account)
     draft = service.google.gmail_draft(raw, previous['draft_id'] if previous else None, expected_account=account)

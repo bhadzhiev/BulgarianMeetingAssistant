@@ -2492,13 +2492,10 @@ async function sendBulkTasks(body){
  }finally{bulkSaving=false;renderBulkTasks();}
  await refreshAfterItemChange();
 }
-// The task list is compact by default; the detailed cards are the other view. A compact list selects tasks on request.
-let taskDensity=(()=>{try{return localStorage.getItem('task-density')==='cards'?'cards':'compact';}catch{return 'compact';}})(),taskSelecting=false;
+// One compact task view; selection starts on request.
+let taskSelecting=false;
 function renderBulkTasks(){
  const box=$('task-bulk-bar');box.replaceChildren();box.hidden=itemKind!=='task'||managerView==='inbox'||(!taskVisibleRows.length&&!taskSelection.size&&!bulkPending);if(box.hidden)return;
- const views=el('div','segmented task-density');views.setAttribute('role','group');views.setAttribute('aria-label','Task view');
- for(const [key,name] of [['compact','Compact'],['cards','Cards']]){const b=btn(taskDensity===key?'selected':'',name);b.setAttribute('aria-pressed',String(taskDensity===key));b.onclick=()=>{taskDensity=key;try{localStorage.setItem('task-density',key);}catch{}renderTasks();};views.append(b);}
- box.append(views);
  if(!taskSelection.size&&!bulkPending){
   const start=btn('secondary small-action',taskSelecting?'Done selecting':'Select tasks');start.setAttribute('aria-pressed',String(taskSelecting));start.onclick=()=>{taskSelecting=!taskSelecting;renderTasks();};box.append(start);
   if(!taskSelecting)return;
@@ -2598,7 +2595,7 @@ function renderTasks() {
   if(filtered&&search)actions.append(actionBtn('secondary small-action','Reset filters and search',()=>resetTaskFilters({all:true})));
   if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
  }}
- const compact=taskDensity==='compact';if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
+ const compact=true;if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
  // The compact list has one header row with the column names; it lines up with the rows.
  // Each compact card labels its own fields, so the list has no column header row.
  if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{compact,select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));

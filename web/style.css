@@ -1353,7 +1353,6 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
 #task-panel .task-section[open]{padding-bottom:12px}
 #task-panel .task-section .note-section{margin:8px 0}
 .work-section{margin:14px 0 4px;font-size:13px}
-.task-bulk-bar .task-density{margin-right:6px}
 #task-panel .task-panel-head h2{overflow-wrap:anywhere;max-width:100%}
 /* The background jobs: a failed job turns the status line red and shows no spinner. The list opens under the line. */
 #activity-status.failed{background:var(--danger-ink,#9b1c1c)}

@@ -3231,7 +3231,7 @@ class MeetingService:
             clean['assignee_person_ids'] = ids
         return clean
 
-    def update_item(self, item_id, text, changes, revision=None):
+    def update_item(self, item_id, text, changes, revision=None, *, confirm_subtasks=False):
         if not isinstance(changes, dict) or not changes:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
@@ -3243,6 +3243,9 @@ class MeetingService:
             if revision is not None and (type(revision) is not int or revision != item.get('revision')):
                 raise items.WorkItemConflict('This item changed. Reload the list and try again.')
             clean=self._clean_item_changes(item,changes)
+            from .task_hierarchy import unfinished
+            if (clean.get('workflow_state') == 'done' or clean.get('status') == 'done') and unfinished(self.items.items, item_id) and not confirm_subtasks:
+                raise ValueError('This main task has unfinished subtasks. Reload and confirm completion explicitly.')
             note=clean.pop('update_note',None);evidence_id=clean.pop('update_evidence_id',None)
             if evidence_id and not note:raise ValueError('Add an update before choosing its evidence')
             previous=copy.deepcopy(self.items.data)
@@ -3308,6 +3311,9 @@ class MeetingService:
                 item=self.items.items.get(row['id'])
                 if not item or item['kind']!='task' or item.get('revision')!=row['revision']:raise items.WorkItemConflict('A selected task changed. Reload and select again; no tasks changed.')
                 if item.get('acceptance_state')=='proposed' or item.get('dismissed'):raise ValueError('Select accepted, visible tasks only')
+                from .task_hierarchy import unfinished
+                if changes.get('workflow_state') == 'done' and unfinished(self.items.items, item['id']) and body.get('confirm_subtasks') is not True:
+                    raise ValueError('A main task has unfinished subtasks. Reload and confirm completion explicitly.')
                 validated.append((item['id'],self._clean_item_changes(item,changes)))
             previous=copy.deepcopy(self.items.data)
             try:
@@ -3354,6 +3360,9 @@ class MeetingService:
             if (revision is not None and (type(revision) is not int or revision != item.get('revision'))
                     or into_revision is not None and (type(into_revision) is not int or into_revision != into.get('revision'))):
                 raise items.WorkItemConflict('These items changed. Reload the list and try again.')
+            from .task_hierarchy import children
+            if any(t.get('parent_task_id') or children(self.items.items, t['id']) for t in (item, into)):
+                raise ValueError('Detach tasks from their hierarchy before merging duplicates')
             if self.items.replaces(item_id, into_id):
                 raise ValueError('One of these decisions replaces the other. They cannot be merged.')
             if self.items.has_graph_links(item_id):

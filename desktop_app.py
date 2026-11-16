@@ -592,6 +592,9 @@ class Handler(BaseHTTPRequestHandler):
                 result=check(service,item_id,body) if path.endswith('/github-progress') else readiness(service,item_id,body.get('repository'))
             elif re.fullmatch(r'/api/items/[a-f0-9]{1,64}/meeting-update/remove',path):
                 result=service.remove_meeting_update(path.split('/')[3],body)
+            elif path == '/api/items/hierarchy':
+                from app.task_hierarchy import assign
+                result = assign(service, body)
             elif path == '/api/items/bulk':
                 result = service.bulk_update_tasks(body)
             elif path == '/api/items/create':
@@ -605,7 +608,7 @@ class Handler(BaseHTTPRequestHandler):
                     if type(body.get('into_revision')) is not int:
                         raise ValueError('Reload both items before merging')
                     result = service.merge_items(item_id, body['into'], body['revision'], body['into_revision'])
-                else: result = service.update_item(item_id, body['text'], body['changes'], body['revision'])
+                else: result = service.update_item(item_id, body['text'], body['changes'], body['revision'], confirm_subtasks=body.get('confirm_subtasks') is True)
             else:
                 match = re.fullmatch(r'/api/meetings/([a-f0-9]{32})/(process|cancel|edit|title|calendar|delete|task|delete-task|reanalyze|question|notes-review|marker-delete|link|scope|done|type|type-export)', path)
                 if not match:

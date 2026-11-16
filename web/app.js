@@ -271,6 +271,11 @@ async function api(path,body) {
  // also when the caller catches the error and shows it in a form.
  let ok=false;
  try{
+  if(body&&/^\/api\/items(?:\/[a-f0-9]{1,64}|\/bulk)$/.test(path)&&(body.changes?.workflow_state==='done'||body.changes?.status==='done')&&!body.confirm_subtasks){
+   const snapshot=await api('/api/items');
+   const ids=new Set(body.items?.map(t=>t.id)||[path.split('/').at(-1)]),open=(snapshot.items||[]).filter(t=>ids.has(t.parent_task_id)&&!['done','cancelled'].includes(AtlantaTasks.workflow(t)));
+   if(open.length){if(!(await ask(open.length+' unfinished subtasks will stay open. Mark the main task done anyway?',{ok:'Mark main task done',cancel:'Keep editing'})))throw Object.assign(new Error('Main task completion cancelled'),{cancelled:true});body={...body,confirm_subtasks:true};}
+  }
   const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data=await readApiResponse(response);ok=true;
   // A correction of a term in a task or decision offers that term for the vocabulary.
@@ -383,7 +388,7 @@ async function perform(fn) {
  beginActivity(actionLabel(trigger));
  const busy=trigger&&setTimeout(()=>{trigger.classList.add('is-busy');trigger.setAttribute('aria-busy','true');},BUSY_DELAY);
  clearError();
- try { await fn(); } catch(e) { failed=true; error(e.message); }
+ try { await fn(); } catch(e) { failed=true; if(!e.cancelled)error(e.message); }
  finally {
   endActivity();
   if(trigger){clearTimeout(busy);busyTriggers.delete(trigger);trigger.classList.remove('is-busy');trigger.removeAttribute('aria-busy');}
@@ -1573,7 +1578,7 @@ function decisionState(item){
 }
 function decisionBadge(item){const s=decisionState(item),badge=el('span','decision-status '+s.cls);badge.append(icon(item.status==='accepted'?'verified':item.status==='superseded'?'restore':'circle'),el('span','',s.label));if(s.title)badge.title=s.title;return badge;}
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',edited_on_accept:'Text edited on accept',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update',owner_linked:'Owner linked to People',speaker_named:'Speaker named in',meeting_update_removed:'Update from the meeting removed',email_draft:'Email draft saved in Gmail'};
+const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',edited_on_accept:'Text edited on accept',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update',owner_linked:'Owner linked to People',speaker_named:'Speaker named in',meeting_update_removed:'Update from the meeting removed',email_draft:'Email draft saved in Gmail',email_draft_removed:'Removed from shared email draft',parent_changed:'Main task changed',subtask_added:'Subtask added',subtask_removed:'Subtask detached'};
 // An event without a label reads as words, never as its code name.
 const eventLabel=name=>EVENT_LABELS[name]||String(name||'Event').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
@@ -1722,7 +1727,7 @@ function itemActions(item,row,{direct=false}={}) {
  const snooze=el('button','quiet',item.snoozed_until?'Unsnooze':'Snooze'),dismiss=el('button','quiet',item.dismissed?'Restore to My Work':'Hide item');
  snooze.onclick=()=>perform(async()=>{if(item.snoozed_until){await changeItem(item,{snoozed_until:null});return;}const day=new Date();day.setDate(day.getDate()+1);const value=await askDate('Snooze in My Work until dd.mm.yyyy. The item status and sources stay unchanged.',AtlantaUX.iso(day));if(value!==null)await changeItem(item,{snoozed_until:value});});
  dismiss.title='Hides this item in My Work and every linked meeting. Undo is available.';dismiss.onclick=()=>perform(()=>item.dismissed?changeItem(item,{dismissed:false}):changeWithUndo(item,{dismissed:true},'Dismissed: '+item.text,{dismissed:false}));
- if(item.kind==='task'&&item.acceptance_state!=='proposed'){const mail=el('button','quiet','Send by email…');mail.onclick=()=>perform(()=>openTaskEmail(item.id));actions.append(mail);}
+ if(item.kind==='task'&&item.acceptance_state!=='proposed'){const group=el('button','quiet','Add to main task…');group.onclick=()=>perform(()=>openTaskHierarchy({childIds:[item.id]}));actions.append(group);const mail=el('button','quiet','Send by email…');mail.onclick=()=>perform(()=>openTaskEmail(item.id));actions.append(mail);}
  if(!direct&&item.kind!=='task')actions.append(edit);actions.append(snooze,dismiss,merge);if(!direct)actions.append(remove);return actions;
 }
 // GitHub, without writing to it: copy a draft, open GitHub prefilled, or link an existing issue on this Mac.
@@ -1914,6 +1919,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  if(item.acceptance_state==='proposed'){for(const fact of [ownerFact,stateFact,dueFact]){fact.disabled=true;fact.classList.add('static-fact');}const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','sr-only','Select'));marks.append(pick);}
  // A card without bulk selection (Projects, Prepare me) has no empty selection column.
+ if(typeof taskHierarchyBadge==='function'){const hierarchy=taskHierarchyBadge(item);if(hierarchy)meta.append(hierarchy);}
  cardLifecycle(row,['done','cancelled'].includes(AtlantaTasks.workflow(item))?'closed':item.acceptance_state==='proposed'?'proposed':'active');
  row.append(...(select?[marks]:[]),main);if(item.acceptance_state!=='proposed'){const more=el('details','task-more');const trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';const actions=itemActions(item,row);if(compactMenu)actions.prepend(...compactMenu);more.append(trigger,actions);row.append(more);}return row;
 }
@@ -2520,7 +2526,8 @@ function renderBulkTasks(){
  });
  const mail=btn('secondary','Send by email…');mail.type='button';mail.title='One Gmail draft with all selected tasks. Each task gets the envelope mark.';
  mail.onclick=()=>perform(()=>openTaskEmail([...taskSelection.keys()]));
- box.append(action,input,apply,mail,note);
+ const group=btn('secondary','Add to main task…');group.onclick=()=>perform(()=>openTaskHierarchy({childIds:[...taskSelection.keys()]}));
+ box.append(group,action,input,apply,mail,note);
 }
 // Only the Tasks and Decisions tabs show task counts; the other tabs keep their own subtitle.
 function taskSummary(text){if(['task','decision'].includes(workTab))$('tasks-summary').textContent=text;}
@@ -2594,7 +2601,7 @@ function renderTasks() {
  const compact=taskDensity==='compact';if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
  // The compact list has one header row with the column names; it lines up with the rows.
  // Each compact card labels its own fields, so the list has no column header row.
- for(const item of rows) rowTarget.append(itemKind==='task'?globalTaskRow(item,today,{compact,select:taskSelecting||taskSelection.size>0,showProject:!project.value}):decisionRow(item,byId));
+ if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{compact,select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
 const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
@@ -4260,6 +4267,69 @@ function taskEditUndo(item,changes){
  if('project_ids' in changes)undo.project_ids=Object.hasOwn(item,'project_ids')?item.project_ids:null;
  return undo;
 }
+function hierarchyTasks(data=itemsData){return (data.items||[]).filter(t=>t.kind==='task'&&t.acceptance_state!=='proposed'&&!t.dismissed);}
+function taskHierarchyBadge(item){
+ const tasks=hierarchyTasks(),parent=tasks.find(t=>t.id===item.parent_task_id),children=tasks.filter(t=>t.parent_task_id===item.id);
+ if(parent)return btn('quiet small-action task-parent-link','↳ '+parent.text,()=>perform(()=>openTaskPanel(parent.id)));
+ if(children.length)return btn('quiet small-action task-parent-link',children.filter(t=>AtlantaTasks.workflow(t)==='done').length+' / '+children.length+' subtasks done',()=>perform(()=>openTaskPanel(item.id)));
+ return null;
+}
+async function openTaskHierarchy({parentId=null,childIds=[]}={}){
+ if(!(await leaveEdits()))return;const data=await api('/api/items'),tasks=hierarchyTasks(data),byId=new Map(tasks.map(t=>[t.id,t]));
+ const dialog=$('task-hierarchy-dialog'),body=$('task-hierarchy-body');body.replaceChildren();let pending=null;
+ const root=parentId&&byId.get(parentId);if(parentId&&!root)throw new Error('This main task is no longer available');
+ $('task-hierarchy-title').textContent=root?'Add existing subtasks':'Choose a main task';
+ body.append(el('p','hint',root?root.text:'Tasks keep their own owners, deadlines, sources and history. Only their grouping changes.'));
+ const roots=tasks.filter(t=>!t.parent_task_id&&!childIds.includes(t.id)&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))),target=el('select'),title=el('input');
+ target.setAttribute('aria-label','Main task');target.append(option('Create a new main task','__new__'),...roots.map(t=>option(t.text,t.id)));title.placeholder='Title of the new main task';title.maxLength=1000;title.setAttribute('aria-label','New main task title');
+ if(!root){body.append(target,title);target.onchange=()=>{title.hidden=target.value!=='__new__';pending=null;update();};}
+ const search=el('input');search.type='search';search.placeholder=root?'Search existing tasks':'Search main tasks';search.setAttribute('aria-label',search.placeholder);
+ const list=el('div','hierarchy-picker-list'),chosen=new Set(childIds),checks=[];
+ const candidates=root?tasks.filter(t=>t.id!==root.id&&!t.parent_task_id&&!tasks.some(c=>c.parent_task_id===t.id)):childIds.map(id=>byId.get(id)).filter(Boolean);
+ if(!root&&candidates.length!==childIds.length)throw new Error('Reload and choose accepted tasks');
+ if(!root&&candidates.some(t=>tasks.some(c=>c.parent_task_id===t.id)))throw new Error('Detach the subtasks of a main task before making it a subtask');
+ const save=$('task-hierarchy-save'),status=$('task-hierarchy-status');status.textContent='';
+ function update(){save.disabled=!chosen.size||(!root&&target.value==='__new__'&&!title.value.trim());save.textContent='Add '+chosen.size+' '+(chosen.size===1?'subtask':'subtasks');}
+ title.oninput=()=>{pending=null;update();};
+ for(const task of candidates){const label=el('label','hierarchy-choice'),check=el('input');check.type='checkbox';check.checked=chosen.has(task.id);check.value=task.id;
+  check.onchange=()=>{if(check.checked){if(chosen.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}chosen.add(task.id);}else chosen.delete(task.id);pending=null;update();};
+  const info=el('span');info.append(el('strong','',task.text),el('span','hint',(task.owner||'No owner')+' · '+(task.due_date?date(task.due_date):'No due date')));label.append(check,info);list.append(label);checks.push({task,label,check});}
+ const all=btn('secondary small-action','Select / clear matching');all.onclick=()=>{const visible=checks.filter(r=>!r.label.hidden),clear=visible.every(r=>r.check.checked);for(const r of visible){if(!clear&&chosen.size>=100)break;r.check.checked=!clear;if(clear)chosen.delete(r.task.id);else chosen.add(r.task.id);}pending=null;update();};
+ search.oninput=()=>{const term=search.value.toLocaleLowerCase();if(root){for(const r of checks)r.label.hidden=![r.task.text,r.task.owner].join(' ').toLocaleLowerCase().includes(term);}else{const previous=target.value;target.replaceChildren(option('Create a new main task','__new__'),...roots.filter(t=>t.text.toLocaleLowerCase().includes(term)).map(t=>option(t.text,t.id)));target.value=[...target.options].some(o=>o.value===previous)?previous:'__new__';title.hidden=target.value!=='__new__';pending=null;update();}};
+ body.append(search,all,list);if(!candidates.length)body.append(el('p','hint','No independent tasks available. Create a task first, or detach it from its current main task.'));
+ save.onclick=()=>perform(()=>withDialogAction(dialog,async()=>{
+  if(!chosen.size)return;
+  if(!pending){const parent=root||byId.get(target.value);pending={items:[...chosen].map(id=>({id,revision:byId.get(id).revision})),request_id:crypto.randomUUID().replaceAll('-',''),...(parent?{parent_id:parent.id,parent_revision:parent.revision}:{new_parent_title:title.value.trim()})};}
+  try{const result=await api('/api/items/hierarchy',pending);editorDirty.clear('dialog:task-hierarchy-dialog');dialog.close();taskSelection.clear();await refreshAfterItemChange();await openTaskPanel(result.parent_id);toast('Subtasks added');}
+  catch(error){status.textContent=error.message+' You can retry the unchanged selection. Close and reopen this window if tasks changed.';if(!error.status||error.status>=500)for(const field of body.querySelectorAll('input,select,button'))field.disabled=true;throw error;}
+ }));update();dialog.showModal();if(root)search.focus();else if(target.value==='__new__')title.focus();
+}
+function taskHierarchySection(item,data,editing,dialog){
+ const box=el('section','note-section task-hierarchy-section');if(item.acceptance_state==='proposed')return box;
+ const tasks=hierarchyTasks(data),parent=tasks.find(t=>t.id===item.parent_task_id),children=tasks.filter(t=>t.parent_task_id===item.id);
+ const ready=async()=>{if(editing())throw new Error('Save task edits before changing subtasks.');if(!(await leaveEdits()))return false;dialog.close();return true;};
+ const detach=task=>perform(async()=>{if(editing())throw new Error('Save task edits before detaching a subtask.');
+  await api('/api/items/hierarchy',{items:[{id:task.id,revision:task.revision}],parent_id:null,request_id:crypto.randomUUID().replaceAll('-','')});dialog.close();await refreshAfterItemChange();await openTaskPanel(item.id);toast('Detached · the task and its history are kept');});
+ box.append(el('h3','',parent?'Main task':'Subtasks'));
+ if(parent){box.append(btn('quiet task-parent-link',parent.text,()=>perform(async()=>{if(await ready())await openTaskPanel(parent.id);})),btn('secondary small-action','Detach from main task',()=>detach(item)),btn('quiet small-action','Move to another main task…',()=>perform(async()=>{if(await ready())await openTaskHierarchy({childIds:[item.id]});})));}
+ else{box.append(el('p','hint',children.length?children.filter(t=>AtlantaTasks.workflow(t)==='done').length+' of '+children.length+' subtasks done':'Group existing tasks here. Each keeps its owner, deadline and history.'));
+  for(const child of children){const row=el('div','hierarchy-child'),info=el('div');info.append(btn('quiet',child.text,()=>perform(async()=>{if(await ready())await openTaskPanel(child.id);})),el('span','hint',(child.owner||'No owner')+' · '+(child.due_date?date(child.due_date):'No due date')+' · '+AtlantaTasks.STATES[AtlantaTasks.workflow(child)]));row.append(info,btn('quiet small-action','Detach',()=>detach(child)));box.append(row);}
+  box.append(btn('secondary small-action','Add existing subtasks…',()=>perform(async()=>{if(await ready())await openTaskHierarchy({parentId:item.id});})));
+  if(!children.length)box.append(btn('quiet small-action','Make a subtask of…',()=>perform(async()=>{if(await ready())await openTaskHierarchy({childIds:[item.id]});})));
+ }
+ return box;
+}
+const taskTreeCollapsed=new Set();
+function renderTaskTree(rows,today,options){
+ const result=[],ids=new Set(rows.map(t=>t.id));
+ for(const item of rows){if(item.parent_task_id&&ids.has(item.parent_task_id))continue;
+  const children=rows.filter(t=>t.parent_task_id===item.id),card=globalTaskRow(item,today,options);if(!children.length){result.push(card);continue;}
+  const group=el('div','task-hierarchy-group'),nested=el('details','task-subtasks');nested.open=!taskTreeCollapsed.has(item.id);
+  nested.append(el('summary','',children.length+' subtasks'));nested.ontoggle=()=>{if(nested.open)taskTreeCollapsed.delete(item.id);else taskTreeCollapsed.add(item.id);};
+  for(const child of children)nested.append(globalTaskRow(child,today,options));group.append(card,nested);result.push(group);
+ }return result;
+}
+
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
  const dialog=$('task-panel'),box=$('task-panel-body');
@@ -4341,7 +4411,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
    const goal=pid&&(state.projects?.projects||[]).find(p=>p.id===pid)?.goal;
    await improveWithAI(()=>({text:area.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{area.value=result.text||area.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;dirty();sectionNotes();area.focus();},improve,()=>dialog.open);});
   improveRow.append(improve,el('span','hint','Suggests sharper wording; you review it before saving.'));}
- box.append(label('Title',area),label('Description',details),label('Expected result',criterion),improveRow,core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,historySection,peopleSection,sourcesSection,footer);
+ box.append(label('Title',area),label('Description',details),label('Expected result',criterion),improveRow,core,...(typeof taskHierarchySection==='function'?[taskHierarchySection(item,data,()=>editing,dialog)]:[]),el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,historySection,peopleSection,sourcesSection,footer);
  sectionNotes();
  const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));for(const edge of data.graph?.relationships||[]){if(!['derives_from','implements'].includes(edge.kind)||edge.from_id!==item.id)continue;const origin=data.items.find(q=>q.id===edge.to_id)||data.derived_sources?.[edge.to_id];if(!origin||!['question','decision'].includes(origin.kind))continue;sources.append(btn('quiet small-action',(origin.kind==='decision'?'Decision: ':'Question: ')+origin.text,()=>perform(async()=>{if(!(await leaveEdits()))return;dialog.close();const createdFrom=(item.history||[]).find(event=>event.event==='created_from_decision'&&event.decision_id===origin.id);const meetingId=createdFrom?.meeting_id||origin.origin?.meeting_id||origin.links?.at(-1)?.meeting_id;if(meetingId&&data.meetings[meetingId]){if(origin.kind==='decision')await openMeetingDecision(origin,meetingId);else await openMeetingQuestion(origin);}else{show('tasks');lastTasks='';await loadTasks();showWorkTab(origin.kind==='question'?'questions':'task');toast('The saved source is kept; its meeting is no longer available.');}})));}const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);
@@ -4413,10 +4483,32 @@ function emailMark(item,{compact=false}={}){
  mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
  mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));if(!compact)mark.append(document.createTextNode('Gmail draft'));return mark;
 }
-let taskEmailItems=[];
+let taskEmailItems=[],taskEmailMeeting=null;
 function taskEmailStatus(text,warning=false){const box=$('task-email-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}
 function taskEmailRecipients(){const chosen=[...$('task-email-people').querySelectorAll('input:checked')].map(input=>input.value);
  const extra=$('task-email-extra').value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean);return [...new Set([...chosen,...extra].map(v=>v.toLowerCase()))];}
+function renderTaskEmailChoices(data){
+ const list=$('task-email-selected'),apply=$('task-email-apply-selection'),save=$('task-email-save'),selected=new Set(data.tasks.map(t=>t.id)),initial=new Set(selected);
+ list.replaceChildren();apply.hidden=true;save.disabled=false;
+ const originalSubject=data.subject,originalBody=data.body,checks=[];
+ const available=data.available_tasks||data.tasks,roots=available.filter(t=>!t.parent_task_id||!available.some(p=>p.id===t.parent_task_id)),ordered=roots.flatMap(t=>[t,...available.filter(c=>c.parent_task_id===t.id)]);
+ const changed=()=>selected.size!==initial.size||[...selected].some(id=>!initial.has(id));
+ for(const task of ordered){const label=el('label','checkbox email-task-choice'+(task.parent_task_id?' email-task-child':'')),check=el('input');check.type='checkbox';check.checked=selected.has(task.id);check.value=task.id;
+  check.onchange=()=>{if(check.checked){if(selected.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}selected.add(task.id);}else selected.delete(task.id);apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=changed();$('task-email-copy').disabled=changed();};
+  label.append(check,el('span','',(task.parent_task_id?'↳ ':'')+task.text));list.append(label);checks.push(check);}
+ if(ordered.length>1){const all=btn('quiet small-action','Select / clear all tasks');all.onclick=()=>{const clear=checks.every(check=>check.checked);selected.clear();checks.forEach((check,index)=>{check.checked=!clear&&index<100;if(check.checked)selected.add(check.value);});apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=changed();$('task-email-copy').disabled=changed();};list.prepend(all);}
+ apply.onclick=()=>perform(()=>withDialogAction($('task-email-dialog'),async()=>{
+  if(!selected.size)return;
+  if(($('task-email-body').value!==originalBody||$('task-email-subject').value!==originalSubject)&&!(await ask('Rebuild the letter for this selection? Your edits to the subject and text will be replaced.',{ok:'Rebuild letter',cancel:'Keep editing'})))return;
+  const to=taskEmailRecipients(),fresh=await api('/api/task-email/prepare',{item_ids:[...selected],meeting_id:taskEmailMeeting});
+  taskEmailItems=[...selected];renderTaskEmail(fresh);
+  for(const check of $('task-email-people').querySelectorAll('input'))check.checked=to.includes(check.value.toLowerCase());
+  const known=new Set(fresh.recipients.map(p=>p.email.toLowerCase()));$('task-email-extra').value=to.filter(email=>!known.has(email)).join(', ');
+  $('task-email-copy').disabled=false;editorDirty.set('dialog:task-email-dialog',true);
+ }));
+ $('task-email-selection-label').textContent=data.tasks.length+(data.tasks.length===1?' task included':' tasks included')+' · choose main tasks and subtasks';
+}
+
 function renderTaskEmail(data){
  const people=$('task-email-people');people.replaceChildren();
  if(!data.recipients.length)people.append(emptyNote('No people with an email address yet.'));
@@ -4425,7 +4517,7 @@ function renderTaskEmail(data){
   label.append(check,el('span','',row.name),el('span','hint',row.email+(row.involved?' · on this task':'')));people.append(label);}
  $('task-email-extra').value=[...before].filter(email=>!data.recipients.some(row=>row.email===email)).join(', ');
  $('task-email-subject').value=data.subject;$('task-email-body').value=data.body;renderTaskEmailPreview();
- const selected=$('task-email-selected');selected.replaceChildren(...data.tasks.map(task=>el('li','',task.text)));
+ renderTaskEmailChoices(data);$('task-email-copy').disabled=false;
  $('task-email-title').textContent=data.tasks.length>1?'Send '+data.tasks.length+' tasks in one email':'Send the task by email';
  const drafts=data.gmail.drafts;$('task-email-connect').hidden=drafts;$('task-email-save').hidden=!drafts;
  $('task-email-save').textContent=data.draft?'Update Gmail draft':'Save Gmail draft';
@@ -4433,20 +4525,22 @@ function renderTaskEmail(data){
  $('task-email-result').hidden=true;$('task-email-auth-link').hidden=true;
 }
 async function openTaskEmail(ids,meetingId=null){
- ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId});taskEmailItems=ids;
+ ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId});taskEmailItems=ids;taskEmailMeeting=meetingId;
  renderTaskEmail(data);editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').showModal();$('task-email-subject').focus();
 }
 function renderTaskEmailPreview(){
  const preview=$('task-email-preview');preview.replaceChildren();
  for(const block of $('task-email-body').value.trim().split('\n\n')){
   const lines=block.split('\n');if(!lines.length)continue;
-  if(/^\d+\. /.test(lines[0])){const card=el('div','email-preview-task');card.append(el('strong','',lines[0]));for(const line of lines.slice(1))card.append(el('div','',line));preview.append(card);}
+  if(/^\d+(?:\.\d+)?\. /.test(lines[0])){const card=el('div','email-preview-task'+(/^\d+\.\d+\. /.test(lines[0])?' email-preview-subtask':''));card.append(el('strong','',lines[0]));for(const line of lines.slice(1))card.append(el('div','',line));preview.append(card);}
   else preview.append(el('p',block.startsWith('—')?'email-preview-footer':'',block));
  }
 }
 $('task-email-body').oninput=renderTaskEmailPreview;
 $('meeting-email-close').onclick=()=>$('meeting-email-dialog').close();
 $('meeting-email-cancel').onclick=()=>$('meeting-email-dialog').close();
+$('task-hierarchy-close').onclick=()=>$('task-hierarchy-dialog').close();
+$('task-hierarchy-cancel').onclick=()=>$('task-hierarchy-dialog').close();
 $('task-email-close').onclick=()=>$('task-email-dialog').close();
 $('task-email-copy').onclick=()=>perform(async()=>{await copyText($('task-email-subject').value+'\n\n'+$('task-email-body').value);toast('Copied the subject and text');});
 $('task-email-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail_compose'});$('task-email-auth-link').href=result.authorization_url;$('task-email-auth-link').hidden=false;
@@ -4487,6 +4581,7 @@ const dialogPolicies={
  'task-titles-dialog':{close:'task-titles-close',cancel:'task-titles-cancel'},
  'task-email-dialog':{close:'task-email-close',cancel:'task-email-cancel'},
  'meeting-email-dialog':{close:'meeting-email-close',cancel:'meeting-email-cancel',transient:true},
+ 'task-hierarchy-dialog':{close:'task-hierarchy-close',cancel:'task-hierarchy-cancel'},
  'ask-dialog':{transient:true},// A typed project name is an edit: Cancel and Escape ask before they discard it.
  'project-dialog':{cancel:'project-cancel',dismiss:()=>$('project-dialog').close()}
 };

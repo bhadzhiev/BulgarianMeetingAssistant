@@ -44,6 +44,8 @@ def normalize(item):
                 or any(not isinstance(key, str) or not re.fullmatch(r'[a-f0-9]{12}', key) for key in ids) or len(set(ids)) != len(ids)):
             raise ValueError('Invalid WorkItem projects')
     if item['kind']=='task':
+        if item.get('parent_task_id') is not None and (not isinstance(item['parent_task_id'], str) or not re.fullmatch(r'[a-f0-9]{1,64}', item['parent_task_id']) or item['parent_task_id'] == item['id']):
+            raise ValueError('Invalid parent task')
         item.setdefault('task_model_version',1)
         if type(item['task_model_version']) is not int or item['task_model_version']!=1:raise ValueError('This task needs a newer app version')
         item.setdefault('workflow_state','done' if item['status']=='done' else 'todo')
@@ -214,6 +216,12 @@ class WorkItemStore:
             if key != item.get('id'):
                 raise ValueError('WorkItem ID does not match its registry key')
             prepared[key] = normalize(copy.deepcopy(item))
+        for task in prepared.values():
+            parent_id = task.get('parent_task_id')
+            if parent_id:
+                parent = prepared.get(parent_id)
+                if task['kind'] != 'task' or not parent or parent['kind'] != 'task' or parent.get('parent_task_id'):
+                    raise ValueError('Tasks support one main task and one level of subtasks')
         graph = {name: copy.deepcopy(data.get(name, {})) for name in COLLECTIONS}
         from .work_graph import validate_graph
         validate_graph(graph, prepared)

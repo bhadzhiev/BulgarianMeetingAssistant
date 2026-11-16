@@ -224,6 +224,14 @@ def _block(service, item, number=None, full=True):
 
 def template(service, tasks, *, include_context=False, meeting_id=None):
     """A concise action summary; evidence and audit history are opt-in context."""
+    selected = {task['id']: task for task in tasks}
+    ordered = []
+    for task in tasks:
+        if task.get('parent_task_id') in selected:
+            continue
+        ordered.append(task)
+        ordered.extend(child for child in tasks if child.get('parent_task_id') == task['id'])
+    tasks = ordered
     meetings = list(dict.fromkeys(_meeting(service, task, meeting_id) for task in tasks))
     shared = meetings[0] if len(meetings) == 1 and meetings[0][0] else None
 
@@ -232,8 +240,21 @@ def template(service, tasks, *, include_context=False, meeting_id=None):
                  + ' изпращам обобщение на задачите и договорените отговорности:' if shared
                  else 'Изпращам обобщение на задачите и отговорностите за изпълнение:')
         lines = ['Здравейте,', '', intro]
-        for number, item in enumerate(tasks, 1):
+        main_number, child_numbers, labels = 0, {}, {}
+        for item in tasks:
+            parent_id = item.get('parent_task_id')
+            if parent_id in labels:
+                child_numbers[parent_id] = child_numbers.get(parent_id, 0) + 1
+                number = f'{labels[parent_id]}.{child_numbers[parent_id]}'
+            else:
+                main_number += 1
+                number = str(main_number)
+                labels[item['id']] = number
             block = _block(service, item, number, full)
+            if parent_id and parent_id not in selected:
+                parent = service.items.items.get(parent_id)
+                if parent:
+                    block.insert(1, 'Основна задача: ' + parent['text'])
             if shared:
                 block = [line for line in block if not line.startswith('От срещата:')]
             lines += [''] + block
@@ -259,10 +280,11 @@ def formatted_body(text: str) -> str:
         lines = block.splitlines()
         if not lines:
             continue
-        if re.match(r'^\d+\. ', lines[0]):
+        if re.match(r'^\d+(?:\.\d+)?\. ', lines[0]):
             title = html.escape(lines[0])
+            indent = 'margin-left:20px;' if re.match(r'^\d+\.\d+\. ', lines[0]) else ''
             rest = '<br>'.join(html.escape(line) for line in lines[1:])
-            parts.append('<div style="border-top:1px solid #dbe2ea;padding:20px 0">'
+            parts.append('<div style="' + indent + 'border-top:1px solid #dbe2ea;padding:20px 0">'
                          '<div style="font-size:17px;font-weight:600;color:#172b4d;margin-bottom:10px">'
                          + title + '</div><div style="color:#42526e">' + rest + '</div></div>')
         else:
@@ -289,10 +311,22 @@ def prepare(service, body):
     tasks = _tasks(service, _ids(body))
     status = service.google.status()
     previous = _previous(tasks, status.get('account'))
-    return dict(template(service, tasks, include_context=body.get('include_context') is True, meeting_id=body.get('meeting_id')), tasks=[dict(id=t['id'], text=t['text']) for t in tasks],
+    with service.lock, service.items.lock:
+        roots = {task.get('parent_task_id') or task['id'] for task in tasks}
+        candidates = [task for task in service.items.items.values()
+                      if task.get('kind') == 'task' and not task.get('dismissed') and task.get('acceptance_state') != 'proposed'
+                      and (task['id'] in roots or task.get('parent_task_id') in roots or task['id'] in {t['id'] for t in tasks})]
+        def summary(task):
+            parent = service.items.items.get(task.get('parent_task_id'))
+            return dict(id=task['id'], text=task['text'], parent_task_id=task.get('parent_task_id'),
+                        parent_title=parent['text'] if parent else None)
+        available = [summary(task) for task in candidates]
+    return dict(template(service, tasks, include_context=body.get('include_context') is True, meeting_id=body.get('meeting_id')),
+                tasks=[summary(task) for task in tasks], available_tasks=available,
                 recipients=recipients(service, tasks),
                 draft=dict(previous, url=draft_url(previous['account'], previous.get('message_id'))) if previous else None,
                 gmail=dict(account=status.get('account', ''), drafts=bool(status.get('capabilities', {}).get('gmail_compose'))))
+
 
 
 def save_draft(service, body):
@@ -314,8 +348,17 @@ def save_draft(service, body):
     text = (('Draft updated' if updated else 'Draft created') + ' for ' + ', '.join(to) + ' · ' + content['subject']
             + (f' · {len(ids)} tasks in one email' if len(ids) > 1 else ''))
     with service.lock, service.items.lock:
-        marked, before = [], {}
+        marked, removed, before = [], [], {}
         try:
+            if updated:
+                for task in service.items.items.values():
+                    old = task.get('email_draft') or {}
+                    if task['id'] not in ids and old.get('account') == account and old.get('draft_id') == saved['draft_id']:
+                        before[task['id']] = old
+                        task.pop('email_draft', None)
+                        task['history'].append(dict(at=items.now(), event='email_draft_removed', by='user', meeting_id=None,
+                                                    changes={}, text='Removed from the updated shared email draft'))
+                        removed.append(task['id'])
             for item_id in ids:
                 task = service.items.items.get(item_id)
                 if not task:
@@ -329,7 +372,7 @@ def save_draft(service, body):
         except items.WorkItemConflict:
             raise  # Registry.save already reloaded the winning revision
         except Exception:
-            for item_id in marked:
+            for item_id in marked + removed:
                 task = service.items.items[item_id]
                 task['history'].pop()
                 if before[item_id] is None:

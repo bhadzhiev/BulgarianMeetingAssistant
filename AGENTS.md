@@ -79,6 +79,7 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
 - **Local-only networking:** the server binds localhost, checks origins, uses a random session
   credential. Do not add network listeners or telemetry.
 - Items keep stable IDs across edits; histories and evidence quotes are append-only.
+- Task hierarchy: `parent_task_id` links one level of subtasks; `app/task_hierarchy.py` owns revision-checked, idempotent grouping. Detaching preserves tasks, deleting a parent detaches its children, and email drafts include only explicitly selected tasks.
 
 ## Code conventions
 

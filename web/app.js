@@ -852,6 +852,8 @@ function renderDetail() {
  $('generate-title').disabled=busy||d.title_status==='generating'||(!d.transcript.length&&!d.live?.segments?.length);
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
  $('sync-calendar').textContent=sync?.status==='synced'?'Update calendar event':'Sync to Google Calendar';
+ $('meeting-email').hidden=!d.minutes&&!Object.keys(d.items||{}).length;$('meeting-email').disabled=busy||!!d.notes_need_refresh;
+ $('meeting-email').title=d.notes_need_refresh?'Update or review the notes before sharing them':'Notes, decisions and tasks in one email to participants, excluding you';
  $('followup-email').hidden=!d.minutes;$('followup-email').disabled=busy||!!d.notes_need_refresh;
  $('followup-email').title=d.notes_need_refresh?'Update or review the notes first: they changed after your review.':'';
  // An open draft keeps its text; it only says that its source changed.
@@ -4438,40 +4440,59 @@ $('review-primary').onclick=()=>perform(async()=>{if(detail.minutes_proposal)ope
 // own their dialog until they settle; failures keep the editor and its text open.
 const dialogJobs=new WeakSet(),dialogClosings=new WeakMap();
 // Follow-up email: reviewed notes become a draft that the person edits, then saves to Gmail and sends from there.
-let followupEmailMeeting=null;
+let followupEmailMeeting=null,followupEmailMode='followup';
 function followupEmailStatus(text,warning=false){const box=$('followup-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}
 function followupEmailRecipients(){const chosen=[...$('followup-people').querySelectorAll('input:checked')].map(input=>input.value);
  const extra=$('followup-extra').value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean);return [...new Set([...chosen,...extra].map(v=>v.toLowerCase()))];}
+function renderFollowupPreview(){
+ const preview=$('followup-preview');preview.replaceChildren();
+ for(const block of $('followup-body').value.trim().split('\n\n')){
+  const lines=block.split('\n');
+  if(/^\d+(?:\.\d+)?\. /.test(lines[0])){const card=el('div','email-preview-task'+(/^\d+\.\d+\. /.test(lines[0])?' email-preview-subtask':''));card.append(el('strong','',lines[0]));for(const line of lines.slice(1))card.append(el('div','',line));preview.append(card);}
+  else if(block.length<=80&&block.endsWith(':')&&!block.includes('\n'))preview.append(el('h3','email-preview-heading',block));
+  else preview.append(el('p',block.startsWith('—')?'email-preview-footer':'',block));
+ }
+}
 function renderFollowupEmail(data){
+ const share=followupEmailMode==='meeting';$('followup-title').textContent=share?'Email meeting notes':'Follow-up email';
+ $('followup-intro').textContent=share?'Public notes, decisions and tasks from this meeting. Task suggestions stay separate. Your addresses and private observations are excluded. Review the text and recipients, save a Gmail draft, then send it from Gmail.':'Only accepted decisions and tasks and checked notes go in. Private observations stay out. Review the draft and send it from Gmail.';
+ $('followup-ai').hidden=share;
+
  const people=$('followup-people');people.replaceChildren();
  if(!data.recipients.length)people.append(emptyNote('No people with an email address yet.'));
  for(const row of data.recipients){const label=el('label','checkbox followup-person'),check=el('input');check.type='checkbox';check.value=row.email;check.checked=row.involved;
   label.append(check,el('span','',row.name),el('span','hint',row.email+(row.involved?' · in this meeting':'')));people.append(label);}
- $('followup-subject').value=data.subject;$('followup-body').value=data.body;
+ $('followup-subject').value=data.subject;$('followup-body').value=data.body;renderFollowupPreview();
  $('followup-ai').disabled=!data.ai.available;$('followup-ai').title=data.ai.available?'Rewrite the text with '+data.ai.model+' from the reviewed notes':data.ai.reason;
  const drafts=data.gmail.drafts;$('followup-connect').hidden=drafts;$('followup-save').hidden=!drafts;
  $('followup-save').textContent=data.draft?'Update Gmail draft':'Save Gmail draft';
  followupEmailStatus(drafts?(data.draft?'This meeting already has a Gmail draft. Saving updates it.':''):'Gmail drafts need one more Google permission: compose drafts. Atlanta never sends email.');
+ if(share){const notices=[(data.excluded_emails||[]).length?'Your addresses are excluded from recipients.':'Choose your profile with “This is me” in My Work to exclude all your addresses.',(data.missing_participants||[]).length?'Participants without a known email: '+data.missing_participants.join(', '):''];const before=$('followup-status').textContent;followupEmailStatus([before,...notices].filter(Boolean).join(' '),!!data.missing_participants?.length);}
  $('followup-result').hidden=true;$('followup-auth-link').hidden=true;
 }
 $('followup-email').onclick=()=>perform(async()=>{
  if(!(await leaveEdits()))return;const data=await api('/api/followup-email/prepare',{meeting_id:selected});followupEmailMeeting=selected;
+ followupEmailMode='followup';renderFollowupEmail(data);editorDirty.clear('dialog:followup-dialog');$('followup-dialog').showModal();$('followup-subject').focus();
+});
+$('meeting-email').onclick=()=>perform(async()=>{
+ if(!(await leaveEdits()))return;const data=await api('/api/meeting-email/prepare',{meeting_id:selected,self_person_id:managerSelf||null});followupEmailMeeting=selected;followupEmailMode='meeting';
  renderFollowupEmail(data);editorDirty.clear('dialog:followup-dialog');$('followup-dialog').showModal();$('followup-subject').focus();
 });
+$('followup-body').oninput=renderFollowupPreview;
 $('followup-close').onclick=()=>$('followup-dialog').close();
 $('followup-ai').onclick=()=>perform(async()=>{
  if($('followup-body').value.trim()&&!(await ask('Replace the current text with a new AI draft?',{ok:'Write with AI',cancel:'Keep my text'})))return;
  const button=$('followup-ai');button.disabled=true;button.textContent='Writing…';
- try{const data=await api('/api/followup-email/generate',{meeting_id:followupEmailMeeting});$('followup-subject').value=data.subject;$('followup-body').value=data.body;followupEmailStatus(data.note,!data.ai);}
+ try{const data=await api('/api/followup-email/generate',{meeting_id:followupEmailMeeting});$('followup-subject').value=data.subject;$('followup-body').value=data.body;renderFollowupPreview();followupEmailStatus(data.note,!data.ai);}
  finally{button.disabled=false;button.textContent='Write with AI';}
 });
 $('followup-copy').onclick=()=>perform(async()=>{await copyText($('followup-subject').value+'\n\n'+$('followup-body').value);toast('Copied the subject and text');});
 $('followup-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail_compose'});$('followup-auth-link').href=result.authorization_url;$('followup-auth-link').hidden=false;
- followupEmailStatus('Approve Gmail drafts in your browser. Then close this window and open Follow-up email again; your text here is not kept.');});
+ followupEmailStatus('Approve Gmail drafts in your browser. Then close this window and open '+(followupEmailMode==='meeting'?'Email meeting':'Follow-up email')+' again; your text here is not kept.');});
 $('followup-save').onclick=()=>perform(async()=>{
  const to=followupEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');
  const button=$('followup-save');button.disabled=true;
- try{const result=await api('/api/followup-email/draft',{meeting_id:followupEmailMeeting,to,subject:$('followup-subject').value,body:$('followup-body').value});
+ try{const result=followupEmailMode==='meeting'?await api('/api/meeting-email/draft',{meeting_id:followupEmailMeeting,self_person_id:managerSelf||null,to,subject:$('followup-subject').value,body:$('followup-body').value}):await api('/api/followup-email/draft',{meeting_id:followupEmailMeeting,to,subject:$('followup-subject').value,body:$('followup-body').value});
   editorDirty.clear('dialog:followup-dialog');button.textContent='Update Gmail draft';
   const box=$('followup-result'),link=el('a','','Open the draft in Gmail');link.href=result.url;link.target='_blank';link.rel='noopener noreferrer';
   box.replaceChildren(document.createTextNode('Draft saved in Gmail for '+AtlantaUX.count(to.length,'recipient')+'. Check it and send it from Gmail. '),link);box.hidden=false;box.scrollIntoView({block:'nearest'});}
@@ -4534,6 +4555,7 @@ function renderTaskEmailPreview(){
  for(const block of $('task-email-body').value.trim().split('\n\n')){
   const lines=block.split('\n');if(!lines.length)continue;
   if(/^\d+(?:\.\d+)?\. /.test(lines[0])){const card=el('div','email-preview-task'+(/^\d+\.\d+\. /.test(lines[0])?' email-preview-subtask':''));card.append(el('strong','',lines[0]));for(const line of lines.slice(1))card.append(el('div','',line));preview.append(card);}
+  else if(block.length<=80&&block.endsWith(':')&&!block.includes('\n'))preview.append(el('h3','email-preview-heading',block));
   else preview.append(el('p',block.startsWith('—')?'email-preview-footer':'',block));
  }
 }

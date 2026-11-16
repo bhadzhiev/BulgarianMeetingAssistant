@@ -46,7 +46,7 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   `service.py` (HTTP API surface, item_list, task matching orchestration), `items.py`
   (Registry: tasks/decisions/questions, text-similarity candidate matching), `work_graph.py`
   (source-backed proposals: accept/link/dismiss/snooze, meeting matches, supersede),
-  `meeting_proposals.py` (meeting-mention proposals), `storage.py` + `WorkItemStore`
+  `meeting_proposals.py` (meeting-mention proposals), `meeting_email.py` (public meeting-sharing draft, participant recipients and sender exclusion), `storage.py` + `WorkItemStore`
   (work-items.sqlite3 with optimistic concurrency — writes carry `revision`, conflicts raise
   `WorkItemConflict`), per-source modules `gmail.py`, `google_chat.py`, `github_source.py`.
 - `web/` — the whole frontend. `app.js` (~4400 lines, plain JS, compact one-line style),

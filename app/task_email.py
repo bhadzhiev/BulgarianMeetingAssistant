@@ -287,6 +287,8 @@ def formatted_body(text: str) -> str:
             parts.append('<div style="' + indent + 'border-top:1px solid #dbe2ea;padding:20px 0">'
                          '<div style="font-size:17px;font-weight:600;color:#172b4d;margin-bottom:10px">'
                          + title + '</div><div style="color:#42526e">' + rest + '</div></div>')
+        elif len(block) <= 80 and block.endswith(':') and '\n' not in block:
+            parts.append('<h2 style="font-size:17px;color:#172b4d;margin:24px 0 12px">' + html.escape(block) + '</h2>')
         else:
             style = 'font-size:12px;color:#6b778c' if block.startswith('—') else 'margin:0 0 18px'
             parts.append('<p style="' + style + '">' + '<br>'.join(html.escape(line) for line in lines) + '</p>')

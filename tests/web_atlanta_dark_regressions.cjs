@@ -7,7 +7,7 @@ assert.doesNotMatch(css,/repeating-linear-gradient\(0deg/,'no decorative sidebar
 // Passive labels are neutral; links use the info colour with low specificity so classed links keep theirs.
 assert.match(css,/a:where\(:not\(\.button,\.primary,\.secondary\)\),\.exports a/);
 assert.match(css,/\.manager-view-button\.manager-view-button\[aria-pressed=true\],\.segmented\.segmented button\.selected\{background:var\(--selected,var\(--surface-2\)\)/);
-assert.match(css,/\.project-chip\.project-chip\{background:var\(--surface\)\}/);
+assert.match(css,/\.project-chip\.project-chip,\.task-list-row \.entity-chips \.project-chip\{background:transparent\}/);
 // Task states carry data-state and one colour each.
 for(const s of ['todo','in_progress','done','waiting','cancelled'])assert.match(css,new RegExp('\\[data-state='+s+'\\]\\{color:var\\(--state-'));
 assert.match(app,/status\.setAttribute\?\.\('data-state',workflow\)/);assert.match(app,/stateFact\.setAttribute\('data-state',AtlantaTasks\.workflow\(item\)\)/);

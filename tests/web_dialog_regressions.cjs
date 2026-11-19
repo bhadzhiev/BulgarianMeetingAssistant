@@ -84,5 +84,10 @@ function fixture(){
  assert.equal(nodes['ask-extra'].hidden,false);assert.equal(nodes['ask-extra'].textContent,'Change type only');
  nodes['ask-dialog'].close('extra');assert.equal(await three,'extra');
  const four=vm.runInContext("ask('Plain')",q);await tick();assert.equal(nodes['ask-extra'].hidden,true);nodes['ask-dialog'].close('extra');assert.equal(await four,false);
+ const multiline=vm.runInContext("ask('Answer',{ok:'Save answer',value:'',multiline:true})",q);await tick();
+ assert.equal(nodes['ask-input'].rows,7);assert.equal(nodes['ask-input'].maxLength,10000);
+ vm.runInContext(source.split('\n').find(line=>line.startsWith("$('ask-input').onkeydown=")),q);
+ let prevented=false;nodes['ask-input'].onkeydown({key:'Enter',preventDefault(){prevented=true;}});assert(!prevented);assert(nodes['ask-dialog'].open);
+ nodes['ask-input'].value='First paragraph\nSecond paragraph';nodes['ask-dialog'].close('ok');assert.equal(await multiline,'First paragraph\nSecond paragraph');
  console.log('Dialogs PASS: all 17 policies, close/Escape parity, queued confirmations, save exclusion, error recovery and dirty cleanup.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

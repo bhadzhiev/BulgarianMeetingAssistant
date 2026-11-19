@@ -410,18 +410,19 @@ function unsavedNames(){
 // The desktop window (WKWebView) does not show confirm() or prompt(): they return "no" at once. This dialog works everywhere.
 let askQueue=Promise.resolve();
 // With extra, a third button answers 'extra'.
-function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null,extra=null}={}) {
+function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null,extra=null,multiline=false}={}) {
  const open=()=>new Promise(resolve=>{
   const dialog=$('ask-dialog'), input=$('ask-input');
   $('ask-message').textContent=message; $('ask-ok').textContent=ok; $('ask-cancel').textContent=cancel; $('ask-ok').className=danger?'danger':'primary';
   $('ask-extra').hidden=!extra; $('ask-extra').textContent=extra||'';
+  dialog.classList?.toggle('ask-multiline',multiline);input.rows=multiline?7:1;input.maxLength=multiline?10000:160;input.setAttribute?.('aria-label',multiline?'Answer':'Name');
   input.hidden=value===null; input.value=value??''; dialog.returnValue='';
   dialog.onclose=()=>{ if(extra&&dialog.returnValue==='extra'){resolve('extra');return;} const yes=dialog.returnValue==='ok'; resolve(value===null?yes:yes?input.value:null); };
   dialog.showModal(); if(value===null) $(danger?'ask-cancel':'ask-ok').focus(); else { input.focus(); input.select(); }
  });
  const answer=askQueue.then(open,open);askQueue=answer.then(()=>{},()=>{});return answer;
 }
-$('ask-input').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('ask-dialog').close('ok');}};
+$('ask-input').onkeydown=event=>{if(event.key==='Enter'&&$('ask-input').rows===1){event.preventDefault();$('ask-dialog').close('ok');}};
 let taskDraftPending=false,taskEvidenceTarget=null,taskPanelSequence=0;
 function renderTaskEvidenceContext(){const box=$('task-evidence-context');box.replaceChildren();box.hidden=!taskEvidenceTarget;if(!taskEvidenceTarget)return;box.append(el('strong','','Link evidence to: '+taskEvidenceTarget.text.slice(0,160)),el('p','hint','Select a transcript passage or open a source and choose Suggest a task. The editor will link it to this task.'));const cancel=btn('quiet','Cancel linking');cancel.onclick=()=>{taskEvidenceTarget=null;renderTaskEvidenceContext();};box.append(cancel);}
 async function suggestTask(button,source){
@@ -1651,7 +1652,7 @@ function linkCard(entry,meetings,itemsById) {
   const item=itemsById[candidate.item_id]; if(!item) continue;
   const row=el('div','link-candidate'), main=el('div'), actions=el('div','link-actions');
   const facts=kind==='task'?[item.status==='done'?'Done':'Open',item.owner,item.due_date&&'due '+date(item.due_date)]:[DECISION_LABELS[item.status]];
-  const factsRow=el('div','entity-meta');factsRow.append(el('span','hint',facts.filter(Boolean).join(' · ')+' · '+Math.round(candidate.score*100)+'% similar'),cardContext('Sources','external',[meetingChips(item,meetings)]));main.append(el('p','',item.text),factsRow);
+  const factsRow=el('div','entity-meta');factsRow.append(el('span','hint',facts.filter(Boolean).join(' · ')+' · '+Math.round(candidate.score*100)+'% similar'),cardContext('Sources','link',[meetingChips(item,meetings)]));main.append(el('p','',item.text),factsRow);
   // A task: what the meeting said differently. Nothing changes unless you check it; a field that you edited stays.
   const changes=el('div','link-changes'),checks=[];
   if(kind==='task')for(const [name,label] of [['owner','Owner'],['deadline','Deadline as said'],['due_date','Due date']]){
@@ -1860,6 +1861,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  who.append(avatar(item.owner||''),el('span','task-owner-name',(item.owner||'No owner')+(co.length?' +'+co.length:'')));
  who.title='Owner: '+(item.owner||'none')+(co.length?' · Also working on it: '+co.map(p=>p.name).join(', '):'');
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
+ if(item.created&&Number.isFinite(Date.parse(item.created)))title.prepend(el('span','task-created',date(item.created)+' '));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  // Facts are read-only. Opening a task is the single place for editing its owner, state, priority and dates.
  const stateFact=el('span','task-fact task-state',stateName),dueFact=el('span','task-fact due-label '+kind),ownerFact=el('span','task-fact owner-fact');ownerFact.append(who);
@@ -1921,7 +1923,7 @@ function decisionRow(item,byId) {
  // Accept is the action that waits; Mark as proposed and Restore are rare and live in the … menu.
  const change=actionBtn(item.status==='proposed'?'primary small-action':'quiet',next[1],()=>changeItem(item,{status:next[0]}));if(item.status==='proposed')compactAction(change,'check');if(item.status==='proposed')meta.append(change);
  const head=el('div','entity-top'),chips=el('div','entity-chips'),text=el('p','tracked-text',item.text);for(const project of projects)chips.append(projectChip(project));const tools=el('div','card-tools');tools.append(...editDeleteButtons(item,text));head.append(text,tools);meta.append(chips);
- const sources=sourceChips(item,itemsData.meetings);if(sources.childNodes.length)meta.append(cardContext('Sources','external',[sources]));meta.append(cardContext('More details','gear',[githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings)]));main.append(head,meta);
+ const sources=sourceChips(item,itemsData.meetings);if(sources.childNodes.length)meta.append(cardContext('Sources','link',[sources]));meta.append(cardContext('More details','gear',[githubActions({kind:'item',id:item.id}),historyBlock(item,itemsData.meetings),evidenceBlock(item,itemsData.meetings)]));main.append(head,meta);
  cardLifecycle(row,item.status==='superseded'?'closed':item.status==='proposed'?'proposed':'active');
  row.append(el('span'),main);
  const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';const menuActions=itemActions(item,row,{direct:true});if(item.status!=='proposed')menuActions.prepend(change);more.append(trigger,menuActions);row.append(more); return row;
@@ -2407,7 +2409,7 @@ function trackedQuestionCard(q){
   meta.append(statusBadge(q.status==='answered'?{tone:'ok',label:'Answered'}:{tone:'muted',label:'Open'}));const origin=questionOrigin(q.origin);
   if(q.origin&&itemsData.meetings?.[q.origin.meeting_id])meta.append(compactAction(btn('quiet small-action','Meeting · '+date(itemsData.meetings[q.origin.meeting_id].date),()=>perform(()=>openMeetingQuestion(q)),origin),'external',{label:true}));
   main.append(top,meta);if(q.answer)main.append(el('p','question-answer',q.answer));
-  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Mark answered…');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});
+  const b=el('button','secondary small-action',q.status==='answered'?'Reopen':'Mark answered…');b.onclick=()=>perform(async()=>{const answer=q.status==='answered'?null:await ask('Answer: '+q.text,{ok:'Save answer',value:'',multiline:true});if(q.status!=='answered'&&answer===null)return;await graphAction('question',{id:q.id,revision:q.revision,answer});});
   const actions=el('div','action-group');actions.append(b);
   // An open question that is really work becomes a task; the task keeps a link back to the question (2026-11-14).
   if(q.status!=='answered'){const make=el('button','secondary small-action',(itemsData.graph?.relationships||[]).some(e=>e.kind==='derives_from'&&e.to_id===q.id)?'Add another task':'Make task');make.type='button';make.title='Turn this question into a task for someone; the task stays linked to the question';make.onclick=()=>perform(()=>openManualTask(null,{text:q.text,question:q}));actions.append(compactAction(make,'taskAdd'));}
@@ -2440,7 +2442,7 @@ function renderMeetingQuestions(target){
   top.append(el('p','question-text',q.text),compactAction(btn('quiet','Open meeting',()=>perform(()=>openMeeting(q.meeting_id))),'external'));
   meta.append(statusBadge(q.kind==='decide'?{tone:'warn',label:'Needs your decision'}:{tone:'muted',label:'Open question'}),el('span','',meeting?withDate(meeting.title,meeting.date):'Meeting'));
   if(q.evidence_timestamp&&meeting?.has_audio)meta.append(listenButton(q.meeting_id,stampSeconds(q.evidence_timestamp),{label:q.evidence_timestamp,className:'quiet'}));
-  actions.append(btn('secondary small-action','Mark answered…',()=>perform(async()=>{const answer=await ask('Answer: '+q.text,{ok:'Save answer',value:''});if(answer===null)return;await graphAction('question',{text:q.text,source,answer});toast('Answer saved');})),
+  actions.append(btn('secondary small-action','Mark answered…',()=>perform(async()=>{const answer=await ask('Answer: '+q.text,{ok:'Save answer',value:'',multiline:true});if(answer===null)return;await graphAction('question',{text:q.text,source,answer});toast('Answer saved');})),
    btn('secondary small-action','Track',()=>perform(async()=>{await graphAction('question',{text:q.text,source});toast('Question tracked in My Work');})),
    btn('secondary small-action','Make task',()=>perform(()=>openManualTask(q.meeting_id,{text:q.text,evidence:q.evidence_timestamp||null,questionSource:{field:q.field,index:q.index,text:q.text,evidence_timestamp:q.evidence_timestamp||null},minutesRevision:q.minutes_revision}))));
   actions.classList.add('card-tools');for(const button of [...actions.children])compactAction(button,button.textContent==='Make task'?'taskAdd':button.textContent==='Track'?'star':'check');top.append(actions);main.append(top,meta);row.append(main);target.append(row);

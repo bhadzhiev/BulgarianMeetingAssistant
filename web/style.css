@@ -1167,7 +1167,7 @@ details.github-menu>summary{box-sizing:border-box;height:28px;min-height:28px;pa
  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;overflow-wrap:anywhere;cursor:pointer}
 .entity-title:hover,.entity-title:focus-visible{color:var(--green)}
 .entity-chips{flex:none;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;max-width:45%}
-.project-chip{display:inline-flex;align-items:center;gap:6px;max-width:220px;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--ink);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-chip{display:inline-flex;align-items:center;gap:6px;max-width:220px;padding:3px 9px;border-radius:999px;background:transparent;color:var(--ink);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-chip .project-dot{flex:none}
 .project-pick{position:relative}
 .project-pick>summary{list-style:none;cursor:pointer}
@@ -1855,8 +1855,6 @@ a:where(:not(.button,.primary,.secondary)),.exports a,.work-messages a,#google-a
 [data-state=todo]{color:var(--state-todo)}[data-state=in_progress]{color:var(--state-progress)}[data-state=done]{color:var(--state-done)}
 [data-state=waiting]{color:var(--state-waiting)}[data-state=cancelled]{color:var(--state-cancelled)}
 
-/* A project chip names the project with its dot; its surface stays neutral, so green keeps its meaning. */
-.project-chip.project-chip{background:var(--surface)}
 
 /* Type scale (2026-11-16): page title 24, dialog title 21, section title 16, field label 13, helper 12.
    Weights: 600 titles, 500 labels, 400 text. Titles use the primary text colour, never the accent. */
@@ -2030,3 +2028,48 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 :is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.task-list-row:has(.task-pick){grid-template-columns:24px minmax(0,1fr) 28px}
 .tracked-task.task-card.task-list-row>.task-row-marks{width:24px;min-width:0}
 .task-list-row .task-pick{width:24px;display:flex;justify-content:center;min-height:24px}
+
+/* Project labels stay unfilled, including the compact task-list variant. */
+.project-chip.project-chip,.task-list-row .entity-chips .project-chip{background:transparent}
+
+/* Creation date belongs to the title; the due date remains in task metadata. */
+.task-created{font-size:.85em;font-weight:400;color:var(--muted);margin-right:8px;white-space:nowrap}
+
+/* Answers need room for paragraphs; ordinary name/date prompts stay compact. */
+#ask-dialog.ask-multiline{width:min(760px,94vw);max-height:90vh;overflow-y:auto}
+#ask-dialog.ask-multiline #ask-input{width:100%;min-height:180px;max-height:50vh;resize:vertical;line-height:1.6}
+#ask-dialog #ask-input[rows="1"]{min-height:40px;height:40px;resize:none}
+
+/* Task ribbon: view tabs above grouped filtering tools. */
+#items-panel .manager-controls{display:flex!important;align-items:center;flex-wrap:wrap;gap:12px;margin:0;padding:0 0 10px;border-bottom:1px solid var(--line)}
+#items-panel .manager-controls .manager-views{order:0;display:flex;flex-wrap:wrap;gap:4px}
+#items-panel .manager-controls .manager-view-button{background:transparent;border:0;border-radius:0;box-shadow:none;padding:10px 12px;border-bottom:2px solid transparent}
+#items-panel .manager-controls .manager-view-button.selected{color:var(--ink);border-bottom-color:currentColor;background:transparent}
+#items-panel .manager-controls>input[type=search]{order:1;flex:1 1 200px;width:auto;min-width:160px;max-width:360px;margin:0 0 0 auto}
+#items-panel .manager-identity-details{order:2;position:relative}
+#items-panel .manager-identity-details>summary{padding:8px;white-space:nowrap}
+#items-panel .manager-identity-details[open] .manager-identity{position:absolute;right:0;top:100%;z-index:5;display:grid;gap:8px;width:min(300px,80vw);margin:6px 0;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px var(--shadow-color)}
+#items-panel .manager-identity-details select{width:100%;max-width:100%}
+#manager-all-filters{margin:10px 0 16px}
+#manager-all-filters>summary{padding:4px 0 10px;font-size:.85rem}
+#manager-all-filters[open]{display:flex;flex-wrap:wrap;align-items:stretch;gap:12px 0;padding:10px 12px 12px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+#manager-all-filters>summary{flex-basis:100%;list-style:revert}
+#manager-person-filters,#manager-all-filters #source-filter,#manager-all-filters .task-filters,.task-filter-actions{margin:0;padding:0 14px;min-width:0;border-right:1px solid var(--line)}
+#manager-person-filters{flex:0 1 160px}
+#manager-all-filters #source-filter{flex:1 1 250px}
+#manager-all-filters .task-filters{display:flex;flex:2 1 420px;flex-wrap:wrap;align-items:start;gap:10px}
+#manager-person-filters::before,#manager-all-filters #source-filter::before,#manager-all-filters .task-filters::before,.task-filter-actions::before{display:block;width:100%;margin-bottom:8px;font-size:.75rem;color:var(--muted);font-weight:500}
+#manager-person-filters::before{content:'Workflow'}
+#manager-all-filters #source-filter::before{content:'Source'}
+#manager-all-filters .task-filters::before{content:'Status · Project · Owner';margin-bottom:0}
+.task-filter-actions::before{content:'Reset'}
+#manager-all-filters #source-filter,#manager-all-filters #status-filter{display:flex;flex-wrap:wrap;align-content:start;gap:4px;background:transparent;border:0;border-radius:0;box-shadow:none}
+#manager-all-filters #source-filter{border-right:1px solid var(--line)}
+#manager-all-filters .segmented button{border:1px solid transparent;border-radius:6px;padding:6px 9px;font-size:.85rem}
+#manager-all-filters .segmented button.selected{border-color:var(--line);background:var(--card)}
+#manager-all-filters .work-actions{display:flex;flex:1 1 100%;gap:8px;flex-wrap:wrap;margin:0}
+#manager-all-filters select{width:100%;max-width:100%;min-width:0;margin:0}
+#manager-all-filters .work-actions select{flex:1 1 150px;width:auto}
+.task-filter-actions{display:flex;flex:0 1 160px;flex-direction:column;align-items:start;gap:4px;border:0}
+.task-filter-actions button{font-size:.8rem;padding:6px 0;text-align:left;white-space:normal}
+@media(max-width:650px){#items-panel .manager-controls>input[type=search]{order:3;flex-basis:100%;max-width:none;margin:0}#items-panel .manager-identity-details{margin-left:auto}#manager-person-filters,#manager-all-filters #source-filter,#manager-all-filters .task-filters,.task-filter-actions{flex-basis:100%;border-right:0;padding:8px 0;border-bottom:1px solid var(--line)}.task-filter-actions{border-bottom:0}}

@@ -1892,17 +1892,18 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;main.append(box);}
  main.append(panels);
- if(compact)row.classList.add('compact-task');
+ if(compact){row.classList.add('compact-task','task-table-row');const facts=el('div','task-row-facts');facts.append(stateFact,ownerFact,priorityBadge);main.append(facts);}
 
  if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','sr-only','Select'));marks.append(pick);}
 
  cardLifecycle(row,['done','cancelled'].includes(AtlantaTasks.workflow(item))?'closed':item.acceptance_state==='proposed'?'proposed':'active');
- row.append(...(select?[marks]:[]),main);
+ row.append(...(select?[marks]:[]),main);let overflow=null;
  if(item.acceptance_state!=='proposed'){
   const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';
-  const actions=itemActions(item,row),timeline=actionBtn('quiet','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));actions.prepend(timeline);more.append(trigger,actions);row.append(more);
+  const actions=itemActions(item,row),timeline=actionBtn('quiet','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));actions.prepend(timeline);more.append(trigger,actions);row.append(more);overflow=more;
  }
+ if(compact){const tools=el('div','task-row-tools');tools.append(contextTools,open);if(overflow)tools.append(overflow);row.append(tools);}
  return row;
 }
 function taskDescription(text){const node=el('p','task-description',text);node.title=text;return node;}
@@ -2535,6 +2536,7 @@ function renderTasks() {
  const filter=itemKind==='task'&&managerView==='inbox'?'all':statusFilter[itemKind];
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=btn(key===filter?'selected':'',label);button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
  segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
+ const sourceSelect=$('task-source-select');sourceSelect.replaceChildren(...[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']].map(([value,label])=>option(label,value)));sourceSelect.value=sourceFilter;sourceSelect.onchange=()=>{sourceFilter=sourceSelect.value;store('tasks-source',sourceFilter);renderTasks();};
  $('task-owner').hidden=itemKind!=='task';
  const owner=$('task-owner').value||stored('tasks-owner')||'', owners=[...new Set(tasks.flatMap(taskPeopleNames))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
@@ -2579,7 +2581,8 @@ function renderTasks() {
  }}
  const compact=true;if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
  // The compact list has one header row with the column names; it lines up with the rows.
- // Each compact card labels its own fields, so the list has no column header row.
+ // Wide lists align shared columns; narrow lists retain readable labeled facts.
+ if(itemKind==='task'&&rows.length){const columns=el('div','task-table-heading');for(const text of ['','Task name','Due date','Project','Actions'])columns.append(el('span','',text));columns.setAttribute('aria-hidden','true');rowTarget.append(columns);}
  if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{compact,select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.

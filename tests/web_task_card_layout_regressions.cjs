@@ -20,7 +20,7 @@ assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact\)/);
 assert.doesNotMatch(row,/meta\.append\(chips\)/);
 // Context controls stay together on the facts line; the shared disclosure helper owns separate, exclusive panels.
 assert.match(row,/contextTools=el\('div','task-context-tools'\)/);
-assert.match(row,/cardDisclosure\('Sources','external'/);
+assert.match(row,/cardDisclosure\('Sources','link'/);
 assert.match(row,/meta\.append\(contextTools\)/);
 assert.doesNotMatch(row,/el\('details','(?:task-card-sources|card-description)'\)/);
 assert.match(css,/\.task-card \.tracked-meta>\.task-context-tools\{[^}]*display:inline-flex;[^}]*flex:0 0 auto/);

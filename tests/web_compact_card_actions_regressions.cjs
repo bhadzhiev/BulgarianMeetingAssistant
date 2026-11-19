@@ -40,3 +40,9 @@ assert.notEqual(vm.runInContext("workflowIcon('waiting')",c),vm.runInContext("wo
  assert.equal(vm.runInContext('reviewBadge(item,true)',c).children[1].disabled,true);
  console.log('Compact card controls PASS: accessible icons, handlers and disabled state preserved, passive status, source check/undo and failed-save rollback.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
+// Sources expand evidence; a navigation arrow must not represent that action.
+assert(!app.includes("cardContext('Sources','external'"));
+assert(app.includes("cardContext('Sources','link'"));
+assert(app.includes("cardDisclosure('Sources','link'"));
+assert(!app.includes("cardDisclosure('Sources','external'"));

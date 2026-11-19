@@ -44,4 +44,5 @@ assert.notEqual(vm.runInContext("workflowIcon('waiting')",c),vm.runInContext("wo
 // Sources expand evidence; a navigation arrow must not represent that action.
 assert(!app.includes("cardContext('Sources','external'"));
 assert(app.includes("cardContext('Sources','link'"));
-assert(app.includes("summary.append(icon('link'),el('span','sr-only','Sources'))"));
+assert(app.includes("cardDisclosure('Sources','link'"));
+assert(!app.includes("cardDisclosure('Sources','external'"));

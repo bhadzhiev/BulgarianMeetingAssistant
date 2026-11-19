@@ -1880,7 +1880,7 @@ function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={
  const description=String(item.details||'').trim();
  if(description){const control=cardDisclosure('Description','notes',[taskDescription(description)],panels);control.classList.add('task-description-control');contextTools.append(control);}
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
- if(linked||others.childNodes.length){const control=cardDisclosure('Sources','external',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels);control.classList.add('task-sources-control');contextTools.append(control);}
+ if(linked||others.childNodes.length){const control=cardDisclosure('Sources','link',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels);control.classList.add('task-sources-control');contextTools.append(control);}
  meta.append(contextTools);
  const notices=el('div','task-row-notices'),review=workReviewBadge(item.review_state,item);if(review)notices.append(review);
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')notices.append(el('span','badge','Existing task · review gradually'));

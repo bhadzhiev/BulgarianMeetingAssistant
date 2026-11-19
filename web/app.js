@@ -1853,59 +1853,65 @@ function workReviewBadge(state,item){return ['needs_review','edited'].includes(s
 // The people who work on a shared task: the owner first (accountable), then the others.
 function taskCoAssignees(item){return (item.assignee_person_ids||[]).slice(1).map(id=>(state.people||[]).find(p=>p.id===id)).filter(Boolean);}
 function taskPeopleNames(item){return [item.owner,...taskCoAssignees(item).map(p=>p.name)].filter(Boolean);}
-function globalTaskRow(item,today,{select=true,compact=false,showProject=true}={}) {
- const [kind,label]=dueInfo(item,today),row=el('div','tracked-task entity-card task-card task-list-row '+kind);row.dataset.itemId=item.id;
- const main=el('div','tracked-main'),meta=el('div','tracked-meta'),who=el('span','tracked-owner');
+// The task card (approved 2026-11-19): tags and tools, the title, the last update, then the facts line with the due date on the right.
+// Subtasks sit inside the card of their main task. Facts stay read-only; the task editor is the one place to change them.
+function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}) {
+ const [kind,label]=dueInfo(item,today),row=el('div','tracked-task task-tile '+kind+(nested?' task-tile-nested':''));row.dataset.itemId=item.id;
+ const main=el('div','tracked-main'),meta=el('div','tracked-meta task-tile-facts'),who=el('span','tracked-owner');
  const projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
- const co=taskCoAssignees(item);
- who.append(avatar(item.owner||''),el('span','task-owner-name',(item.owner||'No owner')+(co.length?' +'+co.length:'')));
+ const co=taskCoAssignees(item),ownerName=item.owner||'No owner';
+ who.append(avatar(item.owner||''),el('span','task-owner-name',nested&&item.owner?ownerName.split(/\s+/)[0]:ownerName));if(co.length)who.append(el('span','task-owner-more','+'+co.length));
  who.title='Owner: '+(item.owner||'none')+(co.length?' · Also working on it: '+co.map(p=>p.name).join(', '):'');
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
- if(item.created&&Number.isFinite(Date.parse(item.created)))title.prepend(el('span','task-created',date(item.created)+' '));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
  // Facts are read-only. Opening a task is the single place for editing its owner, state, priority and dates.
  const stateFact=el('span','task-fact task-state',stateName),dueFact=el('span','task-fact due-label '+kind),ownerFact=el('span','task-fact owner-fact');ownerFact.append(who);
  stateFact.setAttribute('data-state',AtlantaTasks.workflow(item));stateFact.prepend(icon(workflowIcon(AtlantaTasks.workflow(item))));
  dueFact.title=item.due_date?date(item.due_date)+' · '+label:label;
- dueFact.append(icon('calendar'),el('span','task-due-date',item.due_date?date(item.due_date):label));
- if(item.due_date)dueFact.append(el('span','task-due-relative',label));
+ const relative=dueShort(item,today);
+ dueFact.append(icon('calendar'),el('span','task-due-date',item.due_date?(nested?date(item.due_date).slice(0,5):date(item.due_date)):label));
+ if(item.due_date&&relative)dueFact.append(el('span','task-due-relative',relative));
  const priority=item.priority||'normal',priorityLabel=({critical:'Critical',high:'High',normal:'Normal',low:'Low'})[priority]||'Normal';
- const priorityBadge=el('span','task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);priorityBadge.prepend(icon('flag'));
+ const priorityBadge=el('span','task-fact task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);priorityBadge.prepend(icon('flag'));
  meta.append(ownerFact,stateFact,priorityBadge,dueFact);
- const head=el('div','entity-top'),chips=el('div','entity-chips');if(showProject)for(const project of projects){const chip=projectChip(project);chip.title=project.name;chips.append(chip);}
- const titleLine=el('div','task-title-line');titleLine.append(title);const mailed=emailMark(item,{compact:true});if(mailed)titleLine.append(mailed);
- const open=compactAction(actionBtn('quiet task-open','Open task',()=>openTaskPanel(item.id)),'external');head.append(titleLine,chips,open);main.append(head,meta);
+ const head=el('div','entity-top task-tile-head'),tags=el('div','task-tile-tags'),chips=el('div','entity-chips'),tools=el('div','task-tile-tools');
+ if(item.created&&Number.isFinite(Date.parse(item.created)))tags.append(el('span','task-created',date(item.created)));
+ if(showProject&&!nested)for(const project of projects){const chip=projectChip(project);chip.title=project.name;chips.append(chip);}
  const panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
- // Fixed slots keep Description and Sources aligned even when a row lacks either piece of context.
+ // The origin chip opens the sources; the notes icon opens the description.
+ const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
+ const origins=[...itemProviders(item)].filter(p=>TASK_ORIGINS[p]);
+ if(linked||others.childNodes.length){const [name,glyph]=TASK_ORIGINS[origins[0]]||['Sources','link'],control=cardDisclosure('Sources','link',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels);
+  control.classList.add('task-sources-control','task-origin');control.classList.remove('icon-action');control.replaceChildren(icon(glyph),el('span','',name+(origins.length>1?' +'+(origins.length-1):'')));control.setAttribute('aria-label','Sources: '+origins.map(p=>TASK_ORIGINS[p][0]).join(', '));if(!nested)tags.append(control);}
+ const mailed=emailMark(item,{compact:nested});if(mailed)tags.append(mailed);
+ if(typeof taskHierarchyBadge==='function'&&!nested){const hierarchy=taskHierarchyBadge(item);if(hierarchy)tags.append(hierarchy);}
+ const review=workReviewBadge(item.review_state,item);if(review)tags.append(review);
+ if(item.legacy_unreviewed&&item.review_state!=='confirmed')tags.append(el('span','badge','Existing task · review gradually'));
+ if(item.follow_up_date)tags.append(el('span','task-follow-up'+(item.follow_up_date<=today?' check-due':''),'Next check · '+date(item.follow_up_date)));
  const description=String(item.details||'').trim();
  if(description){const control=cardDisclosure('Description','notes',[taskDescription(description)],panels);control.classList.add('task-description-control');contextTools.append(control);}
- const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
- if(linked||others.childNodes.length){const control=cardDisclosure('Sources','link',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels);control.classList.add('task-sources-control');contextTools.append(control);}
- meta.append(contextTools);
- const notices=el('div','task-row-notices'),review=workReviewBadge(item.review_state,item);if(review)notices.append(review);
- if(item.legacy_unreviewed&&item.review_state!=='confirmed')notices.append(el('span','badge','Existing task · review gradually'));
- if(item.follow_up_date)notices.append(el('span','task-follow-up'+(item.follow_up_date<=today?' check-due':''),'Next check · '+date(item.follow_up_date)));
- if(typeof taskHierarchyBadge==='function'){const hierarchy=taskHierarchyBadge(item);if(hierarchy)notices.append(hierarchy);}
- if(notices.childNodes.length)main.append(notices);
- // The comment and all expanded content belong to the task; the row's bottom divider follows them.
- const update=AtlantaTasks.lastUpdate(item);
- if(update){const box=el('div','task-update'),last=el('p','task-last-line');last.title=update.text;last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
-  box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;main.append(box);}
- main.append(panels);
- if(compact){row.classList.add('compact-task','task-table-row');const facts=el('div','task-row-facts');facts.append(stateFact,ownerFact,priorityBadge);main.append(facts);}
-
+ const open=compactAction(actionBtn('quiet task-open','Open task',()=>openTaskPanel(item.id)),'external');tools.append(contextTools,open);
+ // The comment and all expanded content belong to the task, above its facts line.
+ const update=nested?null:AtlantaTasks.lastUpdate(item);let box=null;
+ if(update){box=el('div','task-update');const last=el('p','task-last-line');last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
+  box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;}
+ if(nested){const line=el('div','task-tile-line');line.append(tags,title,ownerFact,dueFact,tools);main.append(line,panels);}
+ else{head.append(tags,chips,tools);main.append(head,title);if(box)main.append(box);main.append(panels,meta);}
  if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','sr-only','Select'));marks.append(pick);}
-
+ // The round control marks the task done (Undo in the toast) or reopens it; selection replaces it while tasks are selected.
+ else if(item.acceptance_state!=='proposed'&&!item.dismissed){const finished=item.status==='done',done=compactAction(doneButton(item),finished?'check':'circle');done.classList.add('task-done-toggle');marks.append(done);}
  cardLifecycle(row,['done','cancelled'].includes(AtlantaTasks.workflow(item))?'closed':item.acceptance_state==='proposed'?'proposed':'active');
- row.append(...(select?[marks]:[]),main);let overflow=null;
- if(item.acceptance_state!=='proposed'){
+ row.append(marks,main);
+ if(item.acceptance_state!=='proposed'&&!nested){
   const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More task actions');trigger.title='More task actions';
-  const actions=itemActions(item,row),timeline=actionBtn('quiet','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));actions.prepend(timeline);more.append(trigger,actions);row.append(more);overflow=more;
+  const actions=itemActions(item,row),timeline=actionBtn('quiet','Timeline',()=>openTaskPanel(item.id,{focusTimeline:true}));actions.prepend(timeline);more.append(trigger,actions);tools.append(more);
  }
- if(compact){const tools=el('div','task-row-tools');tools.append(contextTools,open);if(overflow)tools.append(overflow);row.append(tools);}
  return row;
 }
+// A short due fact for the card: the date and how far away it is (6d overdue, today, in 3d).
+function dueShort(item,today){if(item.status==='done')return 'done';if(!item.due_date)return '';const days=daysBetween(today,item.due_date);return days<0?(-days)+'d overdue':days===0?'today':'in '+days+'d';}
+const TASK_ORIGINS={meeting:['Meeting','transcript'],gmail:['Gmail thread','mail'],google_chat:['Chat','update'],github:['GitHub','branch']};
 function taskDescription(text){const node=el('p','task-description',text);node.title=text;return node;}
 // Secondary tools share one disclosure; content and the current action stay outside it.
 function cardDetails(...parts){const box=el('details','card-details');box.append(el('summary','','More details'));for(const part of parts)if(part)box.append(part);return box;}
@@ -2534,7 +2540,9 @@ function renderTasks() {
  const noKindItems=!itemsData.items.some(item=>item.kind===itemKind);
  $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').closest('.task-filters').hidden=noKindItems||inbox;
  const filter=itemKind==='task'&&managerView==='inbox'?'all':statusFilter[itemKind];
- $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=btn(key===filter?'selected':'',label);button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
+ $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=btn(key===filter?'selected':'',label);
+  // Open and Overdue carry their counts as a mark next to the label.
+  const count=itemKind==='task'?({open:open.length,overdue:late.length})[key]:undefined;if(count!==undefined){button.dataset.count=String(count);button.dataset.filter=key;}button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
  segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
  const sourceSelect=$('task-source-select');sourceSelect.replaceChildren(...[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']].map(([value,label])=>option(label,value)));sourceSelect.value=sourceFilter;sourceSelect.onchange=()=>{sourceFilter=sourceSelect.value;store('tasks-source',sourceFilter);renderTasks();};
  $('task-owner').hidden=itemKind!=='task';
@@ -2554,7 +2562,9 @@ function renderTasks() {
  if(itemKind==='task'&&!inbox)rows=rows.filter(item=>!taskWorkflow||AtlantaTasks.workflow(item)===taskWorkflow);
  const activeFilters=[sourceFilter&&SOURCES[sourceFilter]?.[0],project.value&&project.selectedOptions[0]?.textContent,$('task-owner').value&&'Owner: '+$('task-owner').selectedOptions[0]?.textContent,itemKind==='task'&&taskWorkflow&&AtlantaTasks.STATES[taskWorkflow],filter!==(itemKind==='task'?'open':'current')&&filter].filter(Boolean);$('manager-filter-summary').textContent='Filters'+(activeFilters.length?' · '+activeFilters.join(' · '):'');
  taskVisibleRows=itemKind==='task'&&!inbox?rows:[];taskSelection=AtlantaTasks.visibleSelection(taskSelection,taskVisibleRows);renderBulkTasks();
- if(itemKind==='task'&&!inbox&&!noWork){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));taskSummary(rows.length+' shown · '+active.length+' open · '+active.filter(t=>t.due_date&&t.due_date<today).length+' overdue');}
+ if(itemKind==='task'&&!inbox&&!noWork){const active=rows.filter(t=>!t.dismissed&&t.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(t))&&(!t.snoozed_until||t.snoozed_until<=today));const overdue=active.filter(t=>t.due_date&&t.due_date<today).length;taskSummary(rows.length+' shown · '+active.length+' open · '+overdue+' overdue');
+  // Overdue work stands out in the header as its own red mark.
+  if(overdue&&workTab==='task')$('tasks-summary').replaceChildren(rows.length+' shown · '+active.length+' open · ',el('span','summary-overdue',overdue+' overdue'));}
  $('task-list').replaceChildren();
  // The Inbox groups what waits for a decision in two queues: actions and matches from meetings first, then suggestions from connected sources.
  let rowTarget=$('task-list');
@@ -2579,11 +2589,9 @@ function renderTasks() {
   if(filtered&&search)actions.append(actionBtn('secondary small-action','Reset filters and search',()=>resetTaskFilters({all:true})));
   if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
  }}
- const compact=true;if(itemKind==='task')rowTarget.classList.toggle('compact-list',compact);else rowTarget.classList.remove('compact-list');
- // The compact list has one header row with the column names; it lines up with the rows.
- // Wide lists align shared columns; narrow lists retain readable labeled facts.
- if(itemKind==='task'&&rows.length){const columns=el('div','task-table-heading');for(const text of ['','Task name','Due date','Project','Actions'])columns.append(el('span','',text));columns.setAttribute('aria-hidden','true');rowTarget.append(columns);}
- if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{compact,select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
+ // One line above the cards: how many tasks show and the fixed order (overdue first, then by due date).
+ if(itemKind==='task'&&rows.length&&!inbox){const line=el('div','task-list-summary');line.append(el('span','',''),el('span','task-list-sort',''));line.firstChild.append('Showing ',el('strong','',AtlantaUX.count(rows.length,'task')));line.lastChild.append('Sorted by: ',el('strong','','Due date (overdue first)'));rowTarget.append(line);}
+ if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
 const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
@@ -4308,9 +4316,13 @@ function renderTaskTree(rows,today,options){
  const result=[],ids=new Set(rows.map(t=>t.id));
  for(const item of rows){if(item.parent_task_id&&ids.has(item.parent_task_id))continue;
   const children=rows.filter(t=>t.parent_task_id===item.id),card=globalTaskRow(item,today,options);if(!children.length){result.push(card);continue;}
-  const group=el('div','task-hierarchy-group'),nested=el('details','task-subtasks');nested.open=!taskTreeCollapsed.has(item.id);
-  nested.append(el('summary','',children.length+' subtasks'));nested.ontoggle=()=>{if(nested.open)taskTreeCollapsed.delete(item.id);else taskTreeCollapsed.add(item.id);};
-  for(const child of children)nested.append(globalTaskRow(child,today,options));group.append(card,nested);result.push(group);
+  // The subtasks open inside the card of their main task; the chip shows the progress and folds them.
+  const all=hierarchyTasks().filter(t=>t.parent_task_id===item.id),done=all.filter(t=>AtlantaTasks.workflow(t)==='done').length;
+  const nested=el('div','task-subtasks'),toggle=btn('quiet task-subtask-toggle','');toggle.append(icon('next'),el('span','',done+'/'+Math.max(all.length,children.length)+' subtasks'));
+  const show=open=>{nested.hidden=!open;toggle.setAttribute('aria-expanded',String(open));toggle.classList.toggle('open',open);};
+  toggle.onclick=()=>{const open=nested.hidden;if(open)taskTreeCollapsed.delete(item.id);else taskTreeCollapsed.add(item.id);show(open);};show(!taskTreeCollapsed.has(item.id));
+  card.querySelector('.task-parent-link')?.replaceWith(toggle);if(!toggle.isConnected)card.querySelector('.task-tile-tags').append(toggle);
+  for(const child of children)nested.append(globalTaskRow(child,today,{...options,nested:true}));card.querySelector('.tracked-main').append(nested);result.push(card);
  }return result;
 }
 

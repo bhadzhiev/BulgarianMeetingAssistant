@@ -10,23 +10,23 @@ assert.match(app,/if\(item\.details\)meta\.append\(cardContext\('Description','n
 // An update of the notes shows a new description as part of the task change.
 assert.match(app,/function changeText\(field,item\) \{ return field==='tasks'\?\[item\.task,item\.details,item\.owner,/);
 assert.match(css,/\.task-description\{[^}]*-webkit-line-clamp:3/);
-// The last update is one line with an icon, date and text; the draft indicator stays by the task title, never in its update.
+// The last update is one line with an icon, date and text; the draft indicator is a tag of the card, never in its update.
 assert.match(row,/box\.append\(icon\('update'\),el\('span','task-last-when',dateTime\(update\.at\)\),last\)/);
-assert.match(row,/if\(mailed\)titleLine\.append\(mailed\)/);
+assert.match(row,/if\(mailed\)tags\.append\(mailed\)/);
 assert.doesNotMatch(row,/(?:meta|box|flags)\.append\(mailed\)/);
 // Meetings are rows; the other sources keep their chips.
 assert.match(row,/linked=taskMeetingList\(item,itemsData\.meetings\),others=sourceChips\(item,itemsData\.meetings,\{withMeetings:false\}\)/);
 assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact\)/);
 assert.doesNotMatch(row,/meta\.append\(chips\)/);
-// Context controls stay together on the facts line; the shared disclosure helper owns separate, exclusive panels.
+// Context controls sit with Open task in the card tools; the shared disclosure helper owns separate, exclusive panels.
 assert.match(row,/contextTools=el\('div','task-context-tools'\)/);
 assert.match(row,/cardDisclosure\('Sources','link'/);
-assert.match(row,/meta\.append\(contextTools\)/);
+assert.match(row,/tools\.append\(contextTools,open\)/);
 assert.doesNotMatch(row,/el\('details','(?:task-card-sources|card-description)'\)/);
 assert.match(css,/\.task-card \.tracked-meta>\.task-context-tools\{[^}]*display:inline-flex;[^}]*flex:0 0 auto/);
-// Mutations are inside the task editor; the row only opens it.
+// Mutations are inside the task editor; the card opens it and has one direct Mark done circle.
 assert.match(row,/'Open task',\(\)=>openTaskPanel\(item.id\)/);
-assert.doesNotMatch(row,/doneButton|stateSelect/);
+assert.doesNotMatch(row,/stateSelect/);
 // taskMeetingList: one row per meeting in date order, a deleted meeting in plain words, the moment without 00: hours.
 {
  const node=(tag,cls='',text='')=>({tag,className:cls,textContent:text,children:[],append(...k){this.children.push(...k);}});

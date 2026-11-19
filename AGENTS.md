@@ -91,10 +91,12 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
 - Comments in this repo explain **why** (product decisions, invariants), not what. A comment
   citing a dated decision is intentional — keep it current when the code changes.
 - CSS: single `style.css`, section comments, themed via `var(--…)` (dark/light). No frameworks.
-- Reuse the shared renderer for each item kind. Persistent tasks use flat, read-only list rows
-  in My Work and project views: title/project, aligned facts, optional update/context, bottom divider.
-  Open the task editor to change facts; do not restore inline task fields. Decisions, questions and
-  uncreated meeting-note suggestions keep their own shared patterns.
+- Reuse the shared renderer for each item kind. Persistent tasks use bordered cards in My Work and
+  project views (approved 2026-11-19): tags and tools, the title, the last update, a divider, then
+  read-only facts with the due date on the right. Subtasks are one-line rows inside the main card.
+  The round control is the one direct change (Mark done with Undo, or Reopen). Open the task editor
+  to change facts; do not restore inline task fields. Decisions, questions and uncreated
+  meeting-note suggestions keep their own shared patterns.
 
 ## Workflow
 

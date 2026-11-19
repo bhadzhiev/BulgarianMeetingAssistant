@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const src=fs.readFileSync('web/app.js','utf8');
 class Node{
- constructor(tag,cls,text){Object.assign(this,{tag,className:cls,textContent:text,children:[],value:'',checked:false,disabled:false,hidden:false,attrs:{}});}
+ constructor(tag,cls,text){Object.assign(this,{tag,className:cls,textContent:text,children:[],value:'',checked:false,disabled:false,hidden:false,attrs:{},classList:{add(){},toggle(){}}});}
  append(...nodes){for(const n of nodes){this.children.push(n);if(this.tag==='select'&&n.tag==='option'&&!this.value)this.value=n.value;}}
  replaceChildren(...nodes){this.children=nodes;}
  setAttribute(k,v){this.attrs[k]=v;}
@@ -11,7 +11,7 @@ class Node{
 const el=(...args)=>new Node(...args),nodes={},$=id=>nodes[id]??=el('div');
 const task=(id,extra={})=>({id,kind:'task',text:'Task '+id,revision:1,status:'open',acceptance_state:'accepted',...extra});
 const data={items:[task('root'),task('a',{parent_task_id:'root'}),task('b'),task('c',{owner:'Maria'}),task('proposal',{acceptance_state:'proposed'}),task('hidden',{dismissed:true})]},requests=[],opened=[];
-const context=vm.createContext({el,$,itemsData:data,AtlantaTasks:require('../web/task-model.js'),Set,Map,btn:(cls,text,fn)=>Object.assign(el('button',cls,text),{onclick:fn}),option:(text,value)=>Object.assign(el('option','',text),{value}),date:v=>v,leaveEdits:async()=>true,toast(){},perform:fn=>fn(),withDialogAction:async(d,fn)=>fn(),editorDirty:{clear(){},set(){}},taskSelection:new Map(),crypto:{randomUUID:()=>'f'.repeat(32)},refreshAfterItemChange:async()=>{},openTaskPanel:async id=>opened.push(id),api:async(path,body)=>{if(!body)return data;requests.push({path,body});return {parent_id:'new'};},globalTaskRow:item=>el('card','',item.id)});
+const context=vm.createContext({el,$,itemsData:data,AtlantaTasks:require('../web/task-model.js'),Set,Map,btn:(cls,text,fn)=>Object.assign(el('button',cls,text),{onclick:fn}),option:(text,value)=>Object.assign(el('option','',text),{value}),date:v=>v,leaveEdits:async()=>true,toast(){},perform:fn=>fn(),withDialogAction:async(d,fn)=>fn(),editorDirty:{clear(){},set(){}},taskSelection:new Map(),crypto:{randomUUID:()=>'f'.repeat(32)},refreshAfterItemChange:async()=>{},openTaskPanel:async id=>opened.push(id),api:async(path,body)=>{if(!body)return data;requests.push({path,body});return {parent_id:'new'};},icon:name=>el('svg','icon',name),globalTaskRow:(item,today,options={})=>{const card=el('card','',item.id),tags=el('div','task-tile-tags'),main=el('div','tracked-main');card.nested=!!options.nested;card.append(tags,main);card.querySelector=s=>({'.tracked-main':main,'.task-tile-tags':tags})[s]||null;return card;}});
 vm.runInContext(src.slice(src.indexOf('function hierarchyTasks('),src.indexOf('async function openTaskPanel(')),context);
 (async()=>{
  await vm.runInContext("openTaskHierarchy({parentId:'root'})",context);
@@ -28,7 +28,10 @@ vm.runInContext(src.slice(src.indexOf('function hierarchyTasks('),src.indexOf('a
  assert.equal(requests[1].body.items[0].id,'b');
  const tree=vm.runInContext("renderTaskTree(itemsData.items.slice(0,3),'2026-11-16',{})",context);
  assert.equal(tree.length,2,'child appears once beneath its main task');
- assert.equal(tree[0].children[1].children[1].textContent,'a');
+ const [tags,main]=tree[0].children,nested=main.children[0];
+ assert.equal(nested.className,'task-subtasks');assert.equal(nested.children[0].textContent,'a');assert(nested.children[0].nested,'the subtask is a one-line row inside the main card');
+ assert.equal(tags.children[0].children[1].textContent,'0/1 subtasks','the chip shows the progress and folds the subtasks');assert.equal(tags.children[0].attrs['aria-expanded'],'true');
+ tags.children[0].onclick();assert.equal(nested.hidden,true);assert.equal(tags.children[0].attrs['aria-expanded'],'false');tags.children[0].onclick();
  const filtered=vm.runInContext("renderTaskTree([itemsData.items[1]],'2026-11-16',{})",context);assert.equal(filtered[0].textContent,'a','child stays visible when its parent is filtered out');
  const card=vm.runInContext("taskHierarchyBadge(itemsData.items[0])",context);assert.equal(card.textContent,'0 / 1 subtasks done');
  console.log('Task hierarchy PASS: eligible picker, search/select, atomic create payload, revision checks and filtered tree.');

@@ -10,6 +10,6 @@ assert.match(app,/parts\.push\(status,note,actions\);box\.append\(\.\.\.parts\);
 assert.match(row,/ownerFact=el\('span','task-fact owner-fact'\)/);
 assert.match(row,/actionBtn\('quiet task-open','Open task',\(\)=>openTaskPanel\(item.id\)\)/);
 assert.doesNotMatch(row,/task-quick-fields|stateSelect|rowActions/);
-assert.match(row,/if\(mailed\)titleLine\.append\(mailed\)/);
+assert.match(row,/const mailed=emailMark\(item,\{compact:nested\}\);if\(mailed\)tags\.append\(mailed\)/,'the saved-email mark is a tag of the card');
 assert.match(css,/\.task-title-line>\.email-mark\{flex:none;/);
 console.log('Compact task list PASS: one editor, read-only facts and a stable saved-email mark.');

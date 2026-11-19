@@ -20,11 +20,11 @@ assert.match(panel,/el\('h2','task-card-title',item\.acceptance_state==='propose
 assert.match(panel,/if\(part\.querySelector\(':invalid,\[aria-invalid=true\]'\)\)part\.open=true;/);
 assert.match(panel,/historySection\.open=true;timeline\.scrollIntoView/);
 assert.match(css,/#task-panel \.task-section\[open\]>summary \.task-section-summary\{display:none\}/);
-// One compact task view; no density toggle or stored alternate layout.
+// One task card layout (2026-11-19); no density toggle or stored alternate layout.
 assert.doesNotMatch(app,/taskDensity|task-density|\[\['compact','Compact'\],\['cards','Cards'\]\]/);
-assert.match(app,/const compact=true;/);
+assert.doesNotMatch(app,/const compact=true;/);
 const row=slice('function globalTaskRow(');
-assert.match(row,/if\(showProject\)for\(const project of projects\)/);assert.doesNotMatch(row,/task-quick-fields|openTaskFields/);
+assert.match(row,/if\(showProject&&!nested\)for\(const project of projects\)/);assert.doesNotMatch(row,/task-quick-fields|openTaskFields/);
 assert.match(row,/actions\.prepend\(timeline\)/);
 // Selection starts on request in the unified view.
 assert.match(app,/select:taskSelecting\|\|taskSelection\.size>0,showProject:!project\.value/);
@@ -33,4 +33,4 @@ assert.match(slice('function renderBulkTasks(){'),/taskSelecting\?'Done selectin
 assert.match(css,/\.task-card \.task-quick-fields\[hidden\]\{display:none!important\}/);
 // The calendar button inside the task menu does not close the menu.
 assert.match(app,/\.task-more>\.tracked-actions>button'\)\)closeMenus\(\)/);
-console.log('Compact tasks PASS: fixed editor order, compact list by default, cards view, selection on request, narrow rows.');
+console.log('Compact tasks PASS: fixed editor order, one card layout, selection on request, narrow rows.');

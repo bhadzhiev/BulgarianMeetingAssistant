@@ -26,7 +26,8 @@ assert.match(app,/const card=el\('article','entity-card followup-card'\)/);
 const finding=slice('function findingCard(f,r,busy){');
 assert.match(finding,/'AI inference'/);assert.match(finding,/el\('details','finding-evidence'\)/);assert.match(finding,/'Suggest a task'/);
 // A card without bulk selection has no empty selection column.
-assert.match(app,/row\.append\(\.\.\.\(select\?\[marks\]:\[\]\),main\)/);
+// The first column holds the selection box or the Mark done circle; a proposal leaves it empty.
+assert.match(app,/row\.append\(marks,main\)/);
 // Prepare me shows a known task with the My Work card.
 assert.match(app,/const card=globalTaskRow\(full,today,\{select:false\}\),facts=card\.querySelector\('\.tracked-meta'\)/);
 console.log('Source cards PASS: Gmail/Chat/snapshots, projects, people, sources, search, follow-up, findings.');

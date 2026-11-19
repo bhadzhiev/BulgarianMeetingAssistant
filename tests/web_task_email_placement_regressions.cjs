@@ -24,14 +24,14 @@ const flatten=n=>[n,...(n.children||[]).filter(x=>x instanceof Node).flatMap(fla
 for(const nested of [false,true])for(const withUpdate of [false,true]){
  const item={id:'t',kind:'task',text:'Провери backup',owner:null,links:[],status:'open',acceptance_state:'accepted',email_draft:{saved_at:'2026-11-15',to:['a@example.test']},update:withUpdate?{text:'Backup checked',at:'2026-11-15'}:null};
  c.item=item;c.nested=nested;
- const row=vm.runInContext("globalTaskRow(item,'2026-11-15',{select:false,nested})",c),all=flatten(row),marks=all.filter(n=>n.className==='email-mark');
+ const row=vm.runInContext("globalTaskRow(item,'2026-11-15',{select:false,nested})",c),all=flatten(row),marks=all.filter(n=>n.className==='email-mark task-link-icon');
  const state=all.find(n=>n.className==='task-fact task-state');
  // A subtask row shows the owner and the due date only; the main card shows every fact once, read-only.
  if(nested)assert.equal(state,undefined);else{assert.equal(state.tag,'span');assert.equal(state.onclick,undefined);}assert(!all.some(n=>n.tag==='select'||n.tag==='input'||n.className==='task-quick-fields'));
  const open=all.find(n=>n.attrs['aria-label']==='Open task');assert(open,'the task has an explicit open action');
  assert.equal(marks.length,1);assert.equal(marks[0].parent.className,'task-tile-tags');
  assert.equal(marks[0].parent.parent.className,nested?'task-tile-line':'entity-top task-tile-head');
- assert.equal(marks[0].children.length,nested?1:2,'a subtask row shows only the envelope');
+ assert.equal(marks[0].children.length,1,'the draft is an envelope icon with an accessible name');
  assert(marks[0].attrs['aria-label'].includes('Email draft saved in Gmail'));
  assert(!all.filter(n=>['tracked-meta task-tile-facts','task-update'].includes(n.className)).some(n=>n.children.includes(marks[0])));
 }

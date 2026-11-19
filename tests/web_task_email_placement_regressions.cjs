@@ -26,6 +26,7 @@ for(const compact of [false,true])for(const withUpdate of [false,true]){
  c.item=item;c.compact=compact;
  const row=vm.runInContext("globalTaskRow(item,'2026-11-15',{select:false,compact})",c),all=flatten(row),marks=all.filter(n=>n.className==='email-mark');
  const state=all.find(n=>n.className==='task-fact task-state');
+ if(compact){assert.equal(state.parent.className,'task-row-facts');assert.deepEqual(state.parent.children.map(n=>n.className),['task-fact task-state','task-fact owner-fact','task-priority normal']);assert.equal(all.filter(n=>n===state).length,1);}
  assert.equal(state.tag,'span');assert.equal(state.onclick,undefined);assert(!all.some(n=>n.tag==='select'||n.tag==='input'||n.className==='task-quick-fields'));
  const open=all.find(n=>n.attrs['aria-label']==='Open task');assert(open,'the task has an explicit open action');
  assert.equal(marks.length,1);assert.equal(marks[0].parent.className,'task-title-line');assert.equal(marks[0].parent.children[0].textContent,item.text);

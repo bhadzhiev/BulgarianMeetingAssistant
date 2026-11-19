@@ -2107,16 +2107,17 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 
 /* The approved design uses the standard Cyrillic glyph forms; the system font otherwise draws the Bulgarian forms at text sizes. */
 :root{-webkit-locale:"ru"}
-/* Task cards (approved 2026-11-19): tags and tools, the title, the last update, a divider, then the facts with the due date on the right. */
-.tracked-task.task-tile{display:grid;grid-template-columns:28px minmax(0,1fr);column-gap:16px;align-items:start;padding:20px 24px;margin:0 0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:none}
+/* Task cards (approved 2026-11-19): tags and tools, the title, the last update, a divider, then the facts with the due date on the right.
+   Compact spacing (approved 2026-11-19): 12px vertical and 16px side padding, 6px from the tags to the title, 6px subtask rows. */
+.tracked-task.task-tile{display:grid;grid-template-columns:28px minmax(0,1fr);column-gap:16px;align-items:start;padding:12px 16px;margin:0 0 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:none}
 .tracked-task.task-tile>.task-row-marks{display:flex;justify-content:center;width:28px;padding-top:2px}
-.tracked-task.task-tile>.tracked-main{display:flex;flex-direction:column;gap:12px;min-width:0;width:auto}
+.tracked-task.task-tile>.tracked-main{display:flex;flex-direction:column;gap:8px;min-width:0;width:auto}
 .task-tile .task-done-toggle{width:26px;height:26px;min-width:26px;min-height:26px;padding:0;border:0;background:transparent;color:var(--muted);border-radius:50%}
 .task-tile .task-done-toggle svg{width:26px;height:26px;stroke-width:1.6}
 .task-tile .task-done-toggle:hover{color:var(--green);background:var(--accent-soft)}
 .task-tile.work-card-closed .task-done-toggle{color:var(--green)}
 .task-tile.work-card-closed .task-title{text-decoration:line-through;color:var(--muted)}
-.task-tile-head{display:flex;align-items:center;gap:10px;min-width:0}
+.task-tile-head{display:flex;align-items:center;gap:10px;min-width:0;margin-bottom:-2px}
 .task-tile-tags{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:1 1 auto;min-width:0}
 .task-tile .task-created{font-family:var(--mono);font-size:.8rem;color:var(--text-4);white-space:nowrap}
 .task-tile-head .task-created::after{content:'·';margin-left:8px}
@@ -2141,12 +2142,12 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-tile-tools .task-more>.tracked-actions>*{justify-content:flex-start;text-align:left;width:100%}
 .tracked-task.task-tile .task-title{display:block;width:auto;padding:0;margin:0;min-height:0;height:auto;font-family:var(--sans);font-size:1.2rem;font-weight:650;line-height:1.35;letter-spacing:-.01em;color:var(--text-strong);text-align:left;white-space:normal;overflow-wrap:anywhere;background:transparent}
 .tracked-task.task-tile .task-title:hover{color:var(--green)}
-.task-tile .task-update{display:flex;align-items:center;gap:12px;padding:12px 16px;margin:0;font-size:.9rem;background:var(--field);border:0;border-left:3px solid var(--green);border-radius:4px 8px 8px 4px}
+.task-tile .task-update{display:flex;align-items:center;gap:12px;padding:6px 12px;margin:0;font-size:.9rem;background:var(--field);border:0;border-left:3px solid var(--green);border-radius:4px 8px 8px 4px}
 .task-tile .task-update svg{flex:none;color:var(--green)}
 .task-tile .task-last-when{font-family:var(--mono);font-size:.8rem;color:var(--text-4);white-space:nowrap}
 .task-tile .task-last-line{margin:0;color:var(--text-3);min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.45}
 .task-tile .card-expansions{margin:0}
-.task-tile-facts{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0;padding-top:16px;border-top:1px solid var(--line-soft)}
+.task-tile-facts{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0;padding-top:8px;border-top:1px solid var(--line-soft)}
 .task-tile-facts>*+*{margin:0;padding-left:0;border-left:0}
 .task-tile .task-fact,.task-tile .task-priority{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:4px 14px;margin:0;font-family:var(--sans);font-size:.9rem;font-weight:500;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;white-space:nowrap}
 .task-tile .task-fact svg,.task-tile .task-priority svg{width:15px;height:15px;color:var(--muted)}
@@ -2177,8 +2178,8 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-tile .proposal-actions{margin:0}
 .task-tile .task-follow-up,.task-tile .status-badge,.task-tile .badge{font-size:.75rem}
 /* Subtasks: one line each, inside the card of their main task. */
-.task-tile .task-subtasks{display:flex;flex-direction:column;gap:2px;margin:4px 0 0;padding:12px 0 0 14px;border-top:1px solid var(--line-soft);box-shadow:inset 1px 0 0 color-mix(in srgb,var(--green) 70%,transparent)}
-.tracked-task.task-tile.task-tile-nested{grid-template-columns:24px minmax(0,1fr);column-gap:12px;align-items:center;padding:8px 10px;margin:0;border:0;border-radius:8px;background:transparent}
+.task-tile .task-subtasks{display:flex;flex-direction:column;gap:2px;margin:0;padding:6px 0 0 14px;border-top:1px solid var(--line-soft);box-shadow:inset 1px 0 0 color-mix(in srgb,var(--green) 70%,transparent)}
+.tracked-task.task-tile.task-tile-nested{grid-template-columns:24px minmax(0,1fr);column-gap:12px;align-items:center;padding:6px 10px;margin:0;border:0;border-radius:8px;background:transparent}
 .tracked-task.task-tile.task-tile-nested:hover{background:var(--surface)}
 .task-tile-nested>.task-row-marks{padding-top:0;width:24px}
 .task-tile-nested .task-done-toggle,.task-tile-nested .task-done-toggle svg{width:22px;height:22px;min-width:22px;min-height:22px}

@@ -4,14 +4,13 @@ const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function
 // Accepted list rows have a single editor destination, never inline state/owner/date mutations.
 assert.doesNotMatch(row,/stateSelect|openTaskField|task-quick-fields|ownerFact\.onclick|dueFact\.onclick|stateFact\.onclick/);
 assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact\)/);
-// Missing descriptions or sources do not move the other control into its slot.
+// Task cards (2026-11-19): tags and tools, the title, the last update and opened context, then the facts with the due date on the right.
 assert.match(row,/control\.classList\.add\('task-description-control'\)/);
-assert.match(row,/control\.classList\.add\('task-sources-control'\)/);
-assert.match(css,/\.task-list-row \.task-description-control\{grid-column:1;grid-row:1\}/);
-assert.match(css,/\.task-list-row \.task-sources-control\{grid-column:2;grid-row:1\}/);
-assert.match(css,/grid-template-columns:190px 80px 80px minmax\(160px,1fr\) 64px/);
-assert.match(css,/border-bottom:1px solid color-mix\(in srgb,var\(--ink\) 9%,transparent\)/);
-assert(row.indexOf("main.append(box)")<row.indexOf('main.append(panels)'),'updates and expanded context remain inside the row');
-assert.match(css,/task-list-row>.tracked-main\{width:auto;/,'content does not inherit the legacy selection-column width');
-assert.match(css,/compact-task\.task-list-row:has\(\.task-pick\)\{grid-template-columns:24px minmax\(0,1fr\) 28px\}/,'selection preserves a real content column');
-console.log('Flat task list PASS: read-only facts, aligned tracks and disclosure slots, complete-row dividers and selection sizing.');
+assert.match(row,/control\.classList\.add\('task-sources-control','task-origin'\)/,'the origin chip opens the sources');
+assert.match(row,/else\{head\.append\(tags,chips,tools\);main\.append\(head,title\);if\(box\)main\.append\(box\);main\.append\(panels,meta\);\}/,'updates and expanded context stay above the facts line');
+assert.match(css,/\.tracked-task\.task-tile\{display:grid;grid-template-columns:28px minmax\(0,1fr\);/);
+assert.match(css,/\.task-tile-facts\{display:flex;[^}]*border-top:1px solid var\(--line-soft\)\}/,'a divider separates the content from the facts');
+assert.match(css,/\.task-tile-facts>\.due-label\{margin-left:auto\}/,'the due date sits on the right');
+// The round control is the labelled Mark done button with Undo; selection replaces it while tasks are selected.
+assert.match(row,/const finished=item\.status==='done',done=compactAction\(doneButton\(item\),finished\?'check':'circle'\);done\.classList\.add\('task-done-toggle'\)/);
+console.log('Task card list PASS: read-only facts, origin and description controls, facts divider, due date on the right, Mark done circle.');

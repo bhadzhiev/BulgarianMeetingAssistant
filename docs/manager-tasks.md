@@ -146,13 +146,20 @@ to Normal. Source linking keeps the existing task's priority. Editing priority s
 
 ### Task list layout
 
-Tasks share a flat list row in My Work and project views: title and a compact project label,
-then fixed columns for Owner → State → Priority → Due date → Description/Sources controls.
-Facts are read-only; the title or Open task opens the task editor. There are no inline owner,
-state or date editors and no instant completion action in the list. Selection, proposal review,
-source playback and the secondary task menu remain available. Shared ownership shows +N beside
-the accountable owner, with the names in its tooltip.
+Tasks share one bordered card in My Work and project views (approved 2026-11-19):
 
-Description and Sources have fixed slots and mutually exclusive expansion panels. The last
-update, expanded context and review notices stay within the task row, above its subtle bottom
-divider. Narrow containers wrap the same columns into a consistent two-line facts layout.
+- The head has the tags on the left: the creation date, the origin chip (Meeting, Gmail thread,
+  Chat or GitHub), the Gmail draft mark, the subtask progress and review notices. The project
+  chip and the tools (Description, Open task, the … menu) are on the right.
+- The title follows. The last update is one line in a box with a green left edge.
+- A divider separates the content from the facts: Owner (+N for shared work), State and
+  Priority on the left, the due date with its distance (for example "6d overdue") on the right.
+- Subtasks are one-line rows inside the card of their main task. The "0/6 subtasks" chip
+  folds and unfolds them.
+
+Facts are read-only; the title or Open task opens the task editor. There are no inline owner,
+state or date editors. The round control on the left marks the task done; the toast offers
+Undo, which restores the earlier state. A done task shows a check that reopens it. In selection
+mode, the selection box takes the place of the round control. The origin chip and Description
+open mutually exclusive panels inside the card, above the facts. The list header shows the
+number of tasks and the fixed order (overdue first, then by due date).

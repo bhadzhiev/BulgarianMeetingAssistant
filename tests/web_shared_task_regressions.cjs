@@ -3,8 +3,8 @@ const app=fs.readFileSync('web/app.js','utf8');
 const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 // The card: the owner and up to three more avatars, "+N", and a Shared badge with the roles in the title.
 const row=slice('function globalTaskRow(');
-assert.match(row,/const co=taskCoAssignees\(item\);/);
-assert.match(row,/\(co\.length\?' \+'\+co\.length:''\)/);
+assert.match(row,/const co=taskCoAssignees\(item\),ownerName=item\.owner\|\|'No owner';/);
+assert.match(row,/if\(co\.length\)who\.append\(el\('span','task-owner-more','\+'\+co\.length\)\)/);
 assert.match(row,/'Owner: '/);assert.match(row,/' · Also working on it: '/);
 // The owner filter finds a shared task under each person on it.
 assert.match(app,/owners=\[\.\.\.new Set\(tasks\.flatMap\(taskPeopleNames\)\)\]/);

@@ -97,7 +97,9 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   plain read-only text. Sources and the Gmail draft are icons only (green
   when linked, dimmed when not). Subtasks are flat one-line rows inside the main card.
   The round control is the one direct change (Mark done with Undo, or Reopen). Open the task editor
-  to change facts; do not restore inline task fields. Decisions, questions and uncreated
+  to change facts; do not restore inline task fields. Edit task and New task share one form layout (approved
+  2026-11-20): the project, task ID and close mark in the head; content on the left (Edit task: Details, Subtasks and History &
+  activity tabs); task parameters on the right. Decisions, questions and uncreated
   meeting-note suggestions keep their own shared patterns.
 
 ## Workflow

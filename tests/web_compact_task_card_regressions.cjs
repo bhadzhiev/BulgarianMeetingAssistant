@@ -3,9 +3,14 @@ const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.cs
 const row=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('function taskDescription('));
 // The editor names the two text fields Title and Description.
 // Since 2026-11-12 the description is always visible, under the title, in the editor and in the new task dialog.
-assert.match(app,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,/);
-assert.match(app,/parts\.push\(label\('Title',text\),label\('Description',details\),label\('Expected result',criterion\),grid\);/);
-assert.match(app,/parts\.push\(status,note,actions\);box\.append\(\.\.\.parts\);/);
+// Task forms (2026-11-20): the content on the left, the task parameters on the right, the actions in the footer.
+assert.match(app,/box\.append\(taskFormLayout\(\[label\('Title',area\),tabs\.bar,\.\.\.tabs\.panels\],/);
+assert.match(app,/describe\.append\(label\('Description',details\),improveRow\)/);
+assert.match(app,/\['details','Details',\[describe,label\('Expected result',criterion\),progress,sourcesSection\]\]/);
+assert.match(app,/parts\.push\(label\('Title',text\),label\('Description',details\),label\('Expected result',criterion\)\);/);
+assert.match(app,/parts\.push\(status,note\);box\.append\(taskFormLayout\(parts,\[grid\]\),actions\);/);
+assert.match(app,/function taskFormLayout\(main,side\)\{[^\n]*el\('h3','task-side-title','Task parameters'\)/);
+assert.match(css,/\.task-panel-layout\{display:grid;grid-template-columns:minmax\(0,1fr\) 340px;/);
 // The list is read-only; the title and Open task action open the full editor.
 assert.match(row,/ownerFact=el\('span','task-fact owner-fact'\)/);
 assert.match(row,/actionBtn\('quiet task-open','Open task',\(\)=>openTaskPanel\(item.id\)\)/);

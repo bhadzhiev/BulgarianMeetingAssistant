@@ -31,6 +31,8 @@ class SelectStyleTests(unittest.TestCase):
             '.task-card .task-quick-fields :is(select,input)',
             # My Work filter fields (2026-11-19): the label draws the border, the select inside has none.
             '#manager-all-filters .filter-field select',
+            # Task forms (2026-11-20): the owner avatar, state dot or priority flag sits inside the select.
+            ':is(#task-panel,#manual-task-body) .task-field-mark:has(.task-field-icon:not(:empty))>select',
         }
         for rule, body in re.findall(r'([^{}]*\bselect\b[^{}]*)\{([^}]*)\}', CSS):
             rule = rule.strip()

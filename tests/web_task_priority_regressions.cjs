@@ -4,7 +4,7 @@ const card=app.slice(app.indexOf('function globalTaskRow('),app.indexOf('functio
 const badge=card.slice(card.indexOf(" const priority=item.priority"),card.indexOf(' const head=el('));
 for(const [priority,label] of [['critical','Critical'],['high','High'],['normal','Normal'],['low','Low'],[undefined,'Normal']]){
  const nodes=[],c=vm.createContext({item:{priority},ownerFact:null,stateFact:null,dueFact:null,workReviewBadge:()=>null,icon:()=>null,el:(tag,cls,text)=>({tag,cls,text,prepend(){},setAttribute(k,v){this[k]=v}}),meta:{append(...n){nodes.push(...n)}}});
- vm.runInContext(badge,c);assert.equal(nodes[2].text,label);assert.equal(nodes[2]['aria-label'],'Priority: '+label);
+ vm.runInContext(badge,c);assert.equal(nodes[1].text,label);assert.equal(nodes[1]['aria-label'],'Priority: '+label);
 }
 const undo=app.slice(app.indexOf('function taskEditUndo('),app.indexOf('\n}',app.indexOf('function taskEditUndo('))+2);
 const c=vm.createContext({AtlantaTasks:{workflow:i=>i.workflow_state||'todo'}});vm.runInContext(undo,c);

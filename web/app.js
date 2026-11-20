@@ -1853,7 +1853,7 @@ function workReviewBadge(state,item){return ['needs_review','edited'].includes(s
 // The people who work on a shared task: the owner first (accountable), then the others.
 function taskCoAssignees(item){return (item.assignee_person_ids||[]).slice(1).map(id=>(state.people||[]).find(p=>p.id===id)).filter(Boolean);}
 function taskPeopleNames(item){return [item.owner,...taskCoAssignees(item).map(p=>p.name)].filter(Boolean);}
-// The task card (approved 2026-11-19): tags and tools, the title, the last update, then the facts line with the due date on the right.
+// The compact task card (approved 2026-11-20): sources, created and due dates with the tools; the project and the title on one line; the last update; then state, priority and owner as plain text.
 // Subtasks sit inside the card of their main task. Facts stay read-only; the task editor is the one place to change them.
 function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}) {
  const [kind,label]=dueInfo(item,today),row=el('div','tracked-task task-tile '+kind+(nested?' task-tile-nested':''));row.dataset.itemId=item.id;
@@ -1870,13 +1870,12 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
  dueFact.title=item.due_date?date(item.due_date)+' · '+label:label;
  const relative=dueShort(item,today);
  dueFact.append(icon('calendar'),el('span','task-due-date',item.due_date?(nested?date(item.due_date).slice(0,5):date(item.due_date)):label));
- if(item.due_date&&relative)dueFact.append(el('span','task-due-relative',relative));
+ if(item.due_date&&relative)dueFact.append(el('span','task-due-relative',nested?relative:'('+relative+')'));
  const priority=item.priority||'normal',priorityLabel=({critical:'Critical',high:'High',normal:'Normal',low:'Low'})[priority]||'Normal';
  const priorityBadge=el('span','task-fact task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);priorityBadge.prepend(icon('flag'));
- meta.append(ownerFact,stateFact,priorityBadge,dueFact);
+ meta.append(stateFact,priorityBadge,ownerFact);
  const head=el('div','entity-top task-tile-head'),tags=el('div','task-tile-tags'),chips=el('div','entity-chips'),tools=el('div','task-tile-tools');
- if(item.created&&Number.isFinite(Date.parse(item.created)))tags.append(el('span','task-created',date(item.created)));
- if(showProject&&!nested)for(const project of projects){const chip=projectChip(project);chip.title=project.name;chips.append(chip);}
+ if(showProject&&!nested)for(const project of projects){const chip=projectChip(project);chip.title=project.name;if(project.color)chip.style.color=project.color;chips.append(chip);}
  const panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
  // Sources and the Gmail draft are icons (approved 2026-11-19): green when linked, dimmed when not. The source icon opens the sources.
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
@@ -1885,6 +1884,7 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
   control.classList.add('task-sources-control','task-origin','task-link-icon');control.replaceChildren(icon(glyph),el('span','sr-only',name));const names=origins.map(p=>TASK_ORIGINS[p][0]).join(', ')||'Sources';control.setAttribute('aria-label','Sources: '+names);control.title='Sources: '+names;if(!nested)tags.append(control);}
  else if(!nested)tags.append(missingLink('video','No linked meeting or source'));
  const mailed=emailMark(item);if(mailed)tags.append(mailed);else if(!nested)tags.append(missingLink('mail','No Gmail draft'));
+ if(!nested){if(item.created&&Number.isFinite(Date.parse(item.created)))tags.append(el('span','task-created',date(item.created)));tags.append(dueFact);}
  if(typeof taskHierarchyBadge==='function'&&!nested){const hierarchy=taskHierarchyBadge(item);if(hierarchy)tags.append(hierarchy);}
  const review=workReviewBadge(item.review_state,item);if(review)tags.append(review);
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')tags.append(el('span','badge','Existing task · review gradually'));
@@ -1897,7 +1897,7 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
  if(update){box=el('div','task-update');const last=el('p','task-last-line');last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;}
  if(nested){const line=el('div','task-tile-line');line.append(tags,title,ownerFact,dueFact,tools);main.append(line,panels);}
- else{head.append(tags,chips,tools);main.append(head,title);if(box)main.append(box);main.append(panels,meta);}
+ else{const titleLine=el('div','task-tile-title-line');titleLine.append(chips,title);head.append(tags,tools);main.append(head,titleLine);if(box)main.append(box);main.append(panels,meta);}
  if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','sr-only','Select'));marks.append(pick);}
  // The round control marks the task done (Undo in the toast) or reopens it; selection replaces it while tasks are selected.

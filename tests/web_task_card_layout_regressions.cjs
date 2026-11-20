@@ -16,7 +16,7 @@ assert.match(row,/if\(mailed\)tags\.append\(mailed\)/);
 assert.doesNotMatch(row,/(?:meta|box|flags)\.append\(mailed\)/);
 // Meetings are rows; the other sources keep their chips.
 assert.match(row,/linked=taskMeetingList\(item,itemsData\.meetings\),others=sourceChips\(item,itemsData\.meetings,\{withMeetings:false\}\)/);
-assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact\)/);
+assert.match(row,/meta\.append\(stateFact,priorityBadge,ownerFact\)/);
 assert.doesNotMatch(row,/meta\.append\(chips\)/);
 // Context controls sit with Open task in the card tools; the shared disclosure helper owns separate, exclusive panels.
 assert.match(row,/contextTools=el\('div','task-context-tools'\)/);

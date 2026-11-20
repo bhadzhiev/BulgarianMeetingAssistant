@@ -2295,12 +2295,11 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-side-title{margin:4px 0 8px;font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 :is(#task-panel,#manual-task-body) .task-panel-main>label,#task-panel :is(.task-describe,.task-tab-panel)>label{font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 :is(#task-panel,#manual-task-body) .task-panel-main>label>textarea,#task-panel :is(.task-describe,.task-tab-panel)>label>textarea{font-size:.95rem;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--ink)}
-:is(#task-panel,#manual-task-body) .task-panel-main textarea[aria-label=Title]{min-height:52px;padding:12px 16px;font-size:1.15rem;font-weight:500;border-color:color-mix(in srgb,var(--green) 55%,var(--line))}
-#task-panel .task-describe{position:relative}
-#task-panel .task-describe>label{gap:20px}
+:is(#task-panel,#manual-task-body) .task-panel-main textarea[aria-label=Title]{min-height:52px;padding:12px 16px;font-size:1.15rem;font-weight:500}
+/* A focused field in the task forms has a thin green border only; the thick ring and halo hid the text (2026-11-20). */
+:is(#task-panel,#manual-task-body) :is(input,select,textarea):is(:focus,:focus-visible){outline:none;box-shadow:none;border-color:var(--green)}
 #task-panel .task-describe>.action-group>button{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent);background:var(--accent-soft)}
-#task-panel .task-describe>.action-group{position:absolute;top:-6px;right:0;flex-wrap:nowrap;max-width:75%;margin:0}
-#task-panel .task-describe>.action-group .hint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#task-panel .task-describe>.action-group{flex-wrap:wrap;gap:6px 12px;margin:-2px 0 6px}
 #task-panel .task-panel-side .task-core,#manual-task-body .task-panel-side .task-card-grid{grid-template-columns:minmax(0,1fr);gap:2px}
 .task-panel-side label{font-size:.85rem;color:var(--text-2)}
 #task-panel .task-panel-side .task-section:first-of-type{margin-top:12px}
@@ -2323,4 +2322,4 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-state-dot[data-state=cancelled]{background:var(--text-4)}
 .task-priority-mark{display:flex;color:var(--muted)}.task-priority-mark svg{width:16px;height:16px}
 .task-priority-mark:is(.high,.critical){color:var(--danger-ink)}
-@media(max-width:900px){.task-panel-layout{grid-template-columns:minmax(0,1fr)}.task-panel-side{padding:16px 0 0;border-left:0;border-top:1px solid var(--line)}#task-panel .task-describe>.action-group{position:static;max-width:none;margin-top:8px}}
+@media(max-width:900px){.task-panel-layout{grid-template-columns:minmax(0,1fr)}.task-panel-side{padding:16px 0 0;border-left:0;border-top:1px solid var(--line)}}

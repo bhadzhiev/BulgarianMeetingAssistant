@@ -42,7 +42,6 @@ select:disabled{opacity:.55;cursor:default}input::placeholder,textarea::placehol
 .speaker-line{display:flex;align-items:center;gap:7px;margin-bottom:4px}.speaker-line .speaker{margin-bottom:0}
 .speaker-badge{display:inline-grid;place-items:center;flex:none;min-width:24px;height:24px;padding:0 5px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.3px;color:var(--on-accent);background:var(--muted)}
 .speaker-badge.empty{background:transparent;color:var(--muted);border:1px dashed var(--line)}.speaker-badge.new{background:var(--light);color:var(--muted);font-size:8px}
-.tone-0{background:#24634b}.tone-1{background:#2f5f8a}.tone-2{background:#8a4f2f}.tone-3{background:#6b4a8a}.tone-4{background:#8a2f55}.tone-5{background:#4f6f1f}.tone-6{background:#1f6f73}.tone-7{background:#7a6420}
 .segment.known-speaker .speaker{font-weight:600;color:var(--ink)}
 .speaker-legend{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
 .speaker-chip{display:inline-flex;align-items:center;gap:7px;padding:3px 6px 3px 3px;border:1px solid var(--line);border-radius:16px;font-size:12px;background:var(--surface)}.speaker-chip .quiet{padding:0 4px;font-size:11px}
@@ -2277,8 +2276,6 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-tile-facts>.owner-fact{padding-right:0;border-right:0}
 .task-tile-facts .task-owner-name{display:none}
 .task-tile .tracked-owner .speaker-badge{width:24px;height:24px;min-width:24px;color:#fff;box-shadow:none}
-/* Each owner keeps their own avatar color, as in the rest of the app. */
-.task-tile .tracked-owner .speaker-badge.tone-0{background:#24634b}.task-tile .tracked-owner .speaker-badge.tone-1{background:#2f5f8a}.task-tile .tracked-owner .speaker-badge.tone-2{background:#8a4f2f}.task-tile .tracked-owner .speaker-badge.tone-3{background:#6b4a8a}.task-tile .tracked-owner .speaker-badge.tone-4{background:#8a2f55}.task-tile .tracked-owner .speaker-badge.tone-5{background:#4f6f1f}.task-tile .tracked-owner .speaker-badge.tone-6{background:#1f6f73}.task-tile .tracked-owner .speaker-badge.tone-7{background:#7a6420}
 .task-tile .tracked-owner .speaker-badge.no-owner{color:var(--text-3);background:var(--surface-2)}
 @media(max-width:600px){.task-tile-title-line{flex-wrap:wrap}}
 /* Task forms (approved 2026-11-20): Edit task and New task share one layout. The head has the project, the task ID and a

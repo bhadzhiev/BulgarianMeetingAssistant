@@ -74,11 +74,14 @@ function undoToast(message,undo){
 }
 function participantLabel(name){if(!name)return 'Unidentified participant';const match=/^SPEAKER[ _-]?(\d+)$/i.exec(name);return match?'Participant '+(Number(match[1])+1):knownSpeaker(name)||name;}
 function knownSpeaker(name) { const person=personFor(name);if(person)return person.name;if(Array.isArray(state?.people))return null;const key=(name||'').trim().toLocaleLowerCase();if(/^speaker[ _-]?\d+$/i.test(key))return null; return key?(state?.speakers||[]).find(n=>n.toLocaleLowerCase()===key):undefined; }
-function speakerTone(name) { let hash=0; for(const c of name.toLocaleLowerCase()) hash=(hash*31+c.codePointAt(0))>>>0; return 'tone-'+(hash%8); }
+// One avatar color per person (2026-11-20): the color comes from the name, so the same person has the same color in
+// every list. Eight fixed tones gave two people the same color too often; a hue from 360 and three lightness levels keep them apart.
+function speakerColor(name){const key=String(name||'').trim().replace(/\s+/g,' ').toLocaleLowerCase();let hash=2166136261;for(const c of key){hash^=c.codePointAt(0);hash=Math.imul(hash,16777619)>>>0;}return 'hsl('+(hash%360)+' 48% '+[28,34,40][(hash>>>16)%3]+'%)';}
+function paintAvatar(node,name){node.style.background=name?speakerColor(name):'';node.style.color=name?'#fff':'';return node;}
 function initials(name) { return name.split(/\s+/).filter(Boolean).slice(0,2).map(word=>[...word][0].toLocaleUpperCase()).join(''); }
 function speakerBadge(target,name) {
  const known=knownSpeaker(name); name=(name||'').trim();if(/^SPEAKER[ _-]?\d+$/i.test(name))name='';
- target.className='speaker-badge'+(known?' '+speakerTone(known):name?' new':' empty');
+ target.className='speaker-badge'+(known?'':name?' new':' empty');paintAvatar(target,known||'');
  target.textContent=known?initials(known):name?'NEW':'?';
  target.title=known?'Person · '+known:name?'Participant · added to People when you save a name':'Unidentified participant';
  return target;
@@ -1953,7 +1956,7 @@ function relTime(ms){
 }
 function dayLabel(ms){return date(ms);}
 // A person in Gmail or Chat: initials on a colour that stays the same for the same name.
-function avatar(name){const node=el('span','speaker-badge '+speakerTone(name||'?'),initials(name||'?')||'?');node.title=name||'';return node;}
+function avatar(name){const node=el('span','speaker-badge',initials(name||'?')||'?');node.title=name||'';return paintAvatar(node,name);}
 function personName(from){const match=(from||'').match(/^\s*"?([^"<]+?)"?\s*</);return (match?match[1]:from||'Unknown').trim();}
 function jobText(job){return job.running?'Syncing…':{continue:'More to sync',synced:'Up to date',error:'Sync failed',idle:''}[job.status]??job.status;}
 // The bar on top of a source: who is connected, what the sync does, and any problem in plain words.

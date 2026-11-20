@@ -2,12 +2,13 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
 const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.css','utf8');
 const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 const row=slice('function globalTaskRow(','\nfunction ');
-// A task is a shared card: project chips with the tools in the head, no project line.
+// A task is a shared card: dates with the tools in the head, project chips beside the title, no project line.
 assert.match(row,/row=el\('div','tracked-task task-tile '\+kind\+\(nested\?' task-tile-nested':''\)\)/);
 assert.doesNotMatch(row,/'has-project-line'/);
-assert.match(row,/head\.append\(tags,chips,tools\)/);
-// Owner, state and due date in one row; the last update is one line in its box.
-assert.match(row,/meta\.append\(ownerFact,stateFact,priorityBadge,dueFact/);
+assert.match(row,/titleLine\.append\(chips,title\);head\.append\(tags,tools\)/);
+assert.match(row,/tags\.append\(dueFact\)/);
+// State, priority and owner in one row; the last update is one line in its box.
+assert.match(row,/meta\.append\(stateFact,priorityBadge,ownerFact/);
 assert.match(row,/last=el\('p','task-last-line'\)/);assert.doesNotMatch(row,/markdownBlock\(update\.text\)/);
 // An AI proposal: Accept, Edit, Skip.
 assert.match(row,/actions\.append\(accept,edit,skip\)/);

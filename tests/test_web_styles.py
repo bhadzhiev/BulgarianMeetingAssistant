@@ -29,6 +29,8 @@ class SelectStyleTests(unittest.TestCase):
             ':is(.task-quick-fields,.tracked-meta,.task-editor,.task-bottom,.work-proposal,.tracked-edit-bar) :is(input:not([type=checkbox]):not([type=radio]),select),\n.segment .speaker,.tracked-owner-input',
             # Compact cards open 32px editors on demand, across all task views.
             '.task-card .task-quick-fields :is(select,input)',
+            # My Work filter fields (2026-11-19): the label draws the border, the select inside has none.
+            '#manager-all-filters .filter-field select',
         }
         for rule, body in re.findall(r'([^{}]*\bselect\b[^{}]*)\{([^}]*)\}', CSS):
             rule = rule.strip()

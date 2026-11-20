@@ -21,7 +21,7 @@ function actionBtn(className, label, fn, title) { return btn(className, label, (
 function openMeetingBtn(title, id, className='quiet') { return btn(className, title, () => perform(() => openMeeting(id)), 'Open the meeting'); }
 function emptyNote(text) { return el('p', 'hint empty-note', text); }
 // Inline SVG icons on a 24px grid in the nav-icon style: 2px stroke, currentColor, no fill.
-const ICON_PATHS={quote:'M4 5h6v7H6v3l-3 3M14 5h6v7h-4v3l-3 3',branch:'M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0M6 8v8M18 11c0 4-6 3-12 5',link:'M10 13a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-3 3M14 11a4 4 0 0 0-6 0l-4 4a4 4 0 0 0 6 6l3-3',copy:'M8 8h13v13H8zM16 8V3H3v13h5',plus:'M12 4v16M4 12h16',transcript:'M4 5h16M4 10h10M4 15h16M4 20h10',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',taskAdd:'M4 4h11v5M4 4v16h11v-5M7 9h4M7 13h3M18 10v10M13 15h10',update:'M4 4h16v12H9l-5 4V4zM8 8h8M8 12h5',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-2a8 8 0 0 1 16 0v2',circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18',progress:'M12 3a9 9 0 1 0 9 9M12 3v9h9',blocked:'M6 3h12l3 3v12l-3 3H6l-3-3V6zM12 7v6M12 16v1',verified:'M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4zM8 12l3 3 5-6',warning:'M12 3l10 18H2L12 3zM12 9v5M12 17v1',notes:'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',flag:'M5 21V3h13l-3 4 3 4H5',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
+const ICON_PATHS={video:'M3 7h12v10H3zM15 10l6-3v10l-6-3',quote:'M4 5h6v7H6v3l-3 3M14 5h6v7h-4v3l-3 3',branch:'M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0M6 8v8M18 11c0 4-6 3-12 5',link:'M10 13a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-3 3M14 11a4 4 0 0 0-6 0l-4 4a4 4 0 0 0 6 6l3-3',copy:'M8 8h13v13H8zM16 8V3H3v13h5',plus:'M12 4v16M4 12h16',transcript:'M4 5h16M4 10h10M4 15h16M4 20h10',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',taskAdd:'M4 4h11v5M4 4v16h11v-5M7 9h4M7 13h3M18 10v10M13 15h10',update:'M4 4h16v12H9l-5 4V4zM8 8h8M8 12h5',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21v-2a8 8 0 0 1 16 0v2',circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18',progress:'M12 3a9 9 0 1 0 9 9M12 3v9h9',blocked:'M6 3h12l3 3v12l-3 3H6l-3-3V6zM12 7v6M12 16v1',verified:'M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4zM8 12l3 3 5-6',warning:'M12 3l10 18H2L12 3zM12 9v5M12 17v1',notes:'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',close:'M6 6l12 12M18 6L6 18',calendar:'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',mail:'M4 6h16v12H4zM4 7l8 6 8-6',prev:'M15 5l-7 7 7 7',next:'M9 5l7 7-7 7',jump:'M5 12h14m0 0-5-5m5 5-5 5',external:'M7 17 17 7M9 7h8v8',download:'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',restore:'M4 10h9a5 5 0 0 1 0 10h-3M4 10l4-4M4 10l4 4',edit:'M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z',gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1',flag:'M5 21V3h13l-3 4 3 4H5',sparkle:'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',star:'M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z',check:'M5 13l4 4 10-10',mic:'M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',screen:'M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 20h6M12 16v4'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('icon');svg.setAttribute('data-icon',name);const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',ICON_PATHS[name]||ICON_PATHS.sparkle);svg.append(path);return svg;}
 // Status marks never look like controls; compact actions always keep their accessible name.
 function compactAction(button,name,{label=false}={}){
@@ -1860,7 +1860,7 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
  const main=el('div','tracked-main'),meta=el('div','tracked-meta task-tile-facts'),who=el('span','tracked-owner');
  const projects=(item.effective_project_ids||[]).map(id=>projectList().find(p=>p.id===id)).filter(Boolean);
  const co=taskCoAssignees(item),ownerName=item.owner||'No owner';
- who.append(avatar(item.owner||''),el('span','task-owner-name',nested&&item.owner?ownerName.split(/\s+/)[0]:ownerName));if(co.length)who.append(el('span','task-owner-more','+'+co.length));
+ const face=avatar(item.owner||'');if(!item.owner)face.classList.add('no-owner');who.append(face,el('span','task-owner-name',nested&&item.owner?ownerName.split(/\s+/)[0]:ownerName));if(co.length)who.append(el('span','task-owner-more','+'+co.length));
  who.title='Owner: '+(item.owner||'none')+(co.length?' · Also working on it: '+co.map(p=>p.name).join(', '):'');
  const title=actionBtn('quiet tracked-text task-title',item.text,()=>openTaskPanel(item.id));
  const stateName=AtlantaTasks.STATES[AtlantaTasks.workflow(item)]||'';
@@ -1878,12 +1878,13 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
  if(item.created&&Number.isFinite(Date.parse(item.created)))tags.append(el('span','task-created',date(item.created)));
  if(showProject&&!nested)for(const project of projects){const chip=projectChip(project);chip.title=project.name;chips.append(chip);}
  const panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
- // The origin chip opens the sources; the notes icon opens the description.
+ // Sources and the Gmail draft are icons (approved 2026-11-19): green when linked, dimmed when not. The source icon opens the sources.
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
  const origins=[...itemProviders(item)].filter(p=>TASK_ORIGINS[p]);
  if(linked||others.childNodes.length){const [name,glyph]=TASK_ORIGINS[origins[0]]||['Sources','link'],control=cardDisclosure('Sources','link',[...(linked?[linked]:[]),...(others.childNodes.length?[others]:[])],panels);
-  control.classList.add('task-sources-control','task-origin');control.classList.remove('icon-action');control.replaceChildren(icon(glyph),el('span','',name+(origins.length>1?' +'+(origins.length-1):'')));control.setAttribute('aria-label','Sources: '+origins.map(p=>TASK_ORIGINS[p][0]).join(', '));if(!nested)tags.append(control);}
- const mailed=emailMark(item,{compact:nested});if(mailed)tags.append(mailed);
+  control.classList.add('task-sources-control','task-origin','task-link-icon');control.replaceChildren(icon(glyph),el('span','sr-only',name));const names=origins.map(p=>TASK_ORIGINS[p][0]).join(', ')||'Sources';control.setAttribute('aria-label','Sources: '+names);control.title='Sources: '+names;if(!nested)tags.append(control);}
+ else if(!nested)tags.append(missingLink('video','No linked meeting or source'));
+ const mailed=emailMark(item);if(mailed)tags.append(mailed);else if(!nested)tags.append(missingLink('mail','No Gmail draft'));
  if(typeof taskHierarchyBadge==='function'&&!nested){const hierarchy=taskHierarchyBadge(item);if(hierarchy)tags.append(hierarchy);}
  const review=workReviewBadge(item.review_state,item);if(review)tags.append(review);
  if(item.legacy_unreviewed&&item.review_state!=='confirmed')tags.append(el('span','badge','Existing task · review gradually'));
@@ -1911,7 +1912,8 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
 }
 // A short due fact for the card: the date and how far away it is (6d overdue, today, in 3d).
 function dueShort(item,today){if(item.status==='done')return 'done';if(!item.due_date)return '';const days=daysBetween(today,item.due_date);return days<0?(-days)+'d overdue':days===0?'today':'in '+days+'d';}
-const TASK_ORIGINS={meeting:['Meeting','transcript'],gmail:['Gmail thread','mail'],google_chat:['Chat','update'],github:['GitHub','branch']};
+const TASK_ORIGINS={meeting:['Meeting','video'],gmail:['Gmail thread','mail'],google_chat:['Chat','update'],github:['GitHub','branch']};
+function missingLink(name,label){const mark=el('span','task-link-icon inactive');mark.title=label;mark.setAttribute('aria-label',label);mark.append(icon(name));return mark;}
 function taskDescription(text){const node=el('p','task-description',text);node.title=text;return node;}
 // Secondary tools share one disclosure; content and the current action stay outside it.
 function cardDetails(...parts){const box=el('details','card-details');box.append(el('summary','','More details'));for(const part of parts)if(part)box.append(part);return box;}
@@ -2463,13 +2465,15 @@ let managerView=['inbox','mine','followup','all'].includes(stored('manager-view'
 function renderManagerControls(){
  if(managerSelf&&!(state.people||[]).some(p=>p.id===managerSelf)){managerSelf='';store('manager-self','');}
  const controls=$('manager-controls');controls.replaceChildren();const person=el('select');person.setAttribute('aria-label','This is me');person.append(option('Choose who you are',''),...(state.people||[]).map(p=>option(p.name,p.id)));person.value=managerSelf;
- person.onchange=()=>{managerSelf=person.value;store('manager-self',managerSelf);renderTasks();};const label=el('label','hint manager-identity','This is me');label.append(person);label.hidden=managerView==='inbox';const identity=el('details','manager-identity-details');identity.hidden=label.hidden;identity.append(el('summary','',managerSelf?(state.people||[]).find(p=>p.id===managerSelf)?.name||'My profile':'Choose my profile'),label);controls.append(identity);
+ person.onchange=()=>{managerSelf=person.value;store('manager-self',managerSelf);renderTasks();};const label=el('label','hint manager-identity','This is me');label.append(person);label.hidden=managerView==='inbox';const identity=el('details','manager-identity-details');identity.hidden=label.hidden;identity.append(el('summary','',managerSelf?(state.people||[]).find(p=>p.id===managerSelf)?.name||'My profile':'Choose my profile'),label);const tools=$('work-tools');tools.replaceChildren();tools.hidden=itemKind!=='task';
  const views=el('div','manager-views');views.setAttribute('role','group');views.setAttribute('aria-label','Task views');
  for(const [key,title] of [['inbox','Inbox'],['mine','My tasks'],['followup','Follow-up'],['all','All tasks']]){const button=btn('manager-view-button'+(managerView===key?' selected':''),title);button.setAttribute('aria-pressed',String(managerView===key));button.onclick=()=>{managerView=key;store('manager-view',key);renderTasks();};views.append(button);}controls.append(views);
- const search=el('input');search.type='search';search.placeholder='Search tasks';search.setAttribute('aria-label','Search tasks');search.value=stored('task-search')||'';search.oninput=()=>{clearTimeout(taskSearchTimer);taskSearchTimer=setTimeout(()=>{store('task-search',search.value);renderTasks();const fresh=$('manager-controls')?.querySelector('input[type=search]');if(fresh){fresh.focus();fresh.setSelectionRange(fresh.value.length,fresh.value.length);}},200);};controls.append(search);
+ const search=el('input');search.type='search';search.placeholder='Search tasks';search.setAttribute('aria-label','Search tasks');search.value=stored('task-search')||'';search.oninput=()=>{clearTimeout(taskSearchTimer);taskSearchTimer=setTimeout(()=>{store('task-search',search.value);renderTasks();const fresh=$('work-tools')?.querySelector('input[type=search]');if(fresh){fresh.focus();fresh.setSelectionRange(fresh.value.length,fresh.value.length);}},200);};
+ // Search and the profile sit at the right of the section tabs (approved 2026-11-19); the views and the status share one row.
+ tools.append(search,identity);
  const filters=$('manager-person-filters');filters.replaceChildren();filters.hidden=itemKind!=='task';
  if(managerView!=='inbox'){
-  const field=el('select');field.setAttribute('aria-label','Task state filter');field.append(option('Any state',''),...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));field.value=taskWorkflow;field.onchange=()=>{taskWorkflow=field.value;store('tasks-workflow',taskWorkflow);if(taskWorkflow){statusFilter.task=taskWorkflow==='done'?'done':taskWorkflow==='cancelled'?'all':'open';store('tasks-status',statusFilter.task);}renderTasks();};filters.append(field);
+  const field=el('select'),box=el('label','filter-field');field.setAttribute('aria-label','Task state filter');field.append(option('All',''),...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));field.value=taskWorkflow;field.onchange=()=>{taskWorkflow=field.value;store('tasks-workflow',taskWorkflow);if(taskWorkflow){statusFilter.task=taskWorkflow==='done'?'done':taskWorkflow==='cancelled'?'all':'open';store('tasks-status',statusFilter.task);}renderTasks();};box.append(el('span','','State:'),field);filters.append(box);
  }
 }
 
@@ -2487,7 +2491,8 @@ function renderBulkTasks(){
  const box=$('task-bulk-bar');box.replaceChildren();box.hidden=itemKind!=='task'||managerView==='inbox'||(!taskVisibleRows.length&&!taskSelection.size&&!bulkPending);if(box.hidden)return;
  if(!taskSelection.size&&!bulkPending){
   const start=btn('secondary small-action',taskSelecting?'Done selecting':'Select tasks');start.setAttribute('aria-pressed',String(taskSelecting));start.onclick=()=>{taskSelecting=!taskSelecting;renderTasks();};box.append(start);
-  if(!taskSelecting)return;
+  // Next to Select tasks: how many tasks show, and the fixed order (overdue first, then by due date) on the right.
+  if(!taskSelecting){if(taskVisibleRows.length){const line=el('div','task-list-summary');line.append(el('span','',''),el('span','task-list-sort',''));line.firstChild.append('Showing ',el('strong','',AtlantaUX.count(taskVisibleRows.length,'task')));line.lastChild.append('Sorted by: ',el('strong','','Due date (overdue first)'));box.append(line);}return;}
  }
  const count=bulkPending?.items.length||taskSelection.size,choose=el('button','secondary small-action','Select shown tasks'),clear=el('button','secondary small-action','Clear selection');choose.type=clear.type='button';
  choose.onclick=()=>{for(const item of taskVisibleRows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});renderTasks();};clear.onclick=()=>{taskSelection.clear();bulkPending=null;renderTasks();};
@@ -2523,7 +2528,7 @@ function renderTasks() {
  renderWorkGraph();renderManagerControls();$('manager-controls').hidden=itemKind!=='task';
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
  const project=$('work-project'), oldProject=project.value||stored('tasks-project')||'';
- project.replaceChildren(option('All projects',''),option('Unassigned','__none__'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
+ project.replaceChildren(option('All',''),option('Unassigned','__none__'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
  if([...project.options].some(o=>o.value===oldProject))project.value=oldProject;
  const inbox=itemKind==='task'&&managerView==='inbox';
  const inProject=item=>inbox||!project.value||(project.value==='__none__'?!item.effective_project_ids?.length:item.effective_project_ids?.includes(project.value));
@@ -2538,16 +2543,16 @@ function renderTasks() {
  const review=pending.filter(entry=>entry.kind===itemKind); $('link-review').hidden=!review.length; $('link-review').replaceChildren();
  if(review.length) { $('link-review').append(el('h2','',review.length+' to review'),el('p','hint','These mentions have wording close to existing items (text similarity). Nothing is linked until you choose.')); for(const entry of review) $('link-review').append(linkCard(entry,meetings,byId)); }
  const noKindItems=!itemsData.items.some(item=>item.kind===itemKind);
- $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').closest('.task-filters').hidden=noKindItems||inbox;
+ $('manager-all-filters').hidden=noKindItems||inbox;$('source-filter').hidden=noKindItems||inbox;$('status-filter').hidden=noKindItems||inbox;
  const filter=itemKind==='task'&&managerView==='inbox'?'all':statusFilter[itemKind];
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=btn(key===filter?'selected':'',label);
   // Open and Overdue carry their counts as a mark next to the label.
   const count=itemKind==='task'?({open:open.length,overdue:late.length})[key]:undefined;if(count!==undefined){button.dataset.count=String(count);button.dataset.filter=key;}button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
  segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
- const sourceSelect=$('task-source-select');sourceSelect.replaceChildren(...[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']].map(([value,label])=>option(label,value)));sourceSelect.value=sourceFilter;sourceSelect.onchange=()=>{sourceFilter=sourceSelect.value;store('tasks-source',sourceFilter);renderTasks();};
+ const sourceSelect=$('task-source-select');sourceSelect.replaceChildren(...[['','All'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']].map(([value,label])=>option(label,value)));sourceSelect.value=sourceFilter;sourceSelect.onchange=()=>{sourceFilter=sourceSelect.value;store('tasks-source',sourceFilter);renderTasks();};
  $('task-owner').hidden=itemKind!=='task';
  const owner=$('task-owner').value||stored('tasks-owner')||'', owners=[...new Set(tasks.flatMap(taskPeopleNames))].sort((a,b)=>a.localeCompare(b));
- $('task-owner').replaceChildren(option('All owners',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
+ $('task-owner').replaceChildren(option('All',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
  $('task-owner').value=[...$('task-owner').options].some(o=>o.value===owner)?owner:'';
  // The newest meeting of a task, or its creation time: a manual task sorts with recent work, not last.
  const latest=item=>[...item.links.map(link=>meetings[link.meeting_id]?.date||''),(item.created||'').slice(0,10)].sort().at(-1)||'';
@@ -2589,8 +2594,6 @@ function renderTasks() {
   if(filtered&&search)actions.append(actionBtn('secondary small-action','Reset filters and search',()=>resetTaskFilters({all:true})));
   if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
  }}
- // One line above the cards: how many tasks show and the fixed order (overdue first, then by due date).
- if(itemKind==='task'&&rows.length&&!inbox){const line=el('div','task-list-summary');line.append(el('span','',''),el('span','task-list-sort',''));line.firstChild.append('Showing ',el('strong','',AtlantaUX.count(rows.length,'task')));line.lastChild.append('Sorted by: ',el('strong','','Due date (overdue first)'));rowTarget.append(line);}
  if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
@@ -4494,11 +4497,11 @@ $('followup-save').onclick=()=>perform(async()=>{
  finally{button.disabled=false;}
 });
 // One task by email: Atlanta saves a Gmail draft and marks the task; the person sends it from Gmail.
-function emailMark(item,{compact=false}={}){
+function emailMark(item){
  const draft=item.email_draft;if(!draft)return null;
- const mark=el('span','email-mark'),count=(draft.to||[]).length;
+ const mark=el('span','email-mark task-link-icon'),count=(draft.to||[]).length;
  mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
- mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));if(!compact)mark.append(document.createTextNode('Gmail draft'));return mark;
+ mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));return mark;
 }
 let taskEmailItems=[],taskEmailMeeting=null;
 function taskEmailStatus(text,warning=false){const box=$('task-email-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}

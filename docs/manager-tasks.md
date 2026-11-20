@@ -146,16 +146,31 @@ to Normal. Source linking keeps the existing task's priority. Editing priority s
 
 ### Task list layout
 
+The controls above the cards (approved 2026-11-19):
+
+- Search and Choose my profile are at the right of the section tabs. They show on the Tasks
+  section only.
+- The views (Inbox, My tasks, Follow-up, All tasks) and the status buttons share one row.
+  Open and Overdue show their counts.
+- The filter fields have visible labels: Source, State, Project and Owner. Each field shows
+  "All" when it does not filter.
+- Select tasks, the number of shown tasks and the sort order share one line above the cards.
+
 Tasks share one bordered card in My Work and project views (approved 2026-11-19):
 
-- The head has the tags on the left: the creation date, the origin chip (Meeting, Gmail thread,
-  Chat or GitHub), the Gmail draft mark, the subtask progress and review notices. The project
-  chip and the tools (Description, Open task, the … menu) are on the right.
+- The head has the tags on the left: the creation date, the source icon, the Gmail draft icon,
+  the subtask progress and review notices. The project chip and the tools (Description,
+  Open task, the … menu) are on the right.
+- The source and draft icons have no text. A linked source or a saved draft shows a green icon.
+  A missing link shows a dimmed icon (40% opacity). Each icon has a tooltip and an accessible
+  name. The source icon opens the linked meetings and sources.
 - The title follows. The last update is one line in a box with a green left edge.
 - A divider separates the content from the facts: Owner (+N for shared work), State and
   Priority on the left, the due date with its distance (for example "6d overdue") on the right.
-- Subtasks are one-line rows inside the card of their main task. The "0/6 subtasks" chip
-  folds and unfolds them.
+- Subtasks are flat one-line rows on a thin guide line inside the card of their main task.
+  The "0/6 subtasks" chip folds and unfolds them.
+- Text has four levels: white titles, light subtask names, grey notes and owners, and dim
+  dates, separators and inactive icons.
 
 Facts are read-only; the title or Open task opens the task editor. There are no inline owner,
 state or date editors. The round control on the left marks the task done; the toast offers

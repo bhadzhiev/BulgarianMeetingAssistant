@@ -93,7 +93,8 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
 - CSS: single `style.css`, section comments, themed via `var(--…)` (dark/light). No frameworks.
 - Reuse the shared renderer for each item kind. Persistent tasks use bordered cards in My Work and
   project views (approved 2026-11-19): tags and tools, the title, the last update, a divider, then
-  read-only facts with the due date on the right. Subtasks are one-line rows inside the main card.
+  read-only facts with the due date on the right. Sources and the Gmail draft are icons only (green
+  when linked, dimmed when not). Subtasks are flat one-line rows inside the main card.
   The round control is the one direct change (Mark done with Undo, or Reopen). Open the task editor
   to change facts; do not restore inline task fields. Decisions, questions and uncreated
   meeting-note suggestions keep their own shared patterns.

@@ -3,7 +3,7 @@ const src=fs.readFileSync('web/app.js','utf8');
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
 function setup(){
  const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:'project'}},errors=[],requests=[];let finish;
- const c=vm.createContext({taskEvidenceTarget:null,renderTaskEvidenceContext(){},view:'tasks',contextProject:()=> 'project',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:'project'}],people:[{id:'p1',name:'Иван'}]},personOptions:()=>[Object.assign(node('option','','Иван'),{value:'p1'})],crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
+ const c=vm.createContext({taskEvidenceTarget:null,taskFieldMark:s=>s,TASK_MARKS:{},taskFormClose:()=>({tag:'button',children:[]}),taskFormLayout:(main,side)=>({tag:'div',children:[...main,...side]}),renderTaskEvidenceContext(){},view:'tasks',contextProject:()=> 'project',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:'project'}],people:[{id:'p1',name:'Иван'}]},personOptions:()=>[Object.assign(node('option','','Иван'),{value:'p1'})],crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
   option:(text,value)=>Object.assign(node('option','',text),{value}),fillProjects:(e,value)=>e.value=value,
   leaveEdits:async()=>true,validDates:()=>true,editorDirty:{clear(){}},requestDialogClose:async(d,fn)=>fn(),
   withDialogAction:async(d,fn)=>{if(d.busy)return;d.busy=true;try{return await fn()}finally{d.busy=false}},
@@ -12,7 +12,7 @@ function setup(){
   api:(path,body)=>{requests.push({path,body:JSON.parse(JSON.stringify(body))});return new Promise((res,rej)=>finish=(error)=>error?rej(error):res({id:'task'}))}});
  vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
  vm.runInContext(src.slice(src.indexOf('async function openManualTask('),src.indexOf("$('new-task').onclick=")),c);
- return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries(nodes['manual-task-body'].children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>{const buttons=nodes['manual-task-body'].children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Draft with AI…','Improve with AI','Create task']);return [buttons.find(b=>b.text==='Create task'),buttons.find(b=>b.text==='Cancel')];}};
+ return {c,nodes,errors,requests,finish:e=>finish(e),fields:()=>Object.fromEntries((function all(n){return [n,...(n.children||[]).flatMap(all)];})(nodes['manual-task-body']).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]])),actions:()=>{const buttons=nodes['manual-task-body'].children.at(-1).children;assert.deepEqual(buttons.map(b=>b.text),['Cancel','Draft with AI…','Improve with AI','Create task']);return [buttons.find(b=>b.text==='Create task'),buttons.find(b=>b.text==='Cancel')];}};
 }
 (async()=>{
  const projectContext=setup();vm.runInContext("view='projects';contextProject=()=> 'workspace-project';",projectContext.c);await vm.runInContext('openManualTask()',projectContext.c);assert.equal(projectContext.fields().Project.value,'workspace-project');

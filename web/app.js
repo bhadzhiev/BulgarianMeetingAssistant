@@ -4087,7 +4087,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  if(!(await leaveEdits()))return null;
  meetingId=meetingId||((state.meetings||[]).some(m=>m.id===question?.origin?.meeting_id)?question.origin.meeting_id:null);
  if(!evidence&&meetingId===question?.origin?.meeting_id)evidence=question.origin.evidence_timestamp||null;
- const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';box.replaceChildren(manualTitle);
+ const dialog=$('manual-task-dialog'),box=$('manual-task-body');const manualTitle=el('h3','','New task');manualTitle.id='manual-task-title';const manualHead=el('div','task-panel-head');manualHead.append(manualTitle,taskFormClose(()=>cancel.click()));box.replaceChildren(manualHead);
  // The same fields, names and order as the task editor: Title, Description, then owner, due date and context.
  const text=el('textarea');text.maxLength=1000;text.rows=1;text.required=true;text.setAttribute('aria-label','Title');text.placeholder='What needs to be done?';
  const details=el('textarea');details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Context, scope and links (optional)';
@@ -4110,7 +4110,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel'),draft=btn('secondary','Draft with AI…'),improve=btn('secondary','Improve with AI');save.type=cancel.type=draft.type=improve.type='button';actions.append(cancel,draft,improve,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
  text.value=startText;details.value=startDetails||'';due.value=startDue||source?.capture_due_date||'';criterion.value=startExpected;
- const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',owner),label('Priority',priority),label('Due date',due),label('Project',project));
+ const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',taskFieldMark(owner,TASK_MARKS.owner)),label('Priority',taskFieldMark(priority,TASK_MARKS.priority)),label('Due date',due),label('Project',project));
  // A meeting source already names its meeting; a typed draft can still choose one.
  const withMeeting=!source||source.provider==='manual';if(withMeeting)grid.append(label('Meeting',meeting));
  const note=el('p','notice');note.setAttribute('role','alert');note.hidden=true;
@@ -4121,7 +4121,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   parts.push(el('p','hint',preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+preview.target.local_ai_model+' · '+preview.target.local_ai_base_url+' · '+preview.characters+' source characters'));
   const srcBox=el('details','task-source');srcBox.append(el('summary','','Source evidence'),el('blockquote','',preview.source_excerpt||''));parts.push(srcBox);
  }
- parts.push(label('Title',text),label('Description',details),label('Expected result',criterion),grid);
+ parts.push(label('Title',text),label('Description',details),label('Expected result',criterion));
  if(source){
   link=el('select');link.setAttribute('aria-label','Create or link');
   link.append(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));
@@ -4131,7 +4131,7 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   status.textContent='Review the source, generate a draft or write it yourself.';
   if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
  }
- parts.push(status,note,actions);box.append(...parts);
+ parts.push(status,note);box.append(taskFormLayout(parts,[grid]),actions);
  let createdTaskId=null,resolveClose=null,submitted=null,jobId='',poll=null,generating=false,polling=false,saving=false,closed=false;
  const dirtyKey=source?'task-draft':'dialog:manual-task-dialog',requestId=crypto.randomUUID().replaceAll('-','');
  const linking=()=>!!(link&&link.value);
@@ -4329,16 +4329,34 @@ function renderTaskTree(rows,today,options){
  }return result;
 }
 
+// The task form layout (approved 2026-11-20): a head with the project, the task ID and a close mark; the content on
+// the left; the task parameters on the right. A select keeps its own value; the mark beside it only shows that value.
+function taskFieldMark(select,mark){const wrap=el('span','task-field-mark'),slot=el('span','task-field-icon');const draw=()=>slot.replaceChildren(...[mark(select)].filter(Boolean));select.addEventListener('change',draw);draw();wrap.append(slot,select);return wrap;}
+const TASK_MARKS={owner:s=>{const o=s.selectedOptions[0];return s.value&&o?avatar(o.textContent.replace(/ · .*$/,'')):null;},state:s=>{const d=el('span','task-state-dot');d.dataset.state=s.value;return d;},priority:s=>{const f=el('span','task-priority-mark '+s.value);f.append(icon('flag'));return f;}};
+function taskFormLayout(main,side){const layout=el('div','task-panel-layout'),left=el('div','task-panel-main'),right=el('aside','task-panel-side');left.append(...main);right.append(el('h3','task-side-title','Task parameters'),...side);layout.append(left,right);return layout;}
+// Tabs group what the editor already has: Details (wording and progress), Subtasks, History & activity.
+function taskTabs(defs){
+ const bar=el('div','task-tabs'),tabs={},panels=[];bar.setAttribute('role','tablist');
+ const show=key=>{for(const [k,{tab,panel}] of Object.entries(tabs)){const on=k===key;tab.setAttribute('aria-selected',String(on));tab.tabIndex=on?0:-1;panel.hidden=!on;}};
+ for(const [key,name,nodes] of defs){const tab=btn('quiet task-tab',name,()=>show(key)),panel=el('div','task-tab-panel'),count=el('span','task-tab-count');count.hidden=true;tab.append(count);
+  tab.id='task-tab-'+key;panel.id='task-tab-panel-'+key;panel.dataset.tab=key;tab.setAttribute('role','tab');tab.setAttribute('aria-controls',panel.id);panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);
+  panel.append(...nodes);bar.append(tab);panels.push(panel);tabs[key]={tab,panel,count};}
+ bar.onkeydown=event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;const keys=Object.keys(tabs),at=keys.findIndex(k=>tabs[k].tab===document.activeElement);if(at<0)return;const next=keys[(at+(event.key==='ArrowRight'?1:keys.length-1))%keys.length];event.preventDefault();show(next);tabs[next].tab.focus();};
+ show(defs[0][0]);return {bar,panels,show,count:(key,text)=>{const c=tabs[key]?.count;if(c){c.textContent=text;c.hidden=!text;}}};
+}
+function taskFormClose(onclick){const mark=btn('quiet icon-action task-panel-close','',onclick,'Close');mark.setAttribute('aria-label','Close');mark.append(icon('close'));return mark;}
 async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const sequence=++taskPanelSequence;const data=await api('/api/items');if(sequence!==taskPanelSequence)return;itemsData=data;const item=data.items.find(i=>i.id===id);if(!item)throw new Error('This task is no longer available.');
  const dialog=$('task-panel'),box=$('task-panel-body');
  // The Project field names the current projects, so the editor shows them in one place.
  const currentProjects=(item.effective_project_ids||[]).map(key=>projectList().find(p=>p.id===key)?.name||'Removed project');
  const panelHead=el('div','task-panel-head');// The title is in the Title field; the heading names the action, so the title does not show two times.
- const panelTitle=el('h2','task-card-title',item.acceptance_state==='proposed'?'Proposed task':'Edit task');panelTitle.id='task-panel-title';panelHead.append(panelTitle);
+ const panelTitle=el('h2','task-card-title',item.acceptance_state==='proposed'?'Proposed task':'Edit task');panelTitle.id='task-panel-title';
+ const panelTags=el('div','task-panel-tags');for(const key of item.effective_project_ids||[]){const p=projectList().find(x=>x.id===key);if(p)panelTags.append(projectChip(p));}panelTags.append(el('span','task-panel-id','#TASK-'+String(item.id).slice(0,6)));
+ panelHead.append(panelTags,panelTitle,taskFormClose(()=>close.click()));
  box.replaceChildren(panelHead);
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};
- const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=1;area.required=true;area.setAttribute('aria-label','Title');area.placeholder='What needs to be done?';
+ const area=el('textarea');area.value=item.text;area.maxLength=1000;area.rows=1;area.required=true;area.setAttribute('aria-label','Title');area.placeholder='What needs to be done?';area.autofocus=true;// The close mark is first in the head; the title keeps the first focus.
  const details=el('textarea');details.value=item.details||'';details.maxLength=5000;details.rows=4;details.setAttribute('aria-label','Description');details.placeholder='Context, scope and links (optional)';
  const criterion=el('textarea');criterion.value=item.completion_criteria||'';criterion.maxLength=5000;criterion.rows=2;criterion.setAttribute('aria-label','Expected result');criterion.placeholder='How do we know it is done? (optional)';
  const project=el('select');project.setAttribute('aria-label','Project');project.append(option(currentProjects.length?currentProjects.join(', '):'No project','keep'),...(currentProjects.length?[option('No project','none')]:[]),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));project.value='keep';
@@ -4357,10 +4375,10 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  // Received from, Assigned by, Followed by and the evidence of an update are not in the editor (2026-11-12): the
  // person does not use them. Saving keeps their saved values, because the editor sends only the fields it shows.
  const core=el('div','task-card-grid task-core');
- core.append(label('Owner',owner),label('State',workflow),label('Priority',priority),label('Project',project),label('Due date',due),label('Next follow-up',follow));
+ core.append(label('Owner',taskFieldMark(owner,TASK_MARKS.owner)),label('State',taskFieldMark(workflow,TASK_MARKS.state)),label('Priority',taskFieldMark(priority,TASK_MARKS.priority)),label('Project',project),label('Due date',due),label('Next follow-up',follow));
  const coField=el('div','assignee-field');coField.append(el('p','hint','The owner is accountable. The others share the task and its state.'),coBox);
  const section=(title,...nodes)=>{const box=el('details','task-section'),head=el('summary'),note=el('span','task-section-summary');head.append(el('span','task-section-title',title),note);box.append(head,...nodes);box.note=note;return box;};
- const peopleSection=section('Also working on it',coField),sourcesSection=section('Sources and GitHub'),historySection=section('Activity history');
+ const peopleSection=section('Also working on it',coField),sourcesSection=section('Sources and GitHub'),historySection=el('section','task-history-panel');
  const sectionNotes=()=>{
   const names=coChecks.filter(c=>c.checked).map(c=>(state.people||[]).find(p=>p.id===c.value)?.name).filter(Boolean);
   peopleSection.note.textContent=names.join(', ');
@@ -4373,6 +4391,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
  const persist=accept=>perform(()=>withDialogAction(dialog,async()=>{
   // A field with an error opens its section, so the error is in view.
   for(const part of box.querySelectorAll('details.task-section'))if(part.querySelector(':invalid,[aria-invalid=true]'))part.open=true;
+  const wrong=tabs.panels.find(panel=>panel.querySelector(':invalid,[aria-invalid=true]'));if(wrong)tabs.show(wrong.dataset.tab);
   if(!area.value.trim()){area.focus();throw new Error('Enter a title');}
   if(!validDates(box))return;
   const changes={text:area.value,details:details.value,completion_criteria:criterion.value};
@@ -4396,7 +4415,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
   if(accept||!Object.keys(undo).length)toast(accept?'Task accepted':note?'Update added':'Task saved');
   else undoToast(changes.workflow_state==='cancelled'?'Task cancelled':note?'Task saved · update added':'Task saved',()=>perform(async()=>{await api('/api/items/'+saved.id,{text:saved.text,revision:saved.revision,changes:undo});await refreshAfterItemChange();toast(note?'Undone · the update stays in the history':'Undone');}));
   await refreshAfterItemChange();
- }));save.onclick=()=>persist(false);footer.append(close,save);
+ }));save.onclick=()=>persist(false);save.prepend(icon('check'));footer.append(close,save);
  if(item.acceptance_state!=='proposed'&&!['done','cancelled'].includes(AtlantaTasks.workflow(item))){const cancelTask=btn('danger-action footer-aside','Cancel task…');cancelTask.onclick=()=>{workflow.value='cancelled';dirty();workflow.focus();cancelTask.textContent='Cancellation selected · Save changes to apply';};footer.prepend(cancelTask);}
  // Cancel task and Send by email stay available on the left, apart from Close and Save changes (2026-11-16).
  if(item.acceptance_state!=='proposed'){const mail=btn('secondary footer-aside','Send by email…');mail.type='button';mail.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before you send the task by email.');dialog.close();await openTaskEmail(item.id);});const aside=footer.querySelector('.footer-aside');if(aside)aside.after(mail);else footer.prepend(mail);}
@@ -4412,7 +4431,11 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
    const goal=pid&&(state.projects?.projects||[]).find(p=>p.id===pid)?.goal;
    await improveWithAI(()=>({text:area.value,details:details.value,completion_criteria:criterion.value}),goal?'Project goal: '+goal:'',result=>{area.value=result.text||area.value;details.value=result.details||details.value;criterion.value=result.completion_criteria||criterion.value;dirty();sectionNotes();area.focus();},improve,()=>dialog.open);});
   improveRow.append(improve,el('span','hint','Suggests sharper wording; you review it before saving.'));}
- box.append(label('Title',area),label('Description',details),label('Expected result',criterion),improveRow,core,...(typeof taskHierarchySection==='function'?[taskHierarchySection(item,data,()=>editing,dialog)]:[]),el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),progress,historySection,peopleSection,sourcesSection,footer);
+ const describe=el('div','task-describe');describe.append(label('Description',details),improveRow);
+ const hierarchy=typeof taskHierarchySection==='function'?taskHierarchySection(item,data,()=>editing,dialog):null,children=hierarchyTasks(data).filter(t=>t.parent_task_id===item.id);
+ const tabs=taskTabs([['details','Details',[describe,label('Expected result',criterion),progress,sourcesSection]],...(hierarchy?.childNodes.length?[['subtasks','Subtasks',[hierarchy]]]:[]),['history','History & activity',[historySection]]]);
+ if(children.length)tabs.count('subtasks',children.filter(t=>AtlantaTasks.workflow(t)==='done').length+'/'+children.length);
+ box.append(taskFormLayout([label('Title',area),tabs.bar,...tabs.panels],[core,el('p','hint','Assigning an owner is saved locally. Atlanta does not send a message or assume the person accepted.'),peopleSection]),footer);
  sectionNotes();
  const sources=el('section','note-section');sources.append(el('h3','','Sources'),sourceChips(item,data.meetings),evidenceBlock(item,data.meetings));for(const edge of data.graph?.relationships||[]){if(!['derives_from','implements'].includes(edge.kind)||edge.from_id!==item.id)continue;const origin=data.items.find(q=>q.id===edge.to_id)||data.derived_sources?.[edge.to_id];if(!origin||!['question','decision'].includes(origin.kind))continue;sources.append(btn('quiet small-action',(origin.kind==='decision'?'Decision: ':'Question: ')+origin.text,()=>perform(async()=>{if(!(await leaveEdits()))return;dialog.close();const createdFrom=(item.history||[]).find(event=>event.event==='created_from_decision'&&event.decision_id===origin.id);const meetingId=createdFrom?.meeting_id||origin.origin?.meeting_id||origin.links?.at(-1)?.meeting_id;if(meetingId&&data.meetings[meetingId]){if(origin.kind==='decision')await openMeetingDecision(origin,meetingId);else await openMeetingQuestion(origin);}else{show('tasks');lastTasks='';await loadTasks();showWorkTab(origin.kind==='question'?'questions':'task');toast('The saved source is kept; its meeting is no longer available.');}})));}const from=el('select');from.setAttribute('aria-label','Evidence channel');from.append(option('Meeting / transcript','meeting'),option('Gmail','gmail'),option('Chat','chat'),option('GitHub','github'));const attach=btn('secondary','Link another source');attach.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before selecting another source.');taskEvidenceTarget={id:item.id,text:item.text};renderTaskEvidenceContext();dialog.close();if(from.value==='meeting')await openConversations();else{show('tasks');lastTasks='';await loadTasks();showWorkTab(from.value);}});sources.append(from,attach);sourcesSection.append(sources);
  const github=el('section','note-section'),createIssue=el('button','secondary','Create GitHub issue'),linkIssue=el('button','secondary','Link existing issue / PR');createIssue.type=linkIssue.type='button';createIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before preparing an issue.');await openDraft({kind:'item',id:item.id},'issue');});linkIssue.onclick=()=>perform(async()=>{if(editing)throw new Error('Save task edits before linking an issue.');await openLink({kind:'item',id:item.id});});const linkedActions=githubActions({kind:'item',id:item.id});github.append(el('h3','','GitHub'));if(item.acceptance_state==='proposed')github.append(el('p','hint','Accept this task before creating or linking a GitHub issue.'));else github.append(createIssue,linkIssue,linkedActions);
@@ -4424,7 +4447,7 @@ async function openTaskPanel(id,{focusUpdate=false,focusTimeline=false}={}){
   itemsData.github_links=[...(itemsData.github_links||[]).filter(link=>link.resource.kind!=='item'||link.resource.id!==id),...links];const fresh=githubActions({kind:'item',id},links);linkedActions.replaceChildren(...fresh.childNodes);
   [...linkedActions.querySelectorAll('button')].filter(button=>button.textContent==='Check in GitHub').forEach((button,index)=>{button.onclick=()=>perform(async()=>{button.disabled=true;try{const progress=await api('/api/items/'+id+'/github-progress',{link_id:links[index].id});if(options.alive())renderTaskProgress(timeline,progress,item,options);}finally{button.disabled=false;}});});
  }};
- api('/api/items/'+id+'/progress').then(progress=>{if(options.alive()){renderTaskProgress(timeline,progress,item,options);if(focusTimeline&&!editing){historySection.open=true;timeline.scrollIntoView({block:'start'});}}}).catch(error=>{if(options.alive()){timeline.replaceChildren(el('p','notice','Timeline unavailable. '+error.message),historyBlock(item,data.meetings));}});if(focusUpdate){update.focus();update.scrollIntoView({block:'center'});}
+ api('/api/items/'+id+'/progress').then(progress=>{if(options.alive()){renderTaskProgress(timeline,progress,item,options);tabs.count('history',String(timeline.querySelectorAll('.task-timeline-event').length||''));if(focusTimeline&&!editing)tabs.show('history');}}).catch(error=>{if(options.alive()){timeline.replaceChildren(el('p','notice','Timeline unavailable. '+error.message),historyBlock(item,data.meetings));}});if(focusUpdate){update.focus();update.scrollIntoView({block:'center'});}
 }
 
 // Native close and recovery get only a dirty bit and heartbeat, never editor contents.

@@ -2281,3 +2281,49 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-tile .tracked-owner .speaker-badge.tone-0{background:#24634b}.task-tile .tracked-owner .speaker-badge.tone-1{background:#2f5f8a}.task-tile .tracked-owner .speaker-badge.tone-2{background:#8a4f2f}.task-tile .tracked-owner .speaker-badge.tone-3{background:#6b4a8a}.task-tile .tracked-owner .speaker-badge.tone-4{background:#8a2f55}.task-tile .tracked-owner .speaker-badge.tone-5{background:#4f6f1f}.task-tile .tracked-owner .speaker-badge.tone-6{background:#1f6f73}.task-tile .tracked-owner .speaker-badge.tone-7{background:#7a6420}
 .task-tile .tracked-owner .speaker-badge.no-owner{color:var(--text-3);background:var(--surface-2)}
 @media(max-width:600px){.task-tile-title-line{flex-wrap:wrap}}
+/* Task forms (approved 2026-11-20): Edit task and New task share one layout. The head has the project, the task ID and a
+   close mark; the content is on the left; the task parameters are on the right; the footer keeps its actions. */
+#task-panel,#manual-task-dialog{width:min(1120px,96vw)}
+:is(#task-panel-body,#manual-task-body)>.task-panel-head{display:flex;align-items:center;gap:12px;margin:0;padding-bottom:16px;border-bottom:1px solid var(--line)}
+#task-panel .task-panel-head h2{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#manual-task-body>.task-panel-head h3{flex:1 1 auto;margin:0}
+.task-panel-tags{display:flex;flex-wrap:wrap;align-items:center;gap:10px;flex:1 1 auto;min-width:0}
+.task-panel-tags .project-chip{padding:4px 12px;font-size:.85rem;color:var(--green);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--green) 45%,transparent);border-radius:8px}
+.task-panel-id{padding:3px 10px;font-family:var(--mono);font-size:.8rem;color:var(--muted);border:1px solid var(--line);border-radius:6px}
+.task-panel-close{flex:none;margin-left:auto;color:var(--muted)}
+.task-panel-close svg{width:18px;height:18px}
+.task-panel-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;column-gap:32px}
+.task-panel-main{min-width:0;padding-top:16px}
+.task-panel-side{min-width:0;padding:16px 0 8px 32px;border-left:1px solid var(--line)}
+.task-side-title{margin:4px 0 8px;font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+:is(#task-panel,#manual-task-body) .task-panel-main>label,#task-panel :is(.task-describe,.task-tab-panel)>label{font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+:is(#task-panel,#manual-task-body) .task-panel-main>label>textarea,#task-panel :is(.task-describe,.task-tab-panel)>label>textarea{font-size:.95rem;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--ink)}
+:is(#task-panel,#manual-task-body) .task-panel-main textarea[aria-label=Title]{min-height:52px;padding:12px 16px;font-size:1.15rem;font-weight:500;border-color:color-mix(in srgb,var(--green) 55%,var(--line))}
+#task-panel .task-describe{position:relative}
+#task-panel .task-describe>label{gap:20px}
+#task-panel .task-describe>.action-group>button{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent);background:var(--accent-soft)}
+#task-panel .task-describe>.action-group{position:absolute;top:-6px;right:0;flex-wrap:nowrap;max-width:75%;margin:0}
+#task-panel .task-describe>.action-group .hint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#task-panel .task-panel-side .task-core,#manual-task-body .task-panel-side .task-card-grid{grid-template-columns:minmax(0,1fr);gap:2px}
+.task-panel-side label{font-size:.85rem;color:var(--text-2)}
+#task-panel .task-panel-side .task-section:first-of-type{margin-top:12px}
+/* Editor tabs: Details, Subtasks, History & activity. The active tab is green and underlined. */
+#task-panel .task-tabs{display:flex;flex-wrap:wrap;gap:4px 28px;margin:16px 0 8px;border-bottom:1px solid var(--line)}
+#task-panel .task-tab{display:inline-flex;align-items:center;gap:8px;min-height:0;padding:10px 0;margin:0 0 -1px;font-size:.95rem;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;border-radius:0}
+#task-panel .task-tab:hover{color:var(--ink)}
+#task-panel .task-tab[aria-selected=true]{color:var(--green);border-bottom-color:var(--green)}
+#task-panel .task-tab-count{padding:1px 8px;font-family:var(--mono);font-size:.75rem;color:var(--text-3);border:1px solid var(--line);border-radius:999px}
+#task-panel .task-tab-panel>.task-hierarchy-section{margin-top:8px}
+#task-panel .task-history-panel>.task-progress{margin-top:4px;padding-top:0;border-top:0}
+.task-field-mark{position:relative;display:block}
+.task-field-icon{position:absolute;left:12px;top:50%;display:flex;align-items:center;transform:translateY(-50%);pointer-events:none}
+:is(#task-panel,#manual-task-body) .task-field-mark:has(.task-field-icon:not(:empty))>select{padding-left:44px}
+.task-field-icon .speaker-badge{width:22px;height:22px;min-width:22px;font-size:.65rem;color:#fff;border-radius:50%}
+.task-state-dot{width:9px;height:9px;border-radius:50%;background:var(--state-todo)}
+.task-state-dot:is([data-state=in_progress],[data-state=doing]){background:var(--state-progress)}
+.task-state-dot[data-state=done]{background:var(--state-done)}
+.task-state-dot:is([data-state=waiting],[data-state=blocked]){background:var(--state-waiting)}
+.task-state-dot[data-state=cancelled]{background:var(--text-4)}
+.task-priority-mark{display:flex;color:var(--muted)}.task-priority-mark svg{width:16px;height:16px}
+.task-priority-mark:is(.high,.critical){color:var(--danger-ink)}
+@media(max-width:900px){.task-panel-layout{grid-template-columns:minmax(0,1fr)}.task-panel-side{padding:16px 0 0;border-left:0;border-top:1px solid var(--line)}#task-panel .task-describe>.action-group{position:static;max-width:none;margin-top:8px}}

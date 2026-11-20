@@ -32,7 +32,7 @@ assert.doesNotMatch(app,/'Assigned by me'|managerPersonFilter|task-draft-request
 // The editor for a line: prefilled, fixed to its meeting, no AI draft, and the request names the line.
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},focus(){},showModal(){this.open=true},close(){this.open=false}};}
 const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:''}},requests=[];
-const c=vm.createContext({detail:{minutes_revision:'notes-v1'},taskEvidenceTarget:null,renderTaskEvidenceContext(){},view:'detail',contextProject:()=>'',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:''}],people:[{id:'p1',name:'Мария'}]},personOptions:()=>[Object.assign(node('option','','Мария'),{value:'p1'})],crypto:{randomUUID:()=>'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
+const c=vm.createContext({detail:{minutes_revision:'notes-v1'},taskEvidenceTarget:null,taskFieldMark:s=>s,TASK_MARKS:{},taskFormClose:()=>({tag:'button',children:[]}),taskFormLayout:(main,side)=>({tag:'div',children:[...main,...side]}),renderTaskEvidenceContext(){},view:'detail',contextProject:()=>'',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:''}],people:[{id:'p1',name:'Мария'}]},personOptions:()=>[Object.assign(node('option','','Мария'),{value:'p1'})],crypto:{randomUUID:()=>'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
  option:(text,value)=>Object.assign(node('option','',text),{value}),fillProjects:(e,value)=>e.value=value,leaveEdits:async()=>true,validDates:()=>true,editorDirty:{clear(){}},requestDialogClose:async(d,fn)=>fn(),
  withDialogAction:async(d,fn)=>fn(),withEditorSave:async(box,fn)=>fn(),perform:async fn=>fn(),toast(){},error(){},refreshAfterItemChange:async()=>{},showCreatedTask(){},revealTask(){},
  api:async(path,body)=>{requests.push({path,body});return {id:'task'};}});
@@ -40,7 +40,7 @@ vm.runInContext(app.slice(app.indexOf('function btn('),app.indexOf('function opt
 vm.runInContext(slice('async function openManualTask(',"$('new-task').onclick="),c);
 (async()=>{
  await vm.runInContext("openManualTask('meeting',{priority:'normal',text:'Изпрати оферта',details:'До петък',owner:'Иван',due:'',mention:2})",c);
- const body=nodes['manual-task-body'],fields=Object.fromEntries(body.children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
+ const body=nodes['manual-task-body'],fields=Object.fromEntries((function all(n){return [n,...(n.children||[]).flatMap(all)];})(body).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  // A name from the notes that is not in People stays as said.
  assert.deepEqual([fields.Title.value,fields.Description.value,fields.Owner.value,fields.Meeting.value,fields.Meeting.disabled],['Изпрати оферта','До петък','__named__','meeting',true]);
  c.detail.minutes_revision='changed-after-editor-opened';

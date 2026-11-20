@@ -3,9 +3,9 @@ const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.cs
 const slice=(a,b='\n}\n')=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 // P02, changed 2026-11-12: one fixed order. What the task is, then who and when, then progress; rare people fields in a section.
 const panel=slice('async function openTaskPanel(');
-assert.match(panel,/core\.append\(label\('Owner',owner\),label\('State',workflow\),label\('Priority',priority\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
-assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=section\('Activity history'\);/);
-assert.match(panel,/box\.append\(label\('Title',area\),label\('Description',details\),label\('Expected result',criterion\),improveRow,core,[^;]*progress,historySection,peopleSection,sourcesSection,footer\);/);
+assert.match(panel,/core\.append\(label\('Owner',taskFieldMark\(owner,TASK_MARKS\.owner\)\),label\('State',taskFieldMark\(workflow,TASK_MARKS\.state\)\),label\('Priority',taskFieldMark\(priority,TASK_MARKS\.priority\)\),label\('Project',project\),label\('Due date',due\),label\('Next follow-up',follow\)\);/);
+assert.match(panel,/const peopleSection=section\('Also working on it',coField\),sourcesSection=section\('Sources and GitHub'\),historySection=el\('section','task-history-panel'\);/);
+assert.match(panel,/box\.append\(taskFormLayout\(\[label\('Title',area\),tabs\.bar,\.\.\.tabs\.panels\],\[core,el\('p','hint','Assigning an owner is saved locally\.[^;]*'\),peopleSection\]\),footer\);/);
 // Edit task (2026-11-16): a one-line Title, a framed update composer and the history right below it; Cancel task and Send by email on the left.
 assert.match(panel,/area\.maxLength=1000;area\.rows=1;/);
 assert.match(panel,/progress\.append\(el\('h3','','Progress & activity'\),composer\);/);
@@ -18,7 +18,7 @@ assert.doesNotMatch(panel,/'(Received from|Assigned by|Followed by|I assigned th
 assert.match(panel,/el\('h2','task-card-title',item\.acceptance_state==='proposed'\?'Proposed task':'Edit task'\)/);
 // An error opens its section; Timeline opens History.
 assert.match(panel,/if\(part\.querySelector\(':invalid,\[aria-invalid=true\]'\)\)part\.open=true;/);
-assert.match(panel,/historySection\.open=true;timeline\.scrollIntoView/);
+assert.match(panel,/if\(focusTimeline&&!editing\)tabs\.show\('history'\);/);
 assert.match(css,/#task-panel \.task-section\[open\]>summary \.task-section-summary\{display:none\}/);
 // One task card layout (2026-11-19); no density toggle or stored alternate layout.
 assert.doesNotMatch(app,/taskDensity|task-density|\[\['compact','Compact'\],\['cards','Cards'\]\]/);

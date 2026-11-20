@@ -5,7 +5,7 @@ const src=fs.readFileSync('web/app.js','utf8');
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},setCustomValidity(){},reportValidity(){},focus(){},showModal(){this.open=true},close(){this.open=false;this.onclose?.()}};}
 function setup(aiAvailable=true){
  const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:''}},errors=[],requests=[];let fail=false;
- const c=vm.createContext({taskEvidenceTarget:null,renderTaskEvidenceContext(){},view:'tasks',contextProject:()=>'',el:node,$:id=>nodes[id],state:{meetings:[],people:[{id:'p1',name:'Иван'}],projects:{projects:[]}},personOptions:()=>[Object.assign(node('option','','Иван'),{value:'p1'})],crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
+ const c=vm.createContext({taskEvidenceTarget:null,taskFieldMark:s=>s,TASK_MARKS:{},taskFormClose:()=>({tag:'button',children:[]}),taskFormLayout:(main,side)=>({tag:'div',children:[...main,...side]}),renderTaskEvidenceContext(){},view:'tasks',contextProject:()=>'',el:node,$:id=>nodes[id],state:{meetings:[],people:[{id:'p1',name:'Иван'}],projects:{projects:[]}},personOptions:()=>[Object.assign(node('option','','Иван'),{value:'p1'})],crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
   itemsData:{items:[{id:'existing',kind:'task',text:'Current task',revision:7,acceptance_state:'accepted'}],graph:{relationships:[]}},
   option:(text,value)=>Object.assign(node('option','',text),{value}),fillProjects:(e,value)=>e.value=value,leaveEdits:async()=>true,validDates:()=>true,
   editorDirty:{set(){},clear(){},keys:()=>[]},requestDialogClose:async(d,fn)=>fn(),
@@ -18,7 +18,7 @@ function setup(aiAvailable=true){
  vm.runInContext(src.slice(src.indexOf('async function openManualTask('),src.indexOf("$('new-task').onclick=")),c);
  const source={provider:'gmail',id:'thread',revision:'rev1'};
  const preview={ai_available:aiAvailable,ai_unavailable_reason:'AI is optional',target:{local_ai_model:'fixture',local_ai_base_url:'local'},preview_token:'approved',characters:40,source_excerpt:'Exact source'};
- const fields=()=>Object.fromEntries(nodes['manual-task-body'].children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
+ const fields=()=>Object.fromEntries((function all(n){return [n,...(n.children||[]).flatMap(all)];})(nodes['manual-task-body']).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  const buttons=()=>nodes['manual-task-body'].children.at(-1).children;
  return {c,nodes,errors,requests,fields,buttons,source,preview,setFail:v=>fail=v,
   start:()=>vm.runInContext('openManualTask(null,{source,sourcePreview:preview})',Object.assign(c,{source,preview}))};

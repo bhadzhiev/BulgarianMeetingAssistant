@@ -20,7 +20,7 @@ assert.match(candidates,/questionSource:\{field:q\.field,index:q\.index,text:q\.
 // The unified dialog sends the question link and the source moment to the server.
 function node(tag,cls,text){return {tag,cls,text,value:'',children:[],attrs:{},isConnected:true,append(...x){this.children.push(...x)},replaceChildren(...x){this.children=x},insertBefore(x,before){this.children.splice(this.children.indexOf(before),0,x)},setAttribute(k,v){this.attrs[k]=v},querySelectorAll(){return []},setCustomValidity(){},reportValidity(){},focus(){},showModal(){this.open=true},close(){this.open=false;this.onclose?.()}};}
 const nodes={'manual-task-dialog':node('dialog'),'manual-task-body':node('div'),'work-project':{value:''}},requests=[];
-const c=vm.createContext({taskEvidenceTarget:null,renderTaskEvidenceContext(){},view:'tasks',contextProject:()=>'',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:''}],people:[]},personOptions:()=>[],crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
+const c=vm.createContext({taskEvidenceTarget:null,taskFieldMark:s=>s,TASK_MARKS:{},taskFormClose:()=>({tag:'button',children:[]}),taskFormLayout:(main,side)=>({tag:'div',children:[...main,...side]}),renderTaskEvidenceContext(){},view:'tasks',contextProject:()=>'',el:node,$:id=>nodes[id],state:{meetings:[{id:'meeting',title:'Daily',project_id:''}],people:[]},personOptions:()=>[],crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'},
  option:(text,value)=>Object.assign(node('option','',text),{value}),fillProjects:(e,value)=>e.value=value,leaveEdits:async()=>true,validDates:()=>true,editorDirty:{set(){},clear(){},keys:()=>[]},requestDialogClose:async(d,fn)=>fn(),
  withDialogAction:async(d,fn)=>fn(),withEditorSave:async(box,fn)=>fn(),perform:async fn=>fn(),toast(){},error(){},refreshAfterItemChange:async()=>{},showCreatedTask(){},revealTask(){},
  itemsData:{items:[],graph:{relationships:[]}},
@@ -29,7 +29,7 @@ vm.runInContext(app.slice(app.indexOf('function btn('),app.indexOf('function opt
 vm.runInContext(slice('async function openManualTask(',"$('new-task').onclick="),c);
 (async()=>{
  await vm.runInContext("openManualTask(null,{text:'Ще мигрираме ли базата?',question:{id:'question1'}})",c);
- let fields=Object.fromEntries(nodes['manual-task-body'].children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
+ let fields=Object.fromEntries((function all(n){return [n,...(n.children||[]).flatMap(all)];})(nodes['manual-task-body']).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  assert.equal(fields.Title.value,'Ще мигрираме ли базата?');
  await nodes['manual-task-body'].children.at(-1).children.at(-1).onclick();
  assert.equal(requests[0].path,'/api/items/create');assert.equal(requests[0].body.question_id,'question1');
@@ -38,7 +38,7 @@ vm.runInContext(slice('async function openManualTask(',"$('new-task').onclick=")
  assert.equal(requests[1].body.minutes_revision,'notes-v1');assert.equal(requests[1].body.question_source.field,'open_questions');
  assert.equal(requests[1].body.evidence_timestamp,'00:12:30');assert.equal(requests[1].body.meeting_id,'meeting');
  await vm.runInContext("openManualTask(null,{text:'Tracked',question:{id:'q',origin:{meeting_id:'meeting',evidence_timestamp:'00:12:30'}}})",c);
- fields=Object.fromEntries(nodes['manual-task-body'].children.flatMap(n=>n.tag==='label'?[n]:n.children||[]).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
+ fields=Object.fromEntries((function all(n){return [n,...(n.children||[]).flatMap(all)];})(nodes['manual-task-body']).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  assert.equal(fields.Meeting.value,'meeting');assert.equal(fields.Meeting.disabled,true);
  await nodes['manual-task-body'].children.at(-1).children.at(-1).onclick();
  assert.equal(requests[2].body.meeting_id,'meeting');assert.equal(requests[2].body.evidence_timestamp,'00:12:30');

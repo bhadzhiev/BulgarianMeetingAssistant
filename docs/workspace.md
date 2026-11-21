@@ -131,6 +131,30 @@ Review the model/provider before generating, then edit the multiline draft and c
 source evidence. Cancel discards the draft. Generation does not create a proposal or task,
 assign an owner/deadline, or publish anything to GitHub. A changed source requires a new draft.
 
+### Before and after the daily
+
+Open **Team → Needs me → Before the daily**. Select a project and a daily
+stand-up series, or create one there. The view shows changes since the last
+daily, decisions, blockers and checks. Add up to three topics to its agenda.
+**Start next daily** opens recording setup with that project, series and
+meeting type. Topics stay on the series until you remove them or mark them
+discussed in a meeting. A topic added after a meeting started belongs to a
+later agenda.
+
+**After the daily** opens with the saved meeting notes. Check the transcript
+moment for each suggestion. Confirm a decision, create a task from a new
+commitment, or apply an update to an existing task in the same project. You
+can choose a state, due date and next check while applying the update. Atlanta
+saves the passage with the task history and checks that the notes, transcript
+and task still match your review. Pending regenerated notes must be reviewed
+first.
+
+**Needs me** brings together decisions raised at dailies, explicit promises to
+help from dailies and 1:1s, and due checks on tasks you own or follow after you
+choose your profile. Record **I promised to help** and **Mark help provided**
+in the daily review. The dashboard and agenda use saved local records without
+requesting another AI analysis.
+
 ### Reliable editing and a consistent workspace
 
 Dates are shown/entered as **dd.mm.yyyy** (date/time: **dd.mm.yyyy · HH:MM**, Europe/Sofia), while API and archive date-only fields retain ISO values. The compact Library keeps Search, Project and Period visible, with additional filters under More filters. Filters stay in session state when returning to the Library.

@@ -476,6 +476,9 @@ class MeetingService:
             meeting['task_matching'] = (dict(status=matching.get('status'), reason=matching.get('reason'))
                                         if isinstance(matching, dict) and matching.get('status') == 'needs_permission' else None)
             meeting['markers'] = read_json(directory / 'markers.json', [])
+            if meeting_types.of(meeting)['id'] == 'daily':
+                from .daily import after
+                meeting['daily_review'] = after(self, meeting, directory)
             meeting['files'] = [name for name in ['recording.wav', 'transcript.md', 'transcript.json',
                                'transcript.srt', 'transcript.raw.json', 'minutes.md', 'minutes.json',
                                'analytics.json', 'speaker-timeline.json', 'live-transcript.md', 'live-transcript.json', 'markers.json',
@@ -2095,6 +2098,9 @@ class MeetingService:
             from .followup import build as build_followup
             result.update(project_id=project['id'],series_id=series_id,requires_type=requires_type)
             result['followup']=build_followup(self,result,registry,meetings,{m['id']:self._minutes(m['id']) for m in meetings})
+            if series and kind['id'] == 'daily' and self._series_type(series_id) == 'daily':
+                from .daily import before
+                result['daily'] = before(self, result, series, meetings, registry)
             return result
 
     SEARCH_GROUPS = {'decisions': {'decision'}, 'tasks': {'task'}, 'notes': {'summary', 'next_step', 'question', 'observation', 'marker'},
@@ -3242,7 +3248,7 @@ class MeetingService:
             clean['assignee_person_ids'] = ids
         return clean
 
-    def update_item(self, item_id, text, changes, revision=None, *, confirm_subtasks=False):
+    def update_item(self, item_id, text, changes, revision=None, *, confirm_subtasks=False, meeting_update=None):
         if not isinstance(changes, dict) or not changes:
             raise ValueError('Nothing to change')
         with self.lock, self.items.lock:
@@ -3270,7 +3276,13 @@ class MeetingService:
                     confirmed=accept_content(self.items.items[item_id])
                     if 'owner' in confirmed:self.items._event(self.items.items[item_id],'confirmed',changes={'owner':confirmed['owner']},by='user')
                     confirm_linked(self,self.items.items[item_id])
-                if note:self.items.items[item_id]['history'].append(dict(at=items.now(),event='progress_update',by='user',meeting_id=None,changes={},text=note,**({'evidence_id':evidence_id} if evidence_id else {})))
+                if note:
+                    event = dict(at=items.now(), event='progress_update', by='user', meeting_id=None, changes={}, text=note)
+                    if evidence_id:
+                        event['evidence_id'] = evidence_id
+                    if meeting_update:
+                        event.update(meeting_update)
+                    self.items.items[item_id]['history'].append(event)
                 self.items.save()
             except items.WorkItemConflict:raise  # Registry.save already reloaded the winning revision
             except Exception:

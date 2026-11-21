@@ -562,14 +562,14 @@ async function applyRoute(){
  try{
   if(meeting&&/^[a-f0-9]{32}$/.test(meeting)){
    try{await openMeeting(meeting);}catch(e){if(e.status!==404)throw e;await openConversations();error('This meeting is no longer on this Mac. It may have been deleted.');return;}
-   const tab=q.get('tab');if(view==='detail'&&['review','outcomes','notes','team','analytics'].includes(tab))switchTab(tab);}
+   const tab=q.get('tab');if(view==='detail'&&['review','daily','outcomes','notes','team','analytics'].includes(tab))switchTab(tab);}
   else if(target==='work'){if(q.get('tab')==='suggested')await openTaskInbox();else{if(WORK_PANELS[q.get('tab')])workTab=q.get('tab');await $('open-tasks').onclick();}const source=q.get('source');if(workTab==='gmail'&&source)await openMail(source);else if(workTab==='chat'&&source){chatSpace=source;await loadChat();}else if(workTab==='github'){if(q.get('section')==='reports'){showGitHubSection('reports');if(q.get('report'))await openRepoReport(q.get('report'));}else if(source&&/^\d+$/.test(source))await openGitHubItem(Number(source));}}
   else if(target==='projects'){
    const project=q.get('project')||'',select=$('workspace-project');
    if(project&&![...select.options].some(o=>o.value===project))select.append(option(project,project));select.value=project;
    workspaceSection=q.get('section')||'overview';workspaceWorkKind=['task','decision','question'].includes(q.get('kind'))?q.get('kind'):'';await $('open-projects').onclick();
   }
-  else if(target==='team'){const review=q.get('review');if(review&&/^[a-f0-9]{12}$/.test(review))await openTeamReview(review);else if(q.get('person'))await openTeamPerson(q.get('person'));else await openTeam(q.get('tab')==='reviews'?'reviews':'members');}
+  else if(target==='team'){const review=q.get('review');if(review&&/^[a-f0-9]{12}$/.test(review))await openTeamReview(review);else if(q.get('person'))await openTeamPerson(q.get('person'));else await openTeam(['reviews','members','attention'].includes(q.get('tab'))?q.get('tab'):'attention');}
   else if(target==='prepare')await perform(()=>openPrepare(q.get('project')||'',q.get('series')||'',q.get('type')||''));
   else if(target==='importing')await openImport();
   else if(target==='calendar')await openCalendar(q.get('day'),q.get('project')||'');
@@ -639,7 +639,7 @@ async function openMeeting(id,force=false) {
  if(state.active?.id===id){selected=id;show('recording');renderState();return true;}
  const fresh=await api('/api/meetings/'+id);
  if(sequence!==meetingLoadSequence||!readers.current(request)||(!force&&hasEdits()))return false;
- if(detail?.id!==id){notesEditing=false;if(!routing)meetingTab=fresh.minutes?'outcomes':'transcript';}
+ if(detail?.id!==id){notesEditing=false;if(!routing)meetingTab=fresh.daily_review?.status==='ready'?'daily':fresh.minutes?'outcomes':'transcript';}
  selected=id;detail=fresh;dirtyTranscript=dirtyNotes=false;detailChangedWhileEditing=false;
  lastFingerprint=JSON.stringify(fresh);renderDetail();show('detail');switchTab(meetingTab);renderLibrary();return true;
 }
@@ -788,7 +788,8 @@ function privacy(s) { let text=s.transcription==='elevenlabs'?'Audio and vocabul
 function meetingReviewCount(d){return d?.meeting_review_count||0;}
 function switchTab(name) {
  if(name==='review'&&!meetingReviewCount(detail))name='outcomes';
- for(const [tab,panel] of [['review','review-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['team','team-analysis-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
+ if(name==='daily'&&!detail?.daily_review)name='outcomes';
+ for(const [tab,panel] of [['review','review-panel'],['daily','daily-panel'],['transcript','transcript-panel'],['outcomes','outcomes-panel'],['notes','notes-panel'],['team','team-analysis-panel'],['analytics','meeting-analytics-panel']]) { const yes=tab===name; $(panel).hidden=!yes; $('tab-'+tab).classList.toggle('selected',yes); $('tab-'+tab).setAttribute('aria-selected',String(yes)); }
  meetingTab=name;syncRoute(true);
  if(detail&&view==='detail')placeActions(detail);
  if(name==='review')perform(openMeetingReview);
@@ -841,7 +842,8 @@ function transcriptSegmentTools(d,index,textarea,busy){
 }
 function renderDetail() {
  $('tab-review').hidden=!meetingReviewCount(detail);
- if(meetingTab==='review'&&!meetingReviewCount(detail))switchTab('outcomes');
+ $('tab-daily').hidden=!detail.daily_review;
+ if(meetingTab==='review'&&!meetingReviewCount(detail)||meetingTab==='daily'&&!detail.daily_review)switchTab('outcomes');
  syncReviewPanel();
  $('detail-refresh-notice').hidden=!detailChangedWhileEditing;
  const d=detail, busy=['starting','recording','paused','stopping','processing'].includes(d.status);
@@ -899,7 +901,7 @@ function renderDetail() {
  renderSpeakerLegend();renderSpeakerReview(busy);renderAttention(busy);
  $('detail-markers').hidden=!d.markers?.length; $('detail-markers').replaceChildren();
  if(d.markers?.length){$('detail-markers').append(el('h3','','Moments you marked'));const list=el('div','marker-list');renderMarkerList(list,d.markers,true);$('detail-markers').append(list);}
- $('save-transcript').disabled=!dirtyTranscript||busy;$('save-transcript').textContent='Save corrections';renderTranscriptRefresh(busy); renderSavedDraft(d); renderNotes(busy); renderTeamAnalysis(busy); renderMeetingAnalytics(busy);
+ $('save-transcript').disabled=!dirtyTranscript||busy;$('save-transcript').textContent='Save corrections';renderTranscriptRefresh(busy); renderSavedDraft(d); renderNotes(busy); renderTeamAnalysis(busy); renderMeetingAnalytics(busy); renderDailyAfter(d,busy);
 }
 const ACTIONS=['process','correct','summarize','recover','edit-title','generate-title','sync-calendar','followup-email','delete-meeting'];
 // One clear next step is a button; the other actions wait in the More menu.
@@ -2836,7 +2838,8 @@ async function openPrepare(projectId,seriesId,kind) {
 async function loadPrepare() {
  const request=readers.start('prepare');syncRoute(true);
  fillProjects($('prepare-project'),prepareScope.project,'Choose a project'); fillSeries($('prepare-series'),prepareScope.project,prepareScope.series,'All meetings of the project');
- $('prepare-empty').hidden=!!projectList().length; $('prepare-content').hidden=true;
+ $('prepare-empty').hidden=!!projectList().length; $('prepare-content').hidden=true;$('daily-before').hidden=true;
+ $('prepare-title').textContent=prepareScope.type==='daily'?'Before the daily':'Prepare me';
  if(!prepareScope.project){$('prepare-summary').textContent='Choose a project or a series.';return;}
  const query=prepareScope.series?{series:prepareScope.series}:{project:prepareScope.project};if(prepareScope.type)query.type=prepareScope.type;
  // The tasks of Prepare me use the My Work card, so they need the full work items.
@@ -2845,17 +2848,194 @@ async function loadPrepare() {
  if(prepareData.requires_type){$('prepare-summary').textContent='This project contains different meeting types. Choose the upcoming meeting before preparing its agenda.';return;}
  renderPrepare(prepareData);
 }
-$('prepare-project').onchange=()=>{prepareScope={project:$('prepare-project').value,series:'',type:''};perform(loadPrepare);};
+$('prepare-project').onchange=()=>{prepareScope={project:$('prepare-project').value,series:'',type:prepareScope.type==='daily'?'daily':''};perform(loadPrepare);};
 $('prepare-series').onchange=()=>{prepareScope.series=$('prepare-series').value;prepareScope.type='';perform(loadPrepare);};
 $('open-prepare').onclick=()=>perform(()=>openPrepare());
 $('prepare-next-meeting').onclick=()=>{prepareScope.type=$('prepare-type').value||prepareData?.meeting_type||'';$('new-meeting').click();};
 $('copy-agenda').onclick=()=>perform(async()=>{await navigator.clipboard.writeText(prepareData.markdown);toast('Agenda copied · paste it into the invitation or a chat');});
+// The daily's context is shared by preparation and the saved meeting review.
+function dailyOpen(project='',series=''){
+ const saved=(state.projects?.series||[]).find(row=>row.id===stored('daily-series')&&row.type==='daily'&&!projectList().find(p=>p.id===row.project_id)?.archived);
+ if(!project&&saved){project=saved.project_id;series=saved.id;}
+ if(!project){const first=(state.projects?.series||[]).find(row=>row.type==='daily'&&projectList().some(p=>p.id===row.project_id&&!p.archived));if(first){project=first.project_id;series=first.id;}}
+ return openPrepare(project,series,'daily');
+}
+async function openDailyReview(id){
+ if(await openMeeting(id))switchTab('daily');
+}
+function dailyTopicRows(topics,remove,after=false,busy=false){
+ const list=el('ul','daily-rows');
+ for(const topic of topics){
+  const row=el('li','daily-row'),actions=el('div','action-group');
+  if(topic.task_id)actions.append(actionBtn('quiet small-action','Open task',()=>openTaskPanel(topic.task_id)));
+  const close=actionBtn('secondary small-action',after?'Mark discussed':'Remove',()=>remove(topic.id));
+  close.disabled=busy;actions.append(close);row.append(el('span','',topic.text),actions);list.append(row);
+ }
+ return list;
+}
+function renderDailyBefore(data){
+ const box=$('daily-before');box.replaceChildren();
+ if(!data.daily){
+  const card=el('section','card'),button=actionBtn('secondary','Create daily series…',async()=>{
+   const name=await ask('Name this recurring daily',{value:'Daily stand-up',ok:'Create series'});
+   if(!name?.trim())return;
+   const result=await api('/api/daily/series',{project_id:data.project_id,name:name.trim()});
+   state.projects=result.projects;lastProjects='';syncProjects();
+   prepareScope={project:data.project_id,series:result.series_id,type:'daily'};await loadPrepare();
+  });
+  card.append(el('p','','Choose a daily series to carry agenda topics between meetings.'),button);box.append(card);return;
+ }
+ const daily=data.daily;store('daily-series',data.series_id);
+ async function change(action,fields){
+  await api('/api/daily/agenda',{series_id:data.series_id,revision:daily.agenda_revision,action,...fields});
+  if(view==='prepare'&&prepareScope.series===data.series_id)await loadPrepare();
+ }
+ async function add(text='',taskId=null){
+  const value=await ask('What do you want to discuss?',{value:text.slice(0,500),ok:'Add to agenda'});
+  if(value?.trim())await change('add',{text:value.trim(),task_id:taskId});
+ }
+ const card=el('section','card daily-panel'),head=el('div','card-heading');
+ head.append(el('h2','','Daily agenda · '+daily.topics.length+' / 3'));
+ const addTopic=actionBtn('secondary small-action','Add a topic…',()=>add());addTopic.disabled=daily.topics.length>=3;
+ const start=actionBtn('primary','Start next daily',()=>{$('prepare-next-meeting').click();});
+ head.append(addTopic,start);card.append(head);
+ if(daily.topics.length)card.append(dailyTopicRows(daily.topics,id=>change('remove',{id})));
+ if(daily.latest_meeting)card.append(actionBtn('quiet small-action','Review the last daily',()=>openDailyReview(daily.latest_meeting.id)));
+ box.append(card);
+ for(const [key,title] of [['decisions','Decisions needed'],['blockers','Blockers and waiting'],['checks','Checks due'],['changed','Changes since the last daily']]){
+  const rows=daily.groups[key]||[];if(!rows.length)continue;
+  const group=el('section','card daily-panel'),list=el('ul','daily-rows');
+  group.append(el('h2','',title));
+  for(const row of rows){
+   const line=el('li','daily-row'),main=el('div'),actions=el('div','action-group'),taskId=row.kind==='task'&&key!=='changed'?row.item_id:null;
+   main.append(el('span','',row.text));if(row.owner)main.append(el('span','hint',' · '+row.owner));
+   if(row.source)main.append(sourceChip(row.source));
+   if(row.kind==='task'&&row.item_id)actions.append(actionBtn('quiet small-action','Open task',()=>openTaskPanel(row.item_id)));
+   const pin=actionBtn('secondary small-action','Add to agenda…',()=>add(row.text,taskId));
+   pin.disabled=daily.topics.length>=3||daily.topics.some(topic=>topic.text===row.text||(taskId&&topic.task_id===taskId));
+   actions.append(pin);line.append(main,actions);list.append(line);
+  }
+  group.append(list);box.append(group);
+ }
+}
+function renderDailyAfter(meeting,busy){
+ const box=$('daily-panel'),daily=meeting.daily_review;box.replaceChildren();
+ if(!daily)return;
+ const head=el('div','card-heading');head.append(el('h2','','After the daily'));
+ if(daily.series_id)head.append(actionBtn('secondary small-action','Prepare the next daily',()=>openPrepare(daily.project_id,daily.series_id,'daily')));
+ box.append(head);
+ if(daily.status!=='ready'){
+  box.append(el('p','hint',daily.status==='stale'?'Review the updated notes before applying changes.':'Changes will appear here when the meeting notes are ready.'));
+  if(daily.status==='stale'&&meeting.minutes_proposal)box.append(actionBtn('secondary','Review updated notes',()=>openReview()));
+  return;
+ }
+ async function reload(){
+  if(view==='detail'&&selected===meeting.id)await openMeeting(meeting.id,true);
+ }
+ async function review(row,action,extra={}){
+  await api('/api/daily/'+meeting.id+'/review',{revision:daily.revision,key:row.key,action,...extra});
+  lastTasks='';await reload();
+ }
+ if(daily.topics.length){
+  const topics=el('section','note-section');
+  topics.append(el('h3','','Agenda from before the daily'));
+  topics.append(dailyTopicRows(daily.topics,async id=>{
+   await api('/api/daily/agenda',{series_id:daily.series_id,revision:daily.agenda_revision,meeting_id:meeting.id,action:'remove',id});await reload();
+  },true,busy));
+  box.append(topics);
+ }
+ const pending=daily.rows.filter(row=>row.state==='pending');
+ const reviewed=daily.rows.filter(row=>row.state!=='pending');
+ if(!pending.length)box.append(el('p','hint',reviewed.length?'All daily suggestions reviewed.':'There are no changes to review in the saved notes.'));
+ const labels={decisions:'Decision',tasks:'Commitment',updates:'Update',blockers:'Blocker',needs_decision:'Decision needed',open_questions:'Open question'};
+ const draw=row=>{
+  const card=el('article','daily-review-row'),actions=el('div','action-group');
+  card.append(el('strong','',labels[row.field]),el('p','',row.text));
+  if(row.details)card.append(el('p','hint',row.details));
+  if(row.owner||row.due_date)card.append(el('p','hint',[row.owner,row.due_date&&date(row.due_date)].filter(Boolean).join(' · ')));
+  if(row.timestamp)card.append(sourceBlock(row.timestamp));
+  if(row.source_changed)card.append(el('p','hint','Saved from an earlier version of these notes.'));
+  if(row.state!=='pending'){
+   actions.append(el('span','hint',row.state==='applied'?'Applied to task':row.state==='confirmed'?'Confirmed':row.state==='promise'?'I promised to help':row.state==='helped'?'Help provided':'Skipped'));
+   if(row.task_id)actions.append(actionBtn('quiet small-action','Open task',()=>openTaskPanel(row.task_id)));
+   if(['confirmed','skipped'].includes(row.state)&&row.field!=='decisions')actions.append(actionBtn('quiet small-action','Review again',()=>review(row,'reopen')));
+   if(row.state==='promise')actions.append(actionBtn('secondary small-action','Mark help provided',()=>review(row,'helped')));
+  }else{
+   if(row.field==='tasks')actions.append(actionBtn('secondary small-action','Create task…',()=>openManualTask(meeting.id,{text:row.text,details:row.details||'',owner:row.owner||'',due:row.due_date||'',mention:row.index,minutesRevision:meeting.minutes_revision})));
+   if(row.field!=='tasks')actions.append(actionBtn('secondary small-action',row.field==='decisions'?'Confirm decision':'Mark reviewed',()=>review(row,'confirm')));
+   actions.append(actionBtn('quiet small-action','Skip',()=>review(row,'skip')));
+   if(row.field!=='decisions'&&row.quote&&daily.tasks.length===0)card.append(el('p','hint','Choose a project with open tasks to apply an update.'));
+  }
+  if(row.quote&&['tasks','updates','blockers'].includes(row.field)&&['pending','applied','helped'].includes(row.state)){
+   actions.append(actionBtn('quiet small-action','I promised to help',()=>review(row,'promise')));
+  }
+  if(busy)for(const control of actions.querySelectorAll('button'))control.disabled=true;
+  card.append(actions);
+  if(row.state==='pending'&&row.field!=='decisions'&&row.quote&&daily.tasks.length){
+   const edit=el('details','daily-update'),form=el('form','daily-update-form'),target=el('select'),workflow=el('select'),due=el('input'),check=el('input');
+   target.required=true;target.append(option('Choose a task…',''),...daily.tasks.map(task=>option(task.text+(task.owner?' · '+task.owner:''),task.id)));
+   const exact=daily.tasks.filter(task=>task.text.trim().toLocaleLowerCase()===row.text.trim().toLocaleLowerCase());
+   if(exact.length===1)target.value=exact[0].id;
+   workflow.append(option('Keep current state',''),...Object.entries(AtlantaTasks.STATES).filter(([key])=>key!=='cancelled').map(([id,label])=>option(label,id)));
+   due.type=check.type='date';if(row.due_date)due.value=row.due_date;
+   const field=(label,input)=>{const wrapper=el('label','filter-field',label);wrapper.append(input);return wrapper;};
+   const save=btn('primary small-action','Apply to task');save.type='submit';
+   form.append(field('Task',target),field('State',workflow),field('New due date (optional)',due),field('Next check (optional)',check),save);
+   edit.append(el('summary','','Update an existing task'),form);card.append(edit);
+   form.onsubmit=event=>{event.preventDefault();perform(async()=>{
+    const task=daily.tasks.find(item=>item.id===target.value);if(!task)return;
+    const changes={};if(workflow.value)changes.workflow_state=workflow.value;if(due.value)changes.due_date=due.value;if(check.value)changes.follow_up_date=check.value;
+    const message='Apply this update to “'+task.text+'”?\n\n'+row.text;
+    if(!(await ask(message,{ok:'Apply update'})))return;
+    await withEditorSave(form,()=>review(row,'update',{task_id:task.id,task_revision:task.revision,changes}));
+   });};
+   if(busy)for(const control of form.elements)control.disabled=true;
+  }
+  return card;
+ };
+ for(const row of pending)box.append(draw(row));
+ if(reviewed.length){const archive=el('details','daily-reviewed');archive.append(el('summary','','Reviewed · '+reviewed.length),...reviewed.map(draw));box.append(archive);}
+}
+function renderManagerAttention(data){
+ const box=$('team-attention-panel');box.replaceChildren();
+ const schedule=el('section','card daily-panel'),header=el('div','card-heading');
+ header.append(el('h2','','Daily stand-ups'),actionBtn('primary small-action','Before the daily',()=>dailyOpen()));
+ schedule.append(header);
+ for(const series of data.series){
+  const row=el('div','daily-row'),actions=el('div','action-group');
+  actions.append(actionBtn('secondary small-action','Prepare',()=>dailyOpen(series.project_id,series.id)));
+  if(series.latest)actions.append(actionBtn('quiet small-action','Review last daily',()=>openDailyReview(series.latest.id)));
+  row.append(el('span','',series.project+' · '+series.name),actions);schedule.append(row);
+ }
+ box.append(schedule);
+ const select=el('select');select.setAttribute('aria-label','My profile');select.append(option('Choose my profile…',''),...(state.people||[]).map(p=>option(p.name,p.id)));select.value=data.person_id||'';
+ select.onchange=()=>{managerSelf=select.value;store('manager-self',select.value);perform(loadTeam);};box.append(select);
+ for(const [key,title] of [['decisions','Waiting for a decision'],['help','I promised to help'],['checks','Results to check']]){
+  const section=el('section','card daily-panel'),rows=data.groups[key]||[];
+  section.append(el('h2','',title));
+  if(!rows.length)section.append(emptyNote(key==='checks'&&!data.person_id?'Choose your profile to see checks on tasks you own or follow.':'Nothing to review here.'));
+  for(const row of rows){
+   const line=el('div','daily-row'),main=el('div'),meta=[row.reason,row.project||row.person,row.date&&date(row.date)].filter(Boolean).join(' · ');
+   main.append(el('span','',row.text),el('p','hint',meta));line.append(main);
+   if(row.review_id)line.append(actionBtn('secondary small-action','Open agreement',()=>openTeamReview(row.review_id)));
+   else if(row.meeting_id)line.append(actionBtn('secondary small-action','Review daily',()=>openDailyReview(row.meeting_id)));
+   else if(row.task_id)line.append(actionBtn('secondary small-action','Open task',()=>openTaskPanel(row.task_id)));
+   section.append(line);
+  }
+  box.append(section);
+ }
+}
+
 function renderPrepare(data) {
+ const daily=data.meeting_type==='daily';
+ $('prepare-title').textContent=daily?'Before the daily':'Prepare me';
+ $('daily-before').hidden=!daily;
+ if(daily)renderDailyBefore(data);
  renderFollowup(data);
  const last=data.meetings.at(-1);
  const type=typeOf(data.meeting_type), label=type.id==='general'?'':' · '+type.label;
  $('prepare-summary').textContent=data.meetings.length?data.title+label+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+label+' · no meetings yet';
- $('prepare-content').hidden=false;
+ $('prepare-content').hidden=daily;
  const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source),sourceListen(source));return box;};
  $('prepare-sections-card').hidden=!data.sections?.length;
  $('prepare-sections').replaceChildren(...(data.sections||[]).map(section=>{const box=el('section','note-section');box.append(el('h3','',section.title),...section.items.map(entry=>{const row=el('div','prepare-question');row.append(el('p','',entry.text),sources([entry.source]));return row;}));return box;}));
@@ -3015,7 +3195,7 @@ async function refresh(changed) {
    const fresh=await api('/api/meetings/'+key);const fingerprint=JSON.stringify(fresh);
    if(view!=='detail'||selected!==key||generation!==meetingLoadSequence||!readers.current(request))return;
    if(hasEdits()){if(fingerprint!==lastFingerprint){detailChangedWhileEditing=true;$('detail-refresh-notice').hidden=false;}return;}
-   if(fingerprint!==lastFingerprint){const firstNotes=!detail.minutes&&!!fresh.minutes&&fresh.status==='ready'&&meetingTab==='transcript';detail=fresh;lastFingerprint=fingerprint;if(notesEditing)notesBase=structuredClone(fresh.minutes);renderDetail();if(firstNotes)switchTab('outcomes');}
+   if(fingerprint!==lastFingerprint){const firstNotes=!detail.minutes&&!!fresh.minutes&&fresh.status==='ready'&&meetingTab==='transcript';detail=fresh;lastFingerprint=fingerprint;if(notesEditing)notesBase=structuredClone(fresh.minutes);renderDetail();if(firstNotes)switchTab(fresh.daily_review?.status==='ready'?'daily':'outcomes');}
   }
  } catch(e) { setConnection(disconnectedMessage()); }
  finally { refreshing=false; if(refreshPending){const next=pendingChanged;refreshPending=false;pendingChanged=[];refresh(next);} }
@@ -3112,7 +3292,7 @@ for(const name of ['notes','outcomes']) {
  $('cancel-'+name).onclick=()=>perform(async()=>{if(dirtyNotes&&!(await ask('Discard your changes to the notes?',{ok:'Discard',cancel:'Keep editing',danger:true})))return;notesEditing=false;await openMeeting(selected,true);});
 }
 $('reanalyze').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;await api('/api/meetings/'+selected+'/reanalyze',{});dirtyTranscript=dirtyNotes=false;toast('Analytics queued');await openMeeting(selected,true);});
-for(const tab of ['review','transcript','outcomes','notes','team','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
+for(const tab of ['review','daily','transcript','outcomes','notes','team','analytics']) $('tab-'+tab).onclick=()=>switchTab(tab);
 $('team-analysis-run').onclick=()=>perform(runTeamAnalysis);
 $('settings-open').onclick=()=>openSettings();$('settings-inline').onclick=()=>openSettings('recording');
 for(const tab of document.querySelectorAll('.settings-tabs button')) tab.onclick=()=>showSettingsTab(tab.dataset.tab);
@@ -3471,14 +3651,27 @@ function sourceCard(source){
 }
 let workspaceWorkKind='',workspaceTaskStatus='open',workspaceHistoryQuery='',workspaceHistoryLimit=20,showArchivedProjects=false;
 // Team: the people in my team and their 1:1 reviews. Membership records periods only; it starts no analysis.
-let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null,teamReviewId='',teamReview=null,teamReviewRows=null,teamReviewPerson=null;
+let teamTab='attention',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null,teamReviewId='',teamReview=null,teamReviewRows=null,teamReviewPerson=null;
 // The unsaved edits of the open 1:1 review. A save of one part re-renders the panel; the other parts keep their edits.
 let teamDrafts={};
 let teamHistoryPersonId='',teamHistoryRows=[],teamHistorySequence=0,teamHistoryLoading=false,teamHistoryError='';
 async function openTeam(tab){
- if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;if(teamTab==='members')teamHistoryPersonId='';teamReviewId='';teamReview=null;show('team');renderLibrary();await loadTeam();
+ if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;if(tab)teamTab=tab;if(teamTab!=='reviews')teamHistoryPersonId='';teamReviewId='';teamReview=null;show('team');renderLibrary();await loadTeam();
 }
-async function loadTeam(){const sequence=++teamSequence,[fresh,reviews]=await Promise.all([api('/api/team'),api('/api/team/reviews')]);if(sequence!==teamSequence||view!=='team')return;teamData=fresh;teamReviewRows=reviews.reviews;renderTeam();if(teamHistoryPersonId)await loadTeamHistory(teamHistoryPersonId);}
+async function loadTeam(){
+ const sequence=++teamSequence;
+ if(teamTab==='attention'){
+  const panel=$('team-attention-panel');panel.replaceChildren(el('p','hint','Loading what needs your attention…'));
+  $('team-members-panel').hidden=$('team-reviews-panel').hidden=$('team-review-panel').hidden=true;panel.hidden=false;
+  for(const button of $('team-tabs').querySelectorAll('button')){const on=button.dataset.teamTab==='attention';button.classList.toggle('selected',on);button.setAttribute('aria-selected',String(on));}
+  syncRoute(true);
+  const data=await api('/api/team/attention?'+new URLSearchParams({person:stored('manager-self')}));
+  if(sequence===teamSequence&&view==='team'&&teamTab==='attention')renderManagerAttention(data);
+  return;
+ }
+ const [fresh,reviews]=await Promise.all([api('/api/team'),api('/api/team/reviews')]);
+ if(sequence!==teamSequence||view!=='team')return;teamData=fresh;teamReviewRows=reviews.reviews;renderTeam();if(teamHistoryPersonId)await loadTeamHistory(teamHistoryPersonId);
+}
 function teamPeriodText(periods){
  const last=periods.at(-1);if(!last)return '';
  return last.end===null?'In the team since '+date(last.start):'In the team '+date(last.start)+' · left '+date(last.end);
@@ -3504,6 +3697,7 @@ function teamCard(member,person){
 }
 function renderTeam(){
  if(!teamData)return;
+ $('team-attention-panel').hidden=true;
  for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab===teamTab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
  $('team-members-panel').hidden=teamTab!=='members';$('team-reviews-panel').hidden=teamTab!=='reviews';syncRoute(true);
  const people=new Map((state.people||[]).map(p=>[p.id,p])),members=teamData.members.filter(m=>people.has(m.id)),active=members.filter(m=>m.active).length;
@@ -3624,6 +3818,7 @@ async function openTeamReview(id,{saved=false}={}){
  const sequence=++teamSequence,request=readers.start('team-review'),review=await api('/api/team/review?id='+encodeURIComponent(id));if(sequence!==teamSequence||!readers.current(request))return;teamReviewId=id;teamHistoryPersonId=review.person_id;teamReview=review;show('team');renderLibrary();renderTeamReview();
 }
 function renderTeamReview(){
+ $('team-attention-panel').hidden=true;
  const r=teamReview,box=$('team-review-panel');$('team-members-panel').hidden=$('team-reviews-panel').hidden=true;box.hidden=false;
  for(const b of $('team-tabs').querySelectorAll('button')){const on=b.dataset.teamTab==='reviews';b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
  editorDirty.clear('team-review');editorDirty.clear('team-notes');editorDirty.clear('team-agreements');editorDirty.clear('team-previous');editorDirty.clear('team-context');editorDirty.clear('team-conversation');syncRoute(true);
@@ -3889,7 +4084,7 @@ $('team-close').onclick=()=>$('team-dialog').close();
 $('team-add').onclick=()=>openTeamDialog('join');
 $('team-project').onchange=renderTeam;
 for(const b of $('team-tabs').querySelectorAll('button'))b.onclick=()=>perform(()=>openTeam(b.dataset.teamTab));
-$('open-team').onclick=()=>perform(()=>openTeam());
+$('open-team').onclick=()=>perform(()=>openTeam('attention'));
 $('open-projects').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;dirtyTranscript=dirtyNotes=false;selected=null;show('projects');itemsData=await api('/api/items');await loadWorkspace();});
 $('workspace-project').onchange=()=>perform(async()=>{if(!(await leaveEdits())){$('workspace-project').value=workspaceData?.project_id||'';return;}await loadWorkspace();});
 $('workspace-refresh').onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;itemsData=await api('/api/items');await loadWorkspace();});

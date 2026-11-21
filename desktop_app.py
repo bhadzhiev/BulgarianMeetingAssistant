@@ -152,6 +152,9 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/review-queue':
             from app.review_queue import build
             return self.respond(200, build(self.server.service))
+        if url.path == '/api/team/attention':
+            from app.manager_attention import build
+            return self.respond(200, build(self.server.service, callback_params.get('person', [''])[0]))
         if url.path == '/api/team':
             return self.respond(200, self.server.service.team_overview())
         if url.path == '/api/team/reviews':
@@ -577,6 +580,15 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.conversations.attach(body)
             elif path == '/api/conversations/projects':
                 result = service.conversations.assign(body)
+            elif path == '/api/daily/series':
+                from app.daily import create_series
+                result = create_series(service, body)
+            elif path == '/api/daily/agenda':
+                from app.daily import change_agenda
+                result = change_agenda(service, body)
+            elif re.fullmatch(r'/api/daily/[a-f0-9]{32}/review', path):
+                from app.daily import review
+                result = review(service, path.split('/')[3], body)
             elif path == '/api/projects/create':
                 result = service.create_project(body.get('name'), body.get('color'), body.get('goal'))
             elif path == '/api/templates/save':

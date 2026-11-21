@@ -208,6 +208,18 @@ class GmailSyncTests(unittest.TestCase):
         self.assertEqual(message_text(payload),'Plain text')
         html=message_text(payload['parts'][0]);self.assertIn('Hello',html);self.assertNotIn('bad()',html);self.assertNotIn('https://',html)
         self.assertEqual(message_text(dict(payload['parts'][1],filename='attachment.txt')),'')
+    def test_html_only_mail_keeps_its_structure_as_markdown(self):
+        html=('<html><head><style>p{color:red}</style><title>T</title></head><body><h2>Weekly  report</h2>'
+              '<p>Hello <b>team</b>,<br>please   see <a href="https://example.com/x?a=1&amp;b=2">the plan</a>.</p>'
+              '<ul><li>First<ul><li>Inner</li></ul></li><li>Second <i>item</i></li></ul><ol><li>One</li><li>Two</li></ol>'
+              '<table><tr><td>Name</td><td>Value</td></tr><tr><td>A</td><td></td><td>1</td></tr></table>'
+              '<blockquote><p>Old message</p><p>line two</p></blockquote><img src="https://t.example/p.gif">'
+              '<a href="javascript:bad()">Click</a><pre>code  x\n  y</pre><p>Bye&nbsp;now</p></body></html>')
+        text=message_text(dict(mimeType='text/html',body=dict(data=encoded(html))))
+        self.assertEqual(text,'## Weekly report\n\nHello **team**,\nplease see [the plan](https://example.com/x?a=1&b=2).\n\n'
+                         '- First\n  - Inner\n- Second *item*\n\n1. One\n2. Two\n\nName · Value\nA · 1\n\n'
+                         '> Old message\n>\n> line two\n\nClick\n\n```\ncode  x\n  y\n```\n\nBye now')
+        self.assertNotIn('p.gif',text);self.assertNotIn('javascript',text);self.assertNotIn('color:red',text)
     def test_bulgarian_windows_1251_body_is_decoded_without_replacement(self):
         content='Моля, прегледайте архивите.'
         payload=dict(mimeType='text/plain',headers=[dict(name='Content-Type',value='text/plain; charset=windows-1251')],

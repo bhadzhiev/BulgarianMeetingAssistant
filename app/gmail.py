@@ -9,6 +9,7 @@ import hashlib
 from html.parser import HTMLParser
 from email.message import Message
 import json
+import re
 from pathlib import Path
 import sqlite3
 import threading
@@ -29,17 +30,91 @@ MAX_HISTORY_PAGES = 50
 MAX_THREAD_TEXT = 900000
 
 
-class _Text(HTMLParser):
+class _Markdown(HTMLParser):
+    """An HTML body as Markdown: headings, lists, emphasis, links and quotes survive; layout does not.
+
+    The reader renders Gmail, Chat and GitHub text with one Markdown view, so an HTML-only message
+    reads as well as a plain or Markdown one (2026-11-21). Scripts, styles and images are left out.
+    """
+    BLOCKS = {'p', 'div', 'section', 'article', 'header', 'footer', 'table', 'ul', 'ol', 'center', 'form'}
+    CELL = '\x00'
+    HIDDEN = {'script', 'style', 'head', 'title', 'template', 'noscript'}
+
     def __init__(self):
-        super().__init__()
-        self.parts, self.hidden = [], 0
+        super().__init__(convert_charrefs=True)
+        self.stack, self.hidden, self.pre, self.lists, self.links = [[]], 0, 0, [], []
+
+    def out(self, text: str) -> None:
+        self.stack[-1].append(text)
+
+    def block(self) -> None:
+        self.out('\n\n')
+
     def handle_starttag(self, tag, attrs):
-        if tag in {'script', 'style'}: self.hidden += 1
-        if tag in {'br', 'p', 'div', 'li'} and not self.hidden: self.parts.append('\n')
+        if tag in self.HIDDEN: self.hidden += 1
+        if self.hidden: return
+        if tag in self.BLOCKS and not (tag in {'ul', 'ol'} and self.lists): self.block()
+        if tag in {'ul', 'ol'}: self.lists.append([tag, 0])
+        elif tag in {'br', 'tr'}: self.out('\n')
+        elif tag == 'hr': self.out('\n\n---\n\n')
+        elif len(tag) == 2 and tag[0] == 'h' and tag[1] in '123456': self.out('\n\n' + '#' * int(tag[1]) + ' ')
+        elif tag == 'li':
+            kind = self.lists[-1] if self.lists else ['ul', 0]
+            kind[1] += 1
+            self.out('\n' + '  ' * max(len(self.lists) - 1, 0) + (f'{kind[1]}. ' if kind[0] == 'ol' else '- '))
+        elif tag in {'strong', 'b'}: self.out('**')
+        elif tag in {'em', 'i'}: self.out('*')
+        elif tag in {'td', 'th'}: self.out(self.CELL)
+        elif tag == 'pre': self.pre += 1; self.out('\n\n```\n')
+        elif tag == 'blockquote': self.stack.append([])
+        elif tag == 'a':
+            href = dict(attrs).get('href') or ''
+            self.links.append((href if href.startswith(('https://', 'http://', 'mailto:')) else '', len(self.stack[-1])))
+
     def handle_endtag(self, tag):
-        if tag in {'script', 'style'} and self.hidden: self.hidden -= 1
+        if tag in self.HIDDEN and self.hidden: self.hidden -= 1; return
+        if self.hidden: return
+        if tag in {'ul', 'ol'} and self.lists:
+            self.lists.pop()
+            if self.lists: return
+        if tag in self.BLOCKS or (len(tag) == 2 and tag[0] == 'h' and tag[1] in '123456'): self.block()
+        elif tag in {'strong', 'b'}: self.out('**')
+        elif tag in {'em', 'i'}: self.out('*')
+        elif tag == 'pre' and self.pre: self.pre -= 1; self.out('\n```\n\n')
+        elif tag == 'blockquote' and len(self.stack) > 1:
+            quoted = _tidy(''.join(self.stack.pop()))
+            self.out('\n\n' + '\n'.join('> ' + line if line else '>' for line in quoted.split('\n')) + '\n\n')
+        elif tag == 'a' and self.links:
+            href, at = self.links.pop()
+            parts = self.stack[-1]
+            label = ''.join(parts[at:]).strip()
+            if href and label and label != href and label != href.removeprefix('mailto:'):
+                del parts[at:]
+                parts.append(f'[{label}]({href})')
+            elif href and not label:
+                parts.append(href)
+
     def handle_data(self, value):
-        if not self.hidden: self.parts.append(value)
+        if self.hidden: return
+        if self.pre: self.out(value); return
+        self.out(re.sub(r'\s+', ' ', value))
+
+    def text(self) -> str:
+        while len(self.stack) > 1:
+            self.stack[-2].extend(self.stack.pop())
+        return _tidy(''.join(self.stack[0]))
+
+
+def _tidy(text: str) -> str:
+    """Trim each line, join table cells with a dot and keep at most one empty line between blocks. Code keeps its spaces."""
+    lines, code = [], False
+    for line in text.replace('\xa0', ' ').split('\n'):
+        if line.strip() == '```': code = not code; lines.append('```'); continue
+        if code: lines.append(line.rstrip()); continue
+        line = re.sub(r'(?:\s*\x00\s*)+', ' · ', re.sub(r'^[\s\x00]+|[\s\x00]+$', '', line)) if '\x00' in line else line
+        indent = re.match(r'(\s*)(?:- |\d+\. )', line)
+        lines.append((indent.group(1) + line.strip()) if indent else line.strip())
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
 
 
 def message_text(payload, depth=0):
@@ -63,8 +138,8 @@ def message_text(payload, depth=0):
         charset = 'utf-8'
     raw = base64.urlsafe_b64decode(data + '=' * (-len(data) % 4)).decode(charset, errors='replace')[:100000]
     if payload['mimeType'] == 'text/html':
-        parser = _Text(); parser.feed(raw)
-        raw = ''.join(parser.parts)
+        parser = _Markdown(); parser.feed(raw); parser.close()
+        raw = parser.text()
     return raw.strip()
 
 

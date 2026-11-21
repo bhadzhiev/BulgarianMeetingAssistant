@@ -2320,6 +2320,14 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 #task-panel .task-panel-head h2{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #manual-task-body>.task-panel-head h3{flex:1 1 auto;margin:0}
 .task-panel-tags{display:flex;flex-wrap:wrap;align-items:center;gap:10px;flex:1 1 auto;min-width:0}
+/* Source text (2026-11-21): Gmail, Chat and GitHub share one Markdown view; HTML mail arrives as Markdown. */
+.source-text{max-width:78ch;overflow-wrap:anywhere}
+.mail-message .source-text{margin:6px 0 0 32px}
+.chat-msg .source-text{margin-top:1px}
+.source-text a{color:var(--green);text-decoration:underline;text-underline-offset:2px}
+.source-text blockquote{margin-left:0;font-size:13px}
+.source-text h1,.source-text h2,.source-text h3{font-size:15px;margin:12px 0 6px}
+.source-text p{margin:0 0 8px}
 .task-panel-tags .project-chip{padding:4px 12px;font-size:.85rem;color:var(--green);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--green) 45%,transparent);border-radius:8px}
 .task-panel-id{padding:3px 10px;font-family:var(--mono);font-size:.8rem;color:var(--muted);border:1px solid var(--line);border-radius:6px}
 .task-panel-close{flex:none;margin-left:auto;color:var(--muted)}

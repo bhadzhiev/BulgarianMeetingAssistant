@@ -95,9 +95,9 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   citing a dated decision is intentional — keep it current when the code changes.
 - CSS: single `style.css`, section comments, themed via `var(--…)` (dark/light). No frameworks.
 - Reuse the shared renderer for each item kind. Persistent tasks use compact bordered cards in My Work
-  and project views (approved 2026-11-20): source icons, the created and due dates and the tools on
-  top; the project beside the title; the last update; then state, priority and the owner avatar as
-  plain read-only text. Sources and the Gmail draft are icons only (green
+  and project views (approved 2026-11-21): source icons, the created and due dates (coloured text)
+  and the tools on top; the title alone; the last update; then state, priority, the owner avatar and
+  the project as small read-only badges. Sources and the Gmail draft are icons only (green
   when linked, dimmed when not). Subtasks are flat one-line rows inside the main card.
   The round control is the one direct change (Mark done with Undo, or Reopen). Open the task editor
   to change facts; do not restore inline task fields. Edit task and New task share one form layout (approved

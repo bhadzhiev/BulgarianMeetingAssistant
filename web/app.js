@@ -77,7 +77,7 @@ function knownSpeaker(name) { const person=personFor(name);if(person)return pers
 // One avatar color per person (2026-11-20): the color comes from the name, so the same person has the same color in
 // every list. Eight fixed tones gave two people the same color too often; a hue from 360 and three lightness levels keep them apart.
 function speakerColor(name){const key=String(name||'').trim().replace(/\s+/g,' ').toLocaleLowerCase();let hash=2166136261;for(const c of key){hash^=c.codePointAt(0);hash=Math.imul(hash,16777619)>>>0;}return 'hsl('+(hash%360)+' 48% '+[28,34,40][(hash>>>16)%3]+'%)';}
-function paintAvatar(node,name){node.style.background=name?speakerColor(name):'';node.style.color=name?'#fff':'';return node;}
+function paintAvatar(node,name){const color=name?speakerColor(name):'';node.style.background=color;node.style.color=name?'#fff':'';if(color)node.style.setProperty('--avatar',color);else node.style.removeProperty('--avatar');return node;}
 function initials(name) { return name.split(/\s+/).filter(Boolean).slice(0,2).map(word=>[...word][0].toLocaleUpperCase()).join(''); }
 function speakerBadge(target,name) {
  const known=knownSpeaker(name); name=(name||'').trim();if(/^SPEAKER[ _-]?\d+$/i.test(name))name='';
@@ -1858,7 +1858,7 @@ function workReviewBadge(state,item){return ['needs_review','edited'].includes(s
 // The people who work on a shared task: the owner first (accountable), then the others.
 function taskCoAssignees(item){return (item.assignee_person_ids||[]).slice(1).map(id=>(state.people||[]).find(p=>p.id===id)).filter(Boolean);}
 function taskPeopleNames(item){return [item.owner,...taskCoAssignees(item).map(p=>p.name)].filter(Boolean);}
-// The compact task card (approved 2026-11-20): sources, created and due dates with the tools; the project and the title on one line; the last update; then state, priority and owner as plain text.
+// The compact task card (approved 2026-11-21): sources, created and due dates with the tools; the title alone; the last update; then state, priority, owner and project as small badges.
 // Subtasks sit inside the card of their main task. Facts stay read-only; the task editor is the one place to change them.
 function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}) {
  const [kind,label]=dueInfo(item,today),row=el('div','tracked-task task-tile '+kind+(nested?' task-tile-nested':''));row.dataset.itemId=item.id;
@@ -1880,7 +1880,9 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
  const priorityBadge=el('span','task-fact task-priority '+priority,priorityLabel);priorityBadge.setAttribute('aria-label','Priority: '+priorityLabel);priorityBadge.prepend(icon('flag'));
  meta.append(stateFact,priorityBadge,ownerFact);
  const head=el('div','entity-top task-tile-head'),tags=el('div','task-tile-tags'),chips=el('div','entity-chips'),tools=el('div','task-tile-tools');
- if(showProject&&!nested)for(const project of projects){const chip=projectChip(project);chip.title=project.name;if(project.color)chip.style.color=project.color;chips.append(chip);}
+ if(showProject&&!nested)for(const project of projects){const chip=projectChip(project);chip.title=project.name;chip.querySelector('.project-dot').style.background='currentColor';chips.append(chip);}
+ // The project closes the facts row (2026-11-21), so the title reads from edge to edge.
+ if(chips.childNodes.length)meta.append(chips);
  const panels=el('div','card-expansions'),contextTools=el('div','task-context-tools');panels.hidden=true;
  // Sources and the Gmail draft are icons (approved 2026-11-19): green when linked, dimmed when not. The source icon opens the sources.
  const linked=taskMeetingList(item,itemsData.meetings),others=sourceChips(item,itemsData.meetings,{withMeetings:false});
@@ -1902,7 +1904,7 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
  if(update){box=el('div','task-update');const last=el('p','task-last-line');last.textContent=String(update.text||'').replace(/[*_`#>\[\]]/g,'').replace(/\s+/g,' ').trim();
   box.append(icon('update'),el('span','task-last-when',dateTime(update.at)),last);box.title='Last update · '+dateTime(update.at)+' · '+update.text;}
  if(nested){const line=el('div','task-tile-line');line.append(tags,title,ownerFact,dueFact,tools);main.append(line,panels);}
- else{const titleLine=el('div','task-tile-title-line');titleLine.append(chips,title);head.append(tags,tools);main.append(head,titleLine);if(box)main.append(box);main.append(panels,meta);}
+ else{head.append(tags,tools);main.append(head,title);if(box)main.append(box);main.append(panels,meta);}
  if(item.acceptance_state==='proposed'){const actions=el('div','action-group proposal-actions');if(item.dismissed){const restore=el('button','secondary small-action','Restore proposal');restore.onclick=()=>perform(()=>changeItem(item,{dismissed:false}));actions.append(compactAction(restore,'restore'));}else{const accept=el('button','primary small-action','Accept task'),edit=el('button','secondary small-action','Edit'),skip=el('button','secondary small-action','Skip proposal');accept.onclick=()=>perform(()=>changeItem(item,{acceptance_state:'accepted'}));edit.type='button';edit.onclick=()=>perform(()=>openTaskPanel(item.id));skip.onclick=()=>perform(()=>changeWithUndo(item,{dismissed:true},'Proposal skipped: '+item.text,{dismissed:false}));compactAction(accept,'check');compactAction(edit,'edit');compactAction(skip,'close');actions.append(accept,edit,skip);}main.append(actions);}
  const marks=el('div','task-row-marks');if(select&&item.acceptance_state!=='proposed'&&!item.dismissed){const pick=el('label','task-pick'),select=el('input');select.type='checkbox';pick.title='Select for a bulk change';select.checked=taskSelection.has(item.id);select.setAttribute('aria-label','Select task: '+item.text);select.onchange=()=>{if(select.checked){if(taskSelection.size>=100){select.checked=false;toast('Select up to 100 tasks');return;}taskSelection.set(item.id,{id:item.id,revision:item.revision});}else taskSelection.delete(item.id);renderBulkTasks();};pick.append(select,el('span','sr-only','Select'));marks.append(pick);}
  // The round control marks the task done (Undo in the toast) or reopens it; selection replaces it while tasks are selected.
@@ -4196,7 +4198,9 @@ function meetingStatus(m){
  if(m.notes_need_refresh)return {tone:'warn',label:'Notes need update'};
  return null;
 }
-function projectChip(project){const chip=el('span','project-chip');chip.append(projectDot(project),document.createTextNode(project.name));return chip;}
+// A project colour comes from a free colour picker. Chips keep only its hue, at the palette's saturation and lightness, so every project reads well in both themes (2026-11-21).
+function projectTone(hex){const m=/^#?([0-9a-f]{6})$/i.exec(hex||'');if(!m)return null;const n=parseInt(m[1],16),[r,g,b]=[n>>16&255,n>>8&255,n&255].map(v=>v/255),max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min,l=(max+min)/2,s=d?d/(1-Math.abs(2*l-1)):0;let h=0;if(d){h=max===r?((g-b)/d+6)%6:max===g?(b-r)/d+2:(r-g)/d+4;h=Math.round(h*60)%360;}return s<.15?{dark:'hsl('+h+' 8% 70%)',light:'hsl('+h+' 8% 38%)'}:{dark:'hsl('+h+' 70% 70%)',light:'hsl('+h+' 60% 34%)'};}
+function projectChip(project){const chip=el('span','project-chip');chip.append(projectDot(project),document.createTextNode(project.name));const tone=projectTone(project?.color);if(tone){chip.style.setProperty('--project-dark',tone.dark);chip.style.setProperty('--project-light',tone.light);}return chip;}
 function clockTime(value){const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';}
 function meetingReadiness(m){
  if(!m.readiness)return null;

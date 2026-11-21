@@ -10,7 +10,7 @@ assert.match(row,/control\.classList\.add\('task-sources-control','task-origin',
 assert.match(row,/else if\(!nested\)tags\.append\(missingLink\('video','No linked meeting or source'\)\)/,'a card without sources shows a dimmed source icon');
 assert.match(app,/function missingLink\(name,label\)\{const mark=el\('span','task-link-icon inactive'\);mark\.title=label;mark\.setAttribute\('aria-label',label\)/,'a dimmed icon keeps an accessible name');
 assert.match(css,/\.task-tile \.task-link-icon\.inactive\{[^}]*opacity:\.6\}/,'missing links are dimmed to 60%');
-assert.match(row,/else\{const titleLine=el\('div','task-tile-title-line'\);titleLine\.append\(chips,title\);head\.append\(tags,tools\);main\.append\(head,titleLine\);if\(box\)main\.append\(box\);main\.append\(panels,meta\);\}/,'the project sits beside the title; updates and expanded context stay above the facts line');
+assert.match(row,/else\{head\.append\(tags,tools\);main\.append\(head,title\);if\(box\)main\.append\(box\);main\.append\(panels,meta\);\}/,'the title stands alone; updates and expanded context stay above the facts line');
 assert.match(css,/\.tracked-task\.task-tile\{display:grid;grid-template-columns:28px minmax\(0,1fr\);/);
 assert.doesNotMatch(css,/\.task-tile-facts\{[^}]*border-top/,'no divider above the facts');
 assert.match(row,/if\(!nested\)\{if\(item\.created[^\n]*tags\.append\(dueFact\);\}/,'the due date sits after the created date in the head');

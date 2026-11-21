@@ -2,10 +2,10 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
 const app=fs.readFileSync('web/app.js','utf8'),css=fs.readFileSync('web/style.css','utf8');
 const slice=(a,b)=>{const at=app.indexOf(a);assert.notEqual(at,-1,a);return app.slice(at,app.indexOf(b,at));};
 const row=slice('function globalTaskRow(','\nfunction ');
-// A task is a shared card: dates with the tools in the head, project chips beside the title, no project line.
+// A task is a shared card: dates with the tools in the head, the title alone, no project line.
 assert.match(row,/row=el\('div','tracked-task task-tile '\+kind\+\(nested\?' task-tile-nested':''\)\)/);
 assert.doesNotMatch(row,/'has-project-line'/);
-assert.match(row,/titleLine\.append\(chips,title\);head\.append\(tags,tools\)/);
+assert.match(row,/head\.append\(tags,tools\);main\.append\(head,title\)/);
 assert.match(row,/tags\.append\(dueFact\)/);
 // State, priority and owner in one row; the last update is one line in its box.
 assert.match(row,/meta\.append\(stateFact,priorityBadge,ownerFact/);

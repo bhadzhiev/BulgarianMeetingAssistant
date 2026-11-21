@@ -433,8 +433,11 @@ async function suggestTask(button,source){
  if(taskEvidenceTarget&&source.provider!=='manual')source={...source,link_only:true,capture_target:taskEvidenceTarget.id};
  taskDraftPending=true;button.disabled=true;
  // One task dialog for every source (2026-11-14): the draft opens in the same editor as a manual task.
- try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);return await openManualTask(null,{source,sourcePreview:preview});}
- finally{taskDraftPending=false;button.disabled=false;}
+ // The action ends when the dialog opens (2026-11-22): the dialog shows its own progress, and the page must not
+ // show "Suggest a task · in progress" while the person reads and edits. The source stays locked until it closes.
+ let opened=null;const release=()=>{taskDraftPending=false;button.disabled=false;};
+ try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);opened=openManualTask(null,{source,sourcePreview:preview});}
+ finally{if(opened)opened.catch(e=>error(e.message)).finally(release);else release();}
 }
 // Improve with AI returns a sharper card as a suggestion; the person reviews it before saving — nothing is written (2026-11-14).
 // The fields stay editable while the AI works: a card the person changed meanwhile is replaced only after a confirmation.

@@ -33,6 +33,9 @@ With reasoning on **Automatic**, a cloud API or a thinking local model (qwen3.5)
 **no** thinking on this improvement, so the editor does not wait for a reasoning pass at all.
 Kimi K3 always thinks and rejects a no-thinking request, so there Atlanta asks for its lightest
 valid effort (**low**). Another local server keeps its own default.
+**Draft with AI** in a **Suggest a task** dialog uses the same policy, because the person also
+waits in an open dialog. The page shows no busy state while the dialog is open. The dialog
+shows its own progress.
 
 **Create or link** can add the saved evidence to an existing accepted task while preserving its wording, owner, projects and state. Meeting proposals can use **Link to existing task**; the old proposal remains as dismissed history and only the target counts as active work. Source, evidence, task fields, routing and the retry receipt commit together. Repeating the same capture returns the same ID; changing an uncertain request is refused.
 

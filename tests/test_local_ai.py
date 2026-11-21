@@ -117,17 +117,18 @@ class LocalAITests(unittest.TestCase):
             complete_json(dict(cloud, local_ai_reasoning='low'), [], SCHEMA, 'meeting_minutes')
             self.assertEqual(post.call_args.args[1]['reasoning_effort'], 'low')
 
-    def test_automatic_policy_limits_thinking_on_team_analysis_and_task_polish(self):
+    def test_automatic_policy_limits_thinking_on_team_analysis_and_task_cards(self):
         # Improve with AI waits in an open editor: on a cloud API or a thinking local model it asks for
         # no reasoning at all, except on Kimi K3 which always thinks and takes low as its lightest
-        # (2026-11-14); team analysis keeps low for the behavioral judgment.
+        # (2026-11-14); a task draft from a source follows the same policy (2026-11-22); team analysis
+        # keeps low for the behavioral judgment.
         cloud = dict(DEFAULTS, local_ai_base_url='https://api.example.com/v1', local_ai_model='cloud-model')
         qwen = dict(DEFAULTS, local_ai_model='qwen3.5-9b')
         plain_local = dict(DEFAULTS, local_ai_model='mistral-7b')
         kimi = dict(cloud, local_ai_model='kimi-k3.1-pro')
-        for name, base, expected in [('team_analysis', cloud, 'low'), ('task_polish', cloud, 'none'), ('task_draft', cloud, None),
+        for name, base, expected in [('team_analysis', cloud, 'low'), ('task_polish', cloud, 'none'), ('task_draft', cloud, 'none'),
                                      ('task_polish', qwen, 'none'), ('task_polish', plain_local, None),
-                                     ('task_polish', kimi, 'low'), ('meeting_minutes', kimi, 'low')]:
+                                     ('task_polish', kimi, 'low'), ('task_draft', kimi, 'low'), ('meeting_minutes', kimi, 'low')]:
             with self.subTest(name=name, url=base['local_ai_base_url']), patch('meeting_assistant.post_json', return_value=response({})) as post:
                 complete_json(base, [], SCHEMA, name)
                 self.assertEqual(post.call_args.args[1].get('reasoning_effort'), expected)

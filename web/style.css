@@ -2323,3 +2323,12 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-priority-mark{display:flex;color:var(--muted)}.task-priority-mark svg{width:16px;height:16px}
 .task-priority-mark:is(.high,.critical){color:var(--danger-ink)}
 @media(max-width:900px){.task-panel-layout{grid-template-columns:minmax(0,1fr)}.task-panel-side{padding:16px 0 0;border-left:0;border-top:1px solid var(--line)}}
+
+
+/* My Work focus */
+.task-focus { display: grid; gap: .45rem; margin-block: .65rem; }
+.task-focus[hidden] { display: none; }
+.task-focus h2 { font-size: .9rem; margin: 0; }
+.task-focus-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.task-focus-row select { min-width: 0; max-width: min(32rem, 100%); }
+.task-focus-title { overflow-wrap: anywhere; text-align: left; }

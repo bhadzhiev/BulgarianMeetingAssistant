@@ -115,7 +115,7 @@ class SharedVocabularyTests(unittest.TestCase):
 
     def test_prompt_lab_uses_alias_validator_as_well(self):
         messages,schema=prompt_lab.messages_for('transcript_correction','гитхъб','general',dict(whisper_vocabulary=VOCAB))
-        settings=dict(whisper_vocabulary=VOCAB,prompt_test=dict(stage='transcript_correction',snippet='гитхъб',messages=messages,schema=schema))
+        settings=dict(whisper_vocabulary=VOCAB,prompt_test=dict(stage='transcript_correction',snippet='гитхъб',requests=[(messages,schema)]))
         with patch('app.prompt_lab.complete_json',return_value=dict(segments=[dict(id=0,text='GitHub')])):
             self.assertEqual(prompt_lab.generate(settings)['result']['segments'][0]['text'],'GitHub')
 

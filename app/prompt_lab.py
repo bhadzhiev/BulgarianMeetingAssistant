@@ -1,6 +1,5 @@
 """Isolated prompt previews. Explicit snippets only; never modifies meeting outputs."""
 import copy
-import json
 from pathlib import Path
 import secrets
 import tempfile
@@ -9,8 +8,8 @@ import time
 
 from . import meeting_types
 from .jobs import JobCancelled
-from .local_ai import complete_json
-from .prompts import STAGES, MAX_TEXT, apply, digest, key_for
+from .local_ai import complete_json, request_messages
+from .prompts import STAGES, MAX_TEXT, digest, effective_text, key_for
 from .work_items import WorkItemConflict, canonical
 
 MEETING_STAGES={'meeting_consolidation','meeting_minutes','transcript_correction','meeting_title','topic_matches'}
@@ -45,7 +44,7 @@ def resolve(service,body):
         effective=[]
         for layer in config['layers']:
             if layer.get('mode')=='replace':effective=[]
-            effective.append(layer['text'])
+            effective.append(effective_text(stage, layer['text']))
         config['effective']='\n\n'.join(effective);snapshot['id']=digest({k:v for k,v in snapshot.items() if k!='id'})
     return snapshot,kind
 
@@ -67,13 +66,13 @@ def matching_test_data(snippet):
 
 def messages_for(stage,snippet,kind,settings=None,speakers=()):
     """Use production task contracts with a synthetic single source for previews."""
-    from meeting_assistant import llm_prompt,minutes_schema
+    from meeting_assistant import minutes_messages,minutes_schema
     from . import correction,task_draft,gmail_ai,repo_reports,search
     if stage=='meeting_consolidation':
         from .notes_consolidation import messages, schema
         fact=dict(id='preview',field='summary',value=dict(text=snippet,evidence_timestamp='00:00:00'),evidence=[dict(index=0,start=0,end=1,speaker=None,text=snippet)])
         return messages([fact]),schema([fact])
-    if stage=='meeting_minutes':return [dict(role='user',content=llm_prompt('[00:00:00] '+snippet,meeting_type=kind,vocabulary=(settings or {}).get('whisper_vocabulary','')))],minutes_schema(meeting_types.sections(kind))
+    if stage=='meeting_minutes':return minutes_messages('[00:00:00] '+snippet,meeting_type=kind,vocabulary=(settings or {}).get('whisper_vocabulary','')),minutes_schema(meeting_types.sections(kind))
     if stage=='transcript_correction':return [dict(role='system',content=correction.system_prompt(settings or {},speakers)),dict(role='user',content=canonical([dict(id=0,text=snippet)]))],correction.schema(1)
     if stage=='meeting_title':
         from .meeting_automation import TITLE_SYSTEM
@@ -82,7 +81,11 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
         from . import task_matching
         data=matching_test_data(snippet)
         return [dict(role='system',content=task_matching.SYSTEM),dict(role='user',content=canonical(dict(untrusted_meeting=dict(date=data['meeting']['date'],mentions=data['mentions']),existing_tasks=data['existing_tasks'])))],task_matching.SCHEMA
-    if stage=='task_draft':return [dict(role='system',content=task_draft.SYSTEM),dict(role='user',content=canonical(dict(untrusted_source=dict(body=snippet))))],task_draft.SCHEMA
+    if stage in {'task_draft', 'task_polish'}:
+        source = dict(polish=True, account='local', title='Current task card', body=canonical(dict(text=snippet)), revision=digest(canonical(dict(text=snippet)))) if stage=='task_polish' else dict(body=snippet)
+        return task_draft.request_for(source)
+    if stage=='team_analysis':
+        return team_test_requests(snippet)[0]
     if stage=='followup_email':
         from . import followup_email
         notes=dict(meeting_title='Test meeting',meeting_date='',summary=[snippet],decisions=[],tasks=[],open_questions=[],next_steps=[])
@@ -101,7 +104,17 @@ def messages_for(stage,snippet,kind,settings=None,speakers=()):
     if stage=='meeting_answer':
         sources=[dict(kind='transcript',meeting_title='Test excerpt',timestamp='00:00:00',meeting_date='',text=snippet)]
         return [dict(role='user',content=search.answer_prompt('Какво е обсъдено в този откъс?',sources))],search.ANSWER_SCHEMA
-    return [dict(role='system',content='Match transcript segments to a discussion topic. Return only relevant segment IDs; do not infer IDs that are absent.'),dict(role='user',content='Topic: Next actions\nPhrases: []\nTranscript:\n[0] '+snippet)],dict(type='object',additionalProperties=False,required=['matches'],properties=dict(matches=dict(type='array',items=dict(type='integer'))))
+    if stage=='topic_matches':
+        from .analytics import topic_request
+        return topic_request([dict(text=snippet)], dict(name='Next actions', phrases=[]))
+    raise ValueError('Choose a known prompt stage')
+
+
+def team_test_requests(snippet):
+    from . import team_analysis
+    request = 'Мениджър: Тестов участник\nУчастници: Тестов участник\n\nТРАНСКРИПТ:\n[00:00:00] Тестов участник: ' + snippet
+    return [team_analysis.request_for(request, ['00:00:00'], 'Тестов участник', keys)
+            for keys in team_analysis.PARTS]
 
 
 def preview(service,body):
@@ -111,17 +124,33 @@ def preview(service,body):
     # The lab deliberately uses the saved Notes & AI destination for every stage.
     # It is shown before approval; production stages retain their own providers.
     target=service.repo_reports.target();target['_prompt_snapshot']=snapshot
-    messages,schema=messages_for(stage,snippet,kind,service.settings,service.library.speakers())
+    speakers = service.library.speakers()
+    if stage=='team_analysis':
+        from .team_analysis import OUTPUT_LIMIT
+        target['local_ai_max_tokens'] = OUTPUT_LIMIT
+        requests = team_test_requests(snippet)
+    else:
+        if stage=='task_polish':
+            target['local_ai_max_tokens'] = 2048
+        requests = [messages_for(stage,snippet,kind,service.settings,speakers)]
     target['whisper_vocabulary']=service.settings.get('whisper_vocabulary','')
-    target['prompt_test']=dict(stage=stage,messages=messages,schema=schema,snippet=snippet,speakers=service.library.speakers())
+    target['prompt_test']=dict(stage=stage,requests=requests,snippet=snippet,speakers=speakers)
     token=digest(dict(target=target,nonce=service.prompts.nonce))
-    full=apply(target,messages,stage)+[dict(role='user',content='Return only one JSON object matching this schema: '+json.dumps(schema,ensure_ascii=False))]
-    return dict(preview_token=token,revision=snapshot['revision'],target=target,messages=full,schema=schema,effective=snapshot['stages'][stage])
+    full = [dict(messages=request_messages(target, msgs, contract, stage), schema=contract)
+            for msgs, contract in requests]
+    return dict(preview_token=token,revision=snapshot['revision'],target=target,**full[0],requests=full,effective=snapshot['stages'][stage])
 
 
 def generate(settings,key=''):
     data=settings['prompt_test'];stage=data['stage'];snippet=data['snippet']
-    result=complete_json(settings,data['messages'],data['schema'],stage,timeout=120,api_key=key)
+    if stage=='team_analysis':
+        from .team_analysis import clean, TIMEOUT
+        result = {}
+        for messages, schema in data['requests']:
+            result.update(complete_json(settings, messages, schema, stage, timeout=TIMEOUT, api_key=key))
+        return dict(result=clean(result, ['00:00:00']))
+    (messages, schema), = data['requests']
+    result=complete_json(settings,messages,schema,stage,timeout=120,api_key=key)
     # Apply the same semantic checks where a single test source makes them meaningful.
     if stage=='transcript_correction':
         from .correction import accept
@@ -145,7 +174,7 @@ def generate(settings,key=''):
         if not validate(result,matching_test_data(snippet))['matches']:raise ValueError('The answer matched no test mention')
     elif stage=='meeting_title':
         if set(result)!={'title'} or not isinstance(result['title'],str) or not 3<=len(result['title'].strip())<=100 or any(ord(c)<32 for c in result['title']):raise ValueError('Invalid title')
-    elif stage=='task_draft':
+    elif stage in {'task_draft', 'task_polish'}:
         from .task_draft import draft_fields
         draft_fields(result)
     elif stage=='followup_email':

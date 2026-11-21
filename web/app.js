@@ -2465,6 +2465,36 @@ $('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New 
 let bulkSaving=false,taskSelection=new Map(),taskVisibleRows=[],bulkPending=null,taskWorkflow=stored('tasks-workflow')||'',taskSearchTimer=null;
 // Assigned by me is gone (2026-11-12): nobody sets Assigned by now. A saved choice of it shows All tasks.
 let managerView=['inbox','mine','followup','all'].includes(stored('manager-view'))?stored('manager-view'):'all',managerSelf=stored('manager-self')||'';
+function renderTaskFocus(today,archived){
+ const box=$('task-focus');box.replaceChildren();
+ box.hidden=itemKind!=='task'||managerView==='inbox';
+ if(box.hidden)return;
+ const active=itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&!i.dismissed&&AtlantaTasks.isOpen(i)&&(!i.snoozed_until||i.snoozed_until<=today)&&AtlantaTasks.inActiveProjects(i,archived));
+ const byId=new Map(active.map(i=>[i.id,i]));
+ const saved=stored('task-focus-ids').split(',').filter(Boolean);
+ const pinned=saved.filter(id=>byId.has(id)).slice(0,3);
+ if(saved.join(',')!==pinned.join(','))store('task-focus-ids',pinned.join(','));
+ const suggestions=AtlantaTasks.focusSuggestions(active.filter(i=>!pinned.includes(i.id)),today);
+ const title=el('h2','','Focus · '+pinned.length+' / 3');
+ box.append(title);
+ for(const id of pinned){
+  const item=byId.get(id),row=el('div','task-focus-row');
+  const remove=btn('quiet small-action','Remove from focus',()=>{store('task-focus-ids',pinned.filter(key=>key!==id).join(','));renderTaskFocus(today,archived);});
+  remove.setAttribute('aria-label','Remove '+item.text+' from focus');
+  row.append(actionBtn('quiet task-focus-title',item.text,()=>openTaskPanel(id)),remove);box.append(row);
+ }
+ if(pinned.length===3)return;
+ const select=el('select');select.setAttribute('aria-label','Task to add to focus');select.append(option('Choose a task…',''));
+ const recommended=new Set(suggestions.map(i=>i.id));
+ for(const [label,tasks] of [['Overdue or due in the next 7 days',suggestions],['Other open tasks',active.filter(i=>!pinned.includes(i.id)&&!recommended.has(i.id))]]){
+  if(!tasks.length)continue;
+  const group=el('optgroup');group.label=label;group.append(...tasks.map(i=>option(i.text,i.id)));select.append(group);
+ }
+ if(select.options.length===1){if(!pinned.length)box.hidden=true;return;}
+ const add=btn('secondary small-action','Add to focus',()=>{if(!select.value)return;store('task-focus-ids',[...pinned,select.value].join(','));renderTaskFocus(today,archived);});
+ add.disabled=true;select.onchange=()=>{add.disabled=!select.value;};
+ const controls=el('div','task-focus-row');controls.append(select,add);box.append(controls);
+}
 function renderManagerControls(){
  if(managerSelf&&!(state.people||[]).some(p=>p.id===managerSelf)){managerSelf='';store('manager-self','');}
  const controls=$('manager-controls');controls.replaceChildren();const person=el('select');person.setAttribute('aria-label','This is me');person.append(option('Choose who you are',''),...(state.people||[]).map(p=>option(p.name,p.id)));person.value=managerSelf;
@@ -2531,10 +2561,12 @@ function renderTasks() {
  renderWorkGraph();renderManagerControls();$('manager-controls').hidden=itemKind!=='task';
  const today=state.task_summary?.today||new Date().toISOString().slice(0,10), meetings=itemsData.meetings, byId=Object.fromEntries(itemsData.items.map(item=>[item.id,item]));
  const project=$('work-project'), oldProject=project.value||stored('tasks-project')||'';
- project.replaceChildren(option('All',''),option('Unassigned','__none__'),...(state.projects?.projects||[]).map(p=>option(p.name,p.id)));
+ project.replaceChildren(option('All',''),option('Unassigned','__none__'),...(state.projects?.projects||[]).map(p=>option(p.name+(p.archived?' · archived':''),p.id)));
  if([...project.options].some(o=>o.value===oldProject))project.value=oldProject;
  const inbox=itemKind==='task'&&managerView==='inbox';
- const inProject=item=>inbox||!project.value||(project.value==='__none__'?!item.effective_project_ids?.length:item.effective_project_ids?.includes(project.value));
+ const archived=new Set((state.projects?.projects||[]).filter(p=>p.archived).map(p=>p.id));
+ renderTaskFocus(today,archived);
+ const inProject=item=>inbox||(project.value?project.value==='__none__'?!item.effective_project_ids?.length:item.effective_project_ids?.includes(project.value):AtlantaTasks.inActiveProjects(item,archived));
  const context={self:managerSelf,people:state.people||[],today,search:stored('task-search')||''};
  const tasks=itemsData.items.filter(item=>item.kind==='task'&&inProject(item)&&AtlantaTasks.inView(item,managerView,{...context,proposalFilter})), decisions=itemsData.items.filter(item=>item.kind==='decision'&&inProject(item));
  const open=tasks.filter(t=>t.acceptance_state!=='proposed'&&t.workflow_state!=='cancelled'&&t.status==='open'&&!t.dismissed&&(!t.snoozed_until||t.snoozed_until<=today)), late=open.filter(t=>t.due_date&&t.due_date<today), pending=itemsData.pending.filter(entry=>!project.value||meetings[entry.meeting_id]?.project_id===project.value);
@@ -2680,13 +2712,13 @@ function typeSections(type,minutes) {
 // New projects pick from muted colours that read on the dark surfaces; a saved project colour never changes (2026-11-16).
 const PROJECT_PALETTE=['#79afff','#79c995','#d9c56f','#d97bac','#b69af5','#e6a36b','#64c7ba','#d98282','#929d96'];
 function projectDot(project){const dot=el('span','project-dot');if(project?.color)dot.style.background=project.color;dot.title=project?.color?'Project color':'No project color';return dot;}
-function fillProjects(select,value,none,extra=[]) { select.replaceChildren(option(none,''),...projectList().map(p=>option(p.name,p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
+function fillProjects(select,value,none,extra=[],{activeOnly=false}={}) { select.replaceChildren(option(none,''),...projectList().filter(p=>!activeOnly||!p.archived||p.id===value).map(p=>option(p.name+(p.archived?' · archived':''),p.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; }
 function fillSeries(select,projectId,value,none,extra=[]) { select.replaceChildren(option(none,''),...seriesOf(projectId).map(s=>option(s.name,s.id)),...extra); select.value=[...select.options].some(o=>o.value===value)?value:''; select.disabled=!projectId&&!extra.length; }
 function syncProjects() {
  registerTypes();
  const signature=JSON.stringify(state.projects); if(signature===lastProjects) return; lastProjects=signature;
  fillProjects($('project-filter'),$('project-filter').value,'All projects',projectList().length?[option('No project','__none__')]:[]); $('project-filter').hidden=!projectList().length;
- fillProjects($('record-project'),$('record-project').value,'No project'); fillSeries($('record-series'),$('record-project').value,$('record-series').value,'No series');
+ fillProjects($('record-project'),$('record-project').value,'No project',[],{activeOnly:true}); fillSeries($('record-series'),$('record-project').value,$('record-series').value,'No series');
  $('record-prepare').disabled=!$('record-project').value;
  if($('settings-dialog').open) renderProjectSettings();
  if(view==='detail'&&detail) renderScope(detail);
@@ -2793,7 +2825,7 @@ function sourceChip(source) {
 }
 // The project of the newest meeting that has one. Without such a meeting, the person chooses.
 function latestMeetingProject(){
- const known=new Set(projectList().map(p=>p.id));
+ const known=new Set(projectList().filter(p=>!p.archived).map(p=>p.id));
  return [...(state?.meetings||[])].filter(m=>known.has(m.project_id)).sort((a,b)=>String(b.started_at||b.created).localeCompare(String(a.started_at||a.created)))[0]?.project_id||'';
 }
 async function openPrepare(projectId,seriesId,kind) {
@@ -3332,21 +3364,27 @@ function repositoryEditor(project,{open=false,onSaved=null}={}){
 }
 async function loadWorkspace(){
  const sequence=++workspaceSequence,key=$('workspace-project').value;
+ if(key!==workspaceData?.project_id){workspaceTaskStatus='open';workspaceHistoryQuery='';workspaceHistoryLimit=20;}
  const fresh=await api('/api/projects/workspace?id='+encodeURIComponent(key));if(sequence!==workspaceSequence||view!=='projects'||editorDirty.keys().includes('project-repositories'))return;
  workspaceData=fresh;// Keep the project colour and the other saved fields: the cards in Projects show the colour too.
- const known=new Map((state.projects?.projects||[]).map(p=>[p.id,p]));state.projects={...state.projects,projects:fresh.projects.filter(p=>p.id!=='__none__').map(({id,name,color})=>({...known.get(id),id,name,...(color?{color}:{})}))};
+ const known=new Map((state.projects?.projects||[]).map(p=>[p.id,p]));state.projects={...state.projects,projects:fresh.projects.filter(p=>p.id!=='__none__').map(({id,name,color,archived})=>({...known.get(id),id,name,archived:!!archived,...(color?{color}:{})}))};
  fillProjects($('workspace-project'),fresh.project_id,'All projects',[option('Unassigned','__none__')]);renderWorkspace();syncRoute(true);
 }
 function renderWorkspace(){
  const data=workspaceData;if(!data)return;
  const cards=$('workspace-cards');cards.replaceChildren();$('workspace-browser').hidden=!!data.project_id;
- for(const project of data.projects){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));const head=el('div','project-card-head');head.append(projectDot(project),el('strong','',project.name));const counts=[[project.open_tasks,'open task'],[project.open_questions,'open question'],[project.meetings,'meeting'],[project.linked_conversations,'conversation']].filter(([n])=>n).map(([n,label])=>AtlantaUX.count(n,label));if(project.color){b.classList.add('has-project-line');b.style.setProperty('--project-color',project.color);}b.append(head,el('span','hint',counts.join(' · ')||'No meetings or work yet'));b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
+ if(!data.project_id&&data.projects.some(p=>p.archived)){
+  const toggle=btn('secondary small-action',showArchivedProjects?'Show active projects':'Show archived projects');
+  toggle.onclick=()=>{showArchivedProjects=!showArchivedProjects;renderWorkspace();};cards.append(toggle);
+ }
+ for(const project of data.projects.filter(p=>!!p.archived===showArchivedProjects)){const b=el('button','project-card'+(data.project_id===project.id?' selected':''));const head=el('div','project-card-head');head.append(projectDot(project),el('strong','',project.name));const counts=[[project.open_tasks,'open task'],[project.open_questions,'open question'],[project.meetings,'meeting'],[project.linked_conversations,'conversation']].filter(([n])=>n).map(([n,label])=>AtlantaUX.count(n,label));if(project.color){b.classList.add('has-project-line');b.style.setProperty('--project-color',project.color);}b.append(head,el('span','hint',counts.join(' · ')||'No meetings or work yet'));b.onclick=()=>perform(async()=>{if(!(await leaveEdits()))return;$('workspace-project').value=project.id;await loadWorkspace();});cards.append(b);}
  const activeSection=['task','decision','question'].includes(workspaceSection)?'work':workspaceSection;
  for(const b of $('workspace-tabs').querySelectorAll('button')){const on=b.dataset.section===activeSection;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));const count=b.dataset.section==='meetings'?data.meetings.length:b.dataset.section==='work'?data.items.length:b.dataset.section==='conversations'?(data.conversations||[]).length:0;const title={overview:'Overview',work:'Work',meetings:'Meetings',timeline:'Timeline',conversations:'Conversations'}[b.dataset.section];b.textContent=title+(count?' · '+count:'');}
  const extraSection={sources:'Sources'}[activeSection];$('workspace-more-label').textContent='...';$('workspace-more-label').setAttribute('aria-label','More project sections'+(extraSection?' · '+extraSection+' selected':''));$('workspace-more-label').title='More project sections'+(extraSection?' · '+extraSection+' selected':'');$('workspace-more-label').classList.toggle('selected',!!extraSection);
  const box=$('workspace-content');box.replaceChildren();
  const today=state.task_summary?.today||new Date().toLocaleDateString('en-CA');
- const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today));
+ const archived=new Set(data.projects.filter(p=>p.archived).map(p=>p.id));
+ const visible=data.items.filter(i=>!i.dismissed&&(!i.snoozed_until||i.snoozed_until<=today)&&(data.project_id||AtlantaTasks.inActiveProjects(i,archived)));
  const kinds={task:'Tasks',decision:'Decisions',question:'Questions'};
  // A task or a decision looks and works the same as in My Work.
  const byId=Object.fromEntries((itemsData?.items||[]).map(i=>[i.id,i]));
@@ -3358,13 +3396,20 @@ function renderWorkspace(){
  }
  if(workspaceSection==='overview'){
   const current=data.projects.find(p=>p.id===data.project_id),title=el('h2');if(current?.color)title.append(projectDot(current));title.append(document.createTextNode(current?.name||'All projects'));box.append(title);
+  if(current?.archived)box.append(el('p','notice','Archived project'));
+  if(current&&current.id!=='__none__')box.append(actionBtn('secondary small-action',current.archived?'Restore project':'Archive project…',async()=>{
+   if(!(await leaveEdits()))return;
+   if(!current.archived&&!(await ask('Archive '+current.name+'?\n'+AtlantaUX.count(current.open_tasks,'open task')+' · '+AtlantaUX.count(current.open_questions,'open question')+'. Meetings, tasks and links stay in the project.',{ok:'Archive'})))return;
+   state.projects=(await api('/api/projects/change',{kind:'projects',id:current.id,action:current.archived?'restore':'archive'})).projects;
+   lastProjects='';syncProjects();await loadWorkspace();toast(current.archived?'Project restored':'Project archived');
+  }));
   box.append(el('p','hint','One work item can belong to several projects. Manual assignments take priority over linked meeting projects. Source states and saved quotes remain unchanged.'));
   if(current&&current.id!=='__none__')box.append(repositoryEditor(current));else{const repositories=el('section','project-repos');repositories.append(el('h3','','Repositories'),el('p','hint','Choose a project above to view and link its repositories.'));box.append(repositories);}
   for(const [kind,title] of Object.entries(kinds)){
-   const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?i.status==='open':kind==='question'?i.status==='open':i.status==='accepted'));
+   const rows=visible.filter(i=>i.kind===kind&&(kind==='task'?AtlantaTasks.isOpen(i)&&i.acceptance_state!=='proposed':kind==='question'?i.status==='open':i.status==='accepted'));
    if(rows.length){box.append(el('h3','',title+' · '+rows.length));for(const item of rows.slice(0,5))box.append(workCard(item));
     // The heading counts the open items; Work lists every item of the kind, also closed ones.
-    if(rows.length>5)box.append(actionBtn('secondary small-action workspace-show-all','All '+title.toLowerCase()+' in Work →',async()=>{workspaceSection='work';workspaceWorkKind=kind;renderWorkspace();syncRoute(true);}));}
+    if(rows.length>5)box.append(actionBtn('secondary small-action workspace-show-all','All '+title.toLowerCase()+' in Work →',async()=>{workspaceSection='work';workspaceWorkKind=kind;workspaceTaskStatus='open';renderWorkspace();syncRoute(true);}));}
   }
  }else if(workspaceSection==='meetings'){
   box.append(el('h2','',AtlantaUX.count(data.meetings.length,'meeting')));
@@ -3380,7 +3425,40 @@ function renderWorkspace(){
   const evs=new Set(data.items.flatMap(i=>i.source_evidence||[])),ids=new Set((data.graph.source_evidence||[]).filter(e=>evs.has(e.id)).map(e=>e.source_id));
   box.append(el('h2','','Sources linked through project work'),el('p','hint','Accept or link a proposal in My Work, then assign its item to a project. This view keeps the original source and its evidence.'));
   const sourceList=el('div','entity-list');for(const source of data.graph.sources||[])if(ids.has(source.id))sourceList.append(sourceCard(source));box.append(sourceList);if(!sourceList.children.length)box.append(emptyNote('No sources are linked through project work yet.'));
- }else if(['work','task','decision','question'].includes(workspaceSection)){if(data.project_id&&data.project_id!=='__none__'){const add=actionBtn('primary','New task in this project',()=>openManualTask());box.append(add);}const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;renderWorkspace();syncRoute(true);};box.append(filter);const rows=visible.filter(i=>!filter.value||i.kind===filter.value);for(const item of rows)box.append(workCard(item));}
+ }else if(['work','task','decision','question'].includes(workspaceSection)){
+  if(data.project_id&&data.project_id!=='__none__'&&!data.projects.find(p=>p.id===data.project_id)?.archived)box.append(actionBtn('primary','New task in this project',()=>openManualTask()));
+  const filter=el('select');filter.setAttribute('aria-label','Work kind');filter.append(option('All work',''),...Object.entries(kinds).map(([key,title])=>option(title,key)));
+  filter.value=workspaceSection==='work'?workspaceWorkKind:workspaceSection;filter.hidden=!visible.length;
+  filter.onchange=()=>{workspaceSection='work';workspaceWorkKind=filter.value;workspaceTaskStatus='open';workspaceHistoryQuery='';workspaceHistoryLimit=20;renderWorkspace();syncRoute(true);};box.append(filter);
+  const rows=visible.filter(i=>!filter.value||i.kind===filter.value);
+  if(!filter.value||filter.value==='task'){
+   const tasks=rows.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed');
+   const open=tasks.filter(AtlantaTasks.isOpen).sort((a,b)=>(a.due_date||'9999').localeCompare(b.due_date||'9999'));
+   const completed=tasks.filter(i=>AtlantaTasks.workflow(i)==='done').sort((a,b)=>AtlantaTasks.completedAt(b).localeCompare(AtlantaTasks.completedAt(a))||a.id.localeCompare(b.id));
+   const cancelled=tasks.filter(i=>AtlantaTasks.workflow(i)==='cancelled').sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+   const choices=el('div','segmented'),results=el('div','task-list');
+   const options=[['open','Open · '+open.length],['completed','Completed · '+completed.length]];
+   if(cancelled.length)options.push(['cancelled','Cancelled · '+cancelled.length]);
+   if(!options.some(([status])=>status===workspaceTaskStatus))workspaceTaskStatus='open';
+   segmentedChoice(choices,options,workspaceTaskStatus,value=>{workspaceTaskStatus=value;workspaceHistoryLimit=20;workspaceHistoryQuery='';renderWorkspace();});
+   box.append(choices);
+   const history=workspaceTaskStatus==='completed'?completed:cancelled;
+   function draw(){
+    const query=workspaceHistoryQuery.trim().toLocaleLowerCase();
+    const matched=workspaceTaskStatus==='open'?open:history.filter(i=>[i.text,i.details,i.owner].join(' ').toLocaleLowerCase().includes(query));
+    const page=workspaceTaskStatus==='open'?matched:AtlantaTasks.historyPage(matched,workspaceHistoryLimit);
+    results.replaceChildren(...renderTaskTree(page,today,{select:false}));
+    if(!page.length)results.append(emptyNote('No tasks match this view.'));
+    if(page.length<matched.length)results.append(btn('secondary','Show more · '+page.length+' of '+matched.length,()=>{workspaceHistoryLimit+=20;draw();}));
+   }
+   if(workspaceTaskStatus!=='open'){
+    const search=el('input');search.type='search';search.placeholder='Search task history';search.setAttribute('aria-label','Search task history');search.value=workspaceHistoryQuery;
+    search.oninput=()=>{workspaceHistoryQuery=search.value;workspaceHistoryLimit=20;draw();};box.append(search);
+   }
+   box.append(results);draw();
+  }
+  for(const item of rows.filter(i=>i.kind!=='task'))box.append(workCard(item));
+ }
  if(!visible.length&&['overview','work','task','decision','question'].includes(workspaceSection)){const empty=el('div','empty-work');empty.append(el('h3','','A place for your next conversation'),el('p','','Record a meeting or attach a conversation to bring this project to life.'));const next=el('button','primary','New meeting');next.onclick=()=>$('new-meeting').click();empty.append(next);box.append(empty);}
  if(box.children.length<2)box.append(el('p','hint','Nothing assigned here yet.'));
 }
@@ -3391,7 +3469,7 @@ function sourceCard(source){
  if(!source.available)meta.append(statusBadge({tone:'warn',label:'Source unavailable'}),el('span','','Saved evidence remains'));
  main.append(top,meta);card.append(main);return card;
 }
-let workspaceWorkKind='';
+let workspaceWorkKind='',workspaceTaskStatus='open',workspaceHistoryQuery='',workspaceHistoryLimit=20,showArchivedProjects=false;
 // Team: the people in my team and their 1:1 reviews. Membership records periods only; it starts no analysis.
 let teamTab='members',teamStatus='active',teamData=null,teamSequence=0,teamDialogAction=null,teamReviewId='',teamReview=null,teamReviewRows=null,teamReviewPerson=null;
 // The unsaved edits of the open 1:1 review. A save of one part re-renders the panel; the other parts keep their edits.
@@ -4108,8 +4186,8 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  if(mention!==null||questionSource!==null||decisionSource!==null||question?.origin)meeting.disabled=true;
  const project=el('select');project.setAttribute('aria-label','Project');
  const initial=source?(Object.hasOwn(source,'capture_project_id')?source.capture_project_id:contextProject()):((state.meetings||[]).find(m=>m.id===meetingId)?.project_id||(view==='projects'?contextProject():($('work-project').value!=='__none__'?$('work-project').value:'')));
- fillProjects(project,initial||'','No project');
- let projectEdited=false;project.onchange=()=>{projectEdited=true;editorDirty.set(dirtyKey,true);};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project');};
+ fillProjects(project,initial||'','No project',[],{activeOnly:true});
+ let projectEdited=false;project.onchange=()=>{projectEdited=true;editorDirty.set(dirtyKey,true);};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project',[],{activeOnly:true});};
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel'),draft=btn('secondary','Draft with AI…'),improve=btn('secondary','Improve with AI');save.type=cancel.type=draft.type=improve.type='button';actions.append(cancel,draft,improve,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
  text.value=startText;details.value=startDetails||'';due.value=startDue||source?.capture_due_date||'';criterion.value=startExpected;
@@ -4319,11 +4397,13 @@ function taskHierarchySection(item,data,editing,dialog){
 }
 const taskTreeCollapsed=new Set();
 function renderTaskTree(rows,today,options){
- const result=[],ids=new Set(rows.map(t=>t.id));
+ const result=[],ids=new Set(rows.map(t=>t.id)),childrenByParent=new Map(),allByParent=new Map();
+ for(const item of rows){if(item.parent_task_id){const children=childrenByParent.get(item.parent_task_id)||[];children.push(item);childrenByParent.set(item.parent_task_id,children);}}
+ for(const item of hierarchyTasks()){if(item.parent_task_id){const children=allByParent.get(item.parent_task_id)||[];children.push(item);allByParent.set(item.parent_task_id,children);}}
  for(const item of rows){if(item.parent_task_id&&ids.has(item.parent_task_id))continue;
-  const children=rows.filter(t=>t.parent_task_id===item.id),card=globalTaskRow(item,today,options);if(!children.length){result.push(card);continue;}
+  const children=childrenByParent.get(item.id)||[],card=globalTaskRow(item,today,options);if(!children.length){result.push(card);continue;}
   // The subtasks open inside the card of their main task; the chip shows the progress and folds them.
-  const all=hierarchyTasks().filter(t=>t.parent_task_id===item.id),done=all.filter(t=>AtlantaTasks.workflow(t)==='done').length;
+  const all=allByParent.get(item.id)||children,done=all.filter(t=>AtlantaTasks.workflow(t)==='done').length;
   const nested=el('div','task-subtasks'),toggle=btn('quiet task-subtask-toggle','');toggle.append(icon('next'),el('span','',done+'/'+Math.max(all.length,children.length)+' subtasks'));
   const show=open=>{nested.hidden=!open;toggle.setAttribute('aria-expanded',String(open));toggle.classList.toggle('open',open);};
   toggle.onclick=()=>{const open=nested.hidden;if(open)taskTreeCollapsed.delete(item.id);else taskTreeCollapsed.add(item.id);show(open);};show(!taskTreeCollapsed.has(item.id));

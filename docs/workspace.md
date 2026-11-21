@@ -6,6 +6,13 @@ Open **Projects** to create a project independently of a meeting and see its
 meetings, tasks, decisions, questions and linked source evidence together.
 **Unassigned** collects meetings and work without an effective project.
 
+Use **Archive project…** from the project overview to take a finished or paused
+project out of active project browsing. The confirmation shows open tasks and
+questions. Archived projects keep their ID, source links, meetings and tasks.
+Choose **Show archived projects** in the browser to open one and **Restore project**
+to return it to the active list. My Work includes tasks shared with an active
+project and lets you explicitly filter to an archived project.
+
 A project can carry an optional **goal** — free text of up to 500 characters,
 set on creation and edited later in Settings → Projects. The goal says what the
 project exists to deliver; it travels with the project name to the AI endpoint
@@ -146,7 +153,7 @@ Edit the task layer
 (language, style, focus and extraction priorities); source adapters, JSON schemas and
 runtime evidence checks remain in code. Transcription vocabulary remains under Recording.
 
-Each operation has one built-in prompt in the app. Your layers add to it in order: global →
+Each operation has one built-in prompt in the app. The Prompt Lab uses the production message builders for meeting notes, task drafting and improvement, semantic topic matching, and both parts of team analysis. Lab inputs are synthetic apart from the supplied test excerpt. The original global Atlanta task-card template is treated as a Bulgarian language preference when its original text matches exactly; edit the layer to customize other instructions. Your layers add to it in order: global →
 meeting type → individual meeting. Without a layer, only the built-in prompt goes to the model.
 **Preview test request** shows the exact messages.
 Meeting-specific scopes apply to notes, correction, titles and topic matching. Operations

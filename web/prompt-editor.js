@@ -59,7 +59,7 @@ $('prompt-restore').onclick=()=>{const body=promptBody(),row=promptCatalog.entri
  promptDraftMode=version.mode||'append';$('prompt-text').value=version.text||'';$('prompt-text').dispatchEvent(new Event('input',{bubbles:true}));toast('Version loaded · choose Save instructions to restore it');};
 $('prompt-preview').onclick=()=>perform(async()=>{
  promptError(null);try{const body={...promptBody(),snippet:$('prompt-snippet').value},seq=++promptSequence,result=await api('/api/prompts/test/preview',body);if(seq!==promptSequence||JSON.stringify(body)!==JSON.stringify({...promptBody(),snippet:$('prompt-snippet').value}))return;
-  promptPreview={...body,preview_token:result.preview_token};$('prompt-messages').textContent=JSON.stringify({messages:result.messages,schema:result.schema},null,2);$('prompt-request').hidden=false;$('prompt-request').open=true;
+  promptPreview={...body,preview_token:result.preview_token};$('prompt-messages').textContent=JSON.stringify(result.requests?.length>1?result.requests:{messages:result.messages,schema:result.schema},null,2);$('prompt-request').hidden=false;$('prompt-request').open=true;
   $('prompt-target').textContent='Send the displayed excerpt to '+result.target.local_ai_base_url+' · '+result.target.local_ai_model+' · '+result.target.local_ai_max_tokens+' output tokens. Tests use the saved Notes & AI settings.';$('prompt-test').disabled=false;
  }catch(error){promptError(error);}
 });

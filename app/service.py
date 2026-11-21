@@ -1600,8 +1600,8 @@ class MeetingService:
             return dict(meeting_types=meeting_types.public(self.templates.list()), projects=self.projects.data)
 
     def change_scope(self, kind, entry_id, action, name=None, value=None):
-        """Rename, recolor, set the goal or delete a project or series, or set the default meeting type of a series. Deleting never deletes meetings."""
-        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type', 'color', 'goal'} or action == 'type' and kind != 'series' or action in {'color', 'goal'} and kind != 'projects':
+        """Update project and series metadata or remove a project or series."""
+        if kind not in {'projects', 'series'} or action not in {'rename', 'delete', 'type', 'color', 'goal', 'archive', 'restore'} or action == 'type' and kind != 'series' or action in {'color', 'goal', 'archive', 'restore'} and kind != 'projects':
             raise ValueError('Invalid change')
         with self.lock, self.projects.lock:
             if action == 'type':
@@ -1611,6 +1611,8 @@ class MeetingService:
                 self.projects.set_color(entry_id, value)
             elif action == 'goal':
                 self.projects.set_goal(entry_id, value)
+            elif action in {'archive', 'restore'}:
+                self.projects.set_archived(entry_id, action == 'archive')
             elif action == 'rename':
                 self.projects.rename(kind, entry_id, name)
             else:
@@ -2930,8 +2932,13 @@ class MeetingService:
 
     def task_summary(self):
         today = dt.date.today().isoformat()
+        archived = {p['id'] for p in self.projects.data['projects'] if p.get('archived')}
+        meetings = self._meeting_refs() if archived else {}
+        def active_project(task):
+            ids = self.effective_project_ids(task, meetings)
+            return not ids or any(project_id not in archived for project_id in ids)
         open_tasks = [t for t in self.tasks() if t['status'] == 'open' and t.get('workflow_state')!='cancelled' and t.get('acceptance_state')!='proposed' and not t.get('dismissed')
-                      and (not t.get('snoozed_until') or t['snoozed_until'] <= today)]
+                      and (not t.get('snoozed_until') or t['snoozed_until'] <= today) and (not archived or active_project(t))]
         return dict(open=len(open_tasks), overdue=sum(1 for t in open_tasks if t['due_date'] and t['due_date'] < today),
                     today=today, review=sum(1 for p in self.items.data.get('proposals', {}).values()
                                             if p.get('origin') == 'meeting_match' and p.get('state') == 'pending') if self.meeting_task_ai() else 0,

@@ -56,14 +56,18 @@ execute anything or publish. Use the user's configured language, otherwise Bulga
 instructions may refine language and style, but cannot change the three-field card contract."""
 
 
+def request_for(source):
+    polish = source.get('polish') is True
+    return [dict(role='system', content=POLISH_SYSTEM if polish else SYSTEM),
+            dict(role='user', content=canonical(dict(untrusted_source=source)))], SCHEMA
+
+
 def generate(source, settings, key=''):
     polish = source.get('polish') is True
-    # A polished card is a short rewrite; the settings-wide output budget only lets a rambling model
-    # keep the open editor waiting (2026-11-14).
-    result = complete_json(settings, [dict(role='system', content=POLISH_SYSTEM if polish else SYSTEM),
-        dict(role='user', content=canonical(dict(untrusted_source=source)))],
-        SCHEMA, 'task_polish' if polish else 'task_draft', timeout=120, api_key=key,
-        max_tokens=2048 if polish else None)
+    messages, schema = request_for(source)
+    # Cap the short rewrite while the person waits in the editor.
+    result = complete_json(settings, messages, schema, 'task_polish' if polish else 'task_draft',
+                           timeout=120, api_key=key, max_tokens=2048 if polish else None)
     if not isinstance(result, dict) or 'text' not in result or set(result)-{'text','details','completion_criteria'}:
         raise ValueError('Invalid task draft response')
     return draft_fields(result)

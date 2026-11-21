@@ -235,6 +235,15 @@ def preview(service, body):
                 self_name=service.settings.get('self_name', ''))
 
 
+def request_for(request, stamps, leader, keys):
+    full = schema(stamps)
+    part = dict(full, required=list(keys), properties={key: full['properties'][key] for key in keys})
+    instructions = ''.join(INSTRUCTIONS[part_keys] for part_keys in PARTS if set(part_keys) <= set(keys))
+    system = (SYSTEM + instructions).replace('{manager}', leader)
+    only = '\n\nВ този отговор върни само: ' + ', '.join(keys) + '.'
+    return [dict(role='system', content=system + only), dict(role='user', content=request)], part
+
+
 def generate(service, body, complete=None, progress=None, cancel=None):
     """The requests to the Notes & AI provider run in parallel. The result replaces the saved analysis."""
     meeting_id = body.get('meeting_id')
@@ -267,17 +276,15 @@ def generate(service, body, complete=None, progress=None, cancel=None):
     try:
         if complete is None:
             from .local_ai import complete_json as complete
-        full, result, lock, finished = schema(stamps), {}, threading.Lock(), 0
+        result, lock, finished = {}, threading.Lock(), 0
         if progress:
             progress(0, 'Two parallel requests: the people, and the team with the coaching')
 
         def ask(keys):
             nonlocal finished
-            part = dict(full, required=list(keys), properties={key: full['properties'][key] for key in keys})
-            only = '\n\nВ този отговор върни само: ' + ', '.join(keys) + '. Другата част е в отделна заявка.'
-            system = (SYSTEM + INSTRUCTIONS[keys]).replace('{manager}', leader)
-            answer = complete(target, [dict(role='system', content=system + only), dict(role='user', content=request)], part,
-                              'team_analysis', timeout=TIMEOUT, api_key=service.ai_key(target['provider']))
+            messages, part = request_for(request, stamps, leader, keys)
+            answer = complete(target, messages, part, 'team_analysis', timeout=TIMEOUT,
+                              api_key=service.ai_key(target['provider']))
             with lock:
                 finished += 1
                 if progress:

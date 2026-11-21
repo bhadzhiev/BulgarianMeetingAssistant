@@ -116,7 +116,7 @@ class IntakeTests(unittest.TestCase):
   output=dict(text='Провери Kubernetes backup',details='Използвай staging.',completion_criteria='Запиши резултата от restore.')
   messages,schema=prompt_lab.messages_for('task_draft','Провери backup в staging.','general')
   self.assertEqual(set(schema['required']),{'text','details','completion_criteria'})
-  settings=dict(prompt_test=dict(stage='task_draft',snippet='Провери backup в staging.',messages=messages,schema=schema))
+  settings=dict(prompt_test=dict(stage='task_draft',snippet='Провери backup в staging.',requests=[(messages,schema)]))
   with patch('app.prompt_lab.complete_json',return_value=output):self.assertEqual(prompt_lab.generate(settings)['result'],output)
   with patch('app.task_draft.complete_json',return_value=output):self.assertEqual(task_draft.generate({'body':'Провери backup в staging.'},{}),output)
   for invalid in [dict(output,owner='Maria'),dict(output,completion_criteria=['Unsupported shape'])]:

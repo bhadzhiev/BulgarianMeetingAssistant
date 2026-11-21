@@ -187,8 +187,7 @@ TOPIC_RULES = ('Match transcript segments to a discussion topic. A segment match
 MIN_SEMANTIC_WORDS = 3
 
 
-def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict]:
-    from .local_ai import complete_json
+def topic_request(segments, tracker):
     schema = {
         'type': 'object',
         'properties': {'matches': {'type': 'array', 'items': {'type': 'integer'}}},
@@ -200,6 +199,12 @@ def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict
         {'role': 'system', 'content': TOPIC_RULES},
         {'role': 'user', 'content': f'Topic: {tracker["name"]}\nPhrases: {json.dumps(tracker.get("phrases", []), ensure_ascii=False)}\nTranscript:\n{transcript}'},
     ]
+    return messages, schema
+
+
+def semantic_topic_matches(segments, tracker, settings, api_key='') -> list[dict]:
+    from .local_ai import complete_json
+    messages, schema = topic_request(segments, tracker)
     response = complete_json(settings, messages, schema, 'topic_matches', timeout=300, api_key=api_key)
     ids = response.get('matches')
     if not isinstance(ids, list) or any(type(index) is not int or not 0 <= index < len(segments) for index in ids):

@@ -428,6 +428,9 @@ def llm_prompt(transcript: str, speakers: list[str] | None = None, meeting_date:
 Предположение не е ангажимент: „може би ще го дам на Иван“, „ако има време“, „ще видим“ не правят задача и
 не правят отговорник. Запиши ги в open_questions. Задача с отговорник и отворен въпрос „дали той ще я поеме“
 си противоречат: избери едното според текста.
+Примери за разграничение: „Ако остане време, може да помоля Иван да провери“ е въпрос, без отговорник и срок.
+„Аз ще проверя архива до петък“ е задача на говорещия с изричен срок.
+„Пуснахме промяната“ е съобщена актуализация; проверен резултат има само ако е посочена проверката.
 Ако отговорник или срок липсва, върни null. За всяка задача дай timestamp от текста.
 Отговорник: когато говорещият поема работа в първо лице („ще говоря с него“, „аз ще го пусна“),
 отговорникът е говорещият на този ред. Желание или намерение без договорено действие („искам някой ден да говоря
@@ -496,6 +499,15 @@ evidence_timestamp на казаното. Пиши какво е казано, �
 
 Напомняне: върни само JSON по дадената схема, на български. Всяко твърдение носи своя evidence_timestamp;
 без основа в текста върни null или празен списък, вместо да отгатваш."""
+
+
+def minutes_messages(transcript, *args, **kwargs):
+    marker = '\nТРАНСКРИПТ:\n'
+    header, _, reminder = llm_prompt('', *args, **kwargs).rpartition(marker)
+    return [
+        {'role': 'system', 'content': header.strip() + '\n\n' + reminder.strip()},
+        {'role': 'user', 'content': marker.lstrip() + transcript},
+    ]
 
 
 def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None = None, timeout: int = 600) -> dict[str, Any]:
@@ -753,7 +765,7 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
     transcript = transcript_for_llm(segments)
     if not transcript:
         raise ValueError("Cannot summarize an empty transcript")
-    prompt = llm_prompt(transcript, getattr(args, "speakers", None), getattr(args, "meeting_date", None),
+    messages = minutes_messages(transcript, getattr(args, "speakers", None), getattr(args, "meeting_date", None),
                         [m for m in getattr(args, "markers", None) or [] if segments[0].start - 5 <= m["time"] <= segments[-1].end + 5],
                         getattr(args, "meeting_type", meeting_types.DEFAULT), getattr(args, "whisper_vocabulary", ""),
                         (segments[0].start, segments[-1].end, getattr(args, "meeting_duration", None)))
@@ -766,13 +778,13 @@ def generate_minutes(args: argparse.Namespace, segments: list[TranscriptSegment]
     schema["properties"]["discussion"]["items"]["properties"]["points"]["items"]["properties"]["evidence_timestamp"]["enum"] = stamps + [None]
     if args.summarizer in {"local", "ollama"}:
         from app.local_ai import complete_json
-        return complete_json(vars(args), [{"role": "user", "content": prompt}], schema, "meeting_minutes", api_key=getattr(args, "api_key", "") or "")
+        return complete_json(vars(args), messages, schema, "meeting_minutes", api_key=getattr(args, "api_key", "") or "")
     if args.summarizer == "openai":
         key = getattr(args, "api_key", None) or os.environ.get("OPENAI_API_KEY")
         if not key:
             raise ValueError("Set OPENAI_API_KEY or use --summarizer local")
         from app.prompts import openai_json
-        return openai_json([{"role": "user", "content": prompt}], schema, "meeting_minutes", args.llm_model, key, settings=vars(args))
+        return openai_json(messages, schema, "meeting_minutes", args.llm_model, key, settings=vars(args))
     raise ValueError(f"Unknown summarizer: {args.summarizer}")
 
 

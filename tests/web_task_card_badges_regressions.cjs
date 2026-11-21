@@ -32,7 +32,9 @@ assert.equal(ctx.projectTone('#929d96').dark,'hsl(142 8% 70%)','a grey stays gre
 assert.match(section,/\.project-chip\{--tone:currentColor;color:var\(--project-light,var\(--text-2\)\)\}/);
 assert.match(section,/prefers-color-scheme:dark\)\{\.task-tile \.task-tile-facts \.project-chip\{color:var\(--project-dark/);
 assert.doesNotMatch(row,/chip\.style\.color=project\.color/,'the raw picker colour is not used as text');
-// The avatar ring uses the person's own colour.
+// The card avatar: ring, tint and initials in the person's own colour.
 assert.match(app,/node\.style\.setProperty\('--avatar',color\)/);
-assert.match(section,/\.tracked-owner \.speaker-badge\{box-shadow:0 0 0 2px var\(--card\),0 0 0 3px var\(--avatar,var\(--line-strong\)\)\}/);
+assert.match(section,/\.tracked-owner \.speaker-badge\{color:color-mix\(in srgb,var\(--avatar,var\(--muted\)\) 75%,var\(--text-strong\)\)!important;background:color-mix\(in srgb,var\(--avatar,var\(--muted\)\) 22%,var\(--card\)\)!important;box-shadow:inset 0 0 0 1\.5px/);
+// The round state control has the size of the other card icons.
+assert.match(section,/\.task-tile:not\(\.task-tile-nested\) \.task-done-toggle,\.task-tile:not\(\.task-tile-nested\) \.task-done-toggle svg\{width:20px;height:20px/);
 console.log('project tone and avatar ring ok');

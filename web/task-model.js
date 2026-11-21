@@ -9,7 +9,7 @@
   const mine=!!self&&(item.owner_person_id===self||!!item.manual?.includes('owner')&&names.includes((item.owner||'').toLowerCase()));
   if(view==='mine')return mine;
   if(view==='delegated')return !!self&&item.assigned_by_person_id===self&&!mine;
-  if(view==='followup')return !['done','cancelled'].includes(workflow(item))&&((item.follow_up_date&&item.follow_up_date<=today)||(item.due_date&&item.due_date<today)||workflow(item)==='waiting');
+  if(view==='followup')return !['done','cancelled'].includes(workflow(item))&&((item.follow_up_date&&item.follow_up_date<=today)||(item.due_date&&item.due_date<today)||workflow(item)==='waiting'&&!item.follow_up_date);
   return true;
  }
  const isOpen=item=>!['done','cancelled'].includes(workflow(item));

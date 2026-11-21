@@ -4,7 +4,7 @@ const app=fs.readFileSync('web/app.js','utf8'),html=fs.readFileSync('web/index.h
 assert.match(html,/<button id="tab-notes"[^>]*>Notes<\/button><button id="tab-team" role="tab" aria-selected="false">Team analysis<\/button>/);
 assert.match(html,/<div id="team-analysis-panel" class="card" hidden>.*PRIVATE · NOT IN NOTES OR EXPORTS.*<button id="team-analysis-run"/);
 assert.match(app,/\['team','team-analysis-panel'\]/);
-assert.match(app,/\['review','outcomes','notes','team','analytics'\]\.includes\(tab\)/);
+assert.match(app,/\['review','daily','outcomes','notes','team','analytics'\]\.includes\(tab\)/);
 assert.match(app,/renderNotes\(busy\); renderTeamAnalysis\(busy\);/);
 // The four parts of the analysis, in the order that the person asked for.
 const order=['Work behavior by person','Communication and team dynamics','Discourse: words, wording and implied meanings','Coaching: your management practice'].map(t=>app.indexOf("teamSection('"+t+"'"));

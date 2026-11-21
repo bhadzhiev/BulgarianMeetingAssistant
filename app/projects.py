@@ -66,6 +66,9 @@ class Projects(SafeJSON):
                     try:_goal(entry['goal'])
                     except ValueError:raise ValueError('Invalid project goal')
                 if kind=='series':
+                    if 'daily_agenda' in entry:
+                        from .daily import validate_agenda
+                        validate_agenda(entry['daily_agenda'])
                     if entry.get('project_id') not in {p['id'] for p in data['projects']}:raise ValueError('Series has no project')
                     type_id=entry.get('type')
                     # Unknown legacy type names fall back to General on read/merge.
@@ -260,6 +263,8 @@ class Projects(SafeJSON):
                         added['goal'] = goal
                 if kind == 'series' and (entry.get('type') in TYPES or isinstance(entry.get('type'), str) and CUSTOM_ID.fullmatch(entry['type'])):
                     added['type'] = entry['type']
+                if kind == 'series' and entry.get('daily_agenda'):
+                    added['daily_agenda'] = [dict(topic) for topic in entry['daily_agenda']]
                 self.data[kind].append(added)
                 mapping[kind][entry['id']] = new_id
         return mapping

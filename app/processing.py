@@ -421,7 +421,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     map_args = {k: v for k, v in vars(args).items() if k != 'api_key'}
     if map_args.get('_prompt_snapshot'):
         map_args['_prompt_snapshot'] = select_stages(map_args['_prompt_snapshot'], ('meeting_minutes',))
-    identity = dict(version=3, segments=[asdict(s) for s in segments], args=map_args)
+    identity = dict(version=4, segments=[asdict(s) for s in segments], args=map_args)
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     checkpoint = directory / '.notes-progress.json'
     saved = read_json(checkpoint, {})

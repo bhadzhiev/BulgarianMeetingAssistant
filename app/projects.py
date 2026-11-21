@@ -60,6 +60,8 @@ class Projects(SafeJSON):
                 if kind=='projects' and 'color' in entry:
                     try:_color(entry['color'])
                     except ValueError:raise ValueError('Invalid project color')
+                if kind=='projects' and 'archived' in entry and type(entry['archived']) is not bool:
+                    raise ValueError('Invalid project archive state')
                 if kind=='projects' and 'goal' in entry:
                     try:_goal(entry['goal'])
                     except ValueError:raise ValueError('Invalid project goal')
@@ -192,6 +194,13 @@ class Projects(SafeJSON):
         project['repositories'] = result
         return result
 
+    def set_archived(self, project_id: str, archived: bool) -> None:
+        self.guard_write()
+        entry = self.get('projects', project_id)
+        if entry is None:
+            raise ValueError('This project no longer exists. Reload and try again.')
+        entry['archived'] = archived
+
     def delete(self, kind: str, entry_id) -> set[str]:
         """Remove a project with its series, or one series. Returns the removed series IDs."""
         self.guard_write()
@@ -235,6 +244,8 @@ class Projects(SafeJSON):
                     continue
                 new_id = entry['id'] if not self.get(kind, entry['id']) else uuid.uuid4().hex[:12]
                 added = dict(id=new_id, name=name, **({'project_id': project_id} if kind == 'series' else {}))
+                if kind == 'projects' and entry.get('archived'):
+                    added['archived'] = True
                 if kind == 'projects' and isinstance(entry.get('repositories'), list):
                     from .github_source import REPO
                     added['repositories'] = [r for r in entry['repositories'] if isinstance(r, str) and REPO.fullmatch(r)][:30]

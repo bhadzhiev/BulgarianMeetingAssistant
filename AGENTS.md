@@ -100,7 +100,9 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
   to change facts; do not restore inline task fields. Edit task and New task share one form layout (approved
   2026-11-20): the project, task ID and close mark in the head; content on the left (Edit task: Details, Subtasks and History &
   activity tabs); task parameters on the right. Decisions, questions and uncreated
-  meeting-note suggestions keep their own shared patterns.
+  meeting-note suggestions keep their own shared patterns. Project Work opens on Open tasks, with
+  searchable Completed history. My Work has up to three locally selected Focus tasks.
+  Project archive is reversible and preserves IDs, meetings, assignments and sources.
 
 ## Workflow
 

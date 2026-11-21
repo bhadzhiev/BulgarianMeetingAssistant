@@ -12,6 +12,30 @@
   if(view==='followup')return !['done','cancelled'].includes(workflow(item))&&((item.follow_up_date&&item.follow_up_date<=today)||(item.due_date&&item.due_date<today)||workflow(item)==='waiting');
   return true;
  }
+ const isOpen=item=>!['done','cancelled'].includes(workflow(item));
+ const inActiveProjects=(item,archived)=>{
+  const ids=item.effective_project_ids||[];
+  return !ids.length||ids.some(id=>!archived.has(id));
+ };
+ function completedAt(item){
+  const event=[...(item.history||[])].reverse().find(entry=>entry.changes?.workflow_state?.[1]==='done'||entry.changes?.status?.[1]==='done');
+  return event?.at||item.created||'';
+ }
+ function historyPage(items,limit){
+  const ids=new Set(items.map(item=>item.id)),groups=new Set();
+  const key=item=>ids.has(item.parent_task_id)?item.parent_task_id:item.id;
+  for(const item of items){if(groups.size===limit)break;groups.add(key(item));}
+  return items.filter(item=>groups.has(key(item)));
+ }
+ function focusSuggestions(items,today){
+  if(!today)return [];
+  const after=new Date(today+'T00:00:00Z');
+  after.setUTCDate(after.getUTCDate()+7);
+  const horizon=after.toISOString().slice(0,10);
+  const priority={critical:0,high:1,normal:2,low:3};
+  return items.filter(item=>item.due_date&&item.due_date<=horizon)
+   .sort((a,b)=>a.due_date.localeCompare(b.due_date)||(priority[a.priority]??2)-(priority[b.priority]??2)||a.id.localeCompare(b.id));
+ }
  function lastUpdate(item){return [...(item.history||[])].reverse().filter(e=>e.event==='progress_update'&&e.text).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0]||null;}
  // A deadline said in words that names a clear date: one click applies it as the due date.
  const MONTHS={януари:0,февруари:1,март:2,април:3,май:4,юни:5,юли:6,август:7,септември:8,октомври:9,ноември:10,декември:11};
@@ -48,5 +72,5 @@
  // The tasks of one meeting by owner, in the order each owner first appears; tasks without an owner come last.
  // One spelling of a name with other letter case is the same owner (2026-11-13).
  function ownerGroups(groups,ownerOf){const byOwner=new Map();for(const group of groups){const name=String(ownerOf(group)||'').trim(),key=name.toLocaleLowerCase();if(!byOwner.has(key))byOwner.set(key,{owner:name,groups:[]});byOwner.get(key).groups.push(group);}const rows=[...byOwner.values()];return [...rows.filter(r=>r.owner),...rows.filter(r=>!r.owner)];}
- return {STATES,workflow,inView,lastUpdate,suggestDueDate,personMatches,visibleSelection,meetingGroups,ownerGroups};
+ return {STATES,workflow,inView,isOpen,inActiveProjects,completedAt,historyPage,focusSuggestions,lastUpdate,suggestDueDate,personMatches,visibleSelection,meetingGroups,ownerGroups};
 });

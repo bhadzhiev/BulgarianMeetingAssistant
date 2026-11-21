@@ -1,9 +1,11 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import unittest
 
 from app.service import MeetingService
 from app.team_facts import collect
+from app.team_reviews import TZ
 from app.team_github import section
 from tests.test_calendar import FakeGoogle
 from tests.test_team_facts import DAY
@@ -28,8 +30,12 @@ class TeamCompareTests(unittest.TestCase):
 
     def test_comparable_periods_show_the_change(self):
         # A later week: the task of setUp has no new fact in it.
-        previous = dict(period=dict(start=DAY(13, 0), end=DAY(20, 0)), coverage=dict(fact_version=2, sources=['meetings', 'tasks', 'decisions'], meetings=2, speaking=1, counts=dict(assigned=3)), evidence=[])
-        text = collect(self.s, self.maria, DAY(20, 0), DAY(27, 0), previous)['review_md']
+        task_time = datetime.fromisoformat(self.task['created']).astimezone(TZ)
+        start = task_time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        previous = dict(period=dict(start=(start - timedelta(days=7)).isoformat(), end=start.isoformat()),
+                        coverage=dict(fact_version=2, sources=['meetings', 'tasks', 'decisions'], meetings=2,
+                                      speaking=1, counts=dict(assigned=3)), evidence=[])
+        text = collect(self.s, self.maria, start.isoformat(), (start + timedelta(days=7)).isoformat(), previous)['review_md']
         self.assertIn('| Fact | Last review | This review | Change |', text)
         self.assertIn('| Assigned | 3 | 0 | -3 |', text)
         self.assertIn('A change in a count is not a measure of performance.', text)

@@ -66,8 +66,14 @@ Atlanta saves a Gmail draft and never sends email. Each task then shows an envel
 and its history has an entry with the recipients and the subject. Saving again for the same tasks
 updates the same draft. This needs the `gmail.compose` permission, the same as **Follow-up email**.
 
-Projects shows tasks and decisions with the same rows as My Work. The overview shows five of each kind;
-**All tasks in Work →** opens the full list. **Delete** and other rare actions of a task, a decision or a
+**Focus** in My Work keeps up to three tasks selected on this Mac. The picker
+suggests overdue tasks and tasks due within seven days. Open any entry to see
+the task card or remove it from Focus.
+
+Projects uses the same task cards as My Work. **Overview** previews up to five
+items of each kind. **Work** starts with **Open** tasks. **Completed** lists the most
+recent completions first, with search across all matching history and **Show more**
+for the next groups of tasks. Cancelled tasks have their own view. **Delete** and other rare actions of a task, a decision or a
 notes line are in its **...** menu, so the row keeps its main action in view.
 
 The Gmail, Chat and GitHub tabs use the same layout. The bar on top shows the connection and the sync

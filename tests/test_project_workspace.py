@@ -56,6 +56,24 @@ class ProjectWorkspaceTests(unittest.TestCase):
     def test_deleted_project_does_not_leave_invisible_work(self):
         q=self.question();self.assign(q,[self.a]);self.s.change_scope('projects',self.a,'delete')
         self.assertEqual(self.s.project_workspace('__none__')['items'][0]['id'],q['id'])
+    def test_archiving_keeps_assignments_and_excludes_only_archived_work_from_badge(self):
+        solo = self.s.create_task({'text': 'Check the backups', 'project_id': self.a, 'request_id': 'a' * 32})
+        shared = self.s.create_task({'text': 'Check the monitoring', 'project_id': self.b, 'request_id': 'b' * 32})
+        self.assign(shared, [self.a, self.b])
+        meeting = self.s.library.create('Sync', 'in_person', self.s.settings)
+        self.s.set_scope(meeting['id'], {'id': self.a})
+        self.assertEqual(self.s.task_summary()['open'], 2)
+        self.s.change_scope('projects', self.a, 'archive')
+        self.assertTrue(self.s.projects.get('projects', self.a)['archived'])
+        self.assertEqual(self.s.task_summary()['open'], 1)
+        self.assertEqual(self.row(solo['id'])['effective_project_ids'], [self.a])
+        self.assertEqual(set(self.row(shared['id'])['effective_project_ids']), {self.a, self.b})
+        self.assertEqual(self.s.library.get(meeting['id'])['project_id'], self.a)
+        self.assertEqual(len(self.s.project_workspace(self.a)['items']), 2)
+        self.s.change_scope('projects', self.a, 'restore')
+        self.assertFalse(self.s.projects.get('projects', self.a)['archived'])
+        self.assertEqual(self.s.task_summary()['open'], 2)
+
     def test_restore_remaps_project_membership_by_name(self):
         q=self.question();self.assign(q,[self.a]);archive=self.s.create_backup()['created']['name']
         target=MeetingService(Path(self.tmp.name)/'target',PROJECT,google=FakeGoogle(),backup_dir=self.s.backup_dir);self.addCleanup(target.close)

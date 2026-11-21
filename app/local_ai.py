@@ -139,6 +139,14 @@ def server_reason(exc):
     return f' The server answered HTTP {exc.code}' + (f': {message}' if message else '.')
 
 
+def request_messages(settings, messages, schema, name):
+    from .prompts import apply
+    return apply(settings, messages, name) + [
+        {'role': 'user', 'content': 'Return only one JSON object matching this schema: ' +
+         json.dumps(schema_hint(schema), ensure_ascii=False)}
+    ]
+
+
 def complete_json(settings, messages, schema, name, timeout=600, api_key='', max_tokens=None):
     from meeting_assistant import post_json, extract_json
     base_url = validate_base_url(settings.get('local_ai_base_url', DEFAULT_BASE_URL))
@@ -147,9 +155,7 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key='', max
     if mode not in {'json_schema', 'json_object', 'text'}:
         raise ValueError('Invalid API response format')
     # Include the schema in the prompt even when the server cannot constrain output.
-    from .prompts import apply
-    messages = apply(settings,messages,name)
-    messages.append({'role': 'user', 'content': 'Return only one JSON object matching this schema: ' + json.dumps(schema_hint(schema), ensure_ascii=False)})
+    messages = request_messages(settings, messages, schema, name)
     if max_tokens is None:
         max_tokens = settings.get('local_ai_max_tokens', 4096)
     if type(max_tokens) is not int or not 128 <= max_tokens <= 32768:

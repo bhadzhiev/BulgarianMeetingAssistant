@@ -14,3 +14,19 @@ Record the microphone/model/provider, Mac model and RAM, processing time, and au
 
 No real audio samples or provider rankings are bundled. The test suite uses synthetic audio;
 it does not establish recognition accuracy or real microphone stability.
+
+## Prompt request comparison
+
+Run `python benchmarks/prompt_requests.py` for an offline report of request
+counts and message sizes on 15 synthetic Bulgarian excerpts. Add both
+`--base-url URL` and `--model MODEL` to collect real answers and provider token
+usage. The optional credential comes from `ATLANTA_BENCHMARK_API_KEY`. Use
+`--case N` for a single excerpt. The script never reads the Atlanta library.
+
+Compare the current title and notes calls with the combined candidate, and
+the split team analysis with the combined candidate. For notes, use the human
+reference to score missed and invented commitments, owner and deadline, and
+whether each cited moment supports its claim. For titles, check specificity
+and support in the excerpt. For team analysis, check attribution, whether
+quotes are exact and local to the cited moment, and whether both candidates
+preserve supported observations. Record failures alongside time and tokens.

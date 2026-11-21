@@ -15,7 +15,7 @@ assert.match(app,/list\.append\(conversationCard\(row,\{onChange:loadConversatio
 assert.match(app,/\.filter\(\(\[n\]\)=>n\)\.map\(\(\[n,label\]\)=>AtlantaUX\.count\(n,label\)\)/);
 assert.match(css,/\.project-card\.has-project-line\{border-left:3px solid var\(--project-color\)\}/);
 // Projects keep the project colour for chips and project lines.
-assert.match(app,/map\(\(\{id,name,color\}\)=>\(\{\.\.\.known\.get\(id\),id,name,\.\.\.\(color\?\{color\}:\{\}\)\}\)\)/);
+assert.match(app,/map\(\(\{id,name,color,archived\}\)=>\(\{\.\.\.known\.get\(id\),id,name,archived:!!archived,\.\.\.\(color\?\{color\}:\{\}\)\}\)\)/);
 // People: one useful identity on the row.
 const identity=slice('function personIdentity(person){');
 assert.match(identity,/github\|\|\(aliases\[0\]\?'Also '\+aliases\[0\]:''\)\|\|emails\[0\]/);

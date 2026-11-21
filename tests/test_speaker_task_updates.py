@@ -21,8 +21,9 @@ class SpeakerTaskUpdateTests(unittest.TestCase):
         self.s = MeetingService(Path(self.tmp.name), PROJECT, google=FakeGoogle());self.addCleanup(self.s.close)
         self.ivan = self.s.save_person(dict(name='Иван'))['person']
         self.maria = self.s.save_person(dict(name='Мария'))['person']
-        self.offer = self.task('Подготви офертата за клиента', self.ivan, 'a')
-        self.server = self.task('Инсталирай новия сървър', self.maria, 'b')
+        with mock.patch('app.items.now', return_value='2026-11-19T10:00:00+02:00'):
+            self.offer = self.task('Подготви офертата за клиента', self.ivan, 'a')
+            self.server = self.task('Инсталирай новия сървър', self.maria, 'b')
         self.answers = {}
         self.confidence = {}
         self.inputs = []
@@ -97,7 +98,8 @@ class SpeakerTaskUpdateTests(unittest.TestCase):
     def test_closed_task_gets_no_update(self):
         mid = self.meeting()
         offer = self.s.items.items[self.offer['id']]
-        self.s.update_item(offer['id'], offer['text'], dict(workflow_state='done'), offer['revision'])
+        with mock.patch('app.items.now', return_value='2026-11-20T09:00:00+02:00'):
+            self.s.update_item(offer['id'], offer['text'], dict(workflow_state='done'), offer['revision'])
         self.answers = dict(u0=self.offer['id'], u1=self.server['id'])
         record = self.run_step(mid)
         # The update of Мария about her own open task is added; the closed task of Иван gets nothing.

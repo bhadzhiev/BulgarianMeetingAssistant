@@ -1506,14 +1506,21 @@ function showSettingsTab(name) {
  for(const panel of document.querySelectorAll('.settings-panel')) panel.hidden=panel.dataset.tab!==name;
  document.querySelector('.settings-body').scrollTop=0;
 }
-function inlineMarkdown(text) { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g,'$1<em>$2</em>'); }
+// Links open in the default browser (the click handler above); only https links are made, after all HTML is escaped (2026-11-21).
+function inlineMarkdown(text) {
+ const links=[],keep=(href,label)=>'\u0000'+(links.push('<a href="'+href+'" target="_blank" rel="noopener noreferrer">'+label+'</a>')-1)+'\u0000';
+ return text.replace(/\u0000/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  .replace(/\[([^\]\n]+)\]\((https:\/\/[^\s)]+)\)|(https:\/\/[^\s<]+?)(?=[.,;:!?)\]]*(?:\s|$|&quot;|&gt;|&lt;))/g,(m,label,href,bare)=>keep(href||bare,label||bare))
+  .replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g,'$1<em>$2</em>')
+  .replace(/\u0000(\d+)\u0000/g,(m,i)=>links[i]);
+}
 function renderMarkdown(source) {
  const lines=source.replace(/\r\n?/g,'\n').split('\n'), out=[]; let i=0;
  const cells=line=>line.trim().replace(/^\||\|$/g,'').split('|').map(cell=>inlineMarkdown(cell.trim()));
  while(i<lines.length) {
   const line=lines[i];
   if(!line.trim()) { i++; continue; }
-  if(line.startsWith('```')) { const code=[]; i++; while(i<lines.length&&!lines[i].startsWith('```')) code.push(lines[i++]); i++; out.push('<pre><code>'+inlineMarkdown(code.join('\n')).replace(/<\/?(code|strong|em)>/g,'')+'</code></pre>'); continue; }
+  if(line.startsWith('```')) { const code=[]; i++; while(i<lines.length&&!lines[i].startsWith('```')) code.push(lines[i++]); i++; out.push('<pre><code>'+inlineMarkdown(code.join('\n')).replace(/<\/?(?:code|strong|em|a)(?:\s[^>]*)?>/g,'')+'</code></pre>'); continue; }
   const heading=line.match(/^(#{1,6})\s+(.*)$/);
   if(heading) { const level=heading[1].length; out.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`); i++; continue; }
   if(/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push('<hr>'); i++; continue; }
@@ -1532,6 +1539,8 @@ function renderMarkdown(source) {
 }
 // Rendered markdown for texts authored in markdown (GitHub, drafts, AI output). renderMarkdown escapes all HTML first.
 function markdownBlock(source){const box=el('div','markdown compact');box.innerHTML=renderMarkdown(source||'');return box;}
+// Gmail, Chat and GitHub text share one view: Markdown as written, and HTML mail converted to Markdown by the backend (2026-11-21).
+function sourceText(text){const box=markdownBlock(text);box.classList.add('source-text');return box;}
 // The result of a meeting in the format of its type. Built from saved notes; nothing is saved as a file.
 let viewerUrl=null;
 async function openTypeExport(id) {
@@ -2043,7 +2052,7 @@ async function openMail(key){
   const card=el('article','mail-message'+(message.sent?' sent':'')),top=el('div','message-top');card.dataset.threadId=thread.id;card.dataset.messageId=message.id;
   top.append(avatar(personName(message.sender)),el('strong','',personName(message.sender)),el('span','hint',dateTime(message.date)));
   if(message.identity)top.append(senderIdentityButton(message.identity,message.sender));
-  card.append(top,el('p','message-text',message.body||(message.omitted?'This message is too large to load here. Open it in Gmail.':'No inline text body. Attachments are not fetched.')));
+  card.append(top,message.body?sourceText(message.body):el('p','message-text',message.omitted?'This message is too large to load here. Open it in Gmail.':'No inline text body. Attachments are not fetched.'));
   if(message.body){
    const actions=el('div','message-actions'),suggest=el('button','secondary small-action','Suggest a task'),analyze=el('button','quiet small-action','Analyze with AI');
    suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'gmail',id:thread.id,revision:thread.revision,message_id:message.id}));
@@ -2131,7 +2140,7 @@ async function renderConversation(sync){
   if(today!==day){day=today;body.append(el('div','chat-day',today));previous=null;}
   const grouped=previous&&previous.sender===m.sender&&stamp-previous.date*1000<5*60000;
   const row=el('div','chat-msg'+(grouped?' grouped':'')+(m.sender===chatSelf?' mine':'')+(m.name===chatMessage?' selected':'')+(m.available?'':' gone'));row.tabIndex=0;row.dataset.name=m.name;
-  const text=el('p','message-text',m.available?m.body||'No plain text. Cards and attachments are not fetched.':'This message is unavailable or deleted.');
+  const text=m.available&&m.body?sourceText(m.body):el('p','message-text',m.available?'No plain text. Cards and attachments are not fetched.':'This message is unavailable or deleted.');
   if(grouped)row.append(el('span','chat-time',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})),text);
   else{const top=el('div','message-top');top.append(el('strong','',m.sender),el('span','hint',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})));const main=el('div');main.append(top,text);row.append(avatar(m.sender),main);}
   row.onclick=()=>{chatMessage=m.name;for(const other of body.querySelectorAll('.chat-msg'))other.classList.toggle('selected',other===row);renderChatActions(m);};
@@ -2196,7 +2205,7 @@ async function openGitHubItem(key){
  const head=el('div','reader-head'),title=el('h3','',r.title),meta=el('div','entity-meta');
  // The GitHub state and the age of the local copy are two facts: a badge and a separate note.
  meta.append(el('span','',r.repository+' #'+r.number+' · '+(r.kind==='issue'?'Issue':'Pull request')),statusBadge({tone:r.state==='open'?'muted':'ok',label:r.state?r.state[0].toUpperCase()+r.state.slice(1):'State unknown'}),r.available?el('span','','Local copy from '+dateTime(r.fetched_at*1000)):statusBadge({tone:'warn',label:'Source unavailable'}));head.append(title,meta);
- const body=el('div','reader-body');body.append(r.available&&r.body?markdownBlock(r.body):el('p','message-text',r.available?'No description.':'Access or source unavailable. Saved work item source quotes remain.'));
+ const body=el('div','reader-body');body.append(r.available&&r.body?sourceText(r.body):el('p','message-text',r.available?'No description.':'Access or source unavailable. Saved work item source quotes remain.'));
  const actions=el('div','reader-actions'),suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh'),link=el('a','secondary small-action button-link','Open on GitHub ');link.append(icon('external'));
  link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';suggest.disabled=!r.available;
  suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'github',id:key,revision:r.revision}));

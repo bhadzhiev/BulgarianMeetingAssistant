@@ -115,8 +115,10 @@ flight can take up to its 30-second timeout; it does not hold recording controls
 
 **Needs reply** means the latest non-draft message is incoming; **Waiting for** means it is sent.
 These are direction-based candidates, not AI judgments that someone owes a reply. Open a thread to
-read its cached text and fetch time. HTML becomes plain text; remote images, scripts and attachments
-are not fetched or rendered. A thread includes at most its latest 100 non-draft messages and local
+read its cached text and fetch time. An HTML-only message becomes Markdown: headings, lists, emphasis,
+links and quotes stay. Gmail, Chat and GitHub text show in one Markdown view, and https links open in
+the default browser. Remote images, scripts and attachments are not fetched or rendered. Threads
+cached before 2026-11-21 keep their old plain text until they change or the cache is cleared. A thread includes at most its latest 100 non-draft messages and local
 size limits apply. A thread larger than the Google response limit (8 MB) is read message by message.
 A message that is still too large, or a body over the local limit, keeps its sender, subject and date;
 the reader says "too large to load" and the sync goes on. When the thread text is too long, the

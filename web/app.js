@@ -1956,7 +1956,7 @@ function decisionRow(item,byId) {
  row.append(el('span'),main);
  const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';const menuActions=itemActions(item,row,{direct:true});if(item.status!=='proposed')menuActions.prepend(change);more.append(trigger,menuActions);row.append(more); return row;
 }
-async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); }
+async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); refreshSourceTaskMarks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
 const SOURCES={manual:['Manual',''],meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github'],excerpt:['Excerpt','src-meeting']};
 function originChip(provider,label,open){
@@ -1984,6 +1984,27 @@ function sourceState(name,connected,parts,problem){
 function sourceRow(selected,cells,onopen){
  const row=btn('source-row'+(selected?' selected':''));row.setAttribute('role','option');row.setAttribute('aria-selected',String(selected));
  row.append(...cells);row.onclick=()=>perform(onopen);return row;
+}
+// A source that already has a task shows a green task mark in its row (2026-11-22). The mark opens the task;
+// the rest of the row still opens the source. Hidden (dismissed) tasks do not count.
+let sourceTaskData=null,sourceTaskMap=new Map();
+function sourceTasks(provider,externalId){
+ if(sourceTaskData!==itemsData){sourceTaskData=itemsData;sourceTaskMap=new Map();
+  for(const item of itemsData?.items||[])if(item.kind==='task'&&!item.dismissed)for(const source of itemSources(item)){const key=source.provider+'\n'+source.external_id;sourceTaskMap.set(key,[...(sourceTaskMap.get(key)||[]),item]);}}
+ return sourceTaskMap.get(provider+'\n'+externalId)||[];
+}
+function sourceTaskMark(tasks){
+ if(!tasks.length)return null;const open=tasks.filter(t=>t.status!=='done'),target=open[0]||tasks[0];
+ const mark=el('span','row-task-link'+(open.length?'':' done'));mark.append(icon('check'));if(tasks.length>1)mark.append(el('span','row-task-count',String(tasks.length)));
+ const label=(tasks.length>1?tasks.length+' tasks from this source. ':'')+'Open task: '+target.text;mark.title=label;mark.setAttribute('aria-label',label);mark.setAttribute('role','link');
+ mark.onclick=event=>{event.stopPropagation();perform(()=>openTaskPanel(target.id));};return mark;
+}
+function sourceTitle(className,text,tasks){const cell=el('span','row-title-cell'),title=el(className==='strong'?'strong':'span','row-title',text);cell.append(title);const mark=sourceTaskMark(tasks);if(mark)cell.append(mark);return cell;}
+// The marks follow the tasks: a task made from the open source appears in the list at once.
+function refreshSourceTaskMarks(){
+ if(view!=='tasks')return;
+ if(workTab==='github'&&ghSection==='items')renderGitHubList();else if(workTab==='gmail')renderMailList();
+ else if(workTab==='chat')for(const row of document.querySelectorAll('#chat-detail .chat-msg[data-name]')){row.querySelector(':scope>.row-task-link')?.remove();const mark=sourceTaskMark(sourceTasks('google_chat',row.dataset.name));if(mark)row.append(mark);}
 }
 // Arrow keys move through a source list like in a mail client.
 function listKeys(list){list.onkeydown=event=>{if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;const rows=[...list.querySelectorAll('.source-row')],at=rows.indexOf(document.activeElement),next=rows[Math.max(0,Math.min(rows.length-1,at+(event.key==='ArrowDown'?1:-1)))];if(next){event.preventDefault();next.focus();next.click();}};}
@@ -2041,7 +2062,7 @@ function mailSyncDue(status,now){
 function renderMailList(){
  const query=$('gmail-search').value.trim().toLocaleLowerCase(),list=$('gmail-threads');const focused=list.contains(document.activeElement);
  const rows=mailThreads.filter(t=>!query||(t.subject+' '+t.sender).toLocaleLowerCase().includes(query));
- list.replaceChildren(...rows.map(t=>sourceRow(t.id===mailThread,[el('span','row-tag '+t.view,t.view==='waiting'?'Waiting':'Reply'),el('strong','row-who',personName(t.sender)),el('span','row-title',t.subject),el('span','row-when',relTime(t.date))],()=>openMail(t.id))));
+ list.replaceChildren(...rows.map(t=>sourceRow(t.id===mailThread,[el('span','row-tag '+t.view,t.view==='waiting'?'Waiting':'Reply'),el('strong','row-who',personName(t.sender)),sourceTitle('span',t.subject,sourceTasks('gmail',t.id)),el('span','row-when',relTime(t.date))],()=>openMail(t.id))));
  if(focused)list.querySelector('.selected')?.focus();
  if(!rows.length)emptyState(list,mailThreads.length?'No thread matches this filter.':'No threads in this view. Choose Sync to fetch the latest page.');
 }
@@ -2149,6 +2170,7 @@ async function renderConversation(sync){
   row.onclick=()=>{chatMessage=m.name;for(const other of body.querySelectorAll('.chat-msg'))other.classList.toggle('selected',other===row);renderChatActions(m);};
   row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.click();}};
   if(m.identity)row.append(senderIdentityButton(m.identity,m.sender));
+  const taskMark=sourceTaskMark(sourceTasks('google_chat',m.name));if(taskMark)row.append(taskMark);
   body.append(row);previous=m;
  }
  if(!messages.length)body.append(el('p','source-empty','No messages in the last 30 days. Choose Sync conversation to check again.'));
@@ -2198,7 +2220,7 @@ function renderGitHubKinds(){segmentedChoice($('github-kinds'),[['all','All'],['
 function renderGitHubList(){
  const query=$('github-search').value.trim().toLocaleLowerCase(),repo=$('github-repo-filter').value,list=$('github-items');const focused=list.contains(document.activeElement);
  const rows=ghItems.filter(r=>(ghKind==='all'||r.kind===ghKind)&&(!repo||r.repository===repo)&&(!query||(r.title+' #'+r.number).toLocaleLowerCase().includes(query)));
- list.replaceChildren(...rows.map(r=>sourceRow(r.issue_id===ghItem,[el('span','row-tag '+(r.kind==='issue'?'issue':'pr'),r.kind==='issue'?'Issue':'PR'),el('span','row-who',r.repository.split('/')[1]),el('span','row-number','#'+r.number),el('strong','row-title',r.title),el('span','row-when',relTime(Date.parse(r.updated)))],()=>openGitHubItem(r.issue_id))));
+ list.replaceChildren(...rows.map(r=>sourceRow(r.issue_id===ghItem,[el('span','row-tag '+(r.kind==='issue'?'issue':'pr'),r.kind==='issue'?'Issue':'PR'),el('span','row-who',r.repository.split('/')[1]),el('span','row-number','#'+r.number),sourceTitle('strong',r.title,sourceTasks('github','issue:'+r.issue_id)),el('span','row-when',relTime(Date.parse(r.updated)))],()=>openGitHubItem(r.issue_id))));
  if(focused)list.querySelector('.selected')?.focus();
  if(!rows.length)emptyState(list,ghItems.length?'No item matches this filter.':ghState.last_sync?'Nothing open here. Good news.':ghWasRunning?'Syncing the open items…':'No cached items. Choose Sync to try again.');
 }

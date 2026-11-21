@@ -88,6 +88,11 @@ reload) are in the **⋯** menu. Explanations and cache clearing are under **Abo
   and the first open of a conversation syncs it. Direct messages are named after the other person.
 - **GitHub** lists every open issue and pull request without a repository choice. See below.
 
+A thread, Chat message or GitHub item that already has a task shows a small green check mark next to
+its title. A number shows when there is more than one task. Click the mark to open the task. Click the
+rest of the row to open the source. The mark is grey when all its tasks are done. Hidden tasks do not
+show a mark.
+
 ## Gmail: local read-only pilot
 
 Gmail sync is read-only. The only Gmail writes are email drafts: the follow-up email and tasks by

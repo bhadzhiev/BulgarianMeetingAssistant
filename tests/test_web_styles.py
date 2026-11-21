@@ -64,5 +64,7 @@ class GitHubListRowTests(unittest.TestCase):
         script = (Path(__file__).resolve().parents[1] / 'web' / 'app.js').read_text()
         # Both the sources list and the link dialog render the number separately.
         self.assertEqual(script.count("el('span','row-number','#'+r.number)"), 2)
-        self.assertEqual(script.count("el('strong','row-title',r.title)"), 2)
+        # The sources list wraps the title with its task mark (2026-11-22); the link dialog keeps a plain title.
+        self.assertEqual(script.count("el('strong','row-title',r.title)"), 1)
+        self.assertEqual(script.count("sourceTitle('strong',r.title,"), 1)
         self.assertNotIn("'#'+r.number+' '+r.title", script)

@@ -69,6 +69,22 @@ class PromptIntegrationTests(unittest.TestCase):
                 self.assertIn('required',result['schema']);self.assertIn('deployment',json.dumps(result['messages'],ensure_ascii=False));self.assertIn('Keep it concise.',json.dumps(result['messages']));self.assertNotIn('api_key',result['target']);self.assertEqual(result['target']['provider'],'local')
             post.assert_not_called()
         self.assertEqual(self.s.items.data,before);self.assertEqual(self.s.library.list(),[])
+    def test_team_preview_freezes_both_requests_and_the_production_budget(self):
+        from app.team_analysis import OUTPUT_LIMIT
+        preview = prompt_lab.preview(self.s, self.body('team_analysis'))
+        target = preview['target']
+        self.assertEqual(target['local_ai_max_tokens'], OUTPUT_LIMIT)
+        self.assertEqual(len(preview['requests']), 2)
+        replies = [
+            dict(people=[dict(name='Тестов участник', summary='Уточнява срока.')]),
+            dict(dynamics={}, discourse={}, coaching={}),
+        ]
+        with patch('app.prompt_lab.complete_json', side_effect=replies) as complete:
+            prompt_lab.generate(target)
+        used = [(call.args[1], call.args[2]) for call in complete.call_args_list]
+        self.assertEqual(used, target['prompt_test']['requests'])
+        self.assertEqual(prompt_lab.preview(self.s, self.body('task_polish'))['target']['local_ai_max_tokens'], 2048)
+
     def test_scope_is_validated_and_deleted_meeting_cannot_be_edited(self):
         for scope in ['type:missing','meeting:'+'a'*32,'global|bad']:
             with self.assertRaises((ValueError,FileNotFoundError)):prompt_lab.resolve(self.s,dict(self.body(),scope=scope))

@@ -124,11 +124,18 @@ def preview(service,body):
     # The lab deliberately uses the saved Notes & AI destination for every stage.
     # It is shown before approval; production stages retain their own providers.
     target=service.repo_reports.target();target['_prompt_snapshot']=snapshot
-    messages,schema=messages_for(stage,snippet,kind,service.settings,service.library.speakers())
+    speakers = service.library.speakers()
+    if stage=='team_analysis':
+        from .team_analysis import OUTPUT_LIMIT
+        target['local_ai_max_tokens'] = OUTPUT_LIMIT
+        requests = team_test_requests(snippet)
+    else:
+        if stage=='task_polish':
+            target['local_ai_max_tokens'] = 2048
+        requests = [messages_for(stage,snippet,kind,service.settings,speakers)]
     target['whisper_vocabulary']=service.settings.get('whisper_vocabulary','')
-    target['prompt_test']=dict(stage=stage,messages=messages,schema=schema,snippet=snippet,speakers=service.library.speakers())
+    target['prompt_test']=dict(stage=stage,requests=requests,snippet=snippet,speakers=speakers)
     token=digest(dict(target=target,nonce=service.prompts.nonce))
-    requests = team_test_requests(snippet) if stage=='team_analysis' else [(messages, schema)]
     full = [dict(messages=request_messages(target, msgs, contract, stage), schema=contract)
             for msgs, contract in requests]
     return dict(preview_token=token,revision=snapshot['revision'],target=target,**full[0],requests=full,effective=snapshot['stages'][stage])
@@ -137,13 +144,13 @@ def preview(service,body):
 def generate(settings,key=''):
     data=settings['prompt_test'];stage=data['stage'];snippet=data['snippet']
     if stage=='team_analysis':
-        from .team_analysis import clean, OUTPUT_LIMIT
+        from .team_analysis import clean, TIMEOUT
         result = {}
-        for messages, schema in team_test_requests(snippet):
-            result.update(complete_json(settings, messages, schema, stage, timeout=120, api_key=key, max_tokens=OUTPUT_LIMIT))
+        for messages, schema in data['requests']:
+            result.update(complete_json(settings, messages, schema, stage, timeout=TIMEOUT, api_key=key))
         return dict(result=clean(result, ['00:00:00']))
-    extra = dict(max_tokens=2048) if stage=='task_polish' else {}
-    result=complete_json(settings,data['messages'],data['schema'],stage,timeout=120,api_key=key,**extra)
+    (messages, schema), = data['requests']
+    result=complete_json(settings,messages,schema,stage,timeout=120,api_key=key)
     # Apply the same semantic checks where a single test source makes them meaningful.
     if stage=='transcript_correction':
         from .correction import accept

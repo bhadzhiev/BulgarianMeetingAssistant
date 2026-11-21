@@ -2309,8 +2309,15 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .task-tile .task-tile-facts>.task-priority.normal{--tone:var(--tone-emerald)}
 .task-tile .task-tile-facts .project-chip{--tone:currentColor;color:var(--project-light,var(--text-2))}
 @media(prefers-color-scheme:dark){.task-tile .task-tile-facts .project-chip{color:var(--project-dark,var(--text-2))}}
-/* The avatar ring: the person's colour, set apart from the face by a thin gap in the card colour. */
-.task-tile .tracked-owner .speaker-badge{box-shadow:0 0 0 2px var(--card),0 0 0 3px var(--avatar,var(--line-strong))}
+/* The card avatar (2026-11-21): a ring and initials in the person's colour on a quiet tint of it, like the other badges. */
+.task-tile .tracked-owner .speaker-badge{color:color-mix(in srgb,var(--avatar,var(--muted)) 75%,var(--text-strong))!important;background:color-mix(in srgb,var(--avatar,var(--muted)) 22%,var(--card))!important;box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--avatar,var(--muted)) 80%,var(--text-strong) 20%);font-weight:700}
+@media(prefers-color-scheme:dark){.task-tile .tracked-owner .speaker-badge{color:color-mix(in srgb,var(--avatar,var(--muted)) 45%,#fff)!important}}
+.task-tile .tracked-owner .speaker-badge.no-owner{color:var(--text-3)!important;background:var(--surface-2)!important;box-shadow:inset 0 0 0 1.5px var(--line-strong)}
+/* The round state control sits on the line of the dates, at the size of the other icons on the card. */
+.tracked-task.task-tile:not(.task-tile-nested){grid-template-columns:20px minmax(0,1fr);column-gap:12px}
+.tracked-task.task-tile:not(.task-tile-nested)>.task-row-marks{width:20px;padding-top:0;margin-top:-5px}
+.task-tile:not(.task-tile-nested) .task-done-toggle,.task-tile:not(.task-tile-nested) .task-done-toggle svg{width:20px;height:20px;min-width:20px;min-height:20px}
+.task-tile .task-done-toggle svg{stroke-width:1.8}
 .task-tile .task-tile-facts>.entity-chips{gap:6px}
 .task-tile .tracked-owner .speaker-badge{width:22px;height:22px;min-width:22px;font-size:.65rem}
 /* Task forms (approved 2026-11-20): Edit task and New task share one layout. The head has the project, the task ID and a

@@ -171,8 +171,10 @@ def complete_json(settings, messages, schema, name, timeout=600, api_key='', max
     # Task titles are short rewrites of 40 tasks; on Kimi K3 thinking used the output budget (2026-11-12).
     # Improve with AI on a task card waits in an open editor: even low thinking kept the person waiting
     # (2026-11-14), so a short card rewrite asks for no reasoning on a cloud API or a thinking local model.
+    # Suggest a task drafts the same short card from a source: at the default level Kimi K3.1 Pro kept
+    # the person waiting in the open dialog (2026-11-22), so a task draft follows the same policy.
     if reasoning == 'default' and (
-            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review', 'task_matching', 'task_titles', 'task_polish'}
+            name in {'meeting_minutes', 'meeting_consolidation', 'transcript_correction', 'meeting_title', 'team_review', 'task_matching', 'task_titles', 'task_polish', 'task_draft'}
             and (is_remote(base_url) or isinstance(model, str) and re.search(r'(?:^|/)qwen3\.5(?:-|$)', model, re.I))
             or name == 'topic_matches' and is_remote(base_url)):
         # Kimi K3 models always think: their API accepts only low/high/max and rejects 'none'

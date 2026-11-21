@@ -374,6 +374,16 @@ button.source-chip:hover:not(:disabled){border-color:var(--src);background:var(-
 #chat-spaces .source-row{grid-template-columns:26px minmax(0,1fr) 62px 120px 66px}
 #github-items .source-row,#github-link-results .source-row{grid-template-columns:52px 150px 64px minmax(0,1fr) 66px}
 .source-empty{margin:0;padding:28px 18px;text-align:center;color:var(--muted);font-size:13px}
+/* Source task mark (2026-11-22): a source with a task shows a small green mark; the mark opens the task. */
+/* The general button:has(.icon) rule must not turn a source row into a flex row. */
+.source-row:has(.row-task-link){display:grid;gap:12px}
+.row-title-cell{display:flex;align-items:center;gap:8px;min-width:0}
+.row-title-cell>.row-title{min-width:0}
+.row-task-link{display:inline-flex;align-items:center;gap:3px;flex:none;height:20px;padding:0 6px;border:1px solid color-mix(in srgb,var(--tone-emerald) 35%,transparent);border-radius:6px;background:color-mix(in srgb,var(--tone-emerald) 12%,transparent);color:var(--tone-emerald);font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
+.row-task-link .icon{width:12px;height:12px;stroke-width:2.4}
+.row-task-link:hover{background:color-mix(in srgb,var(--tone-emerald) 22%,transparent)}
+.row-task-link.done{border-color:var(--line);background:var(--surface-2);color:var(--muted)}
+.chat-msg>.row-task-link{grid-column:2;justify-self:start;margin:0 0 4px}
 .reader{display:flex;flex-direction:column;height:480px;margin:14px 20px 18px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
 .reader:empty{display:none}
 .reader:has(>.source-empty:only-child){display:grid;place-items:center;height:140px;background:var(--surface)}

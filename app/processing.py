@@ -89,6 +89,7 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
     vad = prompt = None
     edit = ''
     edit_result = None
+    edit_error = None
     if provider == 'elevenlabs':
         from . import scribe
         if not api_key:
@@ -173,8 +174,8 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             if provider == 'elevenlabs':
                 # One request gives Scribe the context of the whole meeting.
                 progress('Sending the whole recording to ElevenLabs Scribe')
-                units_list, edited = scribe.transcribe(audio_path.read_bytes(), api_key, prompt, 0, total / rate,
-                                                       timeout=300 + total / rate, edit=edit)
+                units_list, edited, edit_error = scribe.transcribe(audio_path.read_bytes(), api_key, prompt, 0, total / rate,
+                                                                    timeout=300 + total / rate, edit=edit)
                 segments = [TranscriptSegment(**unit) for unit in units_list]
                 if edited:
                     progress('Transcribing · applying the Scribe transcript edit')
@@ -273,6 +274,8 @@ def transcribe(directory: Path, settings: dict, progress, api_key: str = '', spe
             metadata.update(language='bg', secondary_languages=['en'], vocabulary_applied=bool(prompt), word_boundaries=True, speaker_recognition='local')
             if edit_result:
                 metadata['correction'] = edit_result
+            if edit_error:
+                metadata['correction_error'] = edit_error
         if provider == 'local':
             metadata.update(vad=vad is True, prompt=prompt or None, word_boundaries=bool(units))
             if isinstance(vad, str):

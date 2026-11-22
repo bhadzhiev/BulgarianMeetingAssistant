@@ -76,8 +76,18 @@ def transcribe(audio, key, terms, offset, end, timeout=180, edit=''):
         raise ValueError(f'Scribe request failed (HTTP {exc.code}). ' + hints.get(exc.code, 'Retry later or check your ElevenLabs account.')) from None
     except (urllib.error.URLError, TimeoutError):
         raise ValueError('Could not reach ElevenLabs. Check the connection and retry; the recording is saved.') from None
+    units = word_units(data, offset, end)
+    if not edit:
+        return units, None, None
+
     edited = data.get('edited_transcript')
-    return word_units(data, offset, end), edited if isinstance(edited, str) and edited.strip() else None
+    if isinstance(edited, dict):
+        if edited.get('kind') == 'error':
+            return units, None, 'ElevenLabs Scribe could not edit the transcript.'
+        edited = edited.get('text') if edited.get('kind') == 'transcript' else None
+    if not isinstance(edited, str) or not edited.strip():
+        return units, None, 'ElevenLabs Scribe did not return edited transcript text.'
+    return units, edited, None
 
 
 def word_units(data, offset, end):

@@ -678,9 +678,10 @@ are unsupported. ElevenLabs charges extra for keyterms. Review current prices an
 account limits at https://elevenlabs.io/pricing/api before processing long recordings.
 When transcript correction is on, the Scribe request also carries a `transcript_edit`
 instruction built from the correction rules, the preferred spellings and the participant
-names (since 2026-11-13). Scribe returns the edit as separate text; the app aligns it back
-onto the word timestamps and keeps only the edits that pass the same checks as the AI
-correction, so the original text stays wherever the edit rewrites too much. ElevenLabs
+names. The app reads the text from the successful Scribe edit response, aligns it to the
+original word timestamps and applies only changes that pass the AI correction checks.
+If the edit fails or Scribe returns no edited text, the transcript opens with the original
+speech recognition text and a correction warning. ElevenLabs
 charges extra for transcript editing. The per-part AI correction does not run automatically
 after Scribe; to run it anyway, choose **AI text correction** explicitly. Notes and title
 generation keep their separately chosen providers.

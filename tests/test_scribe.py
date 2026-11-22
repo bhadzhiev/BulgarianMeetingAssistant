@@ -58,7 +58,7 @@ class ScribeTests(unittest.TestCase):
     def test_request_uses_scribe_repeated_keyterms_and_bg_with_secondary_en(self):
         with patch('app.scribe.urllib.request.urlopen') as upload:
             upload.return_value.__enter__.return_value = io.StringIO(json.dumps(response()))
-            units, edited = scribe.transcribe(b'audio', 'synthetic-key', ['SAP', 'Transit Gateway'], 60, 62)
+            units, edited, edit_error = scribe.transcribe(b'audio', 'synthetic-key', ['SAP', 'Transit Gateway'], 60, 62)
         request = upload.call_args.args[0]
         self.assertEqual(request.full_url, scribe.ENDPOINT)
         self.assertEqual(request.get_header('Xi-api-key'), 'synthetic-key')
@@ -69,18 +69,31 @@ class ScribeTests(unittest.TestCase):
         self.assertIn(b'name="secondary_language_codes"\r\n\r\nen', request.data)
         self.assertNotIn(b'transcript_edit', request.data)
         self.assertIsNone(edited)
+        self.assertIsNone(edit_error)
         self.assertEqual((units[0]['start'], units[0]['end']), (60, 60.7))
 
     def test_transcript_edit_is_sent_and_the_edited_text_is_returned(self):
-        with patch('app.scribe.urllib.request.urlopen') as upload:
-            upload.return_value.__enter__.return_value = io.StringIO(json.dumps(dict(response(), edited_transcript='Проверихме Kubernetes.')))
-            units, edited = scribe.transcribe(b'audio', 'key', [], 0, 2, edit='Fix spelling.')
-        self.assertIn(b'name="transcript_edit"\r\n\r\nFix spelling.', upload.call_args.args[0].data)
-        self.assertEqual(edited, 'Проверихме Kubernetes.')
-        with patch('app.scribe.urllib.request.urlopen') as upload:
-            upload.return_value.__enter__.return_value = io.StringIO(json.dumps(dict(response(), edited_transcript='  ')))
-            _, edited = scribe.transcribe(b'audio', 'key', [], 0, 2, edit='Fix spelling.')
-        self.assertIsNone(edited)
+        edited_text = 'Проверихме Kubernetes.'
+        for payload in (dict(kind='transcript', text=edited_text), edited_text):
+            with self.subTest(payload=payload), patch('app.scribe.urllib.request.urlopen') as upload:
+                data = dict(response(), edited_transcript=payload)
+                upload.return_value.__enter__.return_value = io.StringIO(json.dumps(data))
+                _, edited, edit_error = scribe.transcribe(b'audio', 'key', [], 0, 2, edit='Fix spelling.')
+                self.assertIn(b'name="transcript_edit"\r\n\r\nFix spelling.', upload.call_args.args[0].data)
+                self.assertEqual(edited, edited_text)
+                self.assertIsNone(edit_error)
+
+    def test_failed_scribe_edit_keeps_the_original_and_reports_why(self):
+        for payload in (dict(kind='error', error_type='edit_failed', message='private provider error'),
+                        dict(kind='transcript', text='  '), None):
+            with self.subTest(payload=payload), patch('app.scribe.urllib.request.urlopen') as upload:
+                data = dict(response(), edited_transcript=payload)
+                upload.return_value.__enter__.return_value = io.StringIO(json.dumps(data))
+                units, edited, edit_error = scribe.transcribe(b'audio', 'key', [], 0, 2, edit='Fix spelling.')
+                self.assertEqual(units, scribe.word_units(data, 0, 2))
+                self.assertIsNone(edited)
+                self.assertIn('ElevenLabs Scribe', edit_error)
+                self.assertNotIn('private provider error', edit_error)
 
     def test_edit_instruction_carries_rules_names_and_terms_within_the_limit(self):
         text = scribe.edit_instruction('Kubernetes, SAP', ['Иван Петров'])
@@ -122,7 +135,7 @@ class ScribeTests(unittest.TestCase):
                 self.assertEqual((audio, key, terms, offset, end), (original, 'scribe-key', ['Kubernetes'], 0, 62))
                 self.assertGreaterEqual(timeout, 362)
                 self.assertEqual(edit, '')
-                return scribe.word_units(data, offset, end), None
+                return scribe.word_units(data, offset, end), None, None
             with patch('app.scribe.transcribe', side_effect=upload) as call:
                 processing.transcribe(path, dict(DEFAULTS, transcription='elevenlabs', whisper_vocabulary='Kubernetes',
                                                  transcript_correction='none'), lambda _:None, 'scribe-key')
@@ -142,17 +155,37 @@ class ScribeTests(unittest.TestCase):
             path = Path(tmp); recording(path, 2)
             data = dict(text='пуснах кубернетис.', words=[dict(type='word', text='пуснах', start=0, end=.4),
                                                           dict(type='word', text='кубернетис.', start=.5, end=1)])
-            def upload(audio, key, terms, offset, end, timeout=180, edit=''):
-                self.assertIn('Kubernetes', edit)
-                return scribe.word_units(data, offset, end), 'Пуснах Kubernetes.'
-            with patch('app.scribe.transcribe', side_effect=upload):
+            data['edited_transcript'] = dict(kind='transcript', text='Пуснах Kubernetes.')
+            with patch('app.scribe.urllib.request.urlopen') as upload:
+                upload.return_value.__enter__.return_value = io.StringIO(json.dumps(data))
                 processing.transcribe(path, dict(DEFAULTS, transcription='elevenlabs', transcript_correction='local',
                                                  whisper_vocabulary='Kubernetes | кубернетис'), lambda _: None, 'scribe-key')
+            self.assertIn(b'Kubernetes', upload.call_args.args[0].data)
             transcript = json.loads((path/'transcript.json').read_text())
             self.assertEqual([s['text'] for s in transcript], ['Пуснах Kubernetes.'])
             metadata = json.loads((path/'transcript.metadata.json').read_text())
             self.assertEqual((metadata['correction']['provider'], metadata['correction']['changed']), ('scribe_transcript_edit', 2))
             self.assertEqual((metadata['language'], metadata['secondary_languages']), ('bg', ['en']))
+
+    def test_edit_failure_reaches_the_meeting_without_failing_transcription(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('app.scribe.urllib.request.urlopen') as upload:
+            root = Path(tmp)
+            service = MeetingService(root, PROJECT)
+            self.addCleanup(service.close)
+            service.save_settings(dict(transcription='elevenlabs', elevenlabs_api_key='scribe-key',
+                                       transcript_correction='local', auto_title=False, diarization_enabled=False))
+            meeting_id = service.library.create('Synthetic', 'in_person', dict(service.settings))['id']
+            path = service.library.directory(meeting_id)
+            recording(path)
+            data = dict(response('Това е оригиналът.'),
+                        edited_transcript=dict(kind='error', error_type='edit_failed'))
+            upload.return_value.__enter__.return_value = io.StringIO(json.dumps(data))
+            service.process(meeting_id, 'transcribe')
+            wait_for(lambda: meeting_id not in service.busy)
+            result = service.detail(meeting_id)
+            self.assertEqual(result['status'], 'ready')
+            self.assertEqual(result['transcript'][0]['text'], 'Това е оригиналът.')
+            self.assertIn('could not edit', result['correction_error'])
 
     def test_request_never_asks_scribe_for_speakers(self):
         with patch('app.scribe.urllib.request.urlopen') as upload:

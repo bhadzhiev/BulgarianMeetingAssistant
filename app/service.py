@@ -929,6 +929,9 @@ class MeetingService:
             if action in {'all', 'transcribe'}:
                 with job.step('Transcription'):
                     self._execute('transcribe', directory, settings, progress, elevenlabs_key if settings['transcription'] == 'elevenlabs' else key, self.library.speakers())
+                    if settings['transcription'] == 'elevenlabs':
+                        metadata = read_json(directory / 'transcript.metadata.json', {})
+                        self.library.update(meeting_id, correction_error=metadata.get('correction_error'))
                     if settings.get('_reprocess_preserve_notes'):
                         self.library.update(meeting_id,notes_need_refresh=(directory/'minutes.json').exists(),notes_refresh_error=None)
             should_diarize = action in {'all', 'transcribe', 'speakers'}

@@ -1,5 +1,6 @@
 """My Work → Questions shows the open questions of meeting notes; a person answers or tracks them there."""
 import unittest
+import unittest.mock
 
 from tests.test_consistency import ConsistencyBase, notes
 
@@ -32,6 +33,18 @@ class MeetingQuestionTests(ConsistencyBase):
         self.transcribe_again(meeting_id)
         self.new_notes(meeting_id, dict(notes(), open_questions=[asked('Има ли бюджет за 2027?')]))
         self.assertEqual([i['id'] for i in self.service.item_list()['items'] if i['kind'] == 'question'], [item['id']])
+
+    def test_the_question_list_is_kept_until_notes_or_tracked_questions_change(self):
+        meeting_id = self.with_questions([asked('Кой поддържа резервния сървър?'), asked('Има ли бюджет за 2027?')])
+        first = self.service.item_list()['meeting_questions']
+        with unittest.mock.patch('app.service.items.similarity', side_effect=AssertionError('compared again')):
+            self.assertEqual(self.service.item_list()['meeting_questions'], first)
+        source = dict(meeting_id=meeting_id, evidence_timestamp='00:00:00')
+        self.service.work_graph_action('question', dict(text='Кой поддържа резервния сървър?', source=source))
+        self.assertEqual([q['text'] for q in self.service.item_list()['meeting_questions']], ['Има ли бюджет за 2027?'])
+        self.transcribe_again(meeting_id)
+        self.new_notes(meeting_id, dict(notes(), open_questions=[asked('Има ли бюджет за 2028?', '00:00:05')]))
+        self.assertIn('Има ли бюджет за 2028?', [q['text'] for q in self.service.item_list()['meeting_questions']])
 
     def test_an_invalid_question_source_is_refused(self):
         for source in ('x', dict(meeting_id='nope'), dict(meeting_id='a' * 32, evidence_timestamp='3 min'), dict(meeting_id='a' * 32, other=1)):

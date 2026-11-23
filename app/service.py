@@ -144,6 +144,7 @@ class MeetingService:
         self.editor_changed = lambda dirty: None
         self.review_notify = None
         self.task_cache = {}
+        self._questions_cache = None
         self.analytics_cache = {}
         self.preview = None
         self.preview_level = 0
@@ -2741,19 +2742,40 @@ class MeetingService:
 
     def meeting_questions(self, meetings):
         """The questions in the notes of every meeting, newest first. A question asked again shows once, with its
-        newest source. A question that a person tracks in My Work shows there instead."""
+        newest source. A question that a person tracks in My Work shows there instead.
+
+        The text comparison grows with the square of the questions, and every task save and task opening reads
+        the item list. The result is kept until a note file or a tracked question changes (2026-11-23).
+        """
+        stamps = []
+        for meeting_id in sorted(meetings):
+            try:
+                stat = (self.library.directory(meeting_id) / 'minutes.json').stat()
+                stamp = (stat.st_mtime_ns, stat.st_size)
+            except FileNotFoundError:
+                stamp = None
+            stamps.append((meeting_id, meetings[meeting_id]['date'] or '', stamp))
+        questions = tuple((item['id'], item['text'], (item.get('origin') or {}).get('meeting_id') or '',
+                           (item.get('origin') or {}).get('evidence_timestamp') or '')
+                          for item in sorted(self.items.items.values(), key=lambda item: item['id']) if item['kind'] == 'question')
+        key = tuple(stamps), questions
+        if self._questions_cache and self._questions_cache[0] == key:
+            return [dict(row) for row in self._questions_cache[1]]
         tracked = []  # Canonical source identity below decides whether a note is already tracked.
         result = []
         for meeting_id in sorted(meetings, key=lambda key: meetings[key]['date'] or '', reverse=True):
+            revision = None
             for field, kind in (('needs_decision', 'decide'), ('open_questions', 'discuss')):
                 for index, entry in enumerate((self._minutes(meeting_id) or {}).get(field, [])):
                     text = ((entry.get('text') if isinstance(entry, dict) else str(entry)) or '').strip()
                     if isinstance(entry,dict) and tracked_question(self.items.items,meeting_id,entry):continue
                     if not text or any(items.similarity(text, known) >= items.MATCH for known in tracked + [q['text'] for q in result]):
                         continue
+                    revision = revision or self._minutes_revision(self.library.directory(meeting_id))
                     result.append(dict(text=text, kind=kind, meeting_id=meeting_id,
                                        evidence_timestamp=entry.get('evidence_timestamp') if isinstance(entry, dict) else None,
-                                       field=field, index=index, minutes_revision=self._minutes_revision(self.library.directory(meeting_id))))
+                                       field=field, index=index, minutes_revision=revision))
+        self._questions_cache = key, [dict(row) for row in result]
         return result
 
     def _github_publish(self,account,record,suggestions,after=None):

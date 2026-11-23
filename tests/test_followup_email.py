@@ -129,7 +129,7 @@ class FollowupEmailTests(unittest.TestCase):
 
 
 class GmailDraftScopeTests(unittest.TestCase):
-    def client(self, scopes):
+    def client(self, scopes, put_status=404):
         calls = []
         class Store:
             def get(self_):return dict(client_id='c', client_secret='s', refresh_token='r', access_token='a', expires_at=9e12,
@@ -138,7 +138,7 @@ class GmailDraftScopeTests(unittest.TestCase):
         def request(url, method='GET', payload=None, token=None, form=False):
             calls.append((url, method, payload))
             if method == 'PUT':
-                error = CalendarError('gone');error.status = 404;raise error
+                error = CalendarError('gone');error.status = put_status;raise error
             return dict(id='new', message=dict(id='m1'))
         tmp = tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
         (Path(tmp.name) / '.google-calendar.json').write_text('{"configured": true, "account_id": "me@example.test"}')
@@ -156,6 +156,16 @@ class GmailDraftScopeTests(unittest.TestCase):
         self.assertEqual(google.gmail_draft('cmF3', 'old', expected_account='me@example.test')['id'], 'new')
         self.assertEqual([c[1] for c in calls], ['PUT', 'POST']);self.assertTrue(calls[1][0].endswith('/drafts'))
         with self.assertRaises(ValueError):google.gmail_draft('not base64 !')
+
+    def test_a_draft_google_refuses_to_update_is_created_again(self):
+        # Google answers 400 invalidArgument or 403 for a sent or moved draft, not only 404 (2026-11-23).
+        for status in (400, 403):
+            with self.subTest(status=status):
+                google, calls = self.client([GMAIL_COMPOSE_SCOPE], put_status=status)
+                self.assertEqual(google.gmail_draft('cmF3', 'old')['id'], 'new');self.assertEqual([c[1] for c in calls], ['PUT', 'POST'])
+        google, calls = self.client([GMAIL_COMPOSE_SCOPE], put_status=500)
+        with self.assertRaises(CalendarError):google.gmail_draft('cmF3', 'old')
+        self.assertEqual([c[1] for c in calls], ['PUT'])
 
 
 if __name__ == '__main__':

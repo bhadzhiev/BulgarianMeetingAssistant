@@ -2580,23 +2580,32 @@ async function sendBulkTasks(body){
  await refreshAfterItemChange();
 }
 // One compact task view; selection starts on request.
-let taskSelecting=false;
+let taskSelecting=false,bulkDefault='';
+// Overdue triage (2026-11-23): most open tasks were overdue and could only be moved one by one. Select overdue picks
+// the overdue tasks on this list and opens Set due date with quick dates; the person still confirms the change.
+function overdueRows(today=AtlantaUX.iso(new Date())){return taskVisibleRows.filter(t=>t.acceptance_state!=='proposed'&&!t.dismissed&&t.status==='open'&&t.workflow_state!=='cancelled'&&t.due_date&&t.due_date<today);}
+function selectOverdue(){taskSelecting=true;taskSelection.clear();for(const item of overdueRows().slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});bulkDefault='due_date';renderTasks();}
+function quickDates(now=new Date()){const day=n=>{const d=new Date(now);d.setDate(d.getDate()+n);return AtlantaUX.iso(d);};const monday=((8-now.getDay())%7)||7;return [['Tomorrow',day(1)],['Next Monday',day(monday)],['In a week',day(7)],['In two weeks',day(14)]];}
 function renderBulkTasks(){
  const box=$('task-bulk-bar');box.replaceChildren();box.hidden=itemKind!=='task'||managerView==='inbox'||(!taskVisibleRows.length&&!taskSelection.size&&!bulkPending);if(box.hidden)return;
  if(!taskSelection.size&&!bulkPending){
   const start=btn('secondary small-action',taskSelecting?'Done selecting':'Select tasks');start.setAttribute('aria-pressed',String(taskSelecting));start.onclick=()=>{taskSelecting=!taskSelecting;renderTasks();};box.append(start);
+  const late=taskSelecting?0:overdueRows().length;if(late)box.append(btn('secondary small-action overdue-select','Select overdue · '+late,selectOverdue,'Select the overdue tasks on this list and move their due date'));
   // Next to Select tasks: how many tasks show, and the fixed order (overdue first, then by due date) on the right.
   if(!taskSelecting){if(taskVisibleRows.length){const line=el('div','task-list-summary');line.append(el('span','',''),el('span','task-list-sort',''));line.firstChild.append('Showing ',el('strong','',AtlantaUX.count(taskVisibleRows.length,'task')));line.lastChild.append('Sorted by: ',el('strong','','Due date (overdue first)'));box.append(line);}return;}
  }
  const count=bulkPending?.items.length||taskSelection.size,choose=el('button','secondary small-action','Select shown tasks'),clear=el('button','secondary small-action','Clear selection');choose.type=clear.type='button';
  choose.onclick=()=>{for(const item of taskVisibleRows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});renderTasks();};clear.onclick=()=>{taskSelection.clear();bulkPending=null;renderTasks();};
- box.append(choose,el('strong','',count+' selected'));if(!count)return;box.append(clear);
+ box.append(choose);const late=overdueRows().length;if(late&&!bulkPending)box.append(btn('secondary small-action overdue-select','Select overdue · '+late,selectOverdue));
+ box.append(el('strong','',count+' selected'));if(!count)return;box.append(clear);
  if(bulkPending){choose.disabled=true;const retry=actionBtn('secondary','Retry the same update',()=>sendBulkTasks(bulkPending));box.append(el('p','notice','The previous result is uncertain. Retry the exact approved update, or clear the selection and inspect the list.'),retry);return;}
  const action=el('select');action.setAttribute('aria-label','Bulk field');action.append(option('Change state','workflow_state'),option('Change owner','owner_person_id'),option('Set due date','due_date'),option('Set next follow-up','follow_up_date'));
  const input=el('span'),apply=el('button','secondary','Apply to '+AtlantaUX.count(count,'selected task')),note=el('span','hint','Only the selected tasks on this list. Saved locally; nothing is sent.');apply.type='button';let value;
  function editor(){input.replaceChildren();if(action.value==='workflow_state'){value=el('select');value.append(...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));}
  else if(action.value==='owner_person_id'){value=el('select');value.append(option('No owner',''),...personOptions());}
- else{value=el('input');value.type='date';}value.setAttribute('aria-label','Bulk value');input.append(value);}
+ else{value=el('input');value.type='date';}value.setAttribute('aria-label','Bulk value');input.append(value);
+  if(action.value==='due_date')for(const [label,day] of quickDates()){const quick=btn('quiet small-action quick-date',label,()=>{value.value=day;},date(day));input.append(quick);}}
+ if(bulkDefault){action.value=bulkDefault;bulkDefault='';}
  action.onchange=editor;editor();
  apply.onclick=()=>perform(async()=>{
   if(bulkSaving||!validDates(box))return;

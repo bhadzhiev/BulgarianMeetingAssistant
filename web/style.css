@@ -2408,3 +2408,6 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 
 #daily-before > .card + .card, #team-attention-panel > .card + .card { margin-top: .75rem; }
 .daily-panel .card-heading { flex-wrap: wrap; }
+/* Overdue triage (2026-11-23): the select button carries the danger tone; quick dates sit after the date field. */
+.overdue-select{color:var(--danger-ink)}
+.quick-date{margin-left:6px}

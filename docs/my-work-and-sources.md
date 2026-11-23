@@ -243,6 +243,11 @@ Timeline and Quick fields are in the menu, and Sources is collapsed. Opening the
 opens the complete editor, including Improve with AI, expected result, history and evidence.
 The envelope says **Gmail draft**: Atlanta does not know whether that draft was sent in Gmail.
 
+**Select overdue · N** (2026-11-23) shows next to **Select tasks** when the list has overdue tasks.
+It selects the open overdue tasks on the list (up to 100) and opens **Set due date**. The quick
+dates **Tomorrow**, **Next Monday**, **In a week** and **In two weeks** fill the date. Apply still
+asks for confirmation and saves only on this Mac.
+
 ### Person-centred 1:1 review history
 
 Select a name in Team to see that person’s review history, open agreements and the next conversation. Reviews also has a person picker; the all-reviews list is a secondary archive. See [Person review history](person-review-history.md) for conversation dates, checked results, selected private context and safe fact refresh.

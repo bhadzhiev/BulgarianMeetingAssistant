@@ -2078,6 +2078,9 @@ dialog .dialog-foot{box-shadow:0 var(--dialog-pad-bottom) 0 12px var(--modal),-1
 .task-filter-actions{grid-column:5;grid-row:2;display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0}
 .task-filter-actions button{padding:4px 6px;font-size:.8rem;color:var(--muted)}
 #task-bulk-bar{padding:10px 0;margin:0 0 16px;background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0}
+/* Overdue triage (2026-11-23): the select button carries the danger tone; quick dates sit after the date field. */
+.overdue-select{color:var(--danger-ink)}
+.quick-date{margin-left:6px}
 :is(#task-list,.task-rows).compact-list>.tracked-task.task-card.compact-task.task-list-row{border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:14px;background:var(--card)}
 .task-list-row .task-created{font-family:var(--mono);font-size:.75rem;color:var(--muted);margin-right:10px}
 .task-list-row .tracked-meta{gap:8px 12px;margin-top:10px}
@@ -2408,6 +2411,3 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 
 #daily-before > .card + .card, #team-attention-panel > .card + .card { margin-top: .75rem; }
 .daily-panel .card-heading { flex-wrap: wrap; }
-/* Overdue triage (2026-11-23): the select button carries the danger tone; quick dates sit after the date field. */
-.overdue-select{color:var(--danger-ink)}
-.quick-date{margin-left:6px}

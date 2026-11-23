@@ -62,7 +62,8 @@ def build(service, person_id):
         if person:
             for task in service.item_list()['items']:
                 if (task['kind'] != 'task' or task.get('acceptance_state') != 'accepted'
-                        or task.get('dismissed') or task.get('workflow_state') == 'cancelled'
+                        # A finished task needs no check, as in My Work's Follow-up (2026-11-23).
+                        or task.get('dismissed') or task.get('workflow_state') in {'done', 'cancelled'} or task['status'] == 'done'
                         or (task.get('snoozed_until') or '') > today):
                     continue
                 projects = task['effective_project_ids']

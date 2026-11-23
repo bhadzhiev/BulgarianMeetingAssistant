@@ -274,9 +274,11 @@ async function api(path,body) {
  // also when the caller catches the error and shows it in a form.
  let ok=false;
  try{
-  if(body&&/^\/api\/items(?:\/[a-f0-9]{1,64}|\/bulk)$/.test(path)&&(body.changes?.workflow_state==='done'||body.changes?.status==='done')&&!body.confirm_subtasks){
+  // The update from After the daily asks the same question as the task editor (2026-11-23).
+  const daily=/^\/api\/daily\/[^/]+\/review$/.test(path)&&body?.action==='update';
+  if(body&&(daily||/^\/api\/items(?:\/[a-f0-9]{1,64}|\/bulk)$/.test(path))&&(body.changes?.workflow_state==='done'||body.changes?.status==='done')&&!body.confirm_subtasks){
    const snapshot=await api('/api/items');
-   const ids=new Set(body.items?.map(t=>t.id)||[path.split('/').at(-1)]),open=(snapshot.items||[]).filter(t=>ids.has(t.parent_task_id)&&!['done','cancelled'].includes(AtlantaTasks.workflow(t)));
+   const ids=new Set(body.items?.map(t=>t.id)||[daily?body.task_id:path.split('/').at(-1)]),open=(snapshot.items||[]).filter(t=>ids.has(t.parent_task_id)&&!['done','cancelled'].includes(AtlantaTasks.workflow(t)));
    if(open.length){if(!(await ask(open.length+' unfinished subtasks will stay open. Mark the main task done anyway?',{ok:'Mark main task done',cancel:'Keep editing'})))throw Object.assign(new Error('Main task completion cancelled'),{cancelled:true});body={...body,confirm_subtasks:true};}
   }
   const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});

@@ -87,6 +87,14 @@ class DailyCycleTests(unittest.TestCase):
         with self.assertRaises(WorkItemConflict):
             daily.review(self.service, meeting, dict(common, action='skip'))
 
+    def test_a_done_task_leaves_results_to_check(self):
+        manager = self.service.save_person(dict(name='Manager'))['person']
+        task = self.service.update_item(self.task['id'], self.task['text'], dict(owner_person_id=manager['id'],
+                                       follow_up_date='2000-01-01'), self.task['revision'])
+        self.assertEqual(len(manager_attention.build(self.service, manager['id'])['groups']['checks']), 1)
+        self.service.update_item(task['id'], task['text'], dict(workflow_state='done'), task['revision'])
+        self.assertEqual(manager_attention.build(self.service, manager['id'])['groups']['checks'], [])
+
     def test_decision_is_checked_in_notes_and_handled_questions_leave_attention(self):
         meeting = self.meeting(decisions=[dict(text='Keep staging', evidence_timestamp='00:00:00')],
                                needs_decision=[dict(text='Approve another check?', evidence_timestamp='00:00:00')])

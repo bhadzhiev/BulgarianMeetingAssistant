@@ -1454,7 +1454,10 @@ label.required-label:has(.date-part-label)::after{content:none}
 .task-title-line>.email-mark .icon{color:var(--green)}
 
 /* New task dialog: the same field order and grid as the task editor (2026-11-12). */
-#manual-task-dialog{width:min(850px,94vw);max-height:90vh}#manual-task-dialog textarea{min-height:64px;margin:4px 0 12px}#manual-task-dialog .review-footer,#manual-task-dialog .editor-actions{flex-wrap:wrap;gap:8px}
+#manual-task-dialog{width:min(850px,94vw);max-height:90vh}
+/* A short window (2026-11-23): the last field of New task fell under the button bar at 680px; 96vh fits the form. */
+@media(max-height:760px){#manual-task-dialog{max-height:96vh}}
+#manual-task-dialog textarea{min-height:64px;margin:4px 0 12px}#manual-task-dialog .review-footer,#manual-task-dialog .editor-actions{flex-wrap:wrap;gap:8px}
 #manual-task-body label{display:grid;gap:6px;margin:8px 0}
 #manual-task-body textarea{width:100%;margin:0;line-height:1.45}
 #manual-task-body select,#manual-task-body input{margin-bottom:0}

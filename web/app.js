@@ -658,7 +658,7 @@ function renderState() {
  const summary=state.task_summary||{open:0,overdue:0};
  // Mentions that wait for a choice come first; then source suggestions, late tasks, then open tasks.
  $('tasks-badge').hidden=!summary.open&&!summary.review&&!summary.suggested; $('tasks-badge').classList.toggle('late',!summary.review&&!summary.suggested&&summary.overdue>0); $('tasks-badge').classList.toggle('review',!!(summary.review||summary.suggested));
- $('tasks-badge').textContent=summary.review?summary.review:summary.suggested?summary.suggested:summary.overdue?summary.overdue+' late':summary.open;
+ $('tasks-badge').textContent=summary.review?summary.review:summary.suggested?summary.suggested:summary.overdue?summary.overdue+' overdue':summary.open;
  $('tasks-badge').title=summary.review?AtlantaUX.count(summary.review,'mention')+(summary.review===1?' waits':' wait')+' for your review':summary.suggested?AtlantaUX.count(summary.suggested,'source suggestion')+(summary.suggested===1?' waits':' wait')+' for a decision':summary.overdue?AtlantaUX.count(summary.overdue,'task')+(summary.overdue===1?' is':' are')+' late':AtlantaUX.count(summary.open,'open task');
  setConnection(desktopStatus|| (state.active?'● Recording workspace':'● Connected to this Mac'));
  const signature=JSON.stringify(state.devices);
@@ -816,7 +816,8 @@ function transcriptElement(index) { return $('transcript').querySelector('[data-
 function renderTranscript(d,busy) {
  const target=$('transcript');target.replaceChildren();if(transcriptEditing&&!dirtyTranscript)transcriptBaseline=structuredClone(d.transcript);
  $('edit-transcript').disabled=busy||!d.transcript.length;$('save-transcript').hidden=!transcriptEditing;$('save-transcript').disabled=!dirtyTranscript||busy;$('save-excerpt').hidden=true;
- $('transcript-heading').textContent='Transcript · '+AtlantaUX.count(d.transcript.length,'segment')+' · '+AtlantaUX.count(new Set(d.transcript.map(v=>v.speaker).filter(Boolean)).size,'participant');
+ // The participant count shows once, in the Participants disclosure below (2026-11-23).
+ $('transcript-heading').textContent='Transcript · '+AtlantaUX.count(d.transcript.length,'segment');
  if(!d.transcript.length){target.append(emptyNote(d.live?.segments?.length?'Your saved live draft is below. The final transcript appears after processing.':busy?'Your transcript will appear here when processing finishes.':'Your recording is saved. Choose Transcribe to turn it into text.'));return;}
  $('edit-transcript').disabled=busy||!d.transcript.length;$('edit-transcript').textContent=transcriptEditing?'Cancel editing':'Edit transcript';$('edit-transcript').setAttribute('aria-pressed',String(transcriptEditing));$('save-transcript').hidden=!transcriptEditing;
  const toolbar=el('div','transcript-view-actions');if(transcriptEditing)target.append(toolbar);
@@ -856,7 +857,7 @@ function renderDetail() {
  const titleNote=d.title_status==='generated'&&!d.title_error;if(titleNote)$('detail-date').textContent+=' · AI title';
  $('title-status').textContent=titleNote?'':(titleMessages[d.title_status]||'')+(d.title_error?' · '+d.title_error:'');$('title-status').hidden=!$('title-status').textContent;
  const sync=d.calendar_sync; $('calendar-status').hidden=!sync;$('calendar-status').replaceChildren();
- if(sync){$('calendar-status').append(el('span','',sync.status==='synced'?'Saved in Google Calendar':sync.status==='error'?'Calendar sync needs attention: '+sync.error:'Calendar sync pending…'));if(sync.status==='synced'&&sync.html_link){const url=new URL(sync.html_link);if(url.protocol==='https:'&&['www.google.com','calendar.google.com'].includes(url.hostname)){const link=el('a','',' Open event ');link.append(icon('external'));link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';$('calendar-status').append(link);}}}
+ if(sync){$('calendar-status').append(el('span','',sync.status==='synced'?'Saved in Google Calendar':sync.status==='error'?'Calendar sync needs attention: '+sync.error:'Calendar sync pending…'));if(sync.status==='synced'&&sync.html_link){const url=new URL(sync.html_link);if(url.protocol==='https:'&&['www.google.com','calendar.google.com'].includes(url.hostname)){const link=el('a','','Open event');link.append(icon('external'));link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';$('calendar-status').append(' · ',link);}}}
  renderScope(d);
  $('generate-title').disabled=busy||d.title_status==='generating'||(!d.transcript.length&&!d.live?.segments?.length);
  $('sync-calendar').disabled=busy||(!sync&&!state.settings.calendar_enabled);
@@ -2687,7 +2688,6 @@ function renderTasks() {
   const actions=el('div','action-group'),filtered=!!view||activeFilters.length>0;
   if(filtered)actions.append(actionBtn('secondary small-action','Reset filters',()=>resetTaskFilters()));
   if(search)actions.append(actionBtn('secondary small-action','Clear search',()=>{store('task-search','');renderTasks();}));
-  if(filtered&&search)actions.append(actionBtn('secondary small-action','Reset filters and search',()=>resetTaskFilters({all:true})));
   if(actions.childNodes.length)box.append(actions);$('task-list').append(box);
  }}
  if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
@@ -3092,7 +3092,8 @@ function renderPrepare(data) {
  if(daily)renderDailyBefore(data);
  renderFollowup(data);
  const last=data.meetings.at(-1);
- const type=typeOf(data.meeting_type), label=type.id==='general'?'':' · '+type.label;
+ // A series title often already names its type ("SAP · Daily stand-up"); the type then shows once (2026-11-23).
+ const type=typeOf(data.meeting_type), label=type.id==='general'||data.title.toLocaleLowerCase().includes(type.label.toLocaleLowerCase())?'':' · '+type.label;
  $('prepare-summary').textContent=data.meetings.length?data.title+label+' · '+data.meetings.length+(data.meetings.length===1?' meeting':' meetings')+' · last: '+withDate(last.title,last.date):data.title+label+' · no meetings yet';
  $('prepare-content').hidden=daily;
  const sources=list=>{const box=el('div','item-meetings');for(const source of list.filter(Boolean))box.append(sourceChip(source),sourceListen(source));return box;};
@@ -3296,7 +3297,7 @@ function resetTaskFilters({all=false}={}){
  if(all){store('task-search','');taskSelecting=false;taskSelection.clear();}
  renderTasks();
 }
-$('task-reset-filters').onclick=()=>resetTaskFilters();$('task-clear-all').onclick=()=>resetTaskFilters({all:true});
+$('task-reset-filters').onclick=()=>resetTaskFilters();
 $('work-project').onchange=()=>{store('tasks-project',$('work-project').value);renderTasks();};
 $('task-owner').onchange=()=>{store('tasks-owner',$('task-owner').value);renderTasks();};
 // Transcript rows grow with their text instead of showing an inner scroll bar.

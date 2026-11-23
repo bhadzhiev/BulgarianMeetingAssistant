@@ -17,7 +17,7 @@ function setup(aiAvailable=true){
  vm.runInContext(src.slice(src.indexOf('function btn('),src.indexOf('function option(')),c);
  vm.runInContext(src.slice(src.indexOf('async function openManualTask('),src.indexOf("$('new-task').onclick=")),c);
  const source={provider:'gmail',id:'thread',revision:'rev1'};
- const preview={ai_available:aiAvailable,ai_unavailable_reason:'AI is optional',target:{local_ai_model:'fixture',local_ai_base_url:'local'},preview_token:'approved',characters:40,source_excerpt:'Exact source'};
+ const preview={ai_available:aiAvailable,ai_unavailable_reason:'AI is optional',target:{local_ai_model:'fixture',local_ai_base_url:'local'},preview_token:'approved',characters:40,source_excerpt:'Exact source',suggested_title:'Title from the source',suggested_details:'Text from the source'};
  const fields=()=>Object.fromEntries((function all(n){return [n,...(n.children||[]).flatMap(all)];})(nodes['manual-task-body']).filter(n=>n.tag==='label').map(n=>[n.text,n.children[0]]));
  const buttons=()=>nodes['manual-task-body'].children.at(-1).children;
  return {c,nodes,errors,requests,fields,buttons,source,preview,setFail:v=>fail=v,
@@ -27,6 +27,8 @@ const tick=()=>new Promise(r=>setImmediate(r));
 (async()=>{
  // Structured fields, optional owner/date, preserved network retries and the changed-payload guard.
  const a=setup(),done=a.start();await tick();await tick();const af=a.fields();
+ // A source fills the title and the description from its own text, so the dialog never opens empty.
+ assert.equal(af.Title.value,'Title from the source');assert.equal(af.Description.value,'Text from the source');assert(!a.buttons()[3].disabled,'the filled title can be saved at once');
  af.Title.value='Title';af.Description.value='Context';af['Expected result'].value='Expected result';
  assert.deepEqual(a.buttons().map(b=>b.text),['Cancel','Draft with AI…','Improve with AI','Create task']);
  const save=a.buttons()[3];

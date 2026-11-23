@@ -152,3 +152,23 @@ class DraftHTTPTests(unittest.TestCase):
         status,_,_=self.request('/api/task-draft/create',dict(body,preview_token=preview['preview_token'],title='Edited task from source'))
         self.assertEqual(status,200)
         self.assertEqual(self.service.tasks()[0]['text'],'Edited task from source')
+
+
+class SuggestedFieldsTests(unittest.TestCase):
+    """The task dialog opens with text from the source, never empty (2026-11-23)."""
+    def fields(self, provider, **source):
+        return task_draft.suggested_fields(dict(source, selection=dict(provider=provider)))
+
+    def test_each_source_gives_a_title_and_its_text(self):
+        self.assertEqual(self.fields('github', title='Fix the export', body='Steps:\n- open'), dict(title='Fix the export', details='Steps:\n- open'))
+        self.assertEqual(self.fields('gmail', subject='RE: Fwd: Invoice layout', body='Please fix the logo.'),
+                         dict(title='Invoice layout', details='Please fix the logo.'))
+        self.assertEqual(self.fields('chat', body='**Hi team**\nPlease update the queue config.')['title'], 'Please update the queue config.')
+        self.assertEqual(self.fields('meeting', title='Weekly', body='We agree to ship the report.')['title'], 'We agree to ship the report.')
+        self.assertEqual(self.fields('report', finding=dict(text='Retry loop never stops')), dict(title='Retry loop never stops', details=''))
+
+    def test_a_one_line_source_is_not_repeated_and_long_text_is_cut(self):
+        self.assertEqual(self.fields('chat', body='Check the build please'), dict(title='Check the build please', details=''))
+        long = self.fields('chat', body='word ' * 100)
+        self.assertLessEqual(len(long['title']), 160);self.assertTrue(long['title'].endswith('…'))
+        self.assertLessEqual(len(self.fields('chat', body='x ' * 4000)['details']), 5000)

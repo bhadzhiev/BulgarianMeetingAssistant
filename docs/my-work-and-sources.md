@@ -131,7 +131,11 @@ oldest bodies are left out first. Matching threads can contain older messages. T
 label or draft email. Email content reaches an AI endpoint only through the selected-message approval below.
 
 **Suggest a task** opens the same task editor used everywhere, with this message pinned as the
-source and the AI provider preview shown; **Draft with AI** is optional. **Create task** confirms
+source and the AI provider preview shown. The editor never opens empty: the title and the
+description come from the source itself, with no AI. A GitHub item gives its title, an email its
+subject without "Re:" or "Fwd:", and a Chat message or meeting passage its first line with at
+least three words. A code finding gives its conclusion. The description holds the source text.
+**Draft with AI** is optional. It asks before it replaces text only after you edit the fields. **Create task** confirms
 the edited text and saves an open task with the pinned source quote. Cancel discards the draft;
 owners and dates are not assigned automatically. Syncing a
 changed previously-linked thread marks its old pending proposals stale. A removed/out-of-window

@@ -7,14 +7,15 @@ assert.match(tasks,/managerView='all';store\('manager-view','all'\);/);
 assert.match(tasks,/if\(all\)\{store\('task-search',''\);/);
 // "This is me" is who you are, not a filter.
 assert.doesNotMatch(tasks,/managerSelf|manager-self/);
-assert.match(html,/<button id="task-reset-filters" class="quiet" type="button">Reset filters<\/button><button id="task-clear-all" class="quiet" type="button">Reset filters and search<\/button>/);
+// One reset in the filter panel (2026-11-23): two nearly equal buttons confused people. The search has its own clear.
+assert.match(html,/<button id="task-reset-filters" class="quiet" type="button">Reset filters<\/button><\/div>/);assert.doesNotMatch(html+app,/task-clear-all|Reset filters and search/);
 const library=slice('function resetConversationFilters({all=false}={}){');
 assert.match(library,/\.\.\.\(all\?\['conversation-query'\]:\[\]\)/);
 assert.match(html,/<button id="conversation-clear-all" class="quiet" type="button">Clear all<\/button>/);
 // 0 results: the active conditions and an action for each scope.
 const list=slice('function renderTasks() {');
 assert.match(list,/box\.append\(el\('p','hint','Active: '\+conditions\.join\(' · '\)\)\);/);
-for(const name of ['Reset filters','Clear search','Reset filters and search'])assert.ok(list.includes("'"+name+"'"),name);
+for(const name of ['Reset filters','Clear search'])assert.ok(list.includes("'"+name+"'"),name);
 const conv=slice('function renderConversations(){');
 for(const name of ['Reset filters','Clear search','Clear all'])assert.ok(conv.includes("'"+name+"'"),name);
 console.log('Reset scope PASS: Reset filters keeps the search, Clear all clears it, This is me stays, 0 results offer each scope.');

@@ -27,14 +27,15 @@ def build(service, person_id):
             directory = service.library.directory(meeting['id'])
             saved = read_receipts(directory)
             for state in saved.values():
-                if state['state'] == 'promise' and state.get('text'):
-                    groups['help'].append(dict(text=state['text'], meeting_id=meeting['id'], project=active[project],
-                                               task_id=state.get('task_id'), reason='You promised to help at the daily'))
+                help = state.get('help')
+                if help and help['state'] == 'promise' and help.get('text'):
+                    groups['help'].append(dict(text=help['text'], meeting_id=meeting['id'], project=active[project],
+                                               task_id=help.get('task_id'), reason='You promised to help at the daily'))
             minutes = service._minutes(meeting['id'])
             if not minutes or meeting.get('notes_need_refresh') or (directory / 'minutes.proposed.json').exists():
                 continue
             with service.items.lock:
-                resolved = {**applied.get(meeting['id'], {}), **saved}
+                resolved = {**applied.get(meeting['id'], {}), **{key: value for key, value in saved.items() if value.get('state')}}
                 rows = review_rows(minutes, read_json(directory / 'transcript.json', []))
                 for row in rows:
                     if row['field'] != 'needs_decision':

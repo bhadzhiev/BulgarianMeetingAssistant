@@ -162,10 +162,48 @@ def review_rows(minutes, transcript):
     return list(rows.values())
 
 
+REVIEWED, HELP = {'confirmed', 'skipped'}, {'promise', 'helped'}
+
+
 def read_receipts(directory):
-    saved = read_json(directory / RECEIPTS, {})
-    return {key: dict(value) for key, value in saved.items()
-            if isinstance(value, dict) and value.get('state') in {'confirmed', 'skipped', 'promise', 'helped'}}
+    """Saved daily receipts: the review of a line and a promise to help are separate (2026-11-23).
+
+    A promise to help does not review the line, so the line can still update a task. Older receipts kept the
+    promise as the review state; they read as a promise on a line that is not reviewed.
+    """
+    receipts = {}
+    for key, value in read_json(directory / RECEIPTS, {}).items():
+        if not isinstance(value, dict):
+            continue
+        if value.get('state') in HELP:
+            value = dict(help=dict(state=value['state'], text=value.get('text'), task_id=value.get('task_id')))
+        entry = {}
+        if value.get('state') in REVIEWED:
+            entry['state'] = value['state']
+        help = value.get('help')
+        if isinstance(help, dict) and help.get('state') in HELP:
+            entry['help'] = dict(state=help['state'], text=help.get('text'), task_id=help.get('task_id'))
+        if entry:
+            receipts[key] = entry
+    return receipts
+
+
+def save_receipt(directory, key, *, state=None, help=None, clear_state=False):
+    """Change one part of a receipt and keep the other part."""
+    saved = read_receipts(directory)
+    entry = saved.get(key, {})
+    if clear_state:
+        entry.pop('state', None)
+    if state:
+        entry['state'] = state
+    if help:
+        entry['help'] = help
+    if entry:
+        saved[key] = entry
+    else:
+        saved.pop(key, None)
+    atomic_json(directory / RECEIPTS, saved)
+    return entry
 
 
 def applied_reviews(items, meeting_id=None):
@@ -179,8 +217,17 @@ def applied_reviews(items, meeting_id=None):
 
 
 def receipt_states(service, directory, meeting_id):
-    return {**applied_reviews(service.items.items.values(), meeting_id).get(meeting_id, {}),
-            **read_receipts(directory)}
+    """The review state (an applied update, or a saved review) and the help promise of each line."""
+    applied = applied_reviews(service.items.items.values(), meeting_id).get(meeting_id, {})
+    saved = read_receipts(directory)
+    states = {}
+    for key in {*applied, *saved}:
+        own = saved.get(key, {})
+        entry = dict(state=own['state']) if own.get('state') else dict(applied.get(key, {}))
+        if own.get('help'):
+            entry['help'] = own['help']
+        states[key] = entry
+    return states
 
 
 def eligible(service, item, project_id, meetings=None):
@@ -212,14 +259,18 @@ def after(service, meeting, directory):
             item = service.items.items.get(row['item_id'])
             entry = meeting['minutes'][row['field']][row['index']]
             default = 'confirmed' if row['field'] == 'decisions' and entry.get('review') == 'verified' else 'pending'
-            state = states.get(row['key'], dict(state=default))
+            state = dict(states.get(row['key'], {}))
+            state.setdefault('state', default)
             if row['field'] == 'tasks' and item and item.get('acceptance_state') == 'accepted' and state['state'] == 'pending':
-                state = dict(state='applied', task_id=item['id'])
+                state.update(state='applied', task_id=item['id'])
             row.update(state)
         current = {row['key'] for row in rows}
         for key, state in states.items():
-            if key not in current and state.get('state') == 'promise' and state.get('text'):
-                rows.append(dict(state, key=key, field='updates', timestamp=None, source_changed=True))
+            help = state.get('help')
+            if key not in current and help and help['state'] == 'promise' and help.get('text'):
+                # The line left the notes; the promise stays until help is provided.
+                rows.append(dict(key=key, field='updates', text=help['text'], task_id=help.get('task_id'), help=help,
+                                 state='changed', timestamp=None, source_changed=True))
         return dict(result, status='ready', revision=service._notes_revision(directory), rows=rows,
                     tasks=sorted(tasks, key=lambda item: item['text'].casefold()))
 
@@ -242,33 +293,23 @@ def review(service, meeting_id, body):
         key = body.get('key')
         action = body.get('action')
         state = receipt_states(service, directory, meeting_id).get(key) if isinstance(key, str) else None
-        if action == 'helped' and state and state['state'] in {'promise', 'helped'}:
-            saved = read_receipts(directory)
-            saved[key] = dict(state, state='helped')
-            atomic_json(directory / RECEIPTS, saved)
-            return saved[key]
+        if action == 'helped' and state and state.get('help'):
+            return save_receipt(directory, key, help=dict(state['help'], state='helped'))
         if row is None:
             raise WorkItemConflict('This daily suggestion changed. Reopen the daily review.')
         item = service.items.items.get(row['item_id'])
         if action == 'promise':
             if row['field'] not in {'tasks', 'updates', 'blockers'} or not row['quote']:
                 raise ValueError('Choose sourced work or a blocker from the daily')
-            saved = read_receipts(directory)
             task_id = state.get('task_id') if state else None
             if not task_id and item and item.get('acceptance_state') == 'accepted':
                 task_id = item['id']
-            state = dict(state='promise', task_id=task_id, text=row['text'])
-            saved[row['key']] = state
-            atomic_json(directory / RECEIPTS, saved)
-            return state
+            return save_receipt(directory, row['key'], help=dict(state='promise', task_id=task_id, text=row['text']))
         if row['field'] == 'tasks' and item and item.get('acceptance_state') == 'accepted':
             return dict(state='applied', task_id=item['id'])
-        if state:
-            if action == 'reopen' and state['state'] in {'confirmed', 'skipped'}:
-                saved = read_json(directory / RECEIPTS, {})
-                saved.pop(row['key'], None)
-                atomic_json(directory / RECEIPTS, saved)
-                return dict(state='pending')
+        if state and state.get('state'):
+            if action == 'reopen' and state['state'] in REVIEWED:
+                return dict(save_receipt(directory, row['key'], clear_state=True), state='pending')
             return state
         if action == 'confirm' and row['field'] == 'decisions':
             decisions = copy.deepcopy(minutes['decisions'])
@@ -278,11 +319,7 @@ def review(service, meeting_id, body):
                                           minutes_revision=service._minutes_revision(directory)))
             return dict(state='confirmed')
         if action in {'skip', 'confirm'}:
-            saved = read_json(directory / RECEIPTS, {})
-            state = dict(state='skipped' if action == 'skip' else 'confirmed')
-            saved[row['key']] = state
-            atomic_json(directory / RECEIPTS, saved)
-            return state
+            return save_receipt(directory, row['key'], state='skipped' if action == 'skip' else 'confirmed')
         if action != 'update':
             raise ValueError('Choose a daily review action')
         task_id = body.get('task_id')

@@ -2121,7 +2121,7 @@ $('gmail-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/cancel',{}
 $('gmail-clear').onclick=()=>perform(async()=>{const account=$('gmail-cache-account').value;if(await ask('Clear the local email cache for '+account+'? It can be synced again. Saved work item source quotes and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/gmail/clear',{account});mailThread='';$('gmail-detail').replaceChildren();await loadMail();}});
 function calendarConnected(google=state?.google){return google?.capabilities?.calendar??!!google?.connected;}
 
-let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false,chatSpaces=[],chatSelf='',chatDiscovered=false;const chatAutoSynced=new Set();
+let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false,chatSpaces=[],chatSelf='',chatDiscoveredAt=0;const chatAutoSynced=new Set();
 const CHAT_TYPES={DIRECT_MESSAGE:'Direct',GROUP_CHAT:'Group',SPACE:'Space'};
 // Chat does not name the signed-in person. The name that appears in most conversations is almost certainly you.
 function guessChatSelf(spaces){const seen={};for(const s of spaces)for(const name of s.participants)seen[name]=(seen[name]||0)+1;const [name,count]=Object.entries(seen).sort((a,b)=>b[1]-a[1])[0]||[];return count>=2?name:'';}
@@ -2131,12 +2131,14 @@ async function loadChat(){
  const status=await api('/api/chat');
  if(chatAccount!==status.account_id){chatMessage='';chatSpace=chatSpace&&chatAccount===''?chatSpace:'';chatAccount=status.account_id;}
  const discovery=status.states['']||{};
- sourceState('chat',status.connected,[status.account,jobText(status.job),discovery.limited&&'first 200 conversations'],status.job.error);
+ sourceState('chat',status.connected,[status.account,jobText(status.job),discovery.limited&&'first 500 conversations'],status.job.error);
  chatSpaces=status.connected?await api('/api/chat/spaces'):[];chatSelf=guessChatSelf(chatSpaces);
  $('chat-cancel').disabled=!status.job.running;$('chat-discover').disabled=$('chat-restart').disabled=!status.connected||status.job.running;
- $('chat-discover').textContent=discovery.complete||!discovery.page?'Refresh conversation list':'Load more conversations';
+ $('chat-discover').textContent='Refresh conversation list';
  cacheAccounts($('chat-cache-account'),$('chat-clear'),status.cached_accounts.map(a=>[a.label+' · '+a.id.slice(0,8),a.id]),status.job.running);
- if(status.connected&&!chatSpaces.length&&!status.job.running&&!chatDiscovered){chatDiscovered=true;return chatAction('discover');}
+ // The list refreshes itself when Chat opens and the last refresh is older than 10 minutes (2026-11-23):
+ // a group chat started after the first visit used to stay missing until a manual refresh.
+ if(status.connected&&!status.job.running&&Date.now()-chatDiscoveredAt>CHAT_LIST_AGE&&(!chatSpaces.length||Date.now()/1000-(discovery.last_sync||0)>CHAT_LIST_AGE/1000)){chatDiscoveredAt=Date.now();return chatAction('discover');}
  if(chatSpace&&!chatSpaces.some(s=>s.name===chatSpace))chatSpace='';
  const sync=status.states[chatSpace]||{};
  $('chat-sync').disabled=!status.connected||!chatSpace||status.job.running;$('chat-sync').textContent=status.job.running?'Syncing…':sync.page?'Load older messages':'Sync conversation';
@@ -2147,12 +2149,17 @@ async function loadChat(){
  chatWasRunning=status.job.running;
  if(chatTimer)clearTimeout(chatTimer);chatTimer=null;if(status.job.running&&view==='tasks'&&workTab==='chat')chatTimer=setTimeout(()=>perform(loadChat),1500);
 }
+const CHAT_LIST_AGE=10*60000,CHAT_QUIET_DAYS=30;
+// A direct message without activity in the last 30 days is hidden (2026-11-23); a search still finds it.
+function chatQuiet(space,now=Date.now()){return space.type==='DIRECT_MESSAGE'&&(!space.last||now-space.last*1000>CHAT_QUIET_DAYS*86400000);}
 function renderChatList(){
  const query=$('chat-search').value.trim().toLocaleLowerCase(),list=$('chat-spaces');const focused=list.contains(document.activeElement);
- const rows=chatSpaces.filter(s=>!query||chatLabel(s).toLocaleLowerCase().includes(query));
+ const rows=chatSpaces.filter(s=>query?chatLabel(s).toLocaleLowerCase().includes(query):!chatQuiet(s)||s.name===chatSpace);
  list.replaceChildren(...rows.map(s=>{const label=chatLabel(s);return sourceRow(s.name===chatSpace,[avatar(label),el('strong','row-who',label),el('span','row-tag',CHAT_TYPES[s.type]||'Chat'),el('span','row-title',s.count?AtlantaUX.count(s.count,'message'):'Not synced yet'),el('span','row-when',relTime(s.last*1000))],async()=>{chatSpace=s.name;chatMessage='';await loadChat();});}));
  if(focused)list.querySelector('.selected')?.focus();
- if(!rows.length)emptyState(list,chatSpaces.length?'No conversation matches this filter.':'No conversations yet. Open the ... menu and choose Refresh conversation list.');
+ const quiet=query?0:chatSpaces.filter(s=>chatQuiet(s)&&s.name!==chatSpace).length;
+ if(!rows.length&&!quiet)emptyState(list,chatSpaces.length?'No conversation matches this filter.':'No conversations yet. Open the ... menu and choose Refresh conversation list.');
+ if(quiet)list.append(el('p','source-empty chat-quiet-note',AtlantaUX.count(quiet,'direct message')+' without activity in the last 30 days hidden. Search to find one.'));
 }
 $('chat-search').oninput=renderChatList;listKeys($('chat-spaces'));
 async function renderConversation(sync){

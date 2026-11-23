@@ -140,21 +140,42 @@ class ChatSyncTests(unittest.TestCase):
         for _ in range(10):self.run_sync()
         state=self.chat.status()['states'][SPACE]
         self.assertTrue(state['complete']);self.assertTrue(state['limited']);self.assertEqual(state['count'],200)
-    def test_partial_pages_cannot_push_message_or_space_cycles_past_200(self):
+    def test_partial_pages_cannot_push_message_or_space_cycles_past_their_limits(self):
         def paged(resource,query):
             page=int(query.get('pageToken','0'))
             if resource=='spaces':
                 return dict(spaces=[dict(name='spaces/s'+str(page*49+i)) for i in range(49)],nextPageToken=str(page+1))
             return dict(messages=[message(SPACE+'/messages/m'+str(page*19+i)) for i in range(19)],nextPageToken=str(page+1))
         self.google.handler=paged
-        for _ in range(5):self.run_sync('spaces','')
-        self.assertEqual(len(self.chat.spaces()),200)
+        # One refresh reads every page up to 500 conversations and marks the limit (2026-11-23).
+        self.run_sync('spaces','')
+        self.assertEqual(len(self.chat.spaces()),500)
         self.assertTrue(self.chat.status()['states']['']['limited'])
         for _ in range(11):self.run_sync()
         self.assertEqual(self.chat.status()['states'][SPACE]['count'],200)
         self.assertEqual(len(self.chat.messages(SPACE)),200)
         self.assertTrue(self.chat.status()['states'][SPACE]['limited'])
         self.assertEqual({call[1]['pageSize'] for call in self.google.calls if call[0]==SPACE+'/messages'},{20})
+
+    def test_refresh_reads_all_pages_and_fetches_recent_unsynced_conversations(self):
+        # A new group chat on a later page appears, with its messages, and the list follows Google activity (2026-11-23).
+        now=dt.datetime.now(dt.timezone.utc)
+        stamp=lambda days:(now-dt.timedelta(days=days)).isoformat().replace('+00:00','Z')
+        pages={'0':dict(spaces=[dict(name='spaces/old',spaceType='DIRECT_MESSAGE',lastActiveTime=stamp(90))],nextPageToken='1'),
+               '1':dict(spaces=[dict(name='spaces/group',spaceType='GROUP_CHAT',lastActiveTime=stamp(2)),
+                                dict(name='spaces/quiet',spaceType='DIRECT_MESSAGE')])}
+        def handler(resource,query):
+            if resource=='spaces':return pages[query.get('pageToken','0')]
+            return dict(messages=[message(resource+'/m1')])
+        self.google.handler=handler
+        self.run_sync('spaces','')
+        listed=self.chat.spaces()
+        self.assertEqual([s['name'] for s in listed][:2],['spaces/group','spaces/old'])
+        self.assertEqual(listed[0]['count'],1);self.assertEqual(listed[0]['participants'],['Synthetic sender'])
+        self.assertGreater(listed[1]['last'],0)
+        # Only the recently active conversation was read; old and never-active ones wait until opened.
+        self.assertEqual([c[0] for c in self.google.calls if c[0].endswith('/messages')],['spaces/group/messages'])
+        self.assertEqual(self.chat.status()['job']['status'],'synced')
 
     def test_bad_cross_space_record_rejects_page_before_callbacks(self):
         self.google.handler=lambda *_:dict(messages=[message(),message('spaces/other/messages/m2')])

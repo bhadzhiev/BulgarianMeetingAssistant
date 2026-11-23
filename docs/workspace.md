@@ -150,8 +150,9 @@ and task still match your review. Pending regenerated notes must be reviewed
 first.
 
 **Needs me** brings together decisions raised at dailies, explicit promises to
-help from dailies and 1:1s, and due checks on tasks you own or follow after you
-choose your profile. Record **I promised to help** and **Mark help provided**
+help from dailies and 1:1s, and due checks on tasks you own, share or follow after
+you choose your profile. A check on a shared task names the owner, who stays
+accountable for it. Record **I promised to help** and **Mark help provided**
 in the daily review. The dashboard and agenda use saved local records without
 requesting another AI analysis.
 

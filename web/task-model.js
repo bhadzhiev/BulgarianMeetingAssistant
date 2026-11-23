@@ -6,7 +6,8 @@
   const proposed=item.acceptance_state==='proposed';if(view==='inbox')return proposalFilter!=='stale'&&proposed&&(proposalFilter==='all'||(proposalFilter==='dismissed'?!!item.dismissed:!item.dismissed&&(proposalFilter==='snoozed'?item.snoozed_until>today:!item.snoozed_until||item.snoozed_until<=today)));
   if(proposed)return false;
   const me=people.find(p=>p.id===self),names=me?[me.name,...(me.aliases||[])].map(n=>n.toLowerCase()):[];
-  const mine=!!self&&(item.owner_person_id===self||!!item.manual?.includes('owner')&&names.includes((item.owner||'').toLowerCase()));
+  // My tasks include shared tasks: a person who works on a task sees it, not only the accountable owner (2026-11-23).
+  const mine=!!self&&(item.owner_person_id===self||(item.assignee_person_ids||[]).includes(self)||!!item.manual?.includes('owner')&&names.includes((item.owner||'').toLowerCase()));
   if(view==='mine')return mine;
   if(view==='delegated')return !!self&&item.assigned_by_person_id===self&&!mine;
   if(view==='followup')return !['done','cancelled'].includes(workflow(item))&&((item.follow_up_date&&item.follow_up_date<=today)||(item.due_date&&item.due_date<today)||workflow(item)==='waiting'&&!item.follow_up_date);

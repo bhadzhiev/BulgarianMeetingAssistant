@@ -2,6 +2,9 @@ const assert=require('node:assert/strict'),M=require('../web/task-model.js');
 const people=[{id:'me',name:'Bo',aliases:['B']}],context={self:'me',people,today:'2026-11-06'};
 const item={text:'Backup',status:'open',manual:['owner'],owner:'B',assigned_by_person_id:'me'};
 assert(M.inView(item,'mine',context));assert(!M.inView(item,'delegated',context));
+// A shared task shows in My tasks for every assignee, and it is not delegated to them.
+const shared={text:'Shared',status:'open',owner:'Ana',owner_person_id:'ana',assignee_person_ids:['ana','me'],assigned_by_person_id:'me'};
+assert(M.inView(shared,'mine',context));assert(!M.inView(shared,'delegated',context));assert(!M.inView({...shared,assignee_person_ids:['ana']},'mine',context));
 assert(M.inView({...item,owner:'Maria'},'delegated',context));assert(!M.inView(item,'mine',{...context,self:''}));
 assert(!M.inView({...item,manual:[]},'mine',context),'AI owner name alone cannot establish a confirmed assignment');
 assert(M.inView({...item,follow_up_date:'2026-11-05'},'followup',context));assert(!M.inView({...item,workflow_state:'done',follow_up_date:'2026-11-05'},'followup',context));

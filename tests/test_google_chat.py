@@ -267,6 +267,40 @@ class ChatServiceTests(unittest.TestCase):
         self.google.value=dict(self.google.value,text='Changed once more.',lastUpdateTime=dt.datetime.now(dt.timezone.utc).isoformat())
         self.sync()
         self.assertEqual(self.service.items.data['proposals'][newer['proposals'][0]]['state'],'stale')
+    def test_consecutive_messages_are_one_source_in_reading_order(self):
+        # People write one request as several short messages; a selection is one source (2026-11-23).
+        from app import task_draft
+        now=dt.datetime.now(dt.timezone.utc)
+        def row(n,text,who,minutes):
+            return dict(name=SPACE+'/messages/b'+str(n),text=text,createTime=(now-dt.timedelta(minutes=minutes)).isoformat(),
+                        sender=dict(name='users/'+who,displayName=who.title()),thread=dict(name=SPACE+'/threads/thread1'))
+        rows=[row(3,'before Friday please',"ana",1),row(1,'Hi team',"ana",3),row(2,'update the print queue config',"ana",2),row(4,'ok, I will check',"ben",0)]
+        self.google.handler=lambda resource,query:dict(messages=rows) if resource.endswith('/messages') else rows[0]
+        self.service.chat.start('messages',SPACE,True);self.service.chat.thread.join(5)
+        names=[SPACE+'/messages/b'+str(n) for n in (1,2,3)]
+        revisions=[self.service.chat.detail(n)['revision'] for n in names]
+        body=dict(provider='chat',name=names[0],names=names,revisions=revisions)
+        preview=task_draft.preview(self.service,body)
+        self.assertEqual(preview['source_excerpt'],'Hi team\nupdate the print queue config\nbefore Friday please')
+        self.assertEqual(preview['suggested_title'],'update the print queue config')
+        # Several senders get name prefixes; the title is still the request.
+        both=dict(body,names=names+[SPACE+'/messages/b4'],revisions=revisions+[self.service.chat.detail(SPACE+'/messages/b4')['revision']])
+        mixed=task_draft.preview(self.service,both)
+        self.assertTrue(mixed['source_excerpt'].startswith('Ana: Hi team\n'));self.assertTrue(mixed['source_excerpt'].endswith('Ben: ok, I will check'))
+        self.assertEqual(mixed['suggested_title'],'update the print queue config')
+        result=self.service.chat_proposal(names[0],None,'Update the print queue config',names=names,revisions=revisions)
+        source=next(s for s in self.service.items.data['sources'].values() if s['external_id']==names[0])
+        self.assertEqual(source['provider'],'google_chat')
+        ev=self.service.items.data['source_evidence']
+        quote=next(e for e in ev.values() if e['locator'].get('messages')==names)
+        self.assertIn('update the print queue config',quote['quote'])
+        self.assertTrue(result['proposals'])
+        # A changed message, another conversation or a wrong first name is refused.
+        with self.assertRaises(WorkItemConflict):self.service.chat_proposal(names[0],None,'x',names=names,revisions=revisions[::-1])
+        with self.assertRaises(WorkItemConflict):task_draft.preview(self.service,dict(body,revisions=revisions[::-1]))
+        with self.assertRaises(ValueError):self.service.chat_proposal(names[1],None,'x',names=names,revisions=revisions)
+        with self.assertRaises(ValueError):self.service.chat.selection(names*11)
+
     def test_deleted_source_blocks_accept_and_retains_history(self):
         result=self.propose();p=self.service.items.data['proposals'][result['proposals'][0]]
         self.google.value=dict(name=NAME,deleteTime=dt.datetime.now(dt.timezone.utc).isoformat())

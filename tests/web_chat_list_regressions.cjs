@@ -17,3 +17,22 @@ const load=slice('async function loadChat(','\nconst CHAT_LIST_AGE');
 assert.match(load,/Date\.now\(\)-chatDiscoveredAt>CHAT_LIST_AGE&&\(!chatSpaces\.length\|\|Date\.now\(\)\/1000-\(discovery\.last_sync\|\|0\)>CHAT_LIST_AGE\/1000\)\)\{chatDiscoveredAt=Date\.now\(\);return chatAction\('discover'\);\}/);
 assert.doesNotMatch(app,/Load more conversations/);
 console.log('Chat list PASS: quiet direct messages hidden but searchable; the list refreshes itself after 10 minutes.');
+// A click picks the burst of one sender; Shift+click extends across senders; Suggest a task sends every picked message.
+{
+ const toasts=[],c2=vm.createContext({chatPicked:[],toast:m=>toasts.push(m)});
+ vm.runInContext(slice('const CHAT_PICK_LIMIT=','function renderChatActions(')+';this.chatPick=chatPick;this.setPicked=v=>{chatPicked=v};',c2);
+ const m=(name,sender,date)=>({name,sender,date});
+ const messages=[m('a','Ana',0),m('b','Ana',60),m('c','Ana',200),m('d','Ben',230),m('e','Ana',900),m('f','Ana',960)];
+ const names=list=>Array.from(list,x=>x.name).join('');
+ assert.equal(names(c2.chatPick(messages,1,false)),'abc','a click picks the whole burst');
+ assert.equal(names(c2.chatPick(messages,4,false)),'ef','a gap of 5 minutes starts a new burst');
+ assert.equal(names(c2.chatPick(messages,3,false)),'d');
+ c2.setPicked(['a','b','c']);assert.equal(names(c2.chatPick(messages,4,true)),'abcde','Shift+click extends across senders');
+ c2.setPicked(['d']);assert.equal(names(c2.chatPick(messages,0,true)),'abcd','Shift+click extends backwards');
+ const many=Array.from({length:40},(_,i)=>m('m'+i,'Ana',i*10));c2.setPicked([]);
+ assert.equal(c2.chatPick(many,5,false).length,30);assert.deepEqual(toasts,['A task can use up to 30 messages']);
+}
+const actions=slice('function renderChatActions(','\n$(\'chat-connect\')');
+assert.match(actions,/usable\.length>1\?\{provider:'chat',name:usable\[0\]\.name,names:usable\.map\(m=>m\.name\),revisions:usable\.map\(m=>m\.revision\)\}/);
+assert.match(actions,/'Select a message to turn it into a task\. Shift-click adds more messages\.'/);
+console.log('Chat picks PASS: a click picks a burst, Shift+click extends, Suggest a task sends every picked message.');

@@ -18,6 +18,7 @@ PAGE_SIZE, MAX_MESSAGES = 20, 200
 # One refresh reads the whole conversation list (2026-11-23). One page per run missed new group chats on a later
 # page, because Google does not list spaces by activity.
 MAX_SPACES, RECENT_DAYS, RECENT_FETCH = 500, 30, 40
+MAX_SELECTION = 30
 
 
 def timestamp(value):
@@ -135,6 +136,21 @@ class ChatSync:
             row=db.execute('SELECT document FROM messages WHERE account=? AND name=?',(account,name)).fetchone()
         if not row:raise ValueError('This Chat message is not cached. Sync the conversation.')
         return json.loads(row[0])
+    def selection(self,names,revisions=None,expected_account=None):
+        """Consecutive messages of one conversation as one task source (2026-11-23): people often write one
+        request as several short messages. The text keeps the reading order; several senders get name prefixes."""
+        if (not isinstance(names,list) or not 1<=len(names)<=MAX_SELECTION or len(set(names))!=len(names)
+                or not all(isinstance(name,str) for name in names)):
+            raise ValueError(f'Select 1 to {MAX_SELECTION} Chat messages')
+        records=[self.detail(name,expected_account=expected_account) for name in names]
+        if len({record['space'] for record in records})!=1:raise ValueError('Select messages from one conversation')
+        if any(not record['available'] or not record['body'] for record in records):raise ValueError('A selected Chat message is unavailable')
+        if revisions is not None and revisions!=[record['revision'] for record in records]:
+            raise CalendarError('A selected Chat message changed. Select the messages again.')
+        order=sorted(records,key=lambda record:record['date'])
+        senders=list(dict.fromkeys(record['sender'] for record in order))
+        body='\n'.join((record['sender']+': ' if len(senders)>1 else '')+record['body'] for record in order)
+        return dict(records=order,body=body,senders=senders)
     def start(self,kind,resource='',restart=False):
         if kind not in {'spaces','messages','refresh'} or type(restart) is not bool:raise ValueError('Invalid Chat sync action')
         if kind=='messages' and (not isinstance(resource,str) or not SPACE.fullmatch(resource)):raise ValueError('Choose a Chat space')

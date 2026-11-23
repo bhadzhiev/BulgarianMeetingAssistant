@@ -2121,7 +2121,7 @@ $('gmail-cancel').onclick=()=>perform(async()=>{await api('/api/gmail/cancel',{}
 $('gmail-clear').onclick=()=>perform(async()=>{const account=$('gmail-cache-account').value;if(await ask('Clear the local email cache for '+account+'? It can be synced again. Saved work item source quotes and archives remain.',{ok:'Clear cache',danger:true})){await api('/api/gmail/clear',{account});mailThread='';$('gmail-detail').replaceChildren();await loadMail();}});
 function calendarConnected(google=state?.google){return google?.capabilities?.calendar??!!google?.connected;}
 
-let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false,chatSpaces=[],chatSelf='',chatDiscoveredAt=0;const chatAutoSynced=new Set();
+let chatSpace='',chatMessage='',chatAccount='',chatTimer=null,chatWasRunning=false,chatSpaces=[],chatSelf='',chatDiscoveredAt=0,chatPicked=[];const chatAutoSynced=new Set();
 const CHAT_TYPES={DIRECT_MESSAGE:'Direct',GROUP_CHAT:'Group',SPACE:'Space'};
 // Chat does not name the signed-in person. The name that appears in most conversations is almost certainly you.
 function guessChatSelf(spaces){const seen={};for(const s of spaces)for(const name of s.participants)seen[name]=(seen[name]||0)+1;const [name,count]=Object.entries(seen).sort((a,b)=>b[1]-a[1])[0]||[];return count>=2?name:'';}
@@ -2174,7 +2174,7 @@ async function renderConversation(sync){
   const text=m.available&&m.body?sourceText(m.body):el('p','message-text',m.available?'No plain text. Cards and attachments are not fetched.':'This message is unavailable or deleted.');
   if(grouped)row.append(el('span','chat-time',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})),text);
   else{const top=el('div','message-top');top.append(el('strong','',m.sender),el('span','hint',new Date(stamp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})));const main=el('div');main.append(top,text);row.append(avatar(m.sender),main);}
-  row.onclick=()=>{chatMessage=m.name;for(const other of body.querySelectorAll('.chat-msg'))other.classList.toggle('selected',other===row);renderChatActions(m);};
+  row.onclick=event=>{const picked=chatPick(messages,messages.indexOf(m),event.shiftKey);chatPicked=picked.map(p=>p.name);chatMessage=chatPicked[0];const names=new Set(chatPicked);for(const other of body.querySelectorAll('.chat-msg'))other.classList.toggle('selected',names.has(other.dataset.name));renderChatActions(picked);};
   row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.click();}};
   if(m.identity)row.append(senderIdentityButton(m.identity,m.sender));
   const taskMark=sourceTaskMark(sourceTasks('google_chat',m.name));if(taskMark)row.append(taskMark);
@@ -2182,17 +2182,33 @@ async function renderConversation(sync){
  }
  if(!messages.length)body.append(el('p','source-empty','No messages in the last 30 days. Choose Sync conversation to check again.'));
  const actions=el('div','reader-actions');
- box.replaceChildren(head,body,actions);renderChatActions(messages.find(m=>m.name===chatMessage));
+ // A pick survives a refresh while its messages are still there; a link to one message picks only that message.
+ const kept=chatPicked[0]===chatMessage?messages.filter(m=>chatPicked.includes(m.name)):[];const picked=kept.length===chatPicked.length&&kept.length?kept:messages.filter(m=>m.name===chatMessage);chatPicked=picked.map(m=>m.name);
+ for(const row of body.querySelectorAll('.chat-msg'))row.classList.toggle('selected',chatPicked.includes(row.dataset.name));
+ box.replaceChildren(head,body,actions);renderChatActions(picked);
  const chosen=body.querySelector('.chat-msg.selected');if(chosen)chosen.scrollIntoView({block:'center'});else body.scrollTop=body.scrollHeight;
 }
-function renderChatActions(m){
- const bar=$('chat-detail').querySelector('.reader-actions');if(!bar)return;
- if(!m){bar.replaceChildren(el('span','hint','Select a message to turn it into a task or to refresh it.'));return;}
+// A click picks the whole burst: consecutive messages of one sender less than 5 minutes apart (2026-11-23), because
+// people write one request as several short messages. Shift+click extends the pick to the clicked message, also
+// across senders. Suggest a task uses every picked message as one source.
+const CHAT_PICK_LIMIT=30;
+function chatBurst(messages,index){const same=(a,b)=>a.sender===b.sender&&b.date-a.date<300;let first=index,last=index;while(first>0&&same(messages[first-1],messages[first]))first--;while(last<messages.length-1&&same(messages[last],messages[last+1]))last++;return messages.slice(first,last+1);}
+function chatPick(messages,index,extend){
+ const at=chatPicked.length?messages.findIndex(m=>m.name===chatPicked[0]):-1,end=chatPicked.length?messages.findIndex(m=>m.name===chatPicked.at(-1)):-1;
+ let picked=extend&&at>=0&&end>=0?messages.slice(Math.min(at,index),Math.max(end,index)+1):chatBurst(messages,index);
+ if(picked.length>CHAT_PICK_LIMIT){toast('A task can use up to '+CHAT_PICK_LIMIT+' messages');picked=index<at?picked.slice(0,CHAT_PICK_LIMIT):picked.slice(-CHAT_PICK_LIMIT);}
+ return picked;
+}
+function renderChatActions(picked){
+ const bar=$('chat-detail').querySelector('.reader-actions');if(!bar)return;picked=(picked||[]).filter(Boolean);
+ if(!picked.length){bar.replaceChildren(el('span','hint','Select a message to turn it into a task. Shift-click adds more messages.'));return;}
+ const usable=picked.filter(m=>m.available&&m.body),first=usable[0]||picked[0];
  const suggest=el('button','primary small-action','Suggest a task'),refresh=el('button','secondary small-action','Refresh this message');
- suggest.disabled=!m.available||!m.body;
- suggest.onclick=()=>perform(()=>suggestTask(suggest,{provider:'chat',name:m.name,revision:m.revision}));
- refresh.onclick=()=>perform(()=>chatAction('refresh',{name:m.name}));
- bar.replaceChildren(el('span','reader-quote',m.sender+': '+(m.body||'').slice(0,90)),suggest,refresh);
+ suggest.disabled=!usable.length;
+ suggest.onclick=()=>perform(()=>suggestTask(suggest,usable.length>1?{provider:'chat',name:usable[0].name,names:usable.map(m=>m.name),revisions:usable.map(m=>m.revision)}:{provider:'chat',name:first.name,revision:first.revision}));
+ refresh.onclick=()=>perform(()=>chatAction('refresh',{name:first.name}));
+ const quote=(picked.length>1?AtlantaUX.count(picked.length,'message')+' · ':'')+first.sender+': '+(first.body||'').slice(0,90);
+ bar.replaceChildren(el('span','reader-quote',quote),suggest,...(picked.length===1?[refresh]:[]));
 }
 async function chatConnect(){const result=await api('/api/calendar/connect',{capability:'chat'});$('chat-auth-link').href=result.authorization_url;$('chat-auth-link').hidden=false;toast('Approve Chat read-only permission in your browser, then come back here');}
 $('chat-connect').onclick=$('chat-connect-again').onclick=()=>perform(chatConnect);

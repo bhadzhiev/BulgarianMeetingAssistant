@@ -4423,7 +4423,10 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  let projectEdited=false;project.onchange=()=>{projectEdited=true;editorDirty.set(dirtyKey,true);};meeting.onchange=()=>{if(!projectEdited)fillProjects(project,(state.meetings||[]).find(m=>m.id===meeting.value)?.project_id||'','No project',[],{activeOnly:true});};
  const actions=el('div','action-group editor-actions'),save=el('button','primary','Create task'),cancel=el('button','secondary','Cancel'),draft=btn('secondary','Draft with AI…'),improve=btn('secondary','Improve with AI');save.type=cancel.type=draft.type=improve.type='button';actions.append(cancel,draft,improve,save);
  // An action from a 1:1 starts the draft with its text, owner and due date; the person still edits and creates it.
- text.value=startText;details.value=startDetails||'';due.value=startDue||source?.capture_due_date||'';criterion.value=startExpected;
+ text.value=startText;details.value=startDetails||'';
+ // A source fills the title and the description from its own text (2026-11-23), so the dialog never opens empty.
+ if(source&&sourcePreview&&!startText&&!startDetails){text.value=sourcePreview.suggested_title||'';details.value=sourcePreview.suggested_details||'';}
+ due.value=startDue||source?.capture_due_date||'';criterion.value=startExpected;
  const label=(name,input)=>{const l=el('label','',name);l.append(input);return l;};const grid=el('div','task-card-grid');grid.append(label('Owner',taskFieldMark(owner,TASK_MARKS.owner)),label('Priority',taskFieldMark(priority,TASK_MARKS.priority)),label('Due date',due),label('Project',project));
  // A meeting source already names its meeting; a typed draft can still choose one.
  const withMeeting=!source||source.provider==='manual';if(withMeeting)grid.append(label('Meeting',meeting));
@@ -4467,7 +4470,8 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
   const src=source||(()=>{if(!text.value.trim())throw new Error('Enter the source text first');if(!validDates(box))throw new Error('Check the dates');return {provider:'manual',id:crypto.randomUUID().replaceAll('-',''),source_text:text.value,capture_owner:ownerName(),capture_due_date:due.value,capture_project_id:project.value,capture_meeting_id:withMeeting?meeting.value||null:null};})();
   generating=true;note.hidden=true;controls();
   try{
-   if(source&&text.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
+   // The text from the source is a start, not the person's draft: only edits ask before an AI draft replaces them.
+   if(source&&editorDirty.keys().includes(dirtyKey)&&text.value.trim()&&!(await ask('Replace the current draft with a new AI draft?',{ok:'Replace draft'})))return;
    // An error here shows in this dialog: the page behind the dialog is not in view.
    let current;try{current=await api('/api/task-draft/preview',src);}catch(e){if(!closed){showError(note,e.message);status.textContent='The draft could not start.';}return;}
    if(closed)return;

@@ -142,6 +142,37 @@ def snapshot(service, body):
     return source
 
 
+def _first_line(value):
+    lines = [re.sub(r'^[#>*\-\s]+', '', line).replace('**', '').strip() for line in (value or '').splitlines()]
+    lines = [line for line in lines if line]
+    # A greeting ("Hi team,") is not a task: prefer the first line with at least three words.
+    return next((line for line in lines if len(line.split()) >= 3), lines[0] if lines else '')
+
+
+def _short(value, limit=160):
+    value = ' '.join(value.split())
+    if len(value) <= limit:return value
+    cut = value[:limit-1].rsplit(' ', 1)[0]
+    return (cut or value[:limit-1]).rstrip(' ,.;:') + '…'
+
+
+def suggested_fields(source):
+    """A starting title and description from the source itself (2026-11-23): the dialog never opens empty.
+    No AI is involved; the person edits both before anything is saved."""
+    provider = source.get('selection', {}).get('provider')
+    body = (source.get('body') or '').strip()
+    if provider == 'github':title = source.get('title') or _first_line(body)
+    elif provider == 'gmail':title = re.sub(r'^(?:(?:re|fwd?|aw|wg)\s*:\s*)+', '', source.get('subject') or '', flags=re.I) or _first_line(body)
+    elif provider == 'report':
+        finding = source.get('finding') or {}
+        return dict(title=_short(finding.get('text') or ''), details='')
+    else:title = _first_line(body)
+    title = _short(title or '')
+    details = body[:5000].strip()
+    if ' '.join(details.split()) == title:details = ''
+    return dict(title=title, details=details)
+
+
 def preview(service, body):
     source=snapshot(service,body)
     available=True
@@ -154,7 +185,8 @@ def preview(service, body):
     token=digest(dict(source=source,target=target,nonce=service.repo_reports.nonce))
     quote=source.get('body') or source.get('finding',{}).get('text') or source.get('subject','')
     if source.get('finding'):quote='\n\n'.join(ref['quote'] for ref in source['finding']['evidence'])
-    return dict(ai_available=available,ai_unavailable_reason='' if available else 'Configure a valid AI provider in Settings to generate a draft. You can still write a task or link evidence.',preview_token=token,target=target,characters=len(canonical(source)),source_excerpt=quote[:4000],source_label=source.get('title') or source.get('subject') or body.get('provider'))
+    suggested=suggested_fields(source) if body.get('provider')!='task_edit' else dict(title='',details='')
+    return dict(suggested_title=suggested['title'],suggested_details=suggested['details'],ai_available=available,ai_unavailable_reason='' if available else 'Configure a valid AI provider in Settings to generate a draft. You can still write a task or link evidence.',preview_token=token,target=target,characters=len(canonical(source)),source_excerpt=quote[:4000],source_label=source.get('title') or source.get('subject') or body.get('provider'))
 
 
 class Cancellation:

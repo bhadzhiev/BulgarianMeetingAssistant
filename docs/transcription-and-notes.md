@@ -416,7 +416,8 @@ and shows a warning.
   You can add other addresses.
 - **Save Gmail draft** saves the email as a draft in Gmail. It needs the separate `gmail.compose`
   permission: choose **Connect Gmail drafts** once. Atlanta never sends email. You check the draft and
-  send it from Gmail. Saving again updates the same draft until you send or delete it.
+  send it from Gmail. Saving again updates the same draft until you send or delete it. If Google
+  refuses to update the old draft, Atlanta saves a new draft. Delete the old one in Gmail if it is still there.
 - If Google refuses a draft (HTTP 403), the message names the cause and shows Google's reason code:
   - `insufficientPermissions`: choose **Connect Gmail drafts** again and approve every permission.
   - `accessNotConfigured`: turn on the Gmail API in the Google Cloud project of the sign-in client.

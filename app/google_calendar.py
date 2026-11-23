@@ -425,8 +425,10 @@ class GoogleCalendar:
                 try:
                     return self.request(GMAIL_URL+'/drafts/'+draft_id,'PUT',dict(id=draft_id,message=dict(raw=raw)),token=token)
                 except CalendarError as exc:
-                    # The person sent or deleted the earlier draft; make a new one.
-                    if getattr(exc,'status',None) != 404:raise
+                    # The person sent or deleted the earlier draft; make a new one. Google answers 404, but also
+                    # 400 invalidArgument or 403 for a draft that was sent or moved (2026-11-23). A wrong message
+                    # still fails below with the same error, so a real problem is not hidden.
+                    if getattr(exc,'status',None) not in {400,403,404}:raise
             return self.request(GMAIL_URL+'/drafts','POST',dict(message=dict(raw=raw)),token=token)
 
     def chat_get(self, resource, query=None, expected_account=None):

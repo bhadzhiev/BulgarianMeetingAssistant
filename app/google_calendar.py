@@ -136,6 +136,20 @@ class KeychainStore(CredentialStore):
 
 
 RATE_LIMIT_REASONS = {'rateLimitExceeded', 'userRateLimitExceeded', 'RATE_LIMIT_EXCEEDED'}
+# A 403 has several causes that need different steps (2026-11-23): the bare "HTTP 403" told the person
+# neither which one nor what to do. The reason code is a short Google identifier, never message text.
+FORBIDDEN_REASONS = {
+    'insufficientPermissions': 'Google did not give Atlanta this permission. In Settings, connect this Google feature again '
+                               '(for drafts: Connect Gmail drafts) and approve every requested permission.',
+    'ACCESS_TOKEN_SCOPE_INSUFFICIENT': None,
+    'accessNotConfigured': 'This Google API is turned off in the Google Cloud project of the sign-in client. '
+                           'Turn it on in Google Cloud Console (APIs & Services), wait a few minutes, then retry.',
+    'SERVICE_DISABLED': None,
+    'domainPolicy': 'Your Google Workspace administrator blocks this access for Atlanta. Ask the administrator to allow it.',
+    'failedPrecondition': 'Google refused the request for this account. Check that Gmail is turned on for the account.',
+}
+FORBIDDEN_REASONS['ACCESS_TOKEN_SCOPE_INSUFFICIENT'] = FORBIDDEN_REASONS['insufficientPermissions']
+FORBIDDEN_REASONS['SERVICE_DISABLED'] = FORBIDDEN_REASONS['accessNotConfigured']
 
 
 def error_reason(exc):
@@ -180,7 +194,10 @@ def http_json(url: str, method='GET', payload=None, token=None, form=False):
         if exc.code == 429 or reason in RATE_LIMIT_REASONS:
             error = CalendarError('Google asked Atlanta to slow down (too many requests). Wait a minute and retry.')
         else:
-            error = CalendarError(f'Google request failed (HTTP {exc.code}). Reconnect for 401/403 errors, or retry later.')
+            known = FORBIDDEN_REASONS.get(reason)
+            code = f'HTTP {exc.code}' + (f', {reason}' if reason else '')
+            error = CalendarError(f'{known} (Google: {code})' if known else
+                                  f'Google request failed ({code}). Reconnect for 401/403 errors, or retry later.')
         error.status = exc.code
         error.reason = reason
         raise error from None

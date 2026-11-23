@@ -417,6 +417,10 @@ and shows a warning.
 - **Save Gmail draft** saves the email as a draft in Gmail. It needs the separate `gmail.compose`
   permission: choose **Connect Gmail drafts** once. Atlanta never sends email. You check the draft and
   send it from Gmail. Saving again updates the same draft until you send or delete it.
+- If Google refuses a draft (HTTP 403), the message names the cause and shows Google's reason code:
+  - `insufficientPermissions`: choose **Connect Gmail drafts** again and approve every permission.
+  - `accessNotConfigured`: turn on the Gmail API in the Google Cloud project of the sign-in client.
+  - `domainPolicy`: a Google Workspace administrator blocks the access.
 
 **Generate new AI notes** never replaces saved notes. The new result waits as a proposal, and
 **Review changes** lists each new, changed, or missing statement or task. New and changed items are

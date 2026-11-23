@@ -72,6 +72,38 @@ class DailyCycleTests(unittest.TestCase):
         self.assertEqual(self.service.prepare(series_id=self.series)['daily']['groups']['changed'][0]['item_id'], task['id'])
         self.assertEqual(self.service.detail(meeting)['daily_review']['rows'][0]['state'], 'applied')
 
+    def test_a_promise_to_help_keeps_the_line_open_for_an_update(self):
+        meeting = self.meeting(updates=[dict(text='Access granted; check is pending.', evidence_timestamp='00:00:00')])
+        view = self.service.detail(meeting)['daily_review']
+        key = view['rows'][0]['key']
+        daily.review(self.service, meeting, dict(action='promise', key=key, revision=view['revision']))
+        row = self.service.detail(meeting)['daily_review']['rows'][0]
+        self.assertEqual((row['state'], row['help']['state']), ('pending', 'promise'))
+        request = dict(revision=view['revision'], key=key, action='update', task_id=self.task['id'],
+                       task_revision=self.task['revision'], changes=dict(workflow_state='waiting'))
+        self.assertEqual(daily.review(self.service, meeting, request)['state'], 'applied')
+        self.assertEqual(self.service.items.items[self.task['id']]['workflow_state'], 'waiting')
+        row = self.service.detail(meeting)['daily_review']['rows'][0]
+        self.assertEqual((row['state'], row['help']['state']), ('applied', 'promise'))
+        daily.review(self.service, meeting, dict(action='helped', key=key, revision=view['revision']))
+        row = self.service.detail(meeting)['daily_review']['rows'][0]
+        self.assertEqual((row['state'], row['help']['state']), ('applied', 'helped'))
+        self.assertEqual(manager_attention.build(self.service, '')['groups']['help'], [])
+
+    def test_a_skipped_line_keeps_its_promise_and_old_receipts_still_read(self):
+        meeting = self.meeting(blockers=[dict(text='Waiting for Q01 access', evidence_timestamp='00:00:00')])
+        view = self.service.detail(meeting)['daily_review']
+        key = view['rows'][0]['key']
+        directory = self.service.library.directory(meeting)
+        atomic_json(directory / daily.RECEIPTS, {key: dict(state='promise', text='Waiting for Q01 access', task_id=None)})
+        row = self.service.detail(meeting)['daily_review']['rows'][0]
+        self.assertEqual((row['state'], row['help']['state']), ('pending', 'promise'))
+        daily.review(self.service, meeting, dict(action='skip', key=key, revision=view['revision']))
+        daily.review(self.service, meeting, dict(action='reopen', key=key, revision=view['revision']))
+        row = self.service.detail(meeting)['daily_review']['rows'][0]
+        self.assertEqual((row['state'], row['help']['state']), ('pending', 'promise'))
+        self.assertEqual(len(manager_attention.build(self.service, '')['groups']['help']), 1)
+
     def test_stale_source_and_stale_task_are_rejected(self):
         meeting = self.meeting(updates=[dict(text='Access granted', evidence_timestamp='00:00:00')])
         after = self.service.detail(meeting)['daily_review']

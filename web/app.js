@@ -3037,17 +3037,19 @@ function renderDailyAfter(meeting,busy){
   if(row.timestamp)card.append(sourceBlock(row.timestamp));
   if(row.source_changed)card.append(el('p','hint','Saved from an earlier version of these notes.'));
   if(row.state!=='pending'){
-   actions.append(el('span','hint',row.state==='applied'?'Applied to task':row.state==='confirmed'?'Confirmed':row.state==='promise'?'I promised to help':row.state==='helped'?'Help provided':'Skipped'));
+   actions.append(el('span','hint',row.state==='applied'?'Applied to task':row.state==='confirmed'?'Confirmed':row.state==='changed'?'No longer in the notes':'Skipped'));
    if(row.task_id)actions.append(actionBtn('quiet small-action','Open task',()=>openTaskPanel(row.task_id)));
    if(['confirmed','skipped'].includes(row.state)&&row.field!=='decisions')actions.append(actionBtn('quiet small-action','Review again',()=>review(row,'reopen')));
-   if(row.state==='promise')actions.append(actionBtn('secondary small-action','Mark help provided',()=>review(row,'helped')));
   }else{
    if(row.field==='tasks')actions.append(actionBtn('secondary small-action','Create task…',()=>openManualTask(meeting.id,{text:row.text,details:row.details||'',owner:row.owner||'',due:row.due_date||'',mention:row.index,minutesRevision:meeting.minutes_revision})));
    if(row.field!=='tasks')actions.append(actionBtn('secondary small-action',row.field==='decisions'?'Confirm decision':'Mark reviewed',()=>review(row,'confirm')));
    actions.append(actionBtn('quiet small-action','Skip',()=>review(row,'skip')));
    if(row.field!=='decisions'&&row.quote&&daily.tasks.length===0)card.append(el('p','hint','Choose a project with open tasks to apply an update.'));
   }
-  if(row.quote&&['tasks','updates','blockers'].includes(row.field)&&['pending','applied','helped'].includes(row.state)){
+  // A promise to help is separate from the review of the line: the line can still update a task (2026-11-23).
+  if(row.help)actions.append(el('span','hint daily-help',row.help.state==='promise'?'You promised to help':'Help provided'));
+  if(row.help?.state==='promise')actions.append(actionBtn('secondary small-action','Mark help provided',()=>review(row,'helped')));
+  else if(row.quote&&['tasks','updates','blockers'].includes(row.field)&&row.state!=='changed'){
    actions.append(actionBtn('quiet small-action','I promised to help',()=>review(row,'promise')));
   }
   if(busy)for(const control of actions.querySelectorAll('button'))control.disabled=true;

@@ -147,7 +147,8 @@ commitment, or apply an update to an existing task in the same project. You
 can choose a state, due date and next check while applying the update. Atlanta
 saves the passage with the task history and checks that the notes, transcript
 and task still match your review. Pending regenerated notes must be reviewed
-first.
+first. **I promised to help** does not review the line: you can still apply
+its update to a task.
 
 **Needs me** brings together decisions raised at dailies, explicit promises to
 help from dailies and 1:1s, and due checks on tasks you own, share or follow after

@@ -2455,9 +2455,11 @@ function renderWorkGraph(){
  const tracked=itemsData.items.filter(i=>i.kind==='question'),open=tracked.filter(q=>q.status!=='answered'),answered=tracked.filter(q=>q.status==='answered');
  if(open.length)questions.append(el('h3','','Open tracked questions'));
  for(const q of open)questions.append(trackedQuestionCard(q));
- if(!open.length)questions.append(el('p','hint','No open tracked questions. Add one or choose a question from meeting notes below.'));
+ // Questions from meeting notes wait below; an empty state must not say there is nothing to do (2026-11-23).
+ const fromNotes=(itemsData.meeting_questions||[]).length;
+ if(!open.length)questions.append(el('p','hint',fromNotes?'No open tracked questions. '+AtlantaUX.count(fromNotes,'question')+' from meeting notes '+(fromNotes===1?'waits':'wait')+' below: track the ones that still need an answer.':'No open tracked questions. Add one or choose a question from meeting notes below.'));
  if(answered.length){const history=el('details','question-history');history.append(el('summary','','Answered · '+answered.length));for(const q of answered)history.append(trackedQuestionCard(q));questions.append(history);}
- const candidates=el('details','meeting-question-candidates');candidates.append(el('summary','','From meeting notes · '+(itemsData.meeting_questions||[]).length));renderMeetingQuestions(candidates);if((itemsData.meeting_questions||[]).length)questions.append(candidates);
+ const candidates=el('details','meeting-question-candidates');candidates.open=!open.length;candidates.append(el('summary','','From meeting notes · '+(itemsData.meeting_questions||[]).length));renderMeetingQuestions(candidates);if((itemsData.meeting_questions||[]).length)questions.append(candidates);
 }
 // Single keys review the Inbox once a card is chosen: j/k move, a accept, s snooze, d dismiss, r restore.
 let proposalCursor=-1;
@@ -2525,6 +2527,16 @@ $('new-work-question').onclick=()=>perform(async()=>{const value=await ask('New 
 
 let bulkSaving=false,taskSelection=new Map(),taskVisibleRows=[],bulkPending=null,taskWorkflow=stored('tasks-workflow')||'',taskSearchTimer=null;
 // Assigned by me is gone (2026-11-12): nobody sets Assigned by now. A saved choice of it shows All tasks.
+// "Are you …?" (2026-11-23): My tasks, Results to check and the team views need to know who you are, and the choice
+// sat unnoticed in a closed control. The connected Google account names the likely person; one click confirms it.
+// Not me hides the question for that person on this Mac.
+function likelySelf(){const account=(state?.google?.account||'').trim().toLocaleLowerCase();if(!account||managerSelf)return null;const person=(state.people||[]).find(p=>(p.emails||[]).some(e=>String(e).trim().toLocaleLowerCase()===account));return person&&stored('manager-self-declined')!==person.id?person:null;}
+function selfPrompt(after){
+ const person=likelySelf();if(!person)return null;
+ const box=el('div','notice self-prompt'),yes=btn('primary small-action','Yes, this is me'),no=btn('quiet small-action','Not me');
+ yes.onclick=()=>{managerSelf=person.id;store('manager-self',person.id);after();};no.onclick=()=>{store('manager-self-declined',person.id);after();};
+ box.append(el('span','','Are you '+person.name+'? My tasks and Results to check use your profile.'),yes,no);return box;
+}
 let managerView=['inbox','mine','followup','all'].includes(stored('manager-view'))?stored('manager-view'):'all',managerSelf=stored('manager-self')||'';
 function renderTaskFocus(today,archived){
  const box=$('task-focus');box.replaceChildren();
@@ -2565,6 +2577,7 @@ function renderManagerControls(){
  const search=el('input');search.type='search';search.placeholder='Search tasks';search.setAttribute('aria-label','Search tasks');search.value=stored('task-search')||'';search.oninput=()=>{clearTimeout(taskSearchTimer);taskSearchTimer=setTimeout(()=>{store('task-search',search.value);renderTasks();const fresh=$('work-tools')?.querySelector('input[type=search]');if(fresh){fresh.focus();fresh.setSelectionRange(fresh.value.length,fresh.value.length);}},200);};
  // Search and the profile sit at the right of the section tabs (approved 2026-11-19); the views and the status share one row.
  tools.append(search,identity);
+ const prompt=$('self-prompt'),ask=itemKind==='task'?selfPrompt(renderTasks):null;prompt.replaceChildren(...(ask?[ask]:[]));prompt.hidden=!ask;
  const filters=$('manager-person-filters');filters.replaceChildren();filters.hidden=itemKind!=='task';
  if(managerView!=='inbox'){
   const field=el('select'),box=el('label','filter-field');field.setAttribute('aria-label','Task state filter');field.append(option('All',''),...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));field.value=taskWorkflow;field.onchange=()=>{taskWorkflow=field.value;store('tasks-workflow',taskWorkflow);if(taskWorkflow){statusFilter.task=taskWorkflow==='done'?'done':taskWorkflow==='cancelled'?'all':'open';store('tasks-status',statusFilter.task);}renderTasks();};box.append(el('span','','State:'),field);filters.append(box);
@@ -2711,7 +2724,7 @@ function showWorkTab(tab){
  else if(tab==='review')perform(loadReviewQueue);
  else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(async()=>{await loadGitHub();showGitHubSection(ghSection);});
  // The subtitle describes the tab that is shown; Tasks and Decisions set their own counts.
- const summaries={questions:()=>AtlantaUX.count((itemsData?.items||[]).filter(i=>i.kind==='question'&&i.status!=='answered').length,'open tracked question'),
+ const summaries={questions:()=>AtlantaUX.count((itemsData?.items||[]).filter(i=>i.kind==='question'&&i.status!=='answered').length,'open tracked question')+((itemsData?.meeting_questions||[]).length?' · '+(itemsData.meeting_questions.length)+' from notes':''),
   review:()=>'Meetings that still wait for your review',gmail:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',chat:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',github:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub'};
  if(summaries[tab])$('tasks-summary').textContent=summaries[tab]();
 }
@@ -3068,7 +3081,7 @@ function renderManagerAttention(data){
  }
  box.append(schedule);
  const select=el('select');select.setAttribute('aria-label','My profile');select.append(option('Choose my profile…',''),...(state.people||[]).map(p=>option(p.name,p.id)));select.value=data.person_id||'';
- select.onchange=()=>{managerSelf=select.value;store('manager-self',select.value);perform(loadTeam);};box.append(select);
+ select.onchange=()=>{managerSelf=select.value;store('manager-self',select.value);perform(loadTeam);};const ask=selfPrompt(()=>perform(loadTeam));if(ask)box.append(ask);box.append(select);
  for(const [key,title] of [['decisions','Waiting for a decision'],['help','I promised to help'],['checks','Results to check']]){
   const section=el('section','card daily-panel'),rows=data.groups[key]||[];
   section.append(el('h2','',title));

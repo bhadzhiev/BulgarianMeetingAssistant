@@ -469,7 +469,8 @@ not enabled yet.
 
 **Questions** first shows open questions the person chose to track. Answered questions are
 under **Answered**; candidates from the notes are under **From meeting notes**, collapsed by
-default. **Answer** or **Track** keeps the meeting and moment. New notes do not remove a
+default. With no open tracked question, the list opens, the empty state counts the waiting questions,
+and the section subtitle adds "N from notes". **Answer** or **Track** keeps the meeting and moment. New notes do not remove a
 tracked question, and reopening keeps the earlier answer in history. Questions span all sources.
 **Edit** and **Delete** work on every question, task and
 decision, also on items with saved sources. Delete removes the links to other items; the saved source

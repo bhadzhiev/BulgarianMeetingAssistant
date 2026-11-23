@@ -126,3 +126,13 @@ class DailyCycleTests(unittest.TestCase):
         self.service.update_item(task['id'], task['text'], dict(workflow_state='waiting', follow_up_date='2099-01-01'), task['revision'])
         self.assertEqual(manager_attention.build(self.service, manager['id'])['groups']['checks'], [])
         self.assertEqual(manager_attention.build(self.service, other['id'])['groups']['help'], [])
+
+    def test_a_shared_task_check_shows_to_the_co_assignee_and_names_the_owner(self):
+        owner = self.service.save_person(dict(name='Owner'))['person']
+        helper = self.service.save_person(dict(name='Helper'))['person']
+        task = self.service.update_item(self.task['id'], self.task['text'], dict(assignee_person_ids=[owner['id'], helper['id']],
+                                       follow_up_date='2000-01-01'), self.task['revision'])
+        mine = manager_attention.build(self.service, owner['id'])['groups']['checks']
+        self.assertEqual([(row['task_id'], row['reason']) for row in mine], [(task['id'], 'Next check is due')])
+        shared = manager_attention.build(self.service, helper['id'])['groups']['checks']
+        self.assertEqual([(row['task_id'], row['reason']) for row in shared], [(task['id'], 'Next check is due · Owner owns the check')])

@@ -71,13 +71,18 @@ def build(service, person_id):
                 owner, _ = service.people.owner_of(task)
                 mine = bool(owner and owner['id'] == person_id)
                 following = task.get('follower_person_id') == person_id
-                if not (mine or following):
+                # A shared task shows to the people who work on it too; the reason names the owner,
+                # so the check keeps one accountable person (2026-11-23).
+                shared = not mine and person_id in (task.get('assignee_person_ids') or [])[1:]
+                if not (mine or following or shared):
                     continue
                 due, check = task.get('due_date'), task.get('follow_up_date')
                 if (check and check <= today) or (task['status']=='open' and due and due < today):
                     chosen = check if check and check <= today else due
-                    groups['checks'].append(dict(text=task['text'], task_id=task['id'], date=chosen,
-                                                 reason='Next check is due' if check and check <= today else 'Deadline has passed'))
+                    reason = 'Next check is due' if check and check <= today else 'Deadline has passed'
+                    if shared and not following and owner:
+                        reason += ' · ' + owner['name'] + ' owns the check'
+                    groups['checks'].append(dict(text=task['text'], task_id=task['id'], date=chosen, reason=reason))
                 elif mine and task.get('workflow_state') == 'waiting' and not check and task['id'] not in owned_help:
                     groups['help'].append(dict(text=task['text'], task_id=task['id'], reason='Your task is waiting and has no check date'))
         for rows in groups.values():

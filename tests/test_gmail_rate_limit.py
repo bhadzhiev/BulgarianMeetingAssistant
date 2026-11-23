@@ -29,9 +29,20 @@ class HttpReasonTests(unittest.TestCase):
         self.assertEqual((error.status, error.reason), (403, 'userRateLimitExceeded'))
         self.assertIn('slow down', str(error));self.assertNotIn('Synthetic message text', str(error))
 
-    def test_permission_403_still_asks_to_reconnect(self):
+    def test_permission_403_says_which_permission_step_to_take(self):
+        # Each 403 cause names its own step and shows the Google reason code (2026-11-23).
         error = self.call(google_error(403, 'insufficientPermissions'))
-        self.assertEqual(error.reason, 'insufficientPermissions');self.assertIn('Reconnect', str(error))
+        self.assertEqual(error.reason, 'insufficientPermissions')
+        self.assertIn('Connect Gmail drafts', str(error));self.assertIn('(Google: HTTP 403, insufficientPermissions)', str(error))
+        self.assertIn('Connect Gmail drafts', str(self.call(google_error(403, 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'))))
+        self.assertIn('Google Cloud Console', str(self.call(google_error(403, 'accessNotConfigured'))))
+        self.assertIn('Google Cloud Console', str(self.call(google_error(403, 'SERVICE_DISABLED'))))
+        self.assertIn('Workspace administrator', str(self.call(google_error(403, 'domainPolicy'))))
+
+    def test_unknown_403_shows_its_reason_code(self):
+        error = self.call(google_error(403, 'forbidden'))
+        self.assertIn('(HTTP 403, forbidden)', str(error));self.assertIn('Reconnect', str(error))
+        self.assertNotIn('Synthetic message text', str(error))
 
     def test_body_without_json_gives_no_reason(self):
         error = self.call(urllib.error.HTTPError('https://x', 500, 'Error', {}, io.BytesIO(b'<html>')))

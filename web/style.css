@@ -2411,3 +2411,7 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 
 #daily-before > .card + .card, #team-attention-panel > .card + .card { margin-top: .75rem; }
 .daily-panel .card-heading { flex-wrap: wrap; }
+/* "Are you …?" profile prompt (2026-11-23): one line above the task views and in Team's Needs me. */
+.self-prompt{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0 0 12px}
+.self-prompt>span{flex:1 1 260px;min-width:0}
+.self-prompt-slot[hidden]{display:none}

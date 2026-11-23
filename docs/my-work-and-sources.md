@@ -84,8 +84,8 @@ reload) are in the **⋯** menu. Explanations and cache clearing are under **Abo
 - **Gmail** shows the selected thread message by message, with **Suggest a task** and **Analyze with
   AI** on each message.
 - **Chat** shows the conversation as a chat: sender names, times and day separators, newest at the
-  bottom. Select a message to suggest a task from it. The first visit loads the conversation list,
-  and the first open of a conversation syncs it. Direct messages are named after the other person.
+  bottom. Select a message to suggest a task from it. The list refreshes itself when it is older
+  than 10 minutes, and the first open of a conversation syncs it. Direct messages are named after the other person.
 - **GitHub** lists every open issue and pull request without a repository choice. See below.
 
 A thread, Chat message or GitHub item that already has a task shows a small green check mark next to
@@ -192,11 +192,16 @@ re-consent. Enable the Chat API in the OAuth project. Workspace policy or OAuth 
 still block access. This is user authentication, with no bot, service account, administrator search,
 send or edit permission. See [Chat authorization](https://developers.google.com/workspace/chat/authenticate-authorize).
 
-**Refresh conversation list** (in the **⋯** menu) fetches conversation metadata only. It reads at most 50 spaces per page and 200 per
-discovery cycle; use Load more until complete. Choose a conversation explicitly before **Sync /
-Continue** downloads message text. Named spaces use their names; DMs/group chats without a display
-name show their resource ID. Empty DMs/group chats and system membership messages are excluded by
-the provider. This view covers conversations the signed-in user can access, not the whole organization.
+**Refresh conversation list** (in the **⋯** menu) reads the whole conversation list in one run, up to
+500 conversations. The list also refreshes itself when you open Chat and the last refresh is older
+than 10 minutes, so a new group chat appears without a manual refresh. A conversation that was active
+in the last 30 days and has no local copy gets its newest messages in the same run (up to 40
+conversations). Its people and message count then show in the list. Other conversations download
+their messages when you open them. The list is sorted by the latest activity in Google Chat.
+Direct messages without activity in the last 30 days are hidden. A note says how many, and a search
+still finds them. Group chats and spaces always show. Named spaces use their names; a group chat
+without a name shows its people after its messages are synced. System membership messages are
+excluded by the provider. This view covers conversations the signed-in user can access, not the whole organization.
 
 Each message refresh cycle fixes a 30-day creation-time window and reads at most 200 messages,
 20 per page, newest first. Continue keeps that window/page token after interruption. Once complete,

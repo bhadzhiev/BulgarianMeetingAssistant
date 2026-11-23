@@ -15,6 +15,9 @@ from .work_items import canonical
 SPACE = re.compile(r'spaces/[A-Za-z0-9_-]{1,128}')
 MESSAGE = re.compile(r'spaces/[A-Za-z0-9_-]{1,128}/messages/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}')
 PAGE_SIZE, MAX_MESSAGES = 20, 200
+# One refresh reads the whole conversation list (2026-11-23). One page per run missed new group chats on a later
+# page, because Google does not list spaces by activity.
+MAX_SPACES, RECENT_DAYS, RECENT_FETCH = 500, 30, 40
 
 
 def timestamp(value):
@@ -109,7 +112,8 @@ class ChatSync:
             for space,sender,count in db.execute("SELECT space,json_extract(summary,'$.sender'),count(*) FROM messages WHERE account=? GROUP BY space,2 ORDER BY 3 DESC",(account,)):
                 people.setdefault(space,[]).append(sender)
         for space in spaces:
-            space.update(count=stats.get(space['name'],{}).get('count',0),last=stats.get(space['name'],{}).get('last') or 0,participants=people.get(space['name'],[]))
+            # The latest activity is Google's lastActiveTime or the newest cached message, whichever is newer.
+            space.update(count=stats.get(space['name'],{}).get('count',0),last=max(stats.get(space['name'],{}).get('last') or 0,space.get('active') or 0),participants=people.get(space['name'],[]))
         return sorted(spaces,key=lambda s:(-s['last'],s['label'].casefold()))
     def conversation(self,space):
         """The cached messages of one conversation in reading order, with their full text."""
@@ -162,27 +166,37 @@ class ChatSync:
     def _done(self,state):
         with self.lock:self.job=dict(running=False,status='synced' if state.get('complete',True) else 'continue',error=None)
     def _discover(self,account,restart):
-        state={} if restart else self._state(account,'')
-        if state.get('complete'):state={}
-        query=dict(pageSize=50)
-        if state.get('page'):query['pageToken']=state['page']
-        result=self._get(account,'spaces',query)
-        records=result.get('spaces',[])
-        if not isinstance(records,list) or len(records)>50:raise ValueError('Invalid Chat spaces page')
-        parsed=[]
-        for row in records:
-            name=row.get('name')
-            if not isinstance(name,str) or not SPACE.fullmatch(name):raise ValueError('Invalid Chat space identity')
-            parsed.append(dict(name=name,label=row.get('displayName') or name,type=row.get('spaceType','UNKNOWN'),fetched_at=time.time()))
-        remaining=max(0,200-state.get('count',0));truncated=len(parsed)>remaining
-        parsed=parsed[:remaining]
-        count=state.get('count',0)+len(parsed);page=result.get('nextPageToken')
-        state=dict(count=count,page=None if count>=200 else page,complete=not page or count>=200,limited=bool((page or truncated) and count>=200))
+        found,page=[],None
+        while True:
+            query=dict(pageSize=50)
+            if page:query['pageToken']=page
+            result=self._get(account,'spaces',query)
+            records=result.get('spaces',[])
+            if not isinstance(records,list) or len(records)>50:raise ValueError('Invalid Chat spaces page')
+            for row in records:
+                name=row.get('name')
+                if not isinstance(name,str) or not SPACE.fullmatch(name):raise ValueError('Invalid Chat space identity')
+                try:active=timestamp(row['lastActiveTime']) if row.get('lastActiveTime') else 0
+                except ValueError:active=0
+                found.append(dict(name=name,label=row.get('displayName') or name,type=row.get('spaceType','UNKNOWN'),active=active,fetched_at=time.time()))
+            page=result.get('nextPageToken')
+            if not page or len(found)>=MAX_SPACES:break
+        limited=bool(page) or len(found)>MAX_SPACES
+        found=found[:MAX_SPACES]
+        state=dict(count=len(found),page=None,complete=True,limited=limited,last_sync=time.time())
         self._check(account)
         with closing(self.connect()) as db,db:
             db.execute('INSERT OR REPLACE INTO accounts VALUES (?,?)',(account,self._label(account)))
-            db.executemany('INSERT OR REPLACE INTO spaces VALUES (?,?,?)',[(account,row['name'],canonical(row)) for row in parsed])
+            db.executemany('INSERT OR REPLACE INTO spaces VALUES (?,?,?)',[(account,row['name'],canonical(row)) for row in found])
             db.execute('INSERT OR REPLACE INTO state VALUES (?,?,?)',(account,'',canonical(state)))
+            synced={row[0] for row in db.execute('SELECT space FROM state WHERE account=? AND space!=?',(account,''))}
+        # A conversation active in the last 30 days without a local copy gets its newest messages now. A group chat
+        # without a name then shows its people and its message count, not a space ID (2026-11-23).
+        since=time.time()-RECENT_DAYS*86400
+        recent=sorted((row for row in found if row['active']>=since and row['name'] not in synced),key=lambda row:-row['active'])
+        for row in recent[:RECENT_FETCH]:
+            with self.lock:self.job=dict(running=True,status='syncing recent conversations',error=None)
+            self._messages(account,row['name'],False)
         self._done(state)
     def _messages(self,account,space,restart):
         state=self._state(account,space)

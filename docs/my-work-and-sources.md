@@ -84,7 +84,9 @@ reload) are in the **⋯** menu. Explanations and cache clearing are under **Abo
 - **Gmail** shows the selected thread message by message, with **Suggest a task** and **Analyze with
   AI** on each message.
 - **Chat** shows the conversation as a chat: sender names, times and day separators, newest at the
-  bottom. Select a message to suggest a task from it. The list refreshes itself when it is older
+  bottom. Select a message to suggest a task from it. A click selects the whole burst: the messages
+  of one sender less than 5 minutes apart. Shift-click adds messages up to the clicked one, also from
+  other people (up to 30). The list refreshes itself when it is older
   than 10 minutes, and the first open of a conversation syncs it. Direct messages are named after the other person.
 - **GitHub** lists every open issue and pull request without a repository choice. See below.
 
@@ -218,8 +220,10 @@ removes cached text for that space. Prior pinned source snapshots and archives r
 Absence from a capped refresh does not prove deletion; messages outside its range need an individual
 refresh. Old cache records can remain until cleared, and message lists show at most 200 entries.
 
-**Suggest a task** asks for AI approval for this Chat message, then opens an editable draft.
-**Create task** saves the confirmed task with the exact quoted message and
+**Suggest a task** opens an editable draft from the selected messages. Several messages are one
+source, in reading order; with more than one sender, each line starts with the sender's name. The
+source is named after the first message, so the task mark shows on that message. **Draft with AI**
+asks for its own approval. **Create task** saves the confirmed task with the exact quoted messages and
 space/thread/message/sender references. Cancel creates nothing. This never sends or edits a Chat message. Cards, attachments and remote resources are not
 fetched or executed. Chat content reaches the shown AI provider only after its own task-draft approval; Gmail AI approval does not
 cover Chat. Quotes and known versions reflect the last observed API response, not a live check at

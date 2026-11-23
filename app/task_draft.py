@@ -130,15 +130,23 @@ def snapshot(service, body):
         message=next((m for m in row['messages'] if m['id']==body.get('message_id')),None)
         if not message or not message['body']:raise ValueError('This email has no available text')
         source=dict(account=account, revision=row['revision'], subject=row['subject'], body=message['body'])
+    elif provider == 'chat' and body.get('names') is not None:
+        # Several consecutive messages (2026-11-23): each message revision is checked; the source revision is their digest.
+        account=service.chat._account()
+        if not isinstance(body.get('names'),list) or not body['names'] or body['names'][0]!=body.get('name'):raise ValueError('Select the Chat messages again')
+        try:picked=service.chat.selection(body['names'],body.get('revisions'),expected_account=account)
+        except RuntimeError as exc:raise WorkItemConflict(str(exc)) from None
+        source=dict(account=account, revision=digest(body.get('revisions')), body=picked['body'])
+        if len(picked['senders'])>1:source['senders']=picked['senders']
     elif provider == 'chat':
         account=service.chat._account();row=service.chat.detail(body['name'], expected_account=account)
         if not row['available'] or not row['body']:raise ValueError('This Chat message is unavailable')
         source=dict(account=account, revision=row['revision'], body=row['body'])
     else:raise ValueError('Choose a supported task source')
-    if provider not in {'report','manual','task_edit'} and source['revision'] != body.get('revision'):
+    if provider not in {'report','manual','task_edit'} and body.get('names') is None and source['revision'] != body.get('revision'):
         raise WorkItemConflict('The source changed. Reopen it before drafting a task.')
     if len(canonical(source)) > 20000:raise ValueError('This source is too large for a task draft. Select a smaller source.')
-    source['selection']={key:body[key] for key in ('provider','id','name','message_id','finding_id') if key in body}
+    source['selection']={key:body[key] for key in ('provider','id','name','names','message_id','finding_id') if key in body}
     return source
 
 
@@ -166,7 +174,11 @@ def suggested_fields(source):
     elif provider == 'report':
         finding = source.get('finding') or {}
         return dict(title=_short(finding.get('text') or ''), details='')
-    else:title = _first_line(body)
+    else:
+        # Several Chat senders prefix their lines with names; the title is the request, not a name.
+        names = source.get('senders') or []
+        plain = '\n'.join(next((line[len(name)+2:] for name in names if line.startswith(name+': ')), line) for line in body.splitlines())
+        title = _first_line(plain)
     title = _short(title or '')
     details = body[:5000].strip()
     if ' '.join(details.split()) == title:details = ''
@@ -304,7 +316,7 @@ def create(service, body):
         if provider=='report':result=service.repo_reports.propose(body['id'],body['finding_id'],title,after=finish)
         elif provider=='github':result=service.github_proposal(body['id'],body['revision'],title,after=finish)
         elif provider=='gmail':result=service.gmail_proposal(body['id'],body['revision'],body['message_id'],title,after=finish)
-        elif provider=='chat':result=service.chat_proposal(body['name'],body['revision'],title,after=finish)
+        elif provider=='chat':result=service.chat_proposal(body['name'],body.get('revision'),title,after=finish,names=body.get('names'),revisions=body.get('revisions'))
         else:
             result=graph.ingest(dict(provider=provider,account=source['account'],external_id=body['id'],revision=source['revision'],text=source['body']),
                 [dict(kind='task',text=title,quote=source['body'][:10000],locator=source.get('locator',{}))],after=finish)

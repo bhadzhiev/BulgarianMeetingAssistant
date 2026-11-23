@@ -2830,18 +2830,28 @@ class MeetingService:
                 graph._activity(data,'chat_source_unavailable',account=account,resource=resource)
             graph._write(apply)
 
-    def chat_proposal(self,name,revision,title,after=None):
+    def chat_proposal(self,name,revision,title,after=None,names=None,revisions=None):
         # Match the cache writer lock order: cache -> service -> registry.
         with self.chat.lock,self.lock,self.items.lock:
             account=self.chat._account()
-            record=self.chat.detail(name,expected_account=account)
-            if not record['available'] or not record['body']:
-                raise ValueError('This Chat message has no available text to quote')
-            if record['revision']!=revision or self.google.status().get('chat_account_id')!=account:
+            if names is not None:
+                # Several consecutive messages are one source, named after the first message (2026-11-23).
+                if not isinstance(names,list) or not names or names[0]!=name:raise ValueError('Select the Chat messages again')
+                try:picked=self.chat.selection(names,revisions,expected_account=account)
+                except CalendarError as exc:raise items.WorkItemConflict(str(exc)) from None
+                record,text,revision=picked["records"][0],picked["body"],graph_digest(revisions)
+                extra=dict(messages=list(names))
+            else:
+                record=self.chat.detail(name,expected_account=account)
+                if not record['available'] or not record['body']:
+                    raise ValueError('This Chat message has no available text to quote')
+                if record['revision']!=revision:raise items.WorkItemConflict('The Chat message/account changed. Reopen it before proposing a task.')
+                text,extra=record['body'],{}
+            if self.google.status().get('chat_account_id')!=account:
                 raise items.WorkItemConflict('The Chat message/account changed. Reopen it before proposing a task.')
             return WorkGraph(self.items).ingest(dict(provider='google_chat',account=account,external_id=name,
-                revision=revision,text=record['body']),[dict(kind='task',text=title,quote=record['body'][:10000],
-                locator=dict(space=record['space'],thread=record['thread'],message=name,sender_id=record['sender_id'],created=record['date']))],after=after)
+                revision=revision,text=text),[dict(kind='task',text=title,quote=text[:10000],
+                locator=dict(space=record['space'],thread=record['thread'],message=name,sender_id=record['sender_id'],created=record['date'],**extra))],after=after)
 
     def _refresh_gmail_source(self, account, key, record):
         with self.lock, self.items.lock:

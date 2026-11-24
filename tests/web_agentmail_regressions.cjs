@@ -32,6 +32,7 @@ async function testSendConfirmation() {
         ask: async message => { confirmations.push(message); return confirmed; },
         api: async (path, body) => { requests.push([path, body]); return {to: body.to}; },
         editorDirty: {clear() {}},
+        refreshAfterItemChange: async () => {},
         toast() {},
     });
     context.$('task-email-subject').value = 'Reviewed subject';

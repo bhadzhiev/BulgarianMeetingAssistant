@@ -112,6 +112,7 @@ To send a task, open **Send by email**, review the recipients and email text, an
 **Send from Atlanta**. Confirm the sender and recipients. The key needs the additional
 `message_send` permission for the connected inbox. AgentMail treats a retry with the same
 task selection, recipients and text as the same send during its idempotency window.
+After AgentMail confirms a send, each included task shows a sent envelope and a history entry.
 
 ## Gmail: local read-only pilot
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import logging
 import re
+import sqlite3
 
 from . import items
 from .followup_email import PLACEHOLDER, addresses, clean, draft_url, mime
@@ -325,12 +327,46 @@ def prepare(service, body):
                 draft=dict(previous, url=draft_url(previous['account'], previous.get('message_id'))) if previous else None,
                 gmail=dict(account=status.get('account', ''), drafts=bool(status.get('capabilities', {}).get('gmail_compose'))))
 
+def mark_agentmail_sent(registry: items.Registry, ids: list[str], receipt: dict, subject: str,
+                        sent_at: str) -> list[str]:
+    """Record a confirmed send once per task and message."""
+    with registry.lock, registry.store.serialized():
+        registry.data, registry.revision = registry.store.load()
+        marked = []
+        for item_id in ids:
+            item = registry.items.get(item_id)
+            if not item or item['kind'] != 'task':
+                continue
+            if any(event.get('event') == 'email_sent' and
+                   event.get('email', {}).get('message_id') == receipt['message_id']
+                   for event in item['history']):
+                continue
+            item['history'].append(dict(at=sent_at, event='email_sent', by='user', meeting_id=None, changes={},
+                                        text='Sent to ' + ', '.join(receipt['to']) + ' · ' + subject,
+                                        email=dict(receipt, subject=subject)))
+            marked.append(item_id)
+        if marked:
+            try:
+                registry.save()
+            except Exception:
+                registry.data, registry.revision = registry.store.load(repair_export=False)
+                raise
+        return marked
+
+
 def send_agentmail(service, body):
     ids = _ids(body)
     _tasks(service, ids)
     to = addresses(body.get('to'))
     content = clean(dict(subject=body.get('subject'), body=body.get('body')))
-    return service.agentmail.send(body.get('inbox'), to, content['subject'], content['body'], item_ids=ids)
+    receipt = service.agentmail.send(body.get('inbox'), to, content['subject'], content['body'], item_ids=ids)
+    try:
+        with service.lock:
+            mark_agentmail_sent(service.items, ids, receipt, content['subject'], items.now())
+    except (OSError, sqlite3.Error, items.WorkItemConflict):
+        logging.getLogger(__name__).exception('Could not mark the confirmed AgentMail send')
+        return dict(receipt, mark_warning='AgentMail accepted the email, but Atlanta could not update the task history.')
+    return receipt
 
 
 def save_draft(service, body):

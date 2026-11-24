@@ -5,6 +5,7 @@ from unittest import TestCase
 from app.agentmail import AgentMail
 from app.service import MeetingService
 from app.task_draft import create, preview
+from app.task_email import send_agentmail
 from app.work_items import WorkItemConflict
 from tests.test_calendar import FakeGoogle
 
@@ -74,6 +75,33 @@ class AgentMailTests(TestCase):
         self.assertEqual(evidence['quote'], 'Verify the backup result.')
         self.assertEqual(evidence['locator']['thread_id'], 'thread')
         self.assertEqual(len(self.service.items.items), 1)
+
+    def test_sends_the_reviewed_task_from_the_connected_inbox_with_safe_retries(self):
+        task = self.service.create_task(dict(text='Verify pilot', request_id='e' * 32))
+        submitted = []
+
+        def send(inbox, key, suffix, *, payload, idempotency_key):
+            self.assertEqual((inbox, key, suffix), (INBOX, KEY, '/messages/send'))
+            submitted.append((payload, idempotency_key))
+            return dict(message_id=FIRST, thread_id='thread')
+
+        self.mail.request = send
+        body = dict(inbox=INBOX, item_id=task['id'], to=['Reviewer@Example.test'],
+                    subject='Verify pilot', body='Review the result.')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            send_agentmail(self.service, dict(body, inbox='another@agentmail.to'))
+        with self.assertRaisesRegex(ValueError, 'no longer exists'):
+            send_agentmail(self.service, dict(body, item_id='missing'))
+        self.assertEqual(submitted, [])
+        receipt = send_agentmail(self.service, body)
+        self.assertEqual(receipt, dict(inbox=INBOX, to=['reviewer@example.test'],
+                                       message_id=FIRST, thread_id='thread'))
+        self.assertEqual(send_agentmail(self.service, body), receipt)
+        self.assertEqual(submitted[0], submitted[1])
+        self.assertEqual(submitted[0][0], dict(to=['reviewer@example.test'],
+                                              subject='Verify pilot', text='Review the result.'))
+        send_agentmail(self.service, dict(body, body='Edited text.'))
+        self.assertNotEqual(submitted[0][1], submitted[2][1])
 
     def test_reply_updates_existing_task_once_without_changing_its_current_state(self):
         task = self.service.create_task(dict(text='Check the backup', request_id='c' * 32))

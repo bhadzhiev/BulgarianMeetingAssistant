@@ -157,7 +157,7 @@
       <form id="agentmail-connect" class="work-content" hidden>
         <div class="action-group">
           <label>Test inbox <input id="agentmail-inbox" type="email" placeholder="atlanta@agentmail.to" required></label>
-          <label>Read-only API key <input id="agentmail-key" type="password" autocomplete="off" required></label>
+          <label>Inbox API key <input id="agentmail-key" type="password" autocomplete="off" required></label>
           <button type="submit" class="primary">Connect inbox</button>
         </div>
       </form>
@@ -422,7 +422,8 @@
 <label for="task-email-subject">Subject</label><input id="task-email-subject" maxlength="200">
 <label for="task-email-body">Email text</label><textarea id="task-email-body" rows="14"></textarea>
 <details class="task-email-preview-wrap" open><summary>Email preview</summary><p class="hint">Formatting follows your edited text. Gmail may adjust spacing and fonts.</p><div id="task-email-preview" lang="bg"></div></details>
-<div class="editor-actions"><button id="task-email-copy" type="button" class="secondary">Copy text</button><button id="task-email-cancel" type="button" class="secondary">Close</button><button id="task-email-connect" type="button" class="primary" hidden>Connect Gmail drafts</button><button id="task-email-save" type="button" class="primary">Save Gmail draft</button></div>
+<p id="task-email-agentmail-from" class="hint" hidden></p>
+<div class="editor-actions"><button id="task-email-copy" type="button" class="secondary">Copy text</button><button id="task-email-cancel" type="button" class="secondary">Close</button><button id="task-email-connect" type="button" class="primary" hidden>Connect Gmail drafts</button><button id="task-email-save" type="button" class="primary">Save Gmail draft</button><button id="task-email-agentmail-send" type="button" class="primary" hidden>Send from Atlanta</button></div>
 <a id="task-email-auth-link" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in in your browser</a>
 <p id="task-email-result" class="notice" role="status" hidden></p></dialog>
 <dialog id="review-dialog" aria-labelledby="review-title"><div class="card-heading"><div><p class="eyebrow">NEW AI NOTES</p><h2 id="review-title">Review changes</h2></div><button id="review-close" class="quiet" type="button" aria-label="Close review"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div id="review-error" class="error" role="alert" hidden></div><p class="hint">Your saved notes stay as they are until you apply changes. Task status is kept. A changed statement needs a new check.</p><div id="review-body" class="review-body"></div><div class="review-footer"><button id="review-discard" class="quiet danger-text" type="button">Discard new notes</button><button id="review-cancel" class="secondary dismiss-action" type="button">Cancel</button><button id="review-apply" class="primary" type="button">Apply selected</button></div></dialog>

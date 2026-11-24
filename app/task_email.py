@@ -1,8 +1,4 @@
-"""Tasks by email: one draft for one or more tasks, saved as a Gmail draft.
-
-Atlanta never sends the email. The person opens the Gmail draft, checks it and sends it from Gmail.
-A saved draft marks each task (email_draft) and adds an entry to the history of each task.
-"""
+"""Prepare task email for a Gmail draft or an explicit AgentMail send."""
 from __future__ import annotations
 
 import datetime as dt
@@ -329,6 +325,12 @@ def prepare(service, body):
                 draft=dict(previous, url=draft_url(previous['account'], previous.get('message_id'))) if previous else None,
                 gmail=dict(account=status.get('account', ''), drafts=bool(status.get('capabilities', {}).get('gmail_compose'))))
 
+def send_agentmail(service, body):
+    ids = _ids(body)
+    _tasks(service, ids)
+    to = addresses(body.get('to'))
+    content = clean(dict(subject=body.get('subject'), body=body.get('body')))
+    return service.agentmail.send(body.get('inbox'), to, content['subject'], content['body'], item_ids=ids)
 
 
 def save_draft(service, body):

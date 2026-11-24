@@ -449,6 +449,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path in {'/api/task-email/prepare', '/api/task-email/draft'}:
                 from app import task_email
                 result = task_email.prepare(service, body) if path.endswith('/prepare') else task_email.save_draft(service, body)
+            elif path == '/api/task-email/send-agentmail':
+                from app import task_email
+                result = task_email.send_agentmail(service, body)
             elif path in {'/api/task-titles/preview', '/api/task-titles/start', '/api/task-titles/cancel', '/api/task-titles/apply'}:
                 from app import task_titles
                 action = path.rsplit('/', 1)[1]

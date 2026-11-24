@@ -1,4 +1,4 @@
-"""Read-only, one-inbox AgentMail intake. Only explicitly saved source evidence persists."""
+"""AgentMail intake and explicit email sends for one connected inbox."""
 from collections import OrderedDict
 import json
 import re
@@ -23,9 +23,14 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def fetch(inbox, key, suffix=''):
+def fetch(inbox, key, suffix='', *, payload=None, idempotency_key=None):
     url = API + quote(inbox, safe='') + suffix
-    request = Request(url, headers={'Authorization': 'Bearer ' + key, 'Accept': 'application/json'})
+    headers = {'Authorization': 'Bearer ' + key, 'Accept': 'application/json'}
+    sending = payload is not None
+    if sending:
+        headers.update({'Content-Type': 'application/json', 'Idempotency-Key': idempotency_key})
+    request = Request(url, data=json.dumps(payload).encode() if sending else None, headers=headers)
+    unconfirmed = 'AgentMail did not confirm the send. Retry without changing the email to avoid a duplicate.'
     try:
         with build_opener(NoRedirect()).open(request, timeout=15) as response:
             data = response.read(RESPONSE_LIMIT + 1)
@@ -33,6 +38,15 @@ def fetch(inbox, key, suffix=''):
             raise ValueError('AgentMail response exceeds the local size limit')
         result = json.loads(data)
     except HTTPError as error:
+        if sending:
+            messages = {
+                400: 'AgentMail rejected the email. Check the recipient, subject and text.',
+                401: 'AgentMail rejected the API key.',
+                403: 'AgentMail denied the send. Check the inbox scope and message_send permission.',
+                404: 'The AgentMail inbox is unavailable.',
+                429: 'AgentMail is rate limiting requests. Try again shortly.',
+            }
+            raise ValueError(messages.get(error.code, unconfirmed)) from None
         messages = {
             401: 'AgentMail rejected the API key.',
             403: 'AgentMail denied access. Check the key scope and read permissions.',
@@ -41,7 +55,7 @@ def fetch(inbox, key, suffix=''):
         }
         raise ValueError(messages.get(error.code, f'AgentMail returned HTTP {error.code}.')) from None
     except (URLError, TimeoutError):
-        raise ValueError('Cannot reach AgentMail. Try again.') from None
+        raise ValueError(unconfirmed if sending else 'Cannot reach AgentMail. Try again.') from None
     except (ValueError, UnicodeError):
         raise ValueError('AgentMail returned an invalid or oversized response.') from None
     if not isinstance(result, dict):
@@ -120,6 +134,20 @@ class AgentMail:
         if not current:
             raise ValueError('Connect an AgentMail inbox first.')
         return current['inbox'], current['key']
+
+    def send(self, expected_inbox, to, subject, body, *, item_ids):
+        with self.lock:
+            inbox, key = self._connection()
+            if expected_inbox != inbox:
+                raise ValueError('The connected AgentMail inbox changed. Reopen the email and confirm the sender.')
+            payload = dict(to=to, subject=subject, text=body)
+            operation = digest([inbox, sorted(item_ids), payload])
+            result = self.request(inbox, key, '/messages/send', payload=payload, idempotency_key=operation)
+            message_id = short(result.get('message_id'), 500)
+            thread_id = short(result.get('thread_id'), 500)
+            if not message_id or not thread_id:
+                raise ValueError('AgentMail did not confirm the send. Retry without changing the email to avoid a duplicate.')
+            return dict(inbox=inbox, to=to, message_id=message_id, thread_id=thread_id)
 
     def listing(self):
         with self.lock:

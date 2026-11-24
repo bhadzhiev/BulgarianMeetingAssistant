@@ -2054,7 +2054,7 @@ async function loadAgentMail(refresh=false){
  if(!readers.current(request))return;
  if(status.inbox!==agentMailInbox){agentMailInbox=status.inbox;agentMailRows=[];agentMailId='';$('agentmail-detail').replaceChildren();}
  const connected=!!agentMailInbox;
- $('agentmail-status').textContent=connected?agentMailInbox+' · Read only':'Connect your test inbox';
+ $('agentmail-status').textContent=connected?agentMailInbox:'Connect your test inbox';
  $('agentmail-connect').hidden=connected;
  for(const id of ['agentmail-refresh','agentmail-disconnect','agentmail-content'])$(id).hidden=!connected;
  if(!connected)return;
@@ -4988,20 +4988,21 @@ function emailMark(item){
  mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
  mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));return mark;
 }
-let taskEmailItems=[],taskEmailMeeting=null;
+let taskEmailItems=[],taskEmailMeeting=null,taskEmailAgentInbox='';
 function taskEmailStatus(text,warning=false){const box=$('task-email-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}
 function taskEmailRecipients(){const chosen=[...$('task-email-people').querySelectorAll('input:checked')].map(input=>input.value);
  const extra=$('task-email-extra').value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean);return [...new Set([...chosen,...extra].map(v=>v.toLowerCase()))];}
 function renderTaskEmailChoices(data){
  const list=$('task-email-selected'),apply=$('task-email-apply-selection'),save=$('task-email-save'),selected=new Set(data.tasks.map(t=>t.id)),initial=new Set(selected);
- list.replaceChildren();apply.hidden=true;save.disabled=false;
+ const send=$('task-email-agentmail-send');
+ list.replaceChildren();apply.hidden=true;save.disabled=false;send.disabled=false;
  const originalSubject=data.subject,originalBody=data.body,checks=[];
  const available=data.available_tasks||data.tasks,roots=available.filter(t=>!t.parent_task_id||!available.some(p=>p.id===t.parent_task_id)),ordered=roots.flatMap(t=>[t,...available.filter(c=>c.parent_task_id===t.id)]);
  const changed=()=>selected.size!==initial.size||[...selected].some(id=>!initial.has(id));
  for(const task of ordered){const label=el('label','checkbox email-task-choice'+(task.parent_task_id?' email-task-child':'')),check=el('input');check.type='checkbox';check.checked=selected.has(task.id);check.value=task.id;
-  check.onchange=()=>{if(check.checked){if(selected.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}selected.add(task.id);}else selected.delete(task.id);apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=changed();$('task-email-copy').disabled=changed();};
+  check.onchange=()=>{if(check.checked){if(selected.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}selected.add(task.id);}else selected.delete(task.id);apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=send.disabled=changed();$('task-email-copy').disabled=changed();};
   label.append(check,el('span','',(task.parent_task_id?'↳ ':'')+task.text));list.append(label);checks.push(check);}
- if(ordered.length>1){const all=btn('quiet small-action','Select / clear all tasks');all.onclick=()=>{const clear=checks.every(check=>check.checked);selected.clear();checks.forEach((check,index)=>{check.checked=!clear&&index<100;if(check.checked)selected.add(check.value);});apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=changed();$('task-email-copy').disabled=changed();};list.prepend(all);}
+ if(ordered.length>1){const all=btn('quiet small-action','Select / clear all tasks');all.onclick=()=>{const clear=checks.every(check=>check.checked);selected.clear();checks.forEach((check,index)=>{check.checked=!clear&&index<100;if(check.checked)selected.add(check.value);});apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=send.disabled=changed();$('task-email-copy').disabled=changed();};list.prepend(all);}
  apply.onclick=()=>perform(()=>withDialogAction($('task-email-dialog'),async()=>{
   if(!selected.size)return;
   if(($('task-email-body').value!==originalBody||$('task-email-subject').value!==originalSubject)&&!(await ask('Rebuild the letter for this selection? Your edits to the subject and text will be replaced.',{ok:'Rebuild letter',cancel:'Keep editing'})))return;
@@ -5026,11 +5027,16 @@ function renderTaskEmail(data){
  $('task-email-title').textContent=data.tasks.length>1?'Send '+data.tasks.length+' tasks in one email':'Send the task by email';
  const drafts=data.gmail.drafts;$('task-email-connect').hidden=drafts;$('task-email-save').hidden=!drafts;
  $('task-email-save').textContent=data.draft?'Update Gmail draft':'Save Gmail draft';
- taskEmailStatus(drafts?(data.draft?(data.tasks.length>1?'These tasks already share':'This task already has')+' a Gmail draft from '+dateTime(data.draft.saved_at)+'. Saving updates it. If you sent it, saving makes a new draft.':''):'Gmail drafts need one more Google permission: compose drafts. Atlanta never sends email.');
+ const sender=$('task-email-agentmail-from');
+ sender.textContent='Atlanta sender: '+taskEmailAgentInbox;sender.hidden=!taskEmailAgentInbox;
+ $('task-email-agentmail-send').hidden=!taskEmailAgentInbox;
+ taskEmailStatus(drafts?(data.draft?(data.tasks.length>1?'These tasks already share':'This task already has')+' a Gmail draft from '+dateTime(data.draft.saved_at)+'. Saving updates it. If you sent it, saving makes a new draft.':''):'Gmail drafts require the Google permission to compose drafts.');
  $('task-email-result').hidden=true;$('task-email-auth-link').hidden=true;
 }
 async function openTaskEmail(ids,meetingId=null){
- ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId});taskEmailItems=ids;taskEmailMeeting=meetingId;
+ ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;
+ const [data,agentmail]=await Promise.all([api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId}),api('/api/agentmail').catch(()=>null)]);
+ taskEmailItems=ids;taskEmailMeeting=meetingId;taskEmailAgentInbox=agentmail?.inbox||'';
  renderTaskEmail(data);editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').showModal();$('task-email-subject').focus();
 }
 function renderTaskEmailPreview(){
@@ -5051,6 +5057,14 @@ $('task-email-close').onclick=()=>$('task-email-dialog').close();
 $('task-email-copy').onclick=()=>perform(async()=>{await copyText($('task-email-subject').value+'\n\n'+$('task-email-body').value);toast('Copied the subject and text');});
 $('task-email-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail_compose'});$('task-email-auth-link').href=result.authorization_url;$('task-email-auth-link').hidden=false;
  taskEmailStatus('Approve Gmail drafts in your browser. Then close this window and choose Send by email again; your text here is not kept.');});
+$('task-email-agentmail-send').onclick=()=>perform(()=>withDialogAction($('task-email-dialog'),async()=>{
+ const to=taskEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');
+ const letter={item_ids:taskEmailItems,inbox:taskEmailAgentInbox,to,subject:$('task-email-subject').value,body:$('task-email-body').value};
+ if(!(await ask('Send from '+letter.inbox+' to '+to.join(', ')+'?\n\n'+letter.subject,{ok:'Send email',cancel:'Keep editing'})))return;
+ const result=await api('/api/task-email/send-agentmail',letter);
+ editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').close();
+ toast('AgentMail accepted the email for '+result.to.join(', '));
+}));
 $('task-email-save').onclick=()=>perform(async()=>{
  const to=taskEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');
  const button=$('task-email-save');button.disabled=true;

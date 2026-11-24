@@ -105,9 +105,13 @@ Atlanta reads selected messages through the AgentMail API.
 
 **Create task…** opens the task editor with the subject and selected body. **Add update to task…**
 lets you choose an existing task and edit the progress text. Saving either action pins the message
-as evidence. Saving an update leaves the owner, state and dates in place. AgentMail writes,
-attachment downloads and model calls are outside this pilot. Disconnect clears the local
+as evidence. Saving an update leaves the owner, state and dates in place. Disconnect clears the local
 credential and message previews. Task evidence already saved in Atlanta remains available.
+
+To send a task, open **Send by email**, review the recipients and email text, and choose
+**Send from Atlanta**. Confirm the sender and recipients. The key needs the additional
+`message_send` permission for the connected inbox. AgentMail treats a retry with the same
+task selection, recipients and text as the same send during its idempotency window.
 
 ## Gmail: local read-only pilot
 

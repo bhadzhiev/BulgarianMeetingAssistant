@@ -13,10 +13,50 @@ assert.match(app, /provider:'agentmail',inbox,id,revision:row\.revision/);
 assert.match(app, /'Create task…'.*'Add update to task…'/);
 assert.match(app, /if\(agentMailSource\)\{draft\.hidden=true;improve\.hidden=true;\}/);
 assert.match(app, /payload\.link_update=updateText\.value\.trim\(\)/);
+assert.match(html, /id="task-email-agentmail-send"[^>]* hidden>Send from Atlanta</);
+assert.match(app, /\$\('task-email-agentmail-send'\)\.hidden=!taskEmailAgentInbox/);
+
+async function testSendConfirmation() {
+    const fields = new Map(), confirmations = [], requests = [];
+    let confirmed = false;
+    const context = vm.createContext({
+        $: id => {
+            if (!fields.has(id)) fields.set(id, {});
+            return fields.get(id);
+        },
+        perform: action => action(),
+        withDialogAction: (_dialog, action) => action(),
+        taskEmailRecipients: () => ['recipient@example.test'],
+        taskEmailAgentInbox: 'test@agentmail.to',
+        taskEmailItems: ['task-1'],
+        ask: async message => { confirmations.push(message); return confirmed; },
+        api: async (path, body) => { requests.push([path, body]); return {to: body.to}; },
+        editorDirty: {clear() {}},
+        toast() {},
+    });
+    context.$('task-email-subject').value = 'Reviewed subject';
+    context.$('task-email-body').value = 'Reviewed text';
+    context.$('task-email-dialog').close = () => {};
+    vm.runInContext(app.slice(app.indexOf("$('task-email-agentmail-send').onclick"),
+        app.indexOf("$('task-email-save').onclick")), context);
+
+    await context.$('task-email-agentmail-send').onclick();
+    assert.match(confirmations[0], /test@agentmail\.to to recipient@example\.test/);
+    assert.equal(requests.length, 0);
+    confirmed = true;
+    await context.$('task-email-agentmail-send').onclick();
+    assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
+        ['/api/task-email/send-agentmail', {
+            item_ids: ['task-1'], inbox: 'test@agentmail.to', to: ['recipient@example.test'],
+            subject: 'Reviewed subject', body: 'Reviewed text',
+        }],
+    ]);
+}
 
 
 // Start with a failed task-model script, then open the AgentMail editor through the normal source action.
 (async () => {
+    await testSendConfirmation();
     const scripts = [], calls = [], errors = [];
     let closeDraft;
     const context = vm.createContext({

@@ -2711,7 +2711,7 @@ function renderBulkTasks(){
   bulkPending=body;bulkSaving=false;await sendBulkTasks(body);
   }finally{bulkSaving=false;apply.disabled=false;}
  });
- const mail=btn('secondary','Send by email…');mail.type='button';mail.title='One Gmail draft with all selected tasks. Each task gets the envelope mark.';
+ const mail=btn('secondary','Send by email…');mail.type='button';mail.title='Compose one email for the selected tasks.';
  mail.onclick=()=>perform(()=>openTaskEmail([...taskSelection.keys()]));
  const group=btn('secondary','Add to main task…');group.onclick=()=>perform(()=>openTaskHierarchy({childIds:[...taskSelection.keys()]}));
  box.append(group,action,input,apply,mail,note);

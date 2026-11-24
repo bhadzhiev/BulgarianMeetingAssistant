@@ -430,6 +430,20 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null,extra=null
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'&&$('ask-input').rows===1){event.preventDefault();$('ask-dialog').close('ok');}};
 let taskDraftPending=false,taskEvidenceTarget=null,taskPanelSequence=0;
 function renderTaskEvidenceContext(){const box=$('task-evidence-context');box.replaceChildren();box.hidden=!taskEvidenceTarget;if(!taskEvidenceTarget)return;box.append(el('strong','','Link evidence to: '+taskEvidenceTarget.text.slice(0,160)),el('p','hint','Select a transcript passage or open a source and choose Suggest a task. The editor will link it to this task.'));const cancel=btn('quiet','Cancel linking');cancel.onclick=()=>{taskEvidenceTarget=null;renderTaskEvidenceContext();};box.append(cancel);}
+let taskModelLoading=null;
+function ensureTaskModel(){
+ if(typeof AtlantaTasks!=='undefined')return Promise.resolve();
+ if(!taskModelLoading){
+  // A failed asset request should be recoverable without giving up an open source or draft.
+  taskModelLoading=new Promise((resolve,reject)=>{
+   const script=el('script');script.src='/task-model.js';
+   const finish=()=>{script.remove();if(typeof AtlantaTasks==='undefined')reject(new Error('Task controls could not load. Try again.'));else resolve();};
+   script.onload=script.onerror=finish;
+   document.head.append(script);
+  }).finally(()=>{taskModelLoading=null;});
+ }
+ return taskModelLoading;
+}
 async function suggestTask(button,source){
  if(taskDraftPending){toast('Finish the current task draft first');return;}
  if(taskEvidenceTarget&&source.provider!=='manual')source={...source,link_only:true,capture_target:taskEvidenceTarget.id};
@@ -438,7 +452,7 @@ async function suggestTask(button,source){
  // The action ends when the dialog opens (2026-11-22): the dialog shows its own progress, and the page must not
  // show "Suggest a task · in progress" while the person reads and edits. The source stays locked until it closes.
  let opened=null;const release=()=>{taskDraftPending=false;button.disabled=false;};
- try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);opened=openManualTask(null,{source,sourcePreview:preview});}
+ try{await ensureTaskModel();itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);opened=openManualTask(null,{source,sourcePreview:preview});}
  finally{if(opened)opened.catch(e=>error(e.message)).finally(release);else release();}
 }
 // Improve with AI returns a sharper card as a suggestion; the person reviews it before saving — nothing is written (2026-11-14).
@@ -1959,7 +1973,7 @@ function decisionRow(item,byId) {
  row.append(el('span'),main);
  const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';const menuActions=itemActions(item,row,{direct:true});if(item.status!=='proposed')menuActions.prepend(change);more.append(trigger,menuActions);row.append(more); return row;
 }
-async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); refreshSourceTaskMarks(); }
+async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;await ensureTaskModel();const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); refreshSourceTaskMarks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
 const SOURCES={manual:['Manual',''],meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github'],excerpt:['Excerpt','src-meeting'],agentmail:['AgentMail','src-gmail']};
 function originChip(provider,label,open){

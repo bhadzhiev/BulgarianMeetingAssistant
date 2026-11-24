@@ -1619,7 +1619,7 @@ function decisionState(item){
 }
 function decisionBadge(item){const s=decisionState(item),badge=el('span','decision-status '+s.cls);badge.append(icon(item.status==='accepted'?'verified':item.status==='superseded'?'restore':'circle'),el('span','',s.label));if(s.title)badge.title=s.title;return badge;}
 const FIELD_LABELS={text:'text',owner:'owner',deadline:'deadline as said',due_date:'due date',status:'status'};
-const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',edited_on_accept:'Text edited on accept',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update',owner_linked:'Owner linked to People',speaker_named:'Speaker named in',meeting_update_removed:'Update from the meeting removed',email_draft:'Email draft saved in Gmail',email_draft_removed:'Removed from shared email draft',parent_changed:'Main task changed',subtask_added:'Subtask added',subtask_removed:'Subtask detached'};
+const EVENT_LABELS={source_linked:'Source linked',proposal_linked:'Linked to task',projects_changed:'Projects changed',confirmed:'Owner confirmed',edited_on_accept:'Text edited on accept',created:'Created in',discussed:'Discussed in',duplicate:'Mentioned again in',changed:'Changed',removed:'Removed from',merged:'Merged with another item',superseded:'Replaced in',detached:'Waits for the new notes of',meeting_review_confirm:'Confirmed for',progress_update:'Update',owner_linked:'Owner linked to People',speaker_named:'Speaker named in',meeting_update_removed:'Update from the meeting removed',email_draft:'Email draft saved in Gmail',email_draft_removed:'Removed from shared email draft',email_sent:'Email sent from Atlanta',parent_changed:'Main task changed',subtask_added:'Subtask added',subtask_removed:'Subtask detached'};
 // An event without a label reads as words, never as its code name.
 const eventLabel=name=>EVENT_LABELS[name]||String(name||'Event').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 function meetingLabel(id,meetings) { const meeting=meetings?.[id]; return meeting?withDate(meeting.title,meeting.date):'a deleted meeting'; }
@@ -4981,11 +4981,13 @@ $('followup-save').onclick=()=>perform(async()=>{
   box.replaceChildren(document.createTextNode('Draft saved in Gmail for '+AtlantaUX.count(to.length,'recipient')+'. Check it and send it from Gmail. '),link);box.hidden=false;box.scrollIntoView({block:'nearest'});}
  finally{button.disabled=false;}
 });
-// One task by email: Atlanta saves a Gmail draft and marks the task; the person sends it from Gmail.
+// A confirmed AgentMail send or a saved Gmail draft marks the task.
 function emailMark(item){
- const draft=item.email_draft;if(!draft)return null;
- const mark=el('span','email-mark task-link-icon'),count=(draft.to||[]).length;
- mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
+ const sent=(item.history||[]).findLast(event=>event.event==='email_sent'&&event.email);
+ const draft=item.email_draft;if(!sent&&!draft)return null;
+ const mark=el('span','email-mark task-link-icon');
+ const recipients=(sent?.email||draft).to||[];
+ mark.title=(sent?'Email sent from Atlanta · '+dateTime(sent.at):'Email draft saved in Gmail · '+dateTime(draft.saved_at))+(recipients.length?' · to '+recipients.join(', '):'');
  mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));return mark;
 }
 let taskEmailItems=[],taskEmailMeeting=null,taskEmailAgentInbox='';
@@ -5063,7 +5065,8 @@ $('task-email-agentmail-send').onclick=()=>perform(()=>withDialogAction($('task-
  if(!(await ask('Send from '+letter.inbox+' to '+to.join(', ')+'?\n\n'+letter.subject,{ok:'Send email',cancel:'Keep editing'})))return;
  const result=await api('/api/task-email/send-agentmail',letter);
  editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').close();
- toast('AgentMail accepted the email for '+result.to.join(', '));
+ toast(result.mark_warning||'AgentMail accepted the email for '+result.to.join(', '));
+ await refreshAfterItemChange();
 }));
 $('task-email-save').onclick=()=>perform(async()=>{
  const to=taskEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');

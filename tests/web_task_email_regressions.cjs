@@ -9,7 +9,7 @@ assert.ok(src.includes("openTaskEmail([...taskSelection.keys()])"));
 assert.ok(src.includes("api('/api/task-email/draft',{item_ids:taskEmailItems,"));
 // The history names the event in words.
 assert.ok(src.includes("email_draft:'Email draft saved in Gmail'"));assert.ok(progress.includes("email_draft:'Email draft saved in Gmail'"));
-// The envelope shows only for a task with a saved draft. It is an icon with an accessible name in every layout.
+// The envelope distinguishes a confirmed send from a Gmail draft.
 const start=src.indexOf('function emailMark('),end=src.indexOf('let taskEmailItems',start);
 class Node{constructor(cls){this.className=cls;this.children=[];this.attrs={};}append(...n){this.children.push(...n);}setAttribute(k,v){this.attrs[k]=v;}}
 const c=vm.createContext({el:(t,cls)=>new Node(cls),icon:()=>'svg',dateTime:v=>v,document:{createTextNode:t=>t}});
@@ -17,5 +17,7 @@ vm.runInContext(src.slice(start,end),c);
 assert.equal(vm.runInContext('emailMark({})',c),null);
 const mark=vm.runInContext("emailMark({email_draft:{saved_at:'09.11.2026',to:['a@b.test']}})",c);
 assert.deepEqual(mark.children,['svg']);assert.ok(mark.attrs['aria-label'].includes('Email draft saved in Gmail'));assert.ok(mark.title.includes('a@b.test'));
+const sent=vm.runInContext("emailMark({email_draft:{saved_at:'09.11.2026',to:['a@b.test']},history:[{event:'email_sent',at:'10.11.2026',email:{to:['c@d.test']}}]})",c);
+assert.equal(sent.attrs['aria-label'],'Email sent from Atlanta · 10.11.2026 · to c@d.test');
 
 console.log('Task email PASS: dialog, three entry points, history label and envelope mark.');

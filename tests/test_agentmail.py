@@ -97,6 +97,10 @@ class AgentMailTests(TestCase):
         self.assertEqual(receipt, dict(inbox=INBOX, to=['reviewer@example.test'],
                                        message_id=FIRST, thread_id='thread'))
         self.assertEqual(send_agentmail(self.service, body), receipt)
+        stored, _ = self.service.items.store.load()
+        events = [event for event in stored['items'][task['id']]['history'] if event['event'] == 'email_sent']
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['email'], dict(receipt, subject=body['subject']))
         self.assertEqual(submitted[0], submitted[1])
         self.assertEqual(submitted[0][0], dict(to=['reviewer@example.test'],
                                               subject='Verify pilot', text='Review the result.'))

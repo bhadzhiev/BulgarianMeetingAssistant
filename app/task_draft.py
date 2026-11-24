@@ -125,6 +125,8 @@ def snapshot(service, body):
         account=service.github._account();row=service.github.detail(body['id'], expected_account=account)
         if not row['available']:raise ValueError('This GitHub source is unavailable')
         source=dict(account=account, revision=row['revision'], title=row['title'], body=row['body'])
+    elif provider == 'agentmail':
+        source=service.agentmail.source(body.get('inbox'), body.get('id'))
     elif provider == 'gmail':
         account=service.gmail._account();row=service.gmail.detail(body['id'], expected_account=account)
         message=next((m for m in row['messages'] if m['id']==body.get('message_id')),None)
@@ -170,7 +172,7 @@ def suggested_fields(source):
     provider = source.get('selection', {}).get('provider')
     body = (source.get('body') or '').strip()
     if provider == 'github':title = source.get('title') or _first_line(body)
-    elif provider == 'gmail':title = re.sub(r'^(?:(?:re|fwd?|aw|wg)\s*:\s*)+', '', source.get('subject') or '', flags=re.I) or _first_line(body)
+    elif provider in {'gmail','agentmail'}:title = re.sub(r'^(?:(?:re|fwd?|aw|wg)\s*:\s*)+', '', source.get('subject') or '', flags=re.I) or _first_line(body)
     elif provider == 'report':
         finding = source.get('finding') or {}
         return dict(title=_short(finding.get('text') or ''), details='')
@@ -187,18 +189,18 @@ def suggested_fields(source):
 
 def preview(service, body):
     source=snapshot(service,body)
-    available=True
-    try:target=service.repo_reports.target()
-    except ValueError:
-        available=False
-        target=dict(provider='none',local_ai_model='Not configured',local_ai_base_url='')
-    from .prompts import select_stages
-    target['_prompt_snapshot']=select_stages(service.prompts.snapshot(),('task_polish' if body.get('provider')=='task_edit' else 'task_draft',))
+    available=body.get('provider')!='agentmail'
+    target=dict(provider='none',local_ai_model='Not configured',local_ai_base_url='')
+    if available:
+        try:target=service.repo_reports.target()
+        except ValueError:available=False
+        from .prompts import select_stages
+        target['_prompt_snapshot']=select_stages(service.prompts.snapshot(),('task_polish' if body.get('provider')=='task_edit' else 'task_draft',))
     token=digest(dict(source=source,target=target,nonce=service.repo_reports.nonce))
     quote=source.get('body') or source.get('finding',{}).get('text') or source.get('subject','')
     if source.get('finding'):quote='\n\n'.join(ref['quote'] for ref in source['finding']['evidence'])
     suggested=suggested_fields(source) if body.get('provider')!='task_edit' else dict(title='',details='')
-    return dict(suggested_title=suggested['title'],suggested_details=suggested['details'],ai_available=available,ai_unavailable_reason='' if available else 'Configure a valid AI provider in Settings to generate a draft. You can still write a task or link evidence.',preview_token=token,target=target,characters=len(canonical(source)),source_excerpt=quote[:4000],source_label=source.get('title') or source.get('subject') or body.get('provider'))
+    return dict(suggested_title=suggested['title'],suggested_details=suggested['details'],ai_available=available,ai_unavailable_reason='' if available else 'Review the selected email and write the task or update.' if body.get('provider')=='agentmail' else 'Configure a valid AI provider in Settings to generate a draft. You can still write a task or link evidence.',preview_token=token,target=target,characters=len(canonical(source)),source_excerpt=quote[:4000],source_label=source.get('title') or source.get('subject') or body.get('provider'))
 
 
 class Cancellation:
@@ -257,7 +259,13 @@ def create(service, body):
     if capture_meeting:
         service.library.get(capture_meeting)
         if capture_meeting==service.active or capture_meeting in service.busy:raise ValueError('Wait until meeting processing finishes')
-    cache=service.github.lock if provider=='github' else service.chat.lock if provider=='chat' else service.lock
+    update = body.get('link_update')
+    if update is not None:
+        if provider != 'agentmail' or not body.get('target_id'):
+            raise ValueError('Choose an existing task for this update.')
+        update = text(update, 'task update', 5000)
+    connector = {'github': 'github', 'chat': 'chat', 'agentmail': 'agentmail'}.get(provider)
+    cache = getattr(service, connector).lock if connector else service.lock
     with cache,service.lock,service.items.lock,service.items.store.serialized():
         service.items.data,service.items.revision=service.items.store.load()
         payload=digest({key:value for key,value in body.items() if key!='operation_id'})
@@ -277,13 +285,22 @@ def create(service, body):
                 key=proposal['result_id']
                 if body.get('target_id') and body['target_id']!=key:raise WorkItemConflict('This source action already belongs to another task.')
                 if key not in data['items']:raise WorkItemConflict('This proposal task was deleted. Start a new capture.')
+                if update and not any(event.get('event') == 'progress_update' and
+                                      event.get('evidence_id') == proposal['evidence_id'] and event.get('text') == update
+                                      for event in data['items'][key]['history']):
+                    raise WorkItemConflict('This email already has a saved task update. Open the task to add another update.')
                 # Existing accepted work is never overwritten by a second capture.
             elif body.get('target_id'):
                 key=body['target_id'];item=data['items'].get(key)
-                if not item or item['kind']!='task' or item.get('acceptance_state')=='proposed' or type(body.get('target_revision')) is not int or item.get('revision')!=body['target_revision']:raise WorkItemConflict('The target task changed. Choose it again.')
+                if not item or item['kind']!='task' or item.get('acceptance_state')=='proposed' or (provider=='agentmail' and item.get('dismissed')) or type(body.get('target_revision')) is not int or item.get('revision')!=body['target_revision']:raise WorkItemConflict('The target task changed. Choose it again.')
                 if proposal['evidence_id'] not in item.setdefault('source_evidence',[]):
                     item['source_evidence'].append(proposal['evidence_id'])
                     item['history'].append(dict(at=now(),event='source_linked',by='user',changes={},meeting_id=None,evidence_id=proposal['evidence_id']))
+                if update and not any(event.get('event') == 'progress_update' and
+                                      event.get('evidence_id') == proposal['evidence_id']
+                                      for event in item['history']):
+                    item['history'].append(dict(at=now(), event='progress_update', by='user', changes={},
+                                                meeting_id=None, text=update, evidence_id=proposal['evidence_id']))
                 proposal.update(state='linked',result_id=key,revision=proposal['revision']+1)
             else:
                 if proposal['state']!='pending':raise WorkItemConflict('Restore the proposal before creating a task.')

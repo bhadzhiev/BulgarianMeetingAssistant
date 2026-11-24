@@ -7,6 +7,7 @@ const code=app.slice(at,app.indexOf('\n// Improve with AI',at));
 (async()=>{
  let close;const calls=[],toasts=[],errors=[];
  const c=vm.createContext({taskDraftPending:false,taskEvidenceTarget:null,itemsData:null,toast:m=>toasts.push(m),error:m=>errors.push(m),
+  ensureTaskModel:async()=>{},
   api:async(path)=>{calls.push(path);return path==='/api/items'?{items:[]}:{ai_available:true};},
   openManualTask:()=>new Promise(resolve=>close=resolve)});
  vm.runInContext(code+';this.suggestTask=suggestTask;',c);

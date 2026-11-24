@@ -95,6 +95,24 @@ its title. A number shows when there is more than one task. Click the mark to op
 rest of the row to open the source. The mark is grey when all its tasks are done. Hidden tasks do not
 show a mark.
 
+## AgentMail: a dedicated test inbox
+
+Open **My Work → Sources → AgentMail** and connect a single `@agentmail.to` inbox with an
+inbox-scoped API key granting `inbox_read` and `message_read`. Atlanta saves the credential in
+macOS Keychain. **Refresh inbox** lists up to 50 recent incoming messages. Open a message to read
+its text. Forwarded messages retain their text and replies prefer the provider's extracted reply.
+Atlanta reads selected messages through the AgentMail API.
+
+**Create task…** opens the task editor with the subject and selected body. **Add update to task…**
+lets you choose an existing task and edit the progress text. Saving either action pins the message
+as evidence. Saving an update leaves the owner, state and dates in place. Disconnect clears the local
+credential and message previews. Task evidence already saved in Atlanta remains available.
+
+To send a task, open **Send by email**, review the recipients and email text, and choose
+**Send from Atlanta**. Confirm the sender and recipients. The key needs the additional
+`message_send` permission for the connected inbox. AgentMail treats a retry with the same
+task selection, recipients and text as the same send during its idempotency window.
+
 ## Gmail: local read-only pilot
 
 Gmail sync is read-only. The only Gmail writes are email drafts: the follow-up email and tasks by

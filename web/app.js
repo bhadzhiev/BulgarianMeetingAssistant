@@ -430,6 +430,20 @@ function ask(message,{ok='OK',cancel='Cancel',danger=false,value=null,extra=null
 $('ask-input').onkeydown=event=>{if(event.key==='Enter'&&$('ask-input').rows===1){event.preventDefault();$('ask-dialog').close('ok');}};
 let taskDraftPending=false,taskEvidenceTarget=null,taskPanelSequence=0;
 function renderTaskEvidenceContext(){const box=$('task-evidence-context');box.replaceChildren();box.hidden=!taskEvidenceTarget;if(!taskEvidenceTarget)return;box.append(el('strong','','Link evidence to: '+taskEvidenceTarget.text.slice(0,160)),el('p','hint','Select a transcript passage or open a source and choose Suggest a task. The editor will link it to this task.'));const cancel=btn('quiet','Cancel linking');cancel.onclick=()=>{taskEvidenceTarget=null;renderTaskEvidenceContext();};box.append(cancel);}
+let taskModelLoading=null;
+function ensureTaskModel(){
+ if(typeof AtlantaTasks!=='undefined')return Promise.resolve();
+ if(!taskModelLoading){
+  // A failed asset request should be recoverable without giving up an open source or draft.
+  taskModelLoading=new Promise((resolve,reject)=>{
+   const script=el('script');script.src='/task-model.js';
+   const finish=()=>{script.remove();if(typeof AtlantaTasks==='undefined')reject(new Error('Task controls could not load. Try again.'));else resolve();};
+   script.onload=script.onerror=finish;
+   document.head.append(script);
+  }).finally(()=>{taskModelLoading=null;});
+ }
+ return taskModelLoading;
+}
 async function suggestTask(button,source){
  if(taskDraftPending){toast('Finish the current task draft first');return;}
  if(taskEvidenceTarget&&source.provider!=='manual')source={...source,link_only:true,capture_target:taskEvidenceTarget.id};
@@ -438,7 +452,7 @@ async function suggestTask(button,source){
  // The action ends when the dialog opens (2026-11-22): the dialog shows its own progress, and the page must not
  // show "Suggest a task · in progress" while the person reads and edits. The source stays locked until it closes.
  let opened=null;const release=()=>{taskDraftPending=false;button.disabled=false;};
- try{itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);opened=openManualTask(null,{source,sourcePreview:preview});}
+ try{await ensureTaskModel();itemsData=await api('/api/items');const preview=await api('/api/task-draft/preview',source);opened=openManualTask(null,{source,sourcePreview:preview});}
  finally{if(opened)opened.catch(e=>error(e.message)).finally(release);else release();}
 }
 // Improve with AI returns a sharper card as a suggestion; the person reviews it before saving — nothing is written (2026-11-14).
@@ -1934,7 +1948,7 @@ function globalTaskRow(item,today,{select=true,showProject=true,nested=false}={}
 }
 // A short due fact for the card: the date and how far away it is (6d overdue, today, in 3d).
 function dueShort(item,today){if(item.status==='done')return 'done';if(!item.due_date)return '';const days=daysBetween(today,item.due_date);return days<0?(-days)+'d overdue':days===0?'today':'in '+days+'d';}
-const TASK_ORIGINS={meeting:['Meeting','video'],gmail:['Gmail thread','mail'],google_chat:['Chat','update'],github:['GitHub','branch']};
+const TASK_ORIGINS={meeting:['Meeting','video'],gmail:['Gmail thread','mail'],google_chat:['Chat','update'],github:['GitHub','branch'],agentmail:['AgentMail','mail']};
 function missingLink(name,label){const mark=el('span','task-link-icon inactive');mark.title=label;mark.setAttribute('aria-label',label);mark.append(icon(name));return mark;}
 function taskDescription(text){const node=el('p','task-description',text);node.title=text;return node;}
 // Secondary tools share one disclosure; content and the current action stay outside it.
@@ -1959,9 +1973,9 @@ function decisionRow(item,byId) {
  row.append(el('span'),main);
  const more=el('details','task-more'),trigger=el('summary','overflow-trigger','...');trigger.setAttribute('aria-label','More decision actions');trigger.title='More decision actions';const menuActions=itemActions(item,row,{direct:true});if(item.status!=='proposed')menuActions.prepend(change);more.append(trigger,menuActions);row.append(more); return row;
 }
-async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); refreshSourceTaskMarks(); }
+async function loadTasks() { const busy=()=>itemEditing||editorDirty.keys().includes('inline-edit');if(busy())return;await ensureTaskModel();const fresh=await api('/api/items'); if(busy())return;const signature=JSON.stringify(fresh); if(signature===lastTasks) return; lastTasks=signature; itemsData=fresh; renderTasks(); refreshSourceTaskMarks(); }
 // Source identity: every item, proposal and inbox row names where it came from.
-const SOURCES={manual:['Manual',''],meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github'],excerpt:['Excerpt','src-meeting']};
+const SOURCES={manual:['Manual',''],meeting:['Meeting','src-meeting'],gmail:['Gmail','src-gmail'],google_chat:['Chat','src-chat'],github:['GitHub','src-github'],excerpt:['Excerpt','src-meeting'],agentmail:['AgentMail','src-gmail']};
 function originChip(provider,label,open){
  const chip=el(open?'button':'span','source-chip '+(SOURCES[provider]?.[1]||''));chip.append(el('i'),el('b','',SOURCES[provider]?.[0]||provider));
  if(label)chip.append(el('span','',label));
@@ -2025,6 +2039,7 @@ async function openSource(source){
  if(source.remote?.authority==='conversation'){const link=(itemsData.graph?.conversation_links||[]).find(a=>a.source_id===source.id);if(link)return openAttachment(link.id);}
  if(view==='projects'){show('tasks');lastTasks='';await loadTasks();}
  if(source.provider==='gmail'){showWorkTab('gmail');await openMail(source.external_id);}
+ else if(source.provider==='agentmail'){showWorkTab('agentmail');await loadAgentMail();await openAgentMail(source.external_id,source.account,source);}
  else if(source.provider==='google_chat'){chatSpace=source.external_id.split('/messages/')[0];chatMessage=source.external_id;showWorkTab('chat');}
  else if(source.provider==='github'&&source.remote?.authority==='github_code'){
   showWorkTab('github');showGitHubSection('reports');
@@ -2032,6 +2047,68 @@ async function openSource(source){
  }
  else if(source.provider==='github'){showWorkTab('github');showGitHubSection('items');await openGitHubItem(Number(source.external_id.split(':')[1]));}
 }
+
+let agentMailInbox='', agentMailRows=[], agentMailId='';
+async function loadAgentMail(refresh=false){
+ const request=readers.start('agentmail-list'),status=await api('/api/agentmail');
+ if(!readers.current(request))return;
+ if(status.inbox!==agentMailInbox){agentMailInbox=status.inbox;agentMailRows=[];agentMailId='';$('agentmail-detail').replaceChildren();}
+ const connected=!!agentMailInbox;
+ $('agentmail-status').textContent=connected?agentMailInbox:'Connect your test inbox';
+ $('agentmail-connect').hidden=connected;
+ for(const id of ['agentmail-refresh','agentmail-disconnect','agentmail-content'])$(id).hidden=!connected;
+ if(!connected)return;
+ if(refresh||!agentMailRows.length){
+  const response=await api('/api/agentmail/messages');
+  if(!readers.current(request)||response.inbox!==agentMailInbox)return;
+  agentMailRows=response.messages;
+ }
+ renderAgentMailList();
+}
+function renderAgentMailList(){
+ const list=$('agentmail-list');
+ list.replaceChildren(...agentMailRows.map(row=>sourceRow(row.id===agentMailId,
+  [el('strong','row-title',row.subject),el('span','hint',row.sender)],()=>openAgentMail(row.id,agentMailInbox))));
+ if(!agentMailRows.length)emptyState(list,'No incoming messages in this inbox.');
+}
+async function openAgentMail(id,inbox,saved=null){
+ const request=readers.start('agentmail-message'),box=$('agentmail-detail');
+ let row;
+ try{row=await api('/api/agentmail/message?'+new URLSearchParams({id,inbox}));}
+ catch(error){
+  if(!readers.current(request))return;
+  if(!saved)throw error;
+  const revision=(itemsData.graph?.source_revisions||[]).find(value=>value.id===saved.current_revision);
+  $('agentmail-content').hidden=false;
+  box.replaceChildren(el('h3','','Saved AgentMail evidence'),el('p','hint','The live message is unavailable.'),el('pre','message-text',revision?.text||''));
+  return;
+ }
+ if(!readers.current(request)||view!=='tasks'||workTab!=='agentmail')return;
+ agentMailId=id;renderAgentMailList();
+ const capture=(button,linkOnly)=>suggestTask(button,{provider:'agentmail',inbox,id,revision:row.revision,link_only:linkOnly});
+ const create=btn('secondary','Create task…'),update=btn('secondary','Add update to task…');
+ create.onclick=()=>perform(()=>capture(create,false));update.onclick=()=>perform(()=>capture(update,true));
+ create.disabled=update.disabled=!row.body;
+ const actions=el('div','action-group');actions.append(create,update);
+ box.replaceChildren(el('h3','',row.subject),el('p','hint',[row.sender,row.timestamp&&dateTime(row.timestamp)].filter(Boolean).join(' · ')),
+  el('pre','message-text',row.body||'No inline text. Attachments are not loaded.'),actions);
+ if(row.truncated)box.append(el('p','hint','The message is longer than the local preview.'));
+}
+$('agentmail-connect').onsubmit=event=>{
+ event.preventDefault();
+ perform(async()=>{
+  const field=$('agentmail-key'),key=field.value;
+  field.value='';
+  await api('/api/agentmail/connect',{inbox:$('agentmail-inbox').value,key});
+  if(view==='tasks'&&workTab==='agentmail')await loadAgentMail(true);
+ });
+};
+$('agentmail-refresh').onclick=()=>perform(()=>loadAgentMail(true));
+$('agentmail-disconnect').onclick=()=>perform(async()=>{
+ if(!(await ask('Disconnect this AgentMail inbox from Atlanta?',{ok:'Disconnect',cancel:'Keep connected'})))return;
+ await api('/api/agentmail/disconnect',{});
+ if(view==='tasks'&&workTab==='agentmail')await loadAgentMail();
+});
 
 let mailView='needs_reply',mailTimer=null,mailAIWasRunning=false,mailThread='',mailThreads=[],mailAutoSyncedAt=0,mailAIStatus={},mailAISeenJob='';
 async function loadMail(){
@@ -2634,7 +2711,7 @@ function renderBulkTasks(){
   bulkPending=body;bulkSaving=false;await sendBulkTasks(body);
   }finally{bulkSaving=false;apply.disabled=false;}
  });
- const mail=btn('secondary','Send by email…');mail.type='button';mail.title='One Gmail draft with all selected tasks. Each task gets the envelope mark.';
+ const mail=btn('secondary','Send by email…');mail.type='button';mail.title='Compose one email for the selected tasks.';
  mail.onclick=()=>perform(()=>openTaskEmail([...taskSelection.keys()]));
  const group=btn('secondary','Add to main task…');group.onclick=()=>perform(()=>openTaskHierarchy({childIds:[...taskSelection.keys()]}));
  box.append(group,action,input,apply,mail,note);
@@ -2669,8 +2746,8 @@ function renderTasks() {
  $('status-filter').replaceChildren(...STATUS_FILTERS[itemKind].map(([key,label])=>{const button=btn(key===filter?'selected':'',label);
   // Open and Overdue carry their counts as a mark next to the label.
   const count=itemKind==='task'?({open:open.length,overdue:late.length})[key]:undefined;if(count!==undefined){button.dataset.count=String(count);button.dataset.filter=key;}button.onclick=()=>{statusFilter[itemKind]=key;if(itemKind==='task'){store('tasks-status',key);taskWorkflow='';store('tasks-workflow','');}renderTasks();};return button;}));
- segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
- const sourceSelect=$('task-source-select');sourceSelect.replaceChildren(...[['','All'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['google_chat','Chat'],['github','GitHub']].map(([value,label])=>option(label,value)));sourceSelect.value=sourceFilter;sourceSelect.onchange=()=>{sourceFilter=sourceSelect.value;store('tasks-source',sourceFilter);renderTasks();};
+ segmentedChoice($('source-filter'),[['','All sources'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['agentmail','AgentMail'],['google_chat','Chat'],['github','GitHub']],sourceFilter,value=>{sourceFilter=value;store('tasks-source',value);renderTasks();});
+ const sourceSelect=$('task-source-select');sourceSelect.replaceChildren(...[['','All'],['manual','Manual'],['meeting','Meetings'],['gmail','Gmail'],['agentmail','AgentMail'],['google_chat','Chat'],['github','GitHub']].map(([value,label])=>option(label,value)));sourceSelect.value=sourceFilter;sourceSelect.onchange=()=>{sourceFilter=sourceSelect.value;store('tasks-source',sourceFilter);renderTasks();};
  $('task-owner').hidden=itemKind!=='task';
  const owner=$('task-owner').value||stored('tasks-owner')||'', owners=[...new Set(tasks.flatMap(taskPeopleNames))].sort((a,b)=>a.localeCompare(b));
  $('task-owner').replaceChildren(option('All',''),...owners.map(name=>option(name,name)),option('No owner','__none__'));
@@ -2717,7 +2794,7 @@ function renderTasks() {
  if(itemKind==='task')rowTarget.append(...renderTaskTree(rows,today,{select:taskSelecting||taskSelection.size>0,showProject:!project.value}));else for(const item of rows)rowTarget.append(decisionRow(item,byId));
 }
 // My Work shows one section at a time. Tasks and Decisions share one panel; each source loads when its tab opens.
-const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel'};
+const WORK_PANELS={task:'items-panel',decision:'items-panel',questions:'questions-panel',review:'review-queue-panel',gmail:'gmail-panel',chat:'chat-panel',github:'github-panel',agentmail:'agentmail-panel'};
 let workTab='task';try{workTab=WORK_PANELS[localStorage.getItem('work-tab')]?localStorage.getItem('work-tab'):'task';}catch{}
 // The Inbox is the Inbox view of the Tasks tab: everything that waits for a decision in one place.
 let inboxOnPurpose=false;
@@ -2725,18 +2802,19 @@ function openTaskInbox(){managerView='inbox';store('manager-view','inbox');workT
 function showWorkTab(tab){
  // Decisions are text in the meeting notes unless AI meeting items are on (2026-11-12); My Work then has no Decisions tab.
  const decisionsTab=$('work-tabs').querySelector('[data-work-tab=decision]');decisionsTab.hidden=!state?.settings?.meeting_task_ai;if(tab==='decision'&&decisionsTab.hidden)tab='task';
- if(tab==='sources')tab=stored('last-source-tab')||'gmail';if(['gmail','chat','github'].includes(tab))store('last-source-tab',tab);
+ if(tab==='sources')tab=stored('last-source-tab')||'gmail';if(['gmail','chat','github','agentmail'].includes(tab))store('last-source-tab',tab);
  if(tab!==workTab)readers.invalidate();workTab=tab;syncRoute(true);try{localStorage.setItem('work-tab',tab);}catch{}
- for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab||button.dataset.workTab==='sources'&&['gmail','chat','github'].includes(tab);button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
- $('source-tabs').hidden=!['gmail','chat','github'].includes(tab);for(const button of $('source-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab;button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
+ for(const button of $('work-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab||button.dataset.workTab==='sources'&&['gmail','chat','github','agentmail'].includes(tab);button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
+ $('source-tabs').hidden=!['gmail','chat','github','agentmail'].includes(tab);for(const button of $('source-tabs').querySelectorAll('button')){const current=button.dataset.workTab===tab;button.classList.toggle('selected',current);button.setAttribute('aria-selected',String(current));}
  for(const id of new Set(Object.values(WORK_PANELS)))$(id).hidden=id!==WORK_PANELS[tab];
  for(const timer of [mailTimer,chatTimer,ghTimer,repoTimer])if(timer)clearTimeout(timer);mailTimer=chatTimer=ghTimer=repoTimer=null;
  if(tab==='task'||tab==='decision'){itemKind=tab;renderTasks();}
  else if(tab==='review')perform(loadReviewQueue);
+ else if(tab==='agentmail')perform(loadAgentMail);
  else if(tab==='gmail')perform(loadMail);else if(tab==='chat')perform(loadChat);else if(tab==='github')perform(async()=>{await loadGitHub();showGitHubSection(ghSection);});
  // The subtitle describes the tab that is shown; Tasks and Decisions set their own counts.
  const summaries={questions:()=>AtlantaUX.count((itemsData?.items||[]).filter(i=>i.kind==='question'&&i.status!=='answered').length,'open tracked question')+((itemsData?.meeting_questions||[]).length?' · '+(itemsData.meeting_questions.length)+' from notes':''),
-  review:()=>'Meetings that still wait for your review',gmail:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',chat:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',github:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub'};
+  review:()=>'Meetings that still wait for your review',agentmail:()=>'Incoming mail for Atlanta',gmail:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',chat:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub',github:()=>'Read-only sources on this Mac: Gmail, Chat and GitHub'};
  if(summaries[tab])$('tasks-summary').textContent=summaries[tab]();
 }
 for(const button of document.querySelectorAll('#work-tabs button,#source-tabs button')) button.onclick=()=>showWorkTab(button.dataset.workTab);
@@ -4482,7 +4560,9 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const withMeeting=!source||source.provider==='manual';if(withMeeting)grid.append(label('Meeting',meeting));
  const note=el('p','notice');note.setAttribute('role','alert');note.hidden=true;
  const status=el('p','hint');status.setAttribute('role','status');
- let preview=sourcePreview||null,link=null;
+ let preview=sourcePreview||null,link=null,updateText=null,updateField=null;
+ const agentMailSource=source?.provider==='agentmail';
+ if(agentMailSource){draft.hidden=true;improve.hidden=true;}
  const parts=[];
  if(source){
   parts.push(el('p','hint',preview.ai_available===false?preview.ai_unavailable_reason:'AI: '+preview.target.local_ai_model+' · '+preview.target.local_ai_base_url+' · '+preview.characters+' source characters'));
@@ -4491,11 +4571,18 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  parts.push(label('Title',text),label('Description',details),label('Expected result',criterion));
  if(source){
   link=el('select');link.setAttribute('aria-label','Create or link');
-  link.append(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));
+  link.append(option(source.link_only?'Choose an existing task…':'Create a new task',source.link_only?'__choose__':''),...itemsData.items.filter(i=>i.kind==='task'&&i.acceptance_state!=='proposed'&&(!agentMailSource||!i.dismissed)&&i.id!==source.proposal_item_id).map(i=>option(i.text,i.id)));
   link.value=source.capture_target&&itemsData.items.some(i=>i.id===source.capture_target&&i.acceptance_state!=='proposed')?source.capture_target:source.link_only?'__choose__':'';
   link.onchange=()=>{editorDirty.set('task-draft',true);controls();};
-  parts.push(label('Create or link',link),el('p','hint','Link adds this evidence to an existing task; its wording, owner and state stay unchanged.'));
-  status.textContent='Review the source, generate a draft or write it yourself.';
+  parts.push(label('Create or link',link),el('p','hint',agentMailSource?'Save the reply as a progress update with its source.':'Link adds this evidence to an existing task; its wording, owner and state stay unchanged.'));
+  if(agentMailSource){
+   updateText=el('textarea');updateText.maxLength=5000;updateText.rows=3;
+   updateText.placeholder='Summarize the reply or keep its wording';
+   updateText.value=(preview.suggested_details||'').slice(0,5000);
+   updateText.oninput=()=>{editorDirty.set('task-draft',true);controls();};
+   updateField=label('Progress update',updateText);parts.push(updateField);
+  }
+  status.textContent=agentMailSource?'Review the email before saving.':'Review the source, generate a draft or write it yourself.';
   if(preview.ai_available===false){note.textContent=preview.ai_unavailable_reason;note.hidden=false;}
  }
  parts.push(status,note);box.append(taskFormLayout(parts,[grid]),actions);
@@ -4503,13 +4590,14 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
  const dirtyKey=source?'task-draft':'dialog:manual-task-dialog',requestId=crypto.randomUUID().replaceAll('-','');
  const linking=()=>!!(link&&link.value);
  function controls(){
-  save.textContent=linking()?'Link evidence':'Create task';
-  save.disabled=saving||generating||link?.value==='__choose__'||(!linking()&&!text.value.trim());
+  save.textContent=linking()?(agentMailSource?'Save update':'Link evidence'):'Create task';
+  if(updateField){updateField.hidden=!linking()||link.value==='__choose__';updateText.disabled=saving;}
+  save.disabled=saving||generating||link?.value==='__choose__'||(!linking()&&!text.value.trim())||(agentMailSource&&linking()&&!updateText.value.trim());
   text.disabled=details.disabled=criterion.disabled=owner.disabled=priority.disabled=due.disabled=linking()||saving||generating;
   meeting.disabled=mention!==null||questionSource!==null||decisionSource!==null||!!question?.origin||linking()||saving||generating;project.disabled=saving||linking()||generating;
   if(link)link.disabled=saving||generating;
   draft.disabled=linking()||saving||generating||!!(source&&preview?.ai_available===false);
-  improve.disabled=linking()||saving||generating;cancel.disabled=saving;
+  improve.disabled=linking()||saving||generating||agentMailSource;cancel.disabled=saving;
  }
  text.oninput=()=>{text.setCustomValidity('');editorDirty.set(dirtyKey,true);controls();};
  details.oninput=criterion.oninput=()=>editorDirty.set(dirtyKey,true);owner.oninput=priority.onchange=due.onchange=()=>editorDirty.set(dirtyKey,true);
@@ -4551,11 +4639,15 @@ async function openManualTask(meetingId=null,{text:startText='',details:startDet
    try{
     const payload={...source,preview_token:preview.preview_token,operation_id:requestId,title:text.value.trim()||'Link source evidence',details:details.value,completion_criteria:criterion.value,priority:priority.value,owner:ownerName()||null,due_date:due.value||null,target_id:link.value||null,target_revision:itemsData.items.find(i=>i.id===link.value)?.revision,project_ids:project.value?[project.value]:[]};
     if(source.provider==='manual')payload.capture_meeting_id=meeting.value||null;
+    if(agentMailSource&&linking()){
+     payload.title=('AgentMail update: '+(preview.source_label||'Email')).slice(0,1000);
+     payload.link_update=updateText.value.trim();
+    }
     if(submitted&&JSON.stringify(submitted)!==JSON.stringify(payload))throw new Error('Previous result uncertain. Retry unchanged or check My Work.');submitted=payload;
     const created=await api('/api/task-draft/create',payload);
     createdTaskId=created.item_id;editorDirty.clear(dirtyKey);await stop();dialog.close();
     if(taskEvidenceTarget){taskEvidenceTarget=null;renderTaskEvidenceContext();}
-    showCreatedTask(created.item_id,linking());
+    if(agentMailSource&&linking())toast('Task update saved');else showCreatedTask(created.item_id,linking());
     try{await refreshAfterItemChange();revealTask(created.item_id);}catch(e){error('Task created. The list could not refresh. Use Open task or Refresh; do not create it again.');}
    }catch(e){if(e.status>=400&&e.status<500)submitted=null;showError(note,e.message);}
    finally{saving=false;controls();}
@@ -4896,20 +4988,21 @@ function emailMark(item){
  mark.title='Email draft saved in Gmail · '+dateTime(draft.saved_at)+(count?' · to '+draft.to.join(', '):'');
  mark.setAttribute('aria-label',mark.title);mark.append(icon('mail'));return mark;
 }
-let taskEmailItems=[],taskEmailMeeting=null;
+let taskEmailItems=[],taskEmailMeeting=null,taskEmailAgentInbox='';
 function taskEmailStatus(text,warning=false){const box=$('task-email-status');box.textContent=text||'';box.hidden=!text;box.classList.toggle('warning',warning);}
 function taskEmailRecipients(){const chosen=[...$('task-email-people').querySelectorAll('input:checked')].map(input=>input.value);
  const extra=$('task-email-extra').value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean);return [...new Set([...chosen,...extra].map(v=>v.toLowerCase()))];}
 function renderTaskEmailChoices(data){
  const list=$('task-email-selected'),apply=$('task-email-apply-selection'),save=$('task-email-save'),selected=new Set(data.tasks.map(t=>t.id)),initial=new Set(selected);
- list.replaceChildren();apply.hidden=true;save.disabled=false;
+ const send=$('task-email-agentmail-send');
+ list.replaceChildren();apply.hidden=true;save.disabled=false;send.disabled=false;
  const originalSubject=data.subject,originalBody=data.body,checks=[];
  const available=data.available_tasks||data.tasks,roots=available.filter(t=>!t.parent_task_id||!available.some(p=>p.id===t.parent_task_id)),ordered=roots.flatMap(t=>[t,...available.filter(c=>c.parent_task_id===t.id)]);
  const changed=()=>selected.size!==initial.size||[...selected].some(id=>!initial.has(id));
  for(const task of ordered){const label=el('label','checkbox email-task-choice'+(task.parent_task_id?' email-task-child':'')),check=el('input');check.type='checkbox';check.checked=selected.has(task.id);check.value=task.id;
-  check.onchange=()=>{if(check.checked){if(selected.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}selected.add(task.id);}else selected.delete(task.id);apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=changed();$('task-email-copy').disabled=changed();};
+  check.onchange=()=>{if(check.checked){if(selected.size>=100){check.checked=false;toast('Select up to 100 tasks');return;}selected.add(task.id);}else selected.delete(task.id);apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=send.disabled=changed();$('task-email-copy').disabled=changed();};
   label.append(check,el('span','',(task.parent_task_id?'↳ ':'')+task.text));list.append(label);checks.push(check);}
- if(ordered.length>1){const all=btn('quiet small-action','Select / clear all tasks');all.onclick=()=>{const clear=checks.every(check=>check.checked);selected.clear();checks.forEach((check,index)=>{check.checked=!clear&&index<100;if(check.checked)selected.add(check.value);});apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=changed();$('task-email-copy').disabled=changed();};list.prepend(all);}
+ if(ordered.length>1){const all=btn('quiet small-action','Select / clear all tasks');all.onclick=()=>{const clear=checks.every(check=>check.checked);selected.clear();checks.forEach((check,index)=>{check.checked=!clear&&index<100;if(check.checked)selected.add(check.value);});apply.hidden=!changed();apply.disabled=!selected.size;save.disabled=send.disabled=changed();$('task-email-copy').disabled=changed();};list.prepend(all);}
  apply.onclick=()=>perform(()=>withDialogAction($('task-email-dialog'),async()=>{
   if(!selected.size)return;
   if(($('task-email-body').value!==originalBody||$('task-email-subject').value!==originalSubject)&&!(await ask('Rebuild the letter for this selection? Your edits to the subject and text will be replaced.',{ok:'Rebuild letter',cancel:'Keep editing'})))return;
@@ -4934,11 +5027,16 @@ function renderTaskEmail(data){
  $('task-email-title').textContent=data.tasks.length>1?'Send '+data.tasks.length+' tasks in one email':'Send the task by email';
  const drafts=data.gmail.drafts;$('task-email-connect').hidden=drafts;$('task-email-save').hidden=!drafts;
  $('task-email-save').textContent=data.draft?'Update Gmail draft':'Save Gmail draft';
- taskEmailStatus(drafts?(data.draft?(data.tasks.length>1?'These tasks already share':'This task already has')+' a Gmail draft from '+dateTime(data.draft.saved_at)+'. Saving updates it. If you sent it, saving makes a new draft.':''):'Gmail drafts need one more Google permission: compose drafts. Atlanta never sends email.');
+ const sender=$('task-email-agentmail-from');
+ sender.textContent='Atlanta sender: '+taskEmailAgentInbox;sender.hidden=!taskEmailAgentInbox;
+ $('task-email-agentmail-send').hidden=!taskEmailAgentInbox;
+ taskEmailStatus(drafts?(data.draft?(data.tasks.length>1?'These tasks already share':'This task already has')+' a Gmail draft from '+dateTime(data.draft.saved_at)+'. Saving updates it. If you sent it, saving makes a new draft.':''):'Gmail drafts require the Google permission to compose drafts.');
  $('task-email-result').hidden=true;$('task-email-auth-link').hidden=true;
 }
 async function openTaskEmail(ids,meetingId=null){
- ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;const data=await api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId});taskEmailItems=ids;taskEmailMeeting=meetingId;
+ ids=Array.isArray(ids)?ids:[ids];if(!(await leaveEdits()))return;
+ const [data,agentmail]=await Promise.all([api('/api/task-email/prepare',{item_ids:ids,meeting_id:meetingId}),api('/api/agentmail').catch(()=>null)]);
+ taskEmailItems=ids;taskEmailMeeting=meetingId;taskEmailAgentInbox=agentmail?.inbox||'';
  renderTaskEmail(data);editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').showModal();$('task-email-subject').focus();
 }
 function renderTaskEmailPreview(){
@@ -4959,6 +5057,14 @@ $('task-email-close').onclick=()=>$('task-email-dialog').close();
 $('task-email-copy').onclick=()=>perform(async()=>{await copyText($('task-email-subject').value+'\n\n'+$('task-email-body').value);toast('Copied the subject and text');});
 $('task-email-connect').onclick=()=>perform(async()=>{const result=await api('/api/calendar/connect',{capability:'gmail_compose'});$('task-email-auth-link').href=result.authorization_url;$('task-email-auth-link').hidden=false;
  taskEmailStatus('Approve Gmail drafts in your browser. Then close this window and choose Send by email again; your text here is not kept.');});
+$('task-email-agentmail-send').onclick=()=>perform(()=>withDialogAction($('task-email-dialog'),async()=>{
+ const to=taskEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');
+ const letter={item_ids:taskEmailItems,inbox:taskEmailAgentInbox,to,subject:$('task-email-subject').value,body:$('task-email-body').value};
+ if(!(await ask('Send from '+letter.inbox+' to '+to.join(', ')+'?\n\n'+letter.subject,{ok:'Send email',cancel:'Keep editing'})))return;
+ const result=await api('/api/task-email/send-agentmail',letter);
+ editorDirty.clear('dialog:task-email-dialog');$('task-email-dialog').close();
+ toast('AgentMail accepted the email for '+result.to.join(', '));
+}));
 $('task-email-save').onclick=()=>perform(async()=>{
  const to=taskEmailRecipients();if(!to.length)throw new Error('Choose at least one recipient');
  const button=$('task-email-save');button.disabled=true;

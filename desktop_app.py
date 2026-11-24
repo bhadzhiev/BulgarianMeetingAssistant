@@ -238,6 +238,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.service.chat.detail(parse_qs(url.query).get('name',[''])[0]))
         if url.path == '/api/jobs':
             return self.respond(200, self.server.service.jobs.listing())
+        if url.path == '/api/agentmail':
+            return self.respond(200, self.server.service.agentmail.status())
+        if url.path == '/api/agentmail/messages':
+            return self.respond(200, self.server.service.agentmail.listing())
+        if url.path == '/api/agentmail/message':
+            return self.respond(200, self.server.service.agentmail.detail(
+                callback_params.get('id', [''])[0], callback_params.get('inbox', [''])[0]))
         if url.path == '/api/gmail/ai':
             return self.respond(200, self.server.service.gmail_ai.status())
         if url.path == '/api/gmail':
@@ -490,6 +497,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.gmail.start()
             elif path == '/api/gmail/cancel':
                 result = service.gmail.stop()
+            elif path == '/api/agentmail/connect':
+                result = service.agentmail.connect(body)
+            elif path == '/api/agentmail/disconnect':
+                result = service.agentmail.disconnect()
             elif path == '/api/gmail/ai/preview':
                 result = service.gmail_ai.preview(body['id'],body['revision'],body['message_id'])
             elif path == '/api/gmail/ai/start':

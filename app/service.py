@@ -174,6 +174,8 @@ class MeetingService:
         self._sync_all_items()
         self.gmail = GmailSync(root, self.google, lambda: self.closed.is_set() or bool(self.active or self.busy), self._refresh_gmail_source)
         self.gmail_ai = GmailAI(self)
+        from .agentmail import AgentMail
+        self.agentmail = AgentMail()
         self.chat = ChatSync(root,self.google,lambda:self.closed.is_set() or bool(self.active or self.busy),
                              self._refresh_chat_message,self._chat_unavailable)
         self.github = GitHubSync(root,GitHubConnection(root),lambda:self.closed.is_set() or bool(self.active or self.busy),

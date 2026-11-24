@@ -128,7 +128,7 @@
   <section id="tasks" hidden>
     <div class="heading"><h1>My Work</h1><p id="tasks-summary" class="subheading">Your tasks and decisions from every meeting and source.</p><button id="new-task" type="button" class="primary">＋ New task</button><button id="task-titles-open" type="button" class="secondary" hidden>Add titles</button></div>
     <div class="work-tabs-row"><div id="work-tabs" class="tabs work-tabs" role="tablist" aria-label="My Work sections"><button type="button" role="tab" data-work-tab="task" data-kind="task">Tasks</button><button type="button" role="tab" data-work-tab="decision" data-kind="decision">Decisions</button><button type="button" role="tab" data-work-tab="questions">Questions</button><button type="button" role="tab" data-work-tab="review">Meetings to review <span id="review-queue-count" class="count-badge review" hidden></span></button><button type="button" role="tab" data-work-tab="sources">Sources</button></div><div id="work-tools" class="work-tools"></div></div>
-    <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button></div>
+    <div id="source-tabs" class="tabs source-tabs" role="tablist" aria-label="Sources" hidden><button type="button" role="tab" data-work-tab="gmail"><i class="tab-dot src-gmail"></i>Gmail</button><button type="button" role="tab" data-work-tab="chat"><i class="tab-dot src-chat"></i>Chat</button><button type="button" role="tab" data-work-tab="github"><i class="tab-dot src-github"></i>GitHub</button><button type="button" role="tab" data-work-tab="agentmail"><i class="tab-dot src-gmail"></i>AgentMail</button></div>
     <div class="card work-panel" id="items-panel" role="tabpanel">
       <div class="work-content">
         <div id="self-prompt" class="self-prompt-slot" hidden></div><div class="work-filter-row"><div id="manager-controls" class="manager-controls"></div><div id="status-filter" class="segmented" role="group" aria-label="Filter by status"></div></div>
@@ -147,6 +147,24 @@
     </div>
     <div class="card work-panel" id="questions-panel" role="tabpanel" hidden>
       <div class="work-content"><div class="work-actions"><button type="button" class="secondary" id="new-work-question">＋ New question</button></div><div id="work-questions"></div></div>
+    </div>
+    <div class="card work-panel source-panel" id="agentmail-panel" role="tabpanel" hidden>
+      <div class="source-bar"><div class="source-id"><strong>AgentMail</strong>
+        <span id="agentmail-status" class="source-status" role="status"></span></div>
+        <div class="action-group"><button type="button" class="secondary" id="agentmail-refresh" hidden>Refresh inbox</button>
+        <button type="button" class="quiet" id="agentmail-disconnect" hidden>Disconnect</button></div>
+      </div>
+      <form id="agentmail-connect" class="work-content" hidden>
+        <div class="action-group">
+          <label>Test inbox <input id="agentmail-inbox" type="email" placeholder="atlanta@agentmail.to" required></label>
+          <label>Read-only API key <input id="agentmail-key" type="password" autocomplete="off" required></label>
+          <button type="submit" class="primary">Connect inbox</button>
+        </div>
+      </form>
+      <div class="source-work" id="agentmail-content" hidden>
+        <div id="agentmail-list" class="source-list" role="listbox" aria-label="AgentMail messages"></div>
+        <div id="agentmail-detail" class="reader" aria-live="polite"></div>
+      </div>
     </div>
     <div class="card work-panel source-panel" id="gmail-panel" role="tabpanel" hidden>
       <div class="source-bar">

@@ -88,8 +88,10 @@ def recipients(service, tasks):
     for item in tasks:
         owner = _owner(service, item)
         involved.update(pid for pid in [owner and owner.get('id'), *(item.get('assignee_person_ids') or [])] if pid)
-    rows = [dict(person_id=p['id'], name=p['name'], email=email, involved=p['id'] in involved)
-            for p in service.people.list() for email in p.get('emails') or []]
+    # One address per person is suggested: the first one in People. A second address stays a choice (2026-11-25).
+    rows = [dict(person_id=p['id'], name=p['name'], email=email, involved=p['id'] in involved,
+                 suggested=p['id'] in involved and index == 0)
+            for p in service.people.list() for index, email in enumerate(p.get('emails') or [])]
     return sorted(rows, key=lambda r: (not r['involved'], r['name'].casefold(), r['email']))
 
 

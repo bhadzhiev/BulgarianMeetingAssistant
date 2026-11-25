@@ -36,7 +36,15 @@ class TaskEmailTests(unittest.TestCase):
         self.assertIn('Отговорник: Maria', data['body'])
         self.assertIn('Срок: 12.11.2026', data['body'])
         self.assertEqual([r['email'] for r in data['recipients'] if r['involved']], ['maria@example.test'])
+        self.assertEqual([r['email'] for r in data['recipients'] if r['suggested']], ['maria@example.test'])
         self.assertIsNone(data['draft'])
+
+    def test_a_person_with_two_addresses_gets_one_suggested_address(self):
+        maria = next(p for p in self.s.people.list() if p['name'] == 'Maria')
+        self.s.save_person(dict(maria, emails=['maria@example.test', 'maria.home@example.test']))
+        data = task_email.prepare(self.s, dict(item_id=self.first['id']))
+        self.assertEqual([(r['email'], r['involved'], r['suggested']) for r in data['recipients'] if r['person_id'] == maria['id']],
+                         [('maria.home@example.test', True, False), ('maria@example.test', True, True)])
         self.assertTrue(data['body'].endswith('—\nГенерирано от Atlanta'))
 
     def test_saving_marks_the_task_and_adds_history(self):

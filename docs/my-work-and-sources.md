@@ -267,6 +267,12 @@ It selects the open overdue tasks on the list (up to 100) and opens **Set due da
 dates **Tomorrow**, **Next Monday**, **In a week** and **In two weeks** fill the date. Apply still
 asks for confirmation and saves only on this Mac.
 
+After Select overdue, three next steps show above the bulk tools (2026-11-25):
+**Log progress** adds the same progress note to each task's history. **Waiting for a reply**
+sets the state to Waiting and the date of the next check. **Agree a new due date** moves the
+due date. History keeps the old due date. The same choices are in the bulk field list as
+**Add progress note** and **Waiting → next check**.
+
 ### Person-centred 1:1 review history
 
 Select a name in Team to see that person’s review history, open agreements and the next conversation. Reviews also has a person picker; the all-reviews list is a secondary archive. See [Person review history](person-review-history.md) for conversation dates, checked results, selected private context and safe fact refresh.

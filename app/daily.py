@@ -4,7 +4,7 @@ import datetime as dt
 import re
 import uuid
 
-from . import meeting_types
+from . import items, meeting_types
 from .live import read_json
 from .prompts import digest
 from .storage import atomic_json
@@ -273,6 +273,13 @@ def after(service, meeting, directory):
             if row['field'] == 'tasks' and item and item.get('acceptance_state') == 'accepted' and state['state'] == 'pending':
                 state.update(state='applied', task_id=item['id'])
             row.update(state)
+        # An update or blocker that names an open task leads the review, and the form preselects that task.
+        # Other status lines wait under Context (2026-11-25).
+        for row in rows:
+            if row['field'] in {'updates', 'blockers'} and row['state'] == 'pending' and tasks:
+                score, task_id = max((items.similarity(row['text'], task['text']), task['id']) for task in tasks)
+                if score >= items.MATCH:
+                    row['task_match'] = task_id
         current = {row['key'] for row in rows}
         for key, state in states.items():
             help = state.get('help')

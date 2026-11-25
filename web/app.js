@@ -3152,7 +3152,7 @@ function renderDailyAfter(meeting,busy){
    const exact=daily.tasks.filter(task=>task.text.trim().toLocaleLowerCase()===row.text.trim().toLocaleLowerCase());
    if(exact.length===1)target.value=exact[0].id;
    workflow.append(option('Keep current state',''),...Object.entries(AtlantaTasks.STATES).filter(([key])=>key!=='cancelled').map(([id,label])=>option(label,id)));
-   due.type=check.type='date';if(row.due_date)due.value=row.due_date;
+   due.type=check.type='date';if(row.due_date)due.value=row.due_date;if(!target.value&&daily.tasks.some(task=>task.id===row.task_match))target.value=row.task_match;
    const field=(label,input)=>{const wrapper=el('label','filter-field',label);wrapper.append(input);return wrapper;};
    const save=btn('primary small-action','Apply to task');save.type='submit';
    form.append(field('Task',target),field('State',workflow),field('New due date (optional)',due),field('Next check (optional)',check),save);
@@ -3168,7 +3168,16 @@ function renderDailyAfter(meeting,busy){
   }
   return card;
  };
- for(const row of pending)box.append(draw(row));
+ // Rows that ask for an action come first: commitments, blockers, decisions and updates that name an open task.
+ // Other status lines wait under Context, with one Mark all reviewed (2026-11-25).
+ const acts=row=>['tasks','blockers','needs_decision','decisions'].includes(row.field)||!!row.task_match;
+ const first=pending.filter(acts),context=pending.filter(row=>!acts(row));
+ for(const row of first)box.append(draw(row));
+ if(context.length){
+  const more=el('details','daily-context');more.open=!first.length;
+  const all=actionBtn('quiet small-action','Mark all reviewed',async()=>{for(const row of context)await api('/api/daily/'+meeting.id+'/review',{revision:daily.revision,key:row.key,action:'confirm'});lastTasks='';await reload();});all.disabled=busy;
+  more.append(el('summary','','Status and context · '+context.length),el('p','hint','Status lines and questions without a matching open task.'),all,...context.map(draw));box.append(more);
+ }
  if(reviewed.length){const archive=el('details','daily-reviewed');archive.append(el('summary','','Reviewed · '+reviewed.length),...reviewed.map(draw));box.append(archive);}
 }
 function renderManagerAttention(data){

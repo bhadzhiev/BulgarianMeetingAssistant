@@ -104,6 +104,13 @@ class DailyCycleTests(unittest.TestCase):
         self.assertEqual((row['state'], row['help']['state']), ('pending', 'promise'))
         self.assertEqual(len(manager_attention.build(self.service, '')['groups']['help']), 1)
 
+    def test_an_update_that_names_an_open_task_is_matched_to_it(self):
+        meeting = self.meeting(updates=[dict(text='Access to Q01 is checked.', evidence_timestamp='00:00:00'),
+                                        dict(text='Yesterday went to the office party.', evidence_timestamp='00:00:00')])
+        rows = {row['text']: row for row in self.service.detail(meeting)['daily_review']['rows']}
+        self.assertEqual(rows['Access to Q01 is checked.'].get('task_match'), self.task['id'])
+        self.assertNotIn('task_match', rows['Yesterday went to the office party.'])
+
     def test_stale_source_and_stale_task_are_rejected(self):
         meeting = self.meeting(updates=[dict(text='Access granted', evidence_timestamp='00:00:00')])
         after = self.service.detail(meeting)['daily_review']

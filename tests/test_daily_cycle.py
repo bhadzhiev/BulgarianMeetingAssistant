@@ -127,6 +127,27 @@ class DailyCycleTests(unittest.TestCase):
         self.service.update_item(task['id'], task['text'], dict(workflow_state='done'), task['revision'])
         self.assertEqual(manager_attention.build(self.service, manager['id'])['groups']['checks'], [])
 
+    def test_a_shared_daily_without_a_project_updates_tasks_across_projects_and_reaches_needs_me(self):
+        other = self.service.create_project('Applications')['id']
+        second = self.service.create_task(dict(text='Renew the certificate', project_id=other, request_id='b' * 32))
+        loose = self.service.create_task(dict(text='Order cables', request_id='c' * 32))
+        archived = self.service.create_project('Old')['id']
+        hidden = self.service.create_task(dict(text='Old work', project_id=archived, request_id='d' * 32))
+        self.service.change_scope('projects', archived, 'archive')
+        meeting = self.meeting(updates=[dict(text='The certificate is renewed.', evidence_timestamp='00:00:00')],
+                               needs_decision=[dict(text='Do we buy a new UPS?', evidence_timestamp='00:00:00')])
+        self.service.library.update(meeting, project_id=None, series_id=None)
+        view = self.service.detail(meeting)['daily_review']
+        offered = {task['id']: task['project'] for task in view['tasks']}
+        self.assertEqual(offered, {self.task['id']: 'Infrastructure', second['id']: 'Applications', loose['id']: ''})
+        self.assertNotIn(hidden['id'], offered)
+        row = next(row for row in view['rows'] if row['field'] == 'updates')
+        daily.review(self.service, meeting, dict(revision=view['revision'], key=row['key'], action='update', task_id=second['id'],
+                                                 task_revision=second['revision'], changes=dict(workflow_state='done')))
+        self.assertEqual(self.service.items.items[second['id']]['workflow_state'], 'done')
+        decisions = manager_attention.build(self.service, '')['groups']['decisions']
+        self.assertEqual([(row['text'], row['project']) for row in decisions], [('Do we buy a new UPS?', 'Daily')])
+
     def test_decision_is_checked_in_notes_and_handled_questions_leave_attention(self):
         meeting = self.meeting(decisions=[dict(text='Keep staging', evidence_timestamp='00:00:00')],
                                needs_decision=[dict(text='Approve another check?', evidence_timestamp='00:00:00')])

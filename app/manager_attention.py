@@ -18,18 +18,21 @@ def build(service, person_id):
         meetings = sorted(service.library.list(), key=lambda row: row.get('started_at') or row['created'], reverse=True)
         for meeting in meetings:
             project = meeting.get('project_id')
-            if project not in active or meeting_types.of(meeting)['id'] != 'daily':
+            # A shared daily without a project counts too: its decisions and promises reach Needs me (2026-11-25).
+            if (project and project not in active) or meeting_types.of(meeting)['id'] != 'daily':
                 continue
-            key = meeting.get('series_id') or project
+            key = meeting.get('series_id') or project or ''
+            label = active[project] if project else meeting['title']
             if meeting['id'] == service.active or meeting['id'] in service.busy:
                 continue
-            latest.setdefault(key, dict(project_id=project, series_id=meeting.get('series_id'), id=meeting['id'], title=meeting['title']))
+            if project:
+                latest.setdefault(key, dict(project_id=project, series_id=meeting.get('series_id'), id=meeting['id'], title=meeting['title']))
             directory = service.library.directory(meeting['id'])
             saved = read_receipts(directory)
             for state in saved.values():
                 help = state.get('help')
                 if help and help['state'] == 'promise' and help.get('text'):
-                    groups['help'].append(dict(text=help['text'], meeting_id=meeting['id'], project=active[project],
+                    groups['help'].append(dict(text=help['text'], meeting_id=meeting['id'], project=label,
                                                task_id=help.get('task_id'), reason='You promised to help at the daily'))
             minutes = service._minutes(meeting['id'])
             if not minutes or meeting.get('notes_need_refresh') or (directory / 'minutes.proposed.json').exists():
@@ -46,7 +49,7 @@ def build(service, person_id):
                     seen_questions.add(identity)
                     question = tracked_question(service.items.items, meeting['id'], minutes['needs_decision'][row['index']])
                     if row['key'] not in resolved and (not question or question['status'] == 'open' and not question.get('dismissed')):
-                        groups['decisions'].append(dict(text=row['text'], meeting_id=meeting['id'], project=active[project],
+                        groups['decisions'].append(dict(text=row['text'], meeting_id=meeting['id'], project=label,
                                                         timestamp=row['timestamp'], reason='Raised for a decision at a daily'))
         series = [dict(id=row['id'], project_id=row['project_id'], name=row['name'], project=active[row['project_id']],
                        latest=latest.get(row['id'])) for row in service.projects.data['series']

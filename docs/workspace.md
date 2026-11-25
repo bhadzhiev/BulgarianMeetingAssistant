@@ -143,7 +143,9 @@ later agenda.
 
 **After the daily** opens with the saved meeting notes. Check the transcript
 moment for each suggestion. Confirm a decision, create a task from a new
-commitment, or apply an update to an existing task in the same project. You
+commitment, or apply an update to an existing task in the same project. A
+shared daily without a project offers the open tasks of every active project,
+grouped by owner. Its decisions and promises to help also reach Needs me. You
 can choose a state, due date and next check while applying the update. Atlanta
 saves the passage with the task history and checks that the notes, transcript
 and task still match your review. Pending regenerated notes must be reviewed

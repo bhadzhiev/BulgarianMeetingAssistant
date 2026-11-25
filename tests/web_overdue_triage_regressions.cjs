@@ -15,7 +15,12 @@ assert.deepEqual(JSON.parse(JSON.stringify(c.quickDates(new Date(2026,10,23,12))
 assert.equal(c.quickDates(new Date(2026,10,29,12))[1][1],'2026-11-30');
 const bulk=slice('function renderBulkTasks(','\n}\n');
 assert.match(bulk,/'Select overdue · '\+late,selectOverdue,'Select the overdue tasks on this list and move their due date'/);
-assert.match(bulk,/if\(action\.value==='due_date'\)for\(const \[label,day\] of quickDates\(\)\)/);
+assert.match(bulk,/if\(\['due_date','waiting'\]\.includes\(action\.value\)\)for\(const \[label,day\] of quickDates\(\)\)/);
+// Next steps (2026-11-25): Log progress, Waiting for a reply with a check date, Agree a new due date.
+assert.match(app,/const OVERDUE_STEPS=\[\['update_note','Log progress'\],\['waiting','Waiting for a reply'\],\['due_date','Agree a new due date'\]\];/);
+assert.match(bulk,/steps\.hidden=!overdueTriage;/);
+assert.match(bulk,/const changes=action\.value==='waiting'\?\{workflow_state:'waiting',follow_up_date:value\.value\}:action\.value==='update_note'\?\{update_note:value\.value\.trim\(\)\}:/);
+c.selectOverdue();assert.equal(vm.runInContext('overdueTriage',c),true);
 assert.match(bulk,/if\(bulkDefault\)\{action\.value=bulkDefault;bulkDefault='';\}/);
 // The change still goes through the confirmed bulk update.
 assert.match(bulk,/await ask\(summary\+' for '\+body\.items\.length\+' selected tasks\?/);

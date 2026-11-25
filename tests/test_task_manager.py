@@ -109,6 +109,20 @@ class TaskManagerTests(unittest.TestCase):
   current=self.s.items.items[self.task['id']]
   self.assertEqual(current['owner'],'Maria');self.assertIn('owner',current['manual']);self.assertEqual(current['follow_up_date'],'2026-11-12')
   with self.assertRaises(ValueError):self.batch(changes=dict(project_ids=[]),request='e'*32)
+ def test_bulk_progress_note_goes_to_each_task_history(self):
+  other=self.s.create_task(dict(request_id='b'*32,text='Second task'))
+  rows=[dict(id=t['id'],revision=t['revision']) for t in [self.task,other]]
+  self.batch(rows,dict(update_note='  Checked at the daily; still in progress  '))
+  for task in (self.task,other):
+   notes=[e['text'] for e in self.s.items.items[task['id']]['history'] if e['event']=='progress_update']
+   self.assertEqual(notes,['Checked at the daily; still in progress'])
+  for empty in ('',' ',None):
+   with self.subTest(empty=empty),self.assertRaises(ValueError):self.batch(changes=dict(update_note=empty),request='f'*32)
+ def test_bulk_waiting_with_a_check_keeps_the_due_date_in_history(self):
+  self.change(due_date='2026-11-01')
+  self.batch(changes=dict(workflow_state='waiting',follow_up_date='2026-11-28'))
+  current=self.s.items.items[self.task['id']]
+  self.assertEqual((current['workflow_state'],current['follow_up_date'],current['due_date']),('waiting','2026-11-28','2026-11-01'))
  def test_bulk_proposed_or_dismissed_items_cannot_be_changed(self):
   self.change(dismissed=True)
   with self.assertRaises(ValueError):self.batch()

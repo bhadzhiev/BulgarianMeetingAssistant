@@ -2677,7 +2677,11 @@ let taskSelecting=false,bulkDefault='';
 // Overdue triage (2026-11-23): most open tasks were overdue and could only be moved one by one. Select overdue picks
 // the overdue tasks on this list and opens Set due date with quick dates; the person still confirms the change.
 function overdueRows(today=AtlantaUX.iso(new Date())){return taskVisibleRows.filter(t=>t.acceptance_state!=='proposed'&&!t.dismissed&&t.status==='open'&&t.workflow_state!=='cancelled'&&t.due_date&&t.due_date<today);}
-function selectOverdue(){taskSelecting=true;taskSelection.clear();for(const item of overdueRows().slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});bulkDefault='due_date';renderTasks();}
+function selectOverdue(){taskSelecting=true;taskSelection.clear();for(const item of overdueRows().slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});bulkDefault='due_date';overdueTriage=true;renderTasks();}
+// An overdue task needs a next step, not only a later date (2026-11-25): log progress, wait for a reply until a
+// check date, or agree a new due date. History keeps the old due date.
+let overdueTriage=false;
+const OVERDUE_STEPS=[['update_note','Log progress'],['waiting','Waiting for a reply'],['due_date','Agree a new due date']];
 function quickDates(now=new Date()){const day=n=>{const d=new Date(now);d.setDate(d.getDate()+n);return AtlantaUX.iso(d);};const monday=((8-now.getDay())%7)||7;return [['Tomorrow',day(1)],['Next Monday',day(monday)],['In a week',day(7)],['In two weeks',day(14)]];}
 function renderBulkTasks(){
  const box=$('task-bulk-bar');box.replaceChildren();box.hidden=itemKind!=='task'||managerView==='inbox'||(!taskVisibleRows.length&&!taskSelection.size&&!bulkPending);if(box.hidden)return;
@@ -2688,33 +2692,37 @@ function renderBulkTasks(){
   if(!taskSelecting){if(taskVisibleRows.length){const line=el('div','task-list-summary');line.append(el('span','',''),el('span','task-list-sort',''));line.firstChild.append('Showing ',el('strong','',AtlantaUX.count(taskVisibleRows.length,'task')));line.lastChild.append('Sorted by: ',el('strong','','Due date (overdue first)'));box.append(line);}return;}
  }
  const count=bulkPending?.items.length||taskSelection.size,choose=el('button','secondary small-action','Select shown tasks'),clear=el('button','secondary small-action','Clear selection');choose.type=clear.type='button';
- choose.onclick=()=>{for(const item of taskVisibleRows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});renderTasks();};clear.onclick=()=>{taskSelection.clear();bulkPending=null;renderTasks();};
+ choose.onclick=()=>{for(const item of taskVisibleRows.filter(i=>i.acceptance_state!=='proposed'&&!i.dismissed).slice(0,100))taskSelection.set(item.id,{id:item.id,revision:item.revision});renderTasks();};clear.onclick=()=>{taskSelection.clear();bulkPending=null;overdueTriage=false;renderTasks();};
  box.append(choose);const late=overdueRows().length;if(late&&!bulkPending)box.append(btn('secondary small-action overdue-select','Select overdue · '+late,selectOverdue));
  box.append(el('strong','',count+' selected'));if(!count)return;box.append(clear);
  if(bulkPending){choose.disabled=true;const retry=actionBtn('secondary','Retry the same update',()=>sendBulkTasks(bulkPending));box.append(el('p','notice','The previous result is uncertain. Retry the exact approved update, or clear the selection and inspect the list.'),retry);return;}
- const action=el('select');action.setAttribute('aria-label','Bulk field');action.append(option('Change state','workflow_state'),option('Change owner','owner_person_id'),option('Set due date','due_date'),option('Set next follow-up','follow_up_date'));
+ const action=el('select');action.setAttribute('aria-label','Bulk field');action.append(option('Change state','workflow_state'),option('Change owner','owner_person_id'),option('Set due date','due_date'),option('Set next follow-up','follow_up_date'),option('Waiting → next check','waiting'),option('Add progress note','update_note'));
  const input=el('span'),apply=el('button','secondary','Apply to '+AtlantaUX.count(count,'selected task')),note=el('span','hint','Only the selected tasks on this list. Saved locally; nothing is sent.');apply.type='button';let value;
  function editor(){input.replaceChildren();if(action.value==='workflow_state'){value=el('select');value.append(...Object.entries(AtlantaTasks.STATES).map(([key,label])=>option(label,key)));}
  else if(action.value==='owner_person_id'){value=el('select');value.append(option('No owner',''),...personOptions());}
+ else if(action.value==='update_note'){value=el('input');value.type='text';value.maxLength=5000;value.placeholder='What changed?';}
  else{value=el('input');value.type='date';}value.setAttribute('aria-label','Bulk value');input.append(value);
-  if(action.value==='due_date')for(const [label,day] of quickDates()){const quick=btn('quiet small-action quick-date',label,()=>{value.value=day;},date(day));input.append(quick);}}
+  if(['due_date','waiting'].includes(action.value))for(const [label,day] of quickDates()){const quick=btn('quiet small-action quick-date',label,()=>{value.value=day;},date(day));input.append(quick);}}
  if(bulkDefault){action.value=bulkDefault;bulkDefault='';}
- action.onchange=editor;editor();
+ action.onchange=()=>{editor();steps.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.step===action.value)));};editor();
+ const steps=el('div','overdue-steps');steps.setAttribute('role','group');steps.setAttribute('aria-label','Next step for the overdue tasks');steps.hidden=!overdueTriage;
+ for(const [key,label] of OVERDUE_STEPS){const step=btn('secondary small-action overdue-step',label,()=>{action.value=key;action.onchange();(value.focus||(()=>{})).call(value);});step.dataset.step=key;step.setAttribute('aria-pressed',String(action.value===key));steps.append(step);}
  apply.onclick=()=>perform(async()=>{
   if(bulkSaving||!validDates(box))return;
   bulkSaving=true;apply.disabled=true;try{
-  const changes={[action.value]:value.value||null};if(action.value==='owner_person_id'&&!value.value)changes.owner=null;
+  if(['waiting','update_note'].includes(action.value)&&!value.value.trim())throw new Error(action.value==='waiting'?'Choose the date of the next check':'Write the progress note');
+  const changes=action.value==='waiting'?{workflow_state:'waiting',follow_up_date:value.value}:action.value==='update_note'?{update_note:value.value.trim()}:{[action.value]:value.value||null};if(action.value==='owner_person_id'&&!value.value)changes.owner=null;
   const body={items:[...taskSelection.values()],changes,request_id:bulkPending?.request_id||crypto.randomUUID().replaceAll('-','')};
   if(bulkPending&&JSON.stringify({...body,request_id:''})!==JSON.stringify({...bulkPending,request_id:''}))throw new Error('Previous result uncertain. Retry the same action, or clear the selection and check the list.');
-  const summary=action.selectedOptions[0].textContent+': '+(value.tagName==='SELECT'?value.selectedOptions[0]?.textContent:value.value?date(value.value):'Clear date');
+  const summary=action.selectedOptions[0].textContent+': '+(value.tagName==='SELECT'?value.selectedOptions[0]?.textContent:action.value==='update_note'?'“'+value.value.trim()+'”':value.value?date(value.value):'Clear date');
   if(!(await ask(summary+' for '+body.items.length+' selected tasks?\n'+taskVisibleRows.filter(t=>taskSelection.has(t.id)).slice(0,6).map(t=>'• '+t.text).join('\n')+(body.items.length>6?'\n…':''),{ok:'Apply to '+body.items.length,cancel:'Cancel',danger:action.value==='workflow_state'&&value.value==='cancelled'})))return;
-  bulkPending=body;bulkSaving=false;await sendBulkTasks(body);
+  bulkPending=body;bulkSaving=false;overdueTriage=false;await sendBulkTasks(body);
   }finally{bulkSaving=false;apply.disabled=false;}
  });
  const mail=btn('secondary','Send by email…');mail.type='button';mail.title='Compose one email for the selected tasks.';
  mail.onclick=()=>perform(()=>openTaskEmail([...taskSelection.keys()]));
  const group=btn('secondary','Add to main task…');group.onclick=()=>perform(()=>openTaskHierarchy({childIds:[...taskSelection.keys()]}));
- box.append(group,action,input,apply,mail,note);
+ box.append(steps,group,action,input,apply,mail,note);
 }
 // Only the Tasks and Decisions tabs show task counts; the other tabs keep their own subtitle.
 function taskSummary(text){if(['task','decision'].includes(workTab))$('tasks-summary').textContent=text;}

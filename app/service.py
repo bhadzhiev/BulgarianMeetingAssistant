@@ -3351,7 +3351,9 @@ class MeetingService:
         """One explicit selection, one revision-checked commit; never writes externally."""
         selected=body.get('items');changes=body.get('changes');operation=body.get('request_id')
         if not isinstance(selected,list) or not 1<=len(selected)<=100:raise ValueError('Select 1–100 tasks')
-        if not isinstance(changes,dict) or not changes or set(changes)-{'owner','owner_person_id','workflow_state','due_date','follow_up_date'}:raise ValueError('Choose owner, state or dates')
+        if not isinstance(changes,dict) or not changes or set(changes)-{'owner','owner_person_id','workflow_state','due_date','follow_up_date','update_note'}:raise ValueError('Choose owner, state or dates')
+        # The same progress note on each selected task, for example after an overdue review (2026-11-25).
+        if 'update_note' in changes and not (isinstance(changes['update_note'],str) and changes['update_note'].strip()):raise ValueError('Write the progress note')
         if not isinstance(operation,str) or not re.fullmatch('[a-f0-9]{32}',operation):raise ValueError('A bulk request ID is required')
         ids=[]
         for row in selected:
@@ -3379,7 +3381,9 @@ class MeetingService:
             try:
                 from .meeting_review import fingerprint, keep_confirmed
                 for key,clean in validated:
+                    note=clean.pop('update_note',None)
                     before=fingerprint(self.items.items[key]);self.items.update(key,clean);keep_confirmed(self.items.items[key],before,clean)
+                    if note:self.items.items[key]['history'].append(dict(at=items.now(),event='progress_update',by='user',meeting_id=None,changes={},text=note))
                 WorkGraph._activity(self.items.data,'tasks_bulk_updated',request_id=operation,payload=payload,item_ids=ids)
                 self.items.save()
             except items.WorkItemConflict:raise

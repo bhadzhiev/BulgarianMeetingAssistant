@@ -231,10 +231,17 @@ def receipt_states(service, directory, meeting_id):
 
 
 def eligible(service, item, project_id, meetings=None):
-    return bool(item and item['kind'] == 'task' and item['status'] == 'open'
-                and item.get('acceptance_state') == 'accepted' and not item.get('dismissed')
-                and item.get('workflow_state') != 'cancelled'
-                and project_id in service.effective_project_ids(item, meetings))
+    """An open task the daily can update. A project daily updates the tasks of its project. A shared daily
+    without a project updates the tasks of every active project and the tasks without one (2026-11-25)."""
+    if not (item and item['kind'] == 'task' and item['status'] == 'open'
+            and item.get('acceptance_state') == 'accepted' and not item.get('dismissed')
+            and item.get('workflow_state') != 'cancelled'):
+        return False
+    projects = service.effective_project_ids(item, meetings)
+    if project_id:
+        return project_id in projects
+    active = {p['id'] for p in service.projects.data['projects'] if not p.get('archived')}
+    return not projects or any(project in active for project in projects)
 
 
 def after(service, meeting, directory):
@@ -251,10 +258,12 @@ def after(service, meeting, directory):
         rows = review_rows(meeting['minutes'], meeting['transcript'])
         states = receipt_states(service, directory, meeting['id'])
         meetings = service._meeting_refs()
+        names = {p['id']: p['name'] for p in service.projects.data['projects']}
         tasks = []
         for item in service.items.items.values():
             if eligible(service, item, meeting.get('project_id'), meetings):
                 tasks.append({key: item.get(key) for key in ('id', 'revision', 'text', 'owner', 'due_date', 'follow_up_date', 'workflow_state')})
+                tasks[-1]['project'] = ', '.join(names[p] for p in service.effective_project_ids(item, meetings) if p in names)
         for row in rows:
             item = service.items.items.get(row['item_id'])
             entry = meeting['minutes'][row['field']][row['index']]

@@ -3124,7 +3124,7 @@ function renderDailyAfter(meeting,busy){
    if(row.field==='tasks')actions.append(actionBtn('secondary small-action','Create task…',()=>openManualTask(meeting.id,{text:row.text,details:row.details||'',owner:row.owner||'',due:row.due_date||'',mention:row.index,minutesRevision:meeting.minutes_revision})));
    if(row.field!=='tasks')actions.append(actionBtn('secondary small-action',row.field==='decisions'?'Confirm decision':'Mark reviewed',()=>review(row,'confirm')));
    actions.append(actionBtn('quiet small-action','Skip',()=>review(row,'skip')));
-   if(row.field!=='decisions'&&row.quote&&daily.tasks.length===0)card.append(el('p','hint','Choose a project with open tasks to apply an update.'));
+   if(row.field!=='decisions'&&row.quote&&daily.tasks.length===0)card.append(el('p','hint','There are no open tasks to update.'));
   }
   // A promise to help is separate from the review of the line: the line can still update a task (2026-11-23).
   if(row.help)actions.append(el('span','hint daily-help',row.help.state==='promise'?'You promised to help':'Help provided'));
@@ -3136,7 +3136,11 @@ function renderDailyAfter(meeting,busy){
   card.append(actions);
   if(row.state==='pending'&&row.field!=='decisions'&&row.quote&&daily.tasks.length){
    const edit=el('details','daily-update'),form=el('form','daily-update-form'),target=el('select'),workflow=el('select'),due=el('input'),check=el('input');
-   target.required=true;target.append(option('Choose a task…',''),...daily.tasks.map(task=>option(task.text+(task.owner?' · '+task.owner:''),task.id)));
+   // A shared daily offers tasks across projects: grouped by owner, the owner of the line first (2026-11-25).
+   target.required=true;target.append(option('Choose a task…',''));
+   const label=task=>task.text+(daily.project_id?'':task.project?' · '+task.project:''),owners=[...new Set(daily.tasks.map(task=>task.owner||''))];
+   if(owners.length<2)target.append(...daily.tasks.map(task=>option(label(task)+(task.owner?' · '+task.owner:''),task.id)));
+   else for(const owner of owners.sort((a,b)=>(b===(row.owner||''))-(a===(row.owner||''))||!a-!b||a.localeCompare(b))){const group=el('optgroup');group.label=owner||'No owner';group.append(...daily.tasks.filter(task=>(task.owner||'')===owner).map(task=>option(label(task),task.id)));target.append(group);}
    const exact=daily.tasks.filter(task=>task.text.trim().toLocaleLowerCase()===row.text.trim().toLocaleLowerCase());
    if(exact.length===1)target.value=exact[0].id;
    workflow.append(option('Keep current state',''),...Object.entries(AtlantaTasks.STATES).filter(([key])=>key!=='cancelled').map(([id,label])=>option(label,id)));

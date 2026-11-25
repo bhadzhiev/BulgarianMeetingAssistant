@@ -5020,10 +5020,17 @@ function renderTaskEmailChoices(data){
 function renderTaskEmail(data){
  const people=$('task-email-people');people.replaceChildren();
  if(!data.recipients.length)people.append(emptyNote('No people with an email address yet.'));
- const before=new Set(data.draft?.to||[]);
- for(const row of data.recipients){const label=el('label','checkbox followup-person'),check=el('input');check.type='checkbox';check.value=row.email;check.checked=before.size?before.has(row.email):row.involved;
+ // The current people on the tasks are preselected, one address each. An older Gmail draft can have other
+ // recipients (a new owner, a removed person); the person chooses them on purpose, for every channel (2026-11-25).
+ const drafted=(data.draft?.to||[]).map(v=>v.toLowerCase()),suggested=data.recipients.filter(row=>row.suggested).map(row=>row.email.toLowerCase());
+ for(const row of data.recipients){const label=el('label','checkbox followup-person'),check=el('input');check.type='checkbox';check.value=row.email;check.checked=!!row.suggested;
   label.append(check,el('span','',row.name),el('span','hint',row.email+(row.involved?' · on this task':'')));people.append(label);}
- $('task-email-extra').value=[...before].filter(email=>!data.recipients.some(row=>row.email===email)).join(', ');
+ $('task-email-extra').value='';
+ if(drafted.length&&(drafted.length!==suggested.length||drafted.some(email=>!suggested.includes(email)))){
+  const note=el('p','hint task-email-draft-recipients','The Gmail draft goes to '+drafted.join(', ')+'. The current people on the task are selected.'),use=btn('quiet small-action','Use the draft recipients');
+  use.onclick=()=>{for(const check of people.querySelectorAll('input'))check.checked=drafted.includes(check.value.toLowerCase());$('task-email-extra').value=drafted.filter(email=>!data.recipients.some(row=>row.email.toLowerCase()===email)).join(', ');editorDirty.set('dialog:task-email-dialog',true);};
+  note.append(' ',use);people.prepend(note);
+ }
  $('task-email-subject').value=data.subject;$('task-email-body').value=data.body;renderTaskEmailPreview();
  renderTaskEmailChoices(data);$('task-email-copy').disabled=false;
  $('task-email-title').textContent=data.tasks.length>1?'Send '+data.tasks.length+' tasks in one email':'Send the task by email';

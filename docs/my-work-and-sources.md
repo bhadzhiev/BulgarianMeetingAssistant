@@ -61,7 +61,7 @@ in one email, select them and choose **Send by email…** in the selection bar. 
 task fields: title, details, expected result, owner, due date and meeting. The end of the text has
 the note "Генерирано от Atlanta". A saved draft always has this note.
 
-The owners and the others on the tasks are preselected as recipients. Choose **Save Gmail draft**.
+The owners and the others on the tasks are preselected as recipients, with the first address of each person. If an older Gmail draft has other recipients, the dialog names them and **Use the draft recipients** selects them. Choose **Save Gmail draft**.
 Atlanta saves a Gmail draft and never sends email. Each task then shows an envelope (**Gmail draft**),
 and its history has an entry with the recipients and the subject. Saving again for the same tasks
 updates the same draft. This needs the `gmail.compose` permission, the same as **Follow-up email**.

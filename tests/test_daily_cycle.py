@@ -55,6 +55,37 @@ class DailyCycleTests(unittest.TestCase):
                             revision=first['agenda_revision'], id=first['topics'][0]['id']))
         self.assertEqual(self.service.prepare(series_id=self.series)['daily']['topics'], [])
 
+    def test_mixed_daily_groups_work_and_updates_a_task_in_another_project(self):
+        other = self.service.create_project('Applications')['id']
+        target = self.service.create_task(dict(text='Validate the integration', project_id=other, request_id='b' * 32))
+        meeting = self.meeting(
+            updates=[dict(text='Validation produced a result', person='Maria', topic='Integration',
+                          evidence_timestamp='00:00:00')],
+            today=[dict(text='Continue the integration tests', person='Maria', topic='Integration',
+                        evidence_timestamp='00:00:00')],
+        )
+        self.service.library.update(meeting, project_id=None, series_id=None, meeting_type='daily')
+        review = self.service.detail(meeting)['daily_review']
+        row = review['rows'][0]
+        self.assertEqual((row['person'], row['topic']), ('Maria', 'Integration'))
+        self.assertEqual(review['context'][0]['person'], 'Maria')
+        task = next(task for task in review['tasks'] if task['id'] == target['id'])
+        self.assertEqual(task['projects'], ['Applications'])
+        result = daily.review(self.service, meeting, dict(
+            key=row['key'], revision=review['revision'], action='update', task_id=task['id'],
+            task_revision=task['revision'], changes={},
+        ))
+        self.assertEqual(result['task_id'], target['id'])
+        self.assertEqual(self.service.items.items[target['id']]['history'][-1]['meeting_id'], meeting)
+
+    def test_grouping_does_not_change_existing_review_keys(self):
+        transcript = [dict(start=0, speaker='Maria', text='I ran the check.')]
+        row = dict(text='Maria ran the check.', evidence_timestamp='00:00:00')
+        old, = daily.review_rows(dict(updates=[row]), transcript)
+        new, = daily.review_rows(dict(updates=[dict(row, person='Maria', topic='Integration')]), transcript)
+        self.assertEqual(old['person'], 'Maria')
+        self.assertEqual(old['key'], new['key'])
+
     def test_updates_keep_evidence_and_are_idempotent(self):
         meeting = self.meeting(updates=[dict(text='Access granted; check is pending.', evidence_timestamp='00:00:00')])
         after = self.service.detail(meeting)['daily_review']
@@ -145,8 +176,8 @@ class DailyCycleTests(unittest.TestCase):
                                needs_decision=[dict(text='Do we buy a new UPS?', evidence_timestamp='00:00:00')])
         self.service.library.update(meeting, project_id=None, series_id=None)
         view = self.service.detail(meeting)['daily_review']
-        offered = {task['id']: task['project'] for task in view['tasks']}
-        self.assertEqual(offered, {self.task['id']: 'Infrastructure', second['id']: 'Applications', loose['id']: ''})
+        offered = {task['id']: task['projects'] for task in view['tasks']}
+        self.assertEqual(offered, {self.task['id']: ['Infrastructure'], second['id']: ['Applications'], loose['id']: []})
         self.assertNotIn(hidden['id'], offered)
         row = next(row for row in view['rows'] if row['field'] == 'updates')
         daily.review(self.service, meeting, dict(revision=view['revision'], key=row['key'], action='update', task_id=second['id'],

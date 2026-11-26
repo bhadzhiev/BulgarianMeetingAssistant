@@ -13,7 +13,7 @@ from .meeting_types import SECTION_FIELDS
 
 FIELDS = ('summary', 'decisions', 'updates', 'next_steps', 'needs_decision', 'tasks', 'open_questions', 'observations', 'discussion', *SECTION_FIELDS)
 # A new description is a change a person can accept; an empty one never clears what the task has.
-TASK_DETAILS = ('details', 'owner', 'deadline', 'due_date')
+TASK_DETAILS = ('details', 'owner', 'deadline', 'due_date', 'topic')
 SIMILAR = 0.6
 # Two statements of the same moment (within NEAR seconds) need less similar words to be one statement.
 SAME_MOMENT = 0.4
@@ -71,10 +71,22 @@ def _change(field, kind, old_index, new_index, old, new):
 
 
 def changes(current: dict | None, proposed: dict) -> list[dict]:
-    """Each difference as added, changed, source (same words, new moment or quote) or removed."""
+    """Reviewable changes, including an atomic replacement for a revised multi-paragraph overview."""
+    from meeting_assistant import NOTE_CONTEXT
     result = []
     for field in FIELDS:
         old, new = (current or {}).get(field, []), proposed.get(field, [])
+        # A condensed overview is one edit. Applying a new version must not append its paragraphs
+        # to older checked ones that express the same conclusions in a different order.
+        if field == 'summary' and old and new and max(len(old), len(new)) > 1:
+            if len(old) == len(new) and all(_key(a['text']) == _key(b['text']) and not _source_differs(a, b)
+                                            for a, b in zip(old, new)):
+                continue
+            result.append(_change(field, 'replace', None, None,
+                                  dict(text='\n\n'.join(item['text'] for item in old),
+                                       review='verified' if any(item.get('review') == 'verified' for item in old) else 'ai'),
+                                  dict(text='\n\n'.join(item['text'] for item in new))))
+            continue
         old_left, new_left = list(range(len(old))), list(range(len(new)))
         for j in list(new_left):
             match = next((i for i in old_left if _key(_text(field, old[i])) == _key(_text(field, new[j]))), None)
@@ -83,6 +95,8 @@ def changes(current: dict | None, proposed: dict) -> list[dict]:
             old_left.remove(match)
             new_left.remove(j)
             if (field == 'tasks' and _task_details_differ(old[match], new[j]) or _explanation_differs(field, old[match], new[j])
+                    or any(key in new[j] and new[j][key] != old[match].get(key)
+                           for key in NOTE_CONTEXT.get(field, ()))
                     or _points_differ(field, old[match], new[j])):
                 result.append(_change(field, 'changed', match, j, old[match], new[j]))
             elif _source_differs(old[match], new[j]):
@@ -115,6 +129,7 @@ def changes(current: dict | None, proposed: dict) -> list[dict]:
 
 def apply(current: dict | None, proposed: dict, accepted) -> dict:
     """Saved notes plus the accepted changes. Task status stays; changed statements need a new check."""
+    from meeting_assistant import NOTE_CONTEXT
     available = {change['id']: change for change in changes(current, proposed)}
     unknown = set(accepted) - set(available)
     if unknown:
@@ -125,7 +140,12 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
         if change['id'] not in accepted:
             continue
         field, new = change['field'], copy.deepcopy(change['proposed'])
-        if change['kind'] == 'added':
+        if change['kind'] == 'replace':
+            saved = {(item['text'], item.get('evidence_timestamp'), item.get('quote')): item
+                     for item in result[field]}
+            result[field] = [copy.deepcopy(saved.get((item['text'], item.get('evidence_timestamp'), item.get('quote')),
+                                                     dict(item, review='ai'))) for item in proposed[field]]
+        elif change['kind'] == 'added':
             result.setdefault(field, []).append(new if field == 'discussion' else dict(new, review='ai'))
         elif change['kind'] == 'removed':
             removed[field].append(change['current_index'])
@@ -147,6 +167,9 @@ def apply(current: dict | None, proposed: dict, accepted) -> dict:
             else:
                 from meeting_assistant import NOTE_EXPLANATIONS
                 item.update(text=new['text'], evidence_timestamp=new['evidence_timestamp'])
+                for key in NOTE_CONTEXT.get(field, ()):
+                    if key in new:
+                        item[key] = new[key]
                 name = NOTE_EXPLANATIONS.get(field)
                 if name and new.get(name) is not None:
                     item[name] = new[name]
@@ -178,7 +201,7 @@ def name_speakers(minutes, renames):
         for entry in rows or []:
             if not isinstance(entry, dict):
                 continue
-            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context', 'topic'):
+            for key in ('text', 'task', 'owner', 'person', 'details', 'rationale', 'context', 'topic'):
                 value = entry.get(key)
                 if isinstance(value, str) and pattern.search(value):
                     entry[key] = pattern.sub(lambda m: labels[m.group(1)], value)

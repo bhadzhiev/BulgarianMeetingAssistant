@@ -45,7 +45,7 @@ class PromptRulesTests(unittest.TestCase):
     def test_type_sections_and_summary_do_not_repeat_other_sections(self):
         self.assertIn('Секциите на типа срещата и updates не повтарят решение или задача.', self.prompt)
         # Since 2026-11-13 the summary is an overview in paragraphs for a person who was not there.
-        self.assertIn('summary се пише последно. То е обзорът на срещата за човек, който не е бил на нея: до 4 абзаца', self.prompt)
+        self.assertIn('summary се пише последно. То е обзорът на срещата за човек, който не е бил на нея: до 3 абзаца', self.prompt)
         self.assertIn('Абзацът може да\nназове накратко основно решение или задача, но не ги изброява поотделно', self.prompt)
         self.assertIn('Цел или резултат на срещата пиши\nсамо ако текстът ги казва.', self.prompt)
         self.assertNotIn('върни една точка за целта', self.prompt)

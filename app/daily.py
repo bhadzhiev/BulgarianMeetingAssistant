@@ -71,7 +71,7 @@ def change_agenda(service, body):
             if task_id is not None:
                 with service.items.lock:
                     task = service.items.items.get(task_id) if isinstance(task_id, str) else None
-                    if not eligible(service, task, series['project_id']):
+                    if not eligible(task) or series['project_id'] not in service.effective_project_ids(task):
                         raise ValueError('Choose an open task in this project')
             updated = [*rows, dict(id=uuid.uuid4().hex[:12], text=text.strip(),
                                    created=dt.datetime.now(dt.timezone.utc).isoformat(), task_id=task_id)]
@@ -143,11 +143,12 @@ def before(service, result, series, meetings, registry):
                 latest_meeting=dict(id=latest['id'], title=latest['title']) if latest else None)
 
 
-def review_rows(minutes, transcript):
+def review_rows(minutes, transcript, fields=FIELDS):
     from meeting_assistant import timestamp
     by_stamp = {timestamp(row['start']): row for row in reversed(transcript)}
     rows = {}
-    for field in FIELDS:
+    names = sorted({row['speaker'] for row in transcript if row.get('speaker')}, key=lambda name: (-len(name), name))
+    for field in fields:
         for index, entry in enumerate(minutes.get(field, [])):
             text = entry.get('task' if field == 'tasks' else 'text')
             if not text:
@@ -158,7 +159,13 @@ def review_rows(minutes, transcript):
             row['quote'] = segment['text'] if segment else None
             key = digest(row)
             if key not in rows:
-                rows[key] = dict(row, key=key, index=index, item_id=entry.get('item_id'))
+                person = entry.get('person') or row['owner']
+                if not person and 'person' not in entry and field in {'updates', 'blockers', 'today'}:
+                    person = next((name for name in names
+                                   if re.match(re.escape(name) + r'(?:[\s:·,]|$)', text, re.IGNORECASE)), None)
+                # Grouping metadata can be revised without invalidating existing review receipts.
+                rows[key] = dict(row, key=key, index=index, item_id=entry.get('item_id'),
+                                 person=person, topic=entry.get('topic'))
     return list(rows.values())
 
 
@@ -230,18 +237,10 @@ def receipt_states(service, directory, meeting_id):
     return states
 
 
-def eligible(service, item, project_id, meetings=None):
-    """An open task the daily can update. A project daily updates the tasks of its project. A shared daily
-    without a project updates the tasks of every active project and the tasks without one (2026-11-25)."""
-    if not (item and item['kind'] == 'task' and item['status'] == 'open'
-            and item.get('acceptance_state') == 'accepted' and not item.get('dismissed')
-            and item.get('workflow_state') != 'cancelled'):
-        return False
-    projects = service.effective_project_ids(item, meetings)
-    if project_id:
-        return project_id in projects
-    active = {p['id'] for p in service.projects.data['projects'] if not p.get('archived')}
-    return not projects or any(project in active for project in projects)
+def eligible(item):
+    return bool(item and item['kind'] == 'task' and item['status'] == 'open'
+                and item.get('acceptance_state') == 'accepted' and not item.get('dismissed')
+                and item.get('workflow_state') != 'cancelled')
 
 
 def after(service, meeting, directory):
@@ -249,7 +248,7 @@ def after(service, meeting, directory):
         return None
     series = service.projects.get('series', meeting.get('series_id')) or {}
     result = dict(series_id=series.get('id'), project_id=meeting.get('project_id'),
-                  topics=prior_topics(series, meeting), agenda_revision=digest(agenda(series)), rows=[], tasks=[])
+                  topics=prior_topics(series, meeting), agenda_revision=digest(agenda(series)), rows=[], context=[], tasks=[])
     if not meeting['minutes']:
         return dict(result, status='waiting')
     if meeting.get('notes_need_refresh') or meeting.get('minutes_proposal'):
@@ -258,12 +257,18 @@ def after(service, meeting, directory):
         rows = review_rows(meeting['minutes'], meeting['transcript'])
         states = receipt_states(service, directory, meeting['id'])
         meetings = service._meeting_refs()
-        names = {p['id']: p['name'] for p in service.projects.data['projects']}
+        projects = {p['id']: p['name'] for p in service.projects.data['projects']}
+        active = {p['id'] for p in service.projects.data['projects'] if not p.get('archived')}
         tasks = []
         for item in service.items.items.values():
-            if eligible(service, item, meeting.get('project_id'), meetings):
-                tasks.append({key: item.get(key) for key in ('id', 'revision', 'text', 'owner', 'due_date', 'follow_up_date', 'workflow_state')})
-                tasks[-1]['project'] = ', '.join(names[p] for p in service.effective_project_ids(item, meetings) if p in names)
+            if eligible(item):
+                project_ids = service.effective_project_ids(item, meetings)
+                # The tasks of archived projects are not offered (2026-11-25).
+                if project_ids and not any(key in active for key in project_ids):
+                    continue
+                row = {key: item.get(key) for key in ('id', 'revision', 'text', 'owner', 'due_date', 'follow_up_date', 'workflow_state')}
+                tasks.append(dict(row, projects=[projects[key] for key in project_ids if key in projects],
+                                  same_project=meeting.get('project_id') in project_ids))
         for row in rows:
             item = service.items.items.get(row['item_id'])
             entry = meeting['minutes'][row['field']][row['index']]
@@ -287,8 +292,9 @@ def after(service, meeting, directory):
                 # The line left the notes; the promise stays until help is provided.
                 rows.append(dict(key=key, field='updates', text=help['text'], task_id=help.get('task_id'), help=help,
                                  state='changed', timestamp=None, source_changed=True))
-        return dict(result, status='ready', revision=service._notes_revision(directory), rows=rows,
-                    tasks=sorted(tasks, key=lambda item: item['text'].casefold()))
+        context = review_rows(meeting['minutes'], meeting['transcript'], ('today', 'coordination'))
+        return dict(result, status='ready', revision=service._notes_revision(directory), rows=rows, context=context,
+                    tasks=sorted(tasks, key=lambda item: (not item['same_project'], item['text'].casefold())))
 
 
 def review(service, meeting_id, body):
@@ -341,9 +347,9 @@ def review(service, meeting_id, body):
         task_id = body.get('task_id')
         task = service.items.items.get(task_id) if isinstance(task_id, str) else None
         changes = body.get('changes')
-        if (not eligible(service, task, meeting.get('project_id')) or type(body.get('task_revision')) is not int
+        if (not eligible(task) or type(body.get('task_revision')) is not int
                 or not isinstance(changes, dict) or set(changes) - CHANGES):
-            raise ValueError('Choose an open project task and review its changes')
+            raise ValueError('Choose an open task and review its changes')
         if not row['quote']:
             raise ValueError('This note has no matching transcript moment. Review it in the meeting notes.')
         evidence = dict(meeting_id=meeting_id, evidence_timestamp=row['timestamp'], quote=row['quote'][:500],

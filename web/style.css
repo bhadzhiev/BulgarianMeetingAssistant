@@ -2406,12 +2406,14 @@ main:has(#tasks:not([hidden])) .page-header>.heading .subheading{flex:1 1 180px;
 .daily-rows { list-style: none; padding: 0; margin-block: .5rem; }
 .daily-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .45rem .8rem; padding-block: .5rem; border-top: 1px solid var(--line-soft); overflow-wrap: anywhere; }
 .daily-row > :first-child { flex: 1 1 15rem; min-width: 0; }
+.daily-person-group { margin-block: 1rem; }
+.daily-person-group h3 { margin: 0 0 .35rem; }
 .daily-review-row { padding-block: .85rem; border-top: 1px solid var(--line-soft); overflow-wrap: anywhere; }
 .daily-review-row p { margin-block: .35rem; }
 .daily-update, .daily-reviewed { margin-top: .6rem; }
 .daily-update-form { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; padding-block: .6rem; }
 .daily-update-form label { display: grid; min-width: 0; gap: .25rem; }
-.daily-update-form select { max-width: min(25rem, 100%); }
+.daily-update-form input[type="search"], .daily-update-form select { max-width: min(25rem, 100%); }
 #team-attention-panel > select { margin-block: .55rem; }
 
 #daily-before > .card + .card, #team-attention-panel > .card + .card { margin-top: .75rem; }

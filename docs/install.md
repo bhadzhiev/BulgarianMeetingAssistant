@@ -45,6 +45,12 @@ another folder. The script accepts the same options as `build_desktop.py`. It al
 `requirements-diarization.txt` and builds with `--with-diarization` by default. Add
 `--without-diarization` for a smaller app without speaker separation.
 
+macOS ties the Keychain permission to the app signature. Without a certificate, the build signs ad-hoc,
+and each new build asks for Keychain access again at start. Run `scripts/create_signing_identity.sh`
+one time. It makes the local certificate "Atlanta Local Code Signing" in the login keychain. The build
+then signs the app and its backend with it. After the next install, choose **Always Allow** one more
+time; later builds do not ask again. `BMA_SIGN_IDENTITY` selects another signing identity.
+
 The result is under `desktop/src-tauri/target/release/bundle/macos/`. Add `--debug` for a development
 bundle. This packages Python, the web interface, Whisper libraries and the native audio helper.
 By default, ffmpeg/ffprobe must be installed on the target Mac (`brew install ffmpeg`). To package

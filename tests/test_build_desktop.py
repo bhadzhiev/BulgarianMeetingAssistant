@@ -47,6 +47,26 @@ class BackendLinkTests(unittest.TestCase):
         self.assertEqual(sign[:7], ['codesign', '--force', '--sign', '-', '--options', 'runtime', '--entitlements'])
         self.assertEqual((sign[-1], verify), (str(self.app), ['codesign', '--verify', '--deep', '--strict', str(self.app)]))
 
+    def test_a_local_certificate_signs_the_backend_and_the_app(self):
+        identity = 'A' * 40
+        with patch.object(build_desktop.subprocess, 'run', side_effect=self.run_tool):
+            build_desktop.keep_backend_links(self.app, self.backend, self.entitlements, identity)
+        backend = self.app / 'Contents' / 'Resources' / 'backend' / 'meeting-backend' / 'meeting-backend'
+        self.assertEqual(self.calls[1], ['codesign', '--force', '--sign', identity, str(backend)])
+        self.assertEqual(self.calls[2][:4], ['codesign', '--force', '--sign', identity])
+        self.assertEqual(self.calls[2][-1], str(self.app))
+
+    def test_the_identity_is_the_local_certificate_or_ad_hoc(self):
+        listed = '  1) ' + 'B' * 40 + ' "Atlanta Local Code Signing" (CSSMERR_TP_NOT_TRUSTED)\n     1 identities found\n'
+        found = subprocess.CompletedProcess([], 0, stdout=listed)
+        with patch.dict(os.environ, {}, clear=False), patch.object(build_desktop.subprocess, 'run', return_value=found):
+            os.environ.pop('BMA_SIGN_IDENTITY', None)
+            self.assertEqual(build_desktop.signing_identity(), 'B' * 40)
+            found.stdout = '     0 identities found\n'
+            self.assertEqual(build_desktop.signing_identity(), '-')
+            os.environ['BMA_SIGN_IDENTITY'] = 'Other'
+            self.assertEqual(build_desktop.signing_identity(), 'Other')
+
     def test_an_app_without_a_backend_stops_the_build(self):
         with patch.object(build_desktop.subprocess, 'run', side_effect=self.run_tool), self.assertRaises(SystemExit):
             build_desktop.keep_backend_links(Path(self.tmp.name) / 'Other.app', self.backend, self.entitlements)

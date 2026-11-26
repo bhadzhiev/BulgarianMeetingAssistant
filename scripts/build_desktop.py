@@ -6,16 +6,35 @@ Optional: --ffmpeg-dir with self-contained ffmpeg and ffprobe binaries for distr
 """
 import argparse
 import json
+import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+SIGNING_NAME = 'Atlanta Local Code Signing'
+
+
+def signing_identity() -> str:
+    """The local certificate from scripts/create_signing_identity.sh, or '-' (ad-hoc) when there is none.
+
+    macOS ties a Keychain permission to the signature. An ad-hoc signature changes with each build, so
+    each new build asks for Keychain access again. A signature from one certificate stays the same.
+    """
+    if os.environ.get('BMA_SIGN_IDENTITY'):
+        return os.environ['BMA_SIGN_IDENTITY']
+    try:
+        found = subprocess.run(['security', 'find-identity', '-p', 'codesigning'], capture_output=True, text=True).stdout
+    except OSError:
+        return '-'
+    match = re.search(r'\b([0-9A-F]{40}) "' + re.escape(SIGNING_NAME) + '"', found)
+    return match.group(1) if match else '-'
 
 
 
-def keep_backend_links(app: Path, backend: Path, entitlements: Path) -> None:
+def keep_backend_links(app: Path, backend: Path, entitlements: Path, identity: str = '-') -> None:
     """Copy the backend into the app again with its symbolic links, then sign the app again.
 
     PyInstaller links shared libraries in _internal to their packages. Tauri copies resources through
@@ -27,8 +46,11 @@ def keep_backend_links(app: Path, backend: Path, entitlements: Path) -> None:
         raise SystemExit(f'The app has no backend at {target}')
     shutil.rmtree(target)
     subprocess.run(['ditto', str(backend), str(target)], check=True)
-    # The same ad-hoc signature that Tauri makes: hardened runtime with the app's entitlements.
-    subprocess.run(['codesign', '--force', '--sign', '-', '--options', 'runtime', '--entitlements', str(entitlements), str(app)], check=True)
+    if identity != '-':
+        # The backend reads the Keychain, so it needs the stable signature too. PyInstaller signed it ad-hoc.
+        subprocess.run(['codesign', '--force', '--sign', identity, str(target / backend.name)], check=True)
+    # The signature that Tauri makes: hardened runtime with the app's entitlements.
+    subprocess.run(['codesign', '--force', '--sign', identity, '--options', 'runtime', '--entitlements', str(entitlements), str(app)], check=True)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
 
 
@@ -110,7 +132,9 @@ def main():
     subprocess.run(build, cwd=ROOT / 'desktop', check=True)
     product = json.loads((ROOT / 'desktop/src-tauri/tauri.conf.json').read_text())['productName']
     app = ROOT / 'desktop/src-tauri/target' / ('debug' if args.debug else 'release') / 'bundle/macos' / (product + '.app')
-    keep_backend_links(app, ROOT / 'build/desktop-backend/meeting-backend', ROOT / 'desktop/src-tauri/Entitlements.plist')
+    identity = signing_identity()
+    print('Signing with ' + ('the local certificate' if identity != '-' else 'an ad-hoc signature'), flush=True)
+    keep_backend_links(app, ROOT / 'build/desktop-backend/meeting-backend', ROOT / 'desktop/src-tauri/Entitlements.plist', identity)
 
 
 if __name__ == '__main__':

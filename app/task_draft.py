@@ -22,6 +22,7 @@ A person edits this card before anything is saved, so an honest incomplete card 
 - text: a short action title (usually 6–14 words, ideally within 160 characters): action + object.
 - details: relevant context, scope and supported next steps; do not repeat the title or copy an entire conversation.
 - completion_criteria: a concise, source-supported, verifiable completion outcome.
+Leave completion criteria empty if they would only rephrase the title.
 Use empty strings for unsupported context or completion criteria; never invent requirements,
 tests, deadlines or commitments to make a card look complete. Keep technical terms, names
 and identifiers exactly as supplied.
@@ -46,7 +47,7 @@ what becomes sharper, never drop facts, requirements or open points. A good fiel
   known, scope and boundaries, up to three questions that genuinely block starting or defining done,
   and a proposed next step. Mark everything not in the supplied data as a proposal. Do not restate the title.
 - completion_criteria: up to four concrete, verifiable conditions with the result or evidence to check;
-  separate agreed from proposed. Avoid vague criteria like "works correctly"; empty string if unsupported.
+  separate agreed from proposed. Leave empty if the only condition would repeat the title or is unsupported.
 Use only the supplied CURRENT CARD and CONTEXT: never invent capabilities, access, checks, agreements,
 business results or activities. Keep technical terms, names and identifiers exactly as supplied.
 Owner, requester, assigner, project, workflow state and dates are separate human choices: do not

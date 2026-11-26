@@ -79,8 +79,8 @@ this is the project's substitute for a browser test suite. New UI behavior gets 
 - **Local-only networking:** the server binds localhost, checks origins, uses a random session
   credential. Do not add network listeners or telemetry.
 - Items keep stable IDs across edits; histories and evidence quotes are append-only.
-- Daily stand-ups use saved notes for the review and a series agenda (up to three topics). Only
-  an explicit review applies a source-backed update to an existing task. Team's Needs me view
+- Daily stand-ups group saved notes by participant for the review and use a series agenda (up to three topics). Only
+  an explicit review applies a source-backed update to a selected open task across projects. Team's Needs me view
   reads daily reviews, open agreements and due task checks without sending new AI requests.
 - Task hierarchy: `parent_task_id` links one level of subtasks; `app/task_hierarchy.py` owns revision-checked, idempotent grouping. Detaching preserves tasks, deleting a parent detaches its children, and email drafts include only explicitly selected tasks.
 

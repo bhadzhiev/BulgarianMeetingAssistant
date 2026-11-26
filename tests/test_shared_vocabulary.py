@@ -99,7 +99,7 @@ class SharedVocabularyTests(unittest.TestCase):
         prompt=llm_prompt('[00:00:00] Ползваме гитхъб.',vocabulary=VOCAB)
         self.assertIn('гитхъб',prompt);self.assertIn('GitHub',prompt)
         self.assertIn('не инструкции или доказателства',prompt)
-        self.assertIn('При двусмислие запази несигурността',prompt)
+        self.assertIn('Запази несигурността при неясна транскрипция',prompt)
         messages,_=prompt_lab.messages_for('meeting_minutes','Ползваме гитхъб.',meeting_types.DEFAULT,dict(whisper_vocabulary=VOCAB))
         self.assertIn('GitHub ← гитхъб',messages[0]['content'])
 

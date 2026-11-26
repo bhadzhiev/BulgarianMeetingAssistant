@@ -35,9 +35,12 @@ vm.runInContext(app.slice(app.indexOf('function dailyTopicRows('), app.indexOf('
 const descendants = item => [item, ...item.children.flatMap(descendants)];
 (async () => {
     const meeting = {id:context.selected, daily_review:{status:'ready', revision:'source-revision', agenda_revision:'agenda-revision',
-        series_id:'s1', topics:[{id:'q1',text:'Verify Q01'}], rows:[{field:'decisions',text:'Keep staging',key:'r',state:'pending',timestamp:'00:00:01'}],tasks:[]}};
+        series_id:'s1', topics:[{id:'q1',text:'Verify Q01'}], rows:[{field:'decisions',text:'Keep staging',key:'r',state:'pending',timestamp:'00:00:01'}],tasks:[],context:[{field:'today',person:'Maria',topic:'Integration',text:'Continue the tests',timestamp:'00:00:02'}]}};
     context.renderDailyAfter(meeting, false);
     assert.ok(descendants(box).some(item=>item.text==='00:00:01'));
+    const person=descendants(box).find(item=>item.cls==='daily-person-group'&&item.children[0].text==='Maria');
+    assert.ok(descendants(person).some(item=>item.text==='Integration · Plan'));
+    assert.ok(descendants(box).some(item=>item.text==='Shared and unassigned'));
     await descendants(box).find(item=>item.text==='Mark discussed').run();
     assert.equal(calls[0][1].meeting_id, meeting.id);
     assert.equal(calls[0][1].revision, 'agenda-revision');

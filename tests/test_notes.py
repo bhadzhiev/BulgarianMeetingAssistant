@@ -84,6 +84,22 @@ class ChangeTests(unittest.TestCase):
         other = minutes(summary=[item('Отлагаме миграцията.', '00:00:04')])
         self.assertEqual(sorted(c['kind'] for c in notes.changes(minutes(summary=current['summary']), other)), ['added', 'removed'])
 
+    def test_replacing_an_overview_does_not_append_to_reviewed_paragraphs(self):
+        unchanged = item('Проверихме архивите.', review='verified')
+        saved = minutes(summary=[unchanged, item('Дублиран обзор.', review='verified'),
+                                  item('По-стара формулировка.', review='verified')])
+        proposed = minutes(summary=[item('Проверихме архивите.'), item('Започва възстановяване.')])
+        change, = notes.changes(saved, proposed)
+        self.assertEqual(change['kind'], 'replace')
+        self.assertEqual(change['current']['review'], 'verified')
+        self.assertEqual(notes.apply(saved, proposed, [])['summary'], saved['summary'])
+        applied = notes.apply(saved, proposed, [change['id']])['summary']
+        self.assertEqual(applied, [unchanged, dict(proposed['summary'][1], review='ai')])
+        same_count = minutes(summary=[unchanged, item('Друга формулировка.'), item('Извод за утре.')])
+        change, = notes.changes(saved, same_count)
+        self.assertEqual(change['kind'], 'replace')
+        self.assertEqual(len(notes.apply(saved, same_count, [change['id']])['summary']), 3)
+
     def test_task_details_change_only_when_the_ai_found_a_value(self):
         current = minutes(tasks=[task('Провери VPN', owner='Иван', status='done')])
         self.assertEqual(notes.changes(current, minutes(tasks=[task('Провери VPN')])), [])

@@ -39,7 +39,7 @@ GENERIC = ('SPEAKER', 'Speaker')
 # Evidence first (2026-11-13): observations of this one meeting, not a performance assessment of a person. The
 # sections have no minimum counts and may be empty, because minimums made the model fill sections without evidence;
 # an interpretation is marked "Хипотеза:" with an alternative explanation, and the manager gets the same rigor.
-SYSTEM = """Ти си организационен психолог и консултант по екипна ефективност. Анализираш една работна среща за
+SYSTEM = """Помагаш на ръководител да изясни договореното и да води следващия разговор. Анализираш една работна среща за
 мениджъра {manager}, включително приноса на мениджъра към наблюдаваната екипна динамика. Мениджърът го чете сам.
 
 Целта са проверими наблюдения и полезни хипотези, които помагат на мениджъра да разбира екипа и да го води по-добре.
@@ -104,6 +104,12 @@ coaching: управленските действия на {manager}. keep: 0–
 → приложима алтернатива, с точна формулировка или малка промяна в поведението. Не повтаряй едно действие в change
 и develop."""
 
+
+DAILY_FOCUS = """
+Това е daily с различни направления на работа. Давай само наблюдения, които променят следващо действие:
+неизяснена отговорност, зависимост, критерий за проверка или конкретна работеща координация. Когато има
+неяснота, предложи един точен въпрос. Не преразказвай статуса по човек. Избери до две наблюдения общо в рамките на този отговор; останалите полета може да са празни.
+"""
 
 INSTRUCTIONS = {('people',): PEOPLE, ('dynamics', 'discourse', 'coaching'): TEAM}
 
@@ -235,11 +241,11 @@ def preview(service, body):
                 self_name=service.settings.get('self_name', ''))
 
 
-def request_for(request, stamps, leader, keys):
+def request_for(request, stamps, leader, keys, *, daily=False):
     full = schema(stamps)
     part = dict(full, required=list(keys), properties={key: full['properties'][key] for key in keys})
     instructions = ''.join(INSTRUCTIONS[part_keys] for part_keys in PARTS if set(part_keys) <= set(keys))
-    system = (SYSTEM + instructions).replace('{manager}', leader)
+    system = (SYSTEM + instructions + (DAILY_FOCUS if daily else "")).replace('{manager}', leader)
     only = '\n\nВ този отговор върни само: ' + ', '.join(keys) + '.'
     return [dict(role='system', content=system + only), dict(role='user', content=request)], part
 
@@ -258,14 +264,15 @@ def generate(service, body, complete=None, progress=None, cancel=None):
     stamps = list(dict.fromkeys(timestamp(s.start) for s in rows))
     target = service.repo_reports.target()
     from .prompts import record_usage, select_stages
-    snapshot = select_stages(service.prompts.snapshot(meeting.get('meeting_type') or 'general', meeting_id), ('team_analysis',))
+    kind = meeting_types.of(meeting)
+    snapshot = select_stages(service.prompts.snapshot(kind['id'], meeting_id), ('team_analysis',))
     target['_prompt_snapshot'] = snapshot
     target['local_ai_max_tokens'] = OUTPUT_LIMIT
     stats = talk(segments)
     request = '\n'.join([
         'Среща: ' + meeting.get('title', ''),
         'Дата: ' + (meeting.get('created') or '')[:10],
-        'Тип: ' + meeting_types.of(meeting)['label'],
+        'Тип: ' + kind['label'],
         'Мениджър: ' + (manager or 'не е посочен; коучингът е за човека, който води срещата'),
         'Участници: ' + ', '.join(speakers(segments)),
         'Говорене (изчислено от приложението): ' + '; '.join(f"{row['speaker']} {row['percent']}%, {row['turns']} реплики" for row in stats),
@@ -282,7 +289,7 @@ def generate(service, body, complete=None, progress=None, cancel=None):
 
         def ask(keys):
             nonlocal finished
-            messages, part = request_for(request, stamps, leader, keys)
+            messages, part = request_for(request, stamps, leader, keys, daily=kind['id'] == 'daily')
             answer = complete(target, messages, part, 'team_analysis', timeout=TIMEOUT,
                               api_key=service.ai_key(target['provider']))
             with lock:

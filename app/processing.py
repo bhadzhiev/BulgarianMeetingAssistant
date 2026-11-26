@@ -366,12 +366,12 @@ def canonical_notes(minutes: dict, vocabulary: str, people=()) -> dict:
         for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict):
                 continue
-            for key in ('text', 'task', 'owner', 'details', 'rationale', 'context', 'topic'):
+            for key in ('text', 'task', 'owner', 'person', 'details', 'rationale', 'context', 'topic'):
                 value = item.get(key)
                 if not isinstance(value, str):
                     continue
                 # An owner is a person, not a vocabulary term.
-                if key != 'owner':
+                if key not in {'owner', 'person'}:
                     value = canonicalize(value, rows)
                 item[key] = canonicalize(value, names)
     return minutes
@@ -424,7 +424,7 @@ def summarize(directory: Path, settings: dict, progress, api_key: str = '', spea
     map_args = {k: v for k, v in vars(args).items() if k != 'api_key'}
     if map_args.get('_prompt_snapshot'):
         map_args['_prompt_snapshot'] = select_stages(map_args['_prompt_snapshot'], ('meeting_minutes',))
-    identity = dict(version=4, segments=[asdict(s) for s in segments], args=map_args)
+    identity = dict(version=5, segments=[asdict(s) for s in segments], args=map_args)
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     checkpoint = directory / '.notes-progress.json'
     saved = read_json(checkpoint, {})

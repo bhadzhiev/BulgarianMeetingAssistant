@@ -1170,7 +1170,7 @@ $('task-titles-apply').onclick=()=>perform(async()=>{
  editorDirty.clear('dialog:task-titles-dialog');$('task-titles-dialog').close();await refreshAfterItemChange();
  toast(AtlantaUX.count(result.applied,'task')+' updated'+(result.skipped?' · '+result.skipped+' changed meanwhile and stayed as they were':''));
 });
-function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):field==='discussion'?item.topic+': '+item.points.map(point=>point.text).join(' · '):[item.text,item.rationale&&'Reason: '+item.rationale,item.context&&'Context: '+item.context].filter(Boolean).join(' · '); }
+function changeText(field,item) { return field==='tasks'?[item.task,item.details,item.owner,item.topic,item.deadline&&'said: '+item.deadline,item.due_date&&date(item.due_date)].filter(Boolean).join(' · '):field==='discussion'?item.topic+': '+item.points.map(point=>point.text).join(' · '):[item.text,item.person,item.topic,item.rationale&&'Reason: '+item.rationale,item.context&&'Context: '+item.context].filter(Boolean).join(' · '); }
 async function reviewNotes(action,accept) {
  detail=await api('/api/meetings/'+selected+'/notes-review',{action,accept,revision:detail.minutes_proposal.revision});
  lastFingerprint=JSON.stringify(detail); if($('review-dialog').open) $('review-dialog').close(); renderDetail();
@@ -1203,18 +1203,19 @@ function openReview() {
    // Additions and AI-only edits are preselected; edits of checked statements are not. A removal is preselected only
    // for an unchecked AI statement that is no task or decision: otherwise a reworded statement stayed next to the new one.
    // Removing a task or decision can delete its item, so a person chooses it.
-   box.type='checkbox'; box.checked=change.kind==='added'||['changed','source'].includes(change.kind)&&!checked||change.kind==='removed'&&!checked&&!['tasks','decisions'].includes(field); choices.set(change.id,box);
-   main.append(el('span','change-kind',{added:'New',changed:'Changed',source:'Source changed',removed:'Not in the new notes'}[change.kind]+(checked?' · you checked the saved version':'')));
+   box.type='checkbox'; box.checked=change.kind==='added'||['changed','source','replace'].includes(change.kind)&&!checked||change.kind==='removed'&&!checked&&!['tasks','decisions'].includes(field); choices.set(change.id,box);
+   main.append(el('span','change-kind',{added:'New',changed:'Changed',source:'Source changed',removed:'Not in the new notes',replace:'Replace overview'}[change.kind]+(checked?' · you checked the saved version':'')));
    if(change.kind==='source'){
     // The same words with another moment or quote: show the old and the new proof.
     main.append(el('p','',changeText(field,change.current)));
     const proof=item=>[item.evidence_timestamp,item.quote&&'„'+item.quote+'“'].filter(Boolean).join(' · ')||'no source';
     main.append(el('del','',proof(change.current)),el('ins','',proof(change.proposed)));
    } else {
-    if(change.current) main.append(el(change.kind==='removed'||change.kind==='changed'?'del':'p','',changeText(field,change.current)));
+    if(change.current) main.append(el(['removed','changed','replace'].includes(change.kind)?'del':'p','',changeText(field,change.current)));
     if(change.proposed) main.append(el('ins','',changeText(field,change.proposed)));
    }
    const stamp=(change.proposed||change.current).evidence_timestamp; if(stamp) main.append(sourceBlock(stamp));
+   if(change.kind==='replace')main.append(el('p','hint','Apply the new overview as a whole. The saved version is kept in history.'));
    row.append(box,main); section.append(row);
   }
   body.append(section);
@@ -3115,14 +3116,15 @@ function renderDailyAfter(meeting,busy){
  }
  const pending=daily.rows.filter(row=>row.state==='pending');
  const reviewed=daily.rows.filter(row=>row.state!=='pending');
- if(!pending.length)box.append(el('p','hint',reviewed.length?'All daily suggestions reviewed.':'There are no changes to review in the saved notes.'));
- const labels={decisions:'Decision',tasks:'Commitment',updates:'Update',blockers:'Blocker',needs_decision:'Decision needed',open_questions:'Open question'};
+ if(!pending.length&&!(daily.context||[]).length)box.append(el('p','hint',reviewed.length?'All daily suggestions reviewed.':'There are no changes to review in the saved notes.'));
+ const labels={decisions:'Decision',tasks:'Commitment',updates:'Update',blockers:'Blocker',needs_decision:'Decision needed',open_questions:'Open question',today:'Plan',coordination:'Coordination'};
  const draw=row=>{
   const card=el('article','daily-review-row'),actions=el('div','action-group');
-  card.append(el('strong','',labels[row.field]),el('p','',row.text));
+  card.append(el('strong','',[row.topic,labels[row.field]].filter(Boolean).join(' · ')),el('p','',row.text));
   if(row.details)card.append(el('p','hint',row.details));
   if(row.owner||row.due_date)card.append(el('p','hint',[row.owner,row.due_date&&date(row.due_date)].filter(Boolean).join(' · ')));
   if(row.timestamp)card.append(sourceBlock(row.timestamp));
+  if(row.field==='today'||row.field==='coordination')return card;
   if(row.source_changed)card.append(el('p','hint','Saved from an earlier version of these notes.'));
   if(row.state!=='pending'){
    actions.append(el('span','hint',row.state==='applied'?'Applied to task':row.state==='confirmed'?'Confirmed':row.state==='changed'?'No longer in the notes':'Skipped'));
@@ -3144,23 +3146,27 @@ function renderDailyAfter(meeting,busy){
   card.append(actions);
   if(row.state==='pending'&&row.field!=='decisions'&&row.quote&&daily.tasks.length){
    const edit=el('details','daily-update'),form=el('form','daily-update-form'),target=el('select'),workflow=el('select'),due=el('input'),check=el('input');
-   // A shared daily offers tasks across projects: grouped by owner, the owner of the line first (2026-11-25).
-   target.required=true;target.append(option('Choose a task…',''));
-   const label=task=>task.text+(daily.project_id?'':task.project?' · '+task.project:''),owners=[...new Set(daily.tasks.map(task=>task.owner||''))];
-   if(owners.length<2)target.append(...daily.tasks.map(task=>option(label(task)+(task.owner?' · '+task.owner:''),task.id)));
-   else for(const owner of owners.sort((a,b)=>(b===(row.owner||''))-(a===(row.owner||''))||!a-!b||a.localeCompare(b))){const group=el('optgroup');group.label=owner||'No owner';group.append(...daily.tasks.filter(task=>(task.owner||'')===owner).map(task=>option(label(task),task.id)));target.append(group);}
-   const exact=daily.tasks.filter(task=>task.text.trim().toLocaleLowerCase()===row.text.trim().toLocaleLowerCase());
-   if(exact.length===1)target.value=exact[0].id;
+   const search=el('input');search.type='search';search.placeholder='Search title, project or owner';
+   const taskLabel=task=>[task.text,task.projects?.join(', ')||'No project',task.owner].filter(Boolean).join(' · ');
+   target.required=true;
+   function choices(){
+    const selectedTask=target.options.length?target.value:row.task_match||'',words=search.value.trim().toLocaleLowerCase().split(/\s+/);
+    const matches=daily.tasks.filter(task=>words.every(word=>taskLabel(task).toLocaleLowerCase().includes(word)));
+    target.replaceChildren(option(matches.length?'Choose a task…':'No matching tasks',''),...matches.map(task=>option(taskLabel(task),task.id)));
+    if(matches.some(task=>task.id===selectedTask))target.value=selectedTask;
+   }
+   edit.addEventListener('toggle',()=>{if(edit.open&&!target.options.length)choices();});
+   search.oninput=choices;
    workflow.append(option('Keep current state',''),...Object.entries(AtlantaTasks.STATES).filter(([key])=>key!=='cancelled').map(([id,label])=>option(label,id)));
-   due.type=check.type='date';if(row.due_date)due.value=row.due_date;if(!target.value&&daily.tasks.some(task=>task.id===row.task_match))target.value=row.task_match;
+   due.type=check.type='date';
    const field=(label,input)=>{const wrapper=el('label','filter-field',label);wrapper.append(input);return wrapper;};
    const save=btn('primary small-action','Apply to task');save.type='submit';
-   form.append(field('Task',target),field('State',workflow),field('New due date (optional)',due),field('Next check (optional)',check),save);
+   form.append(field('Find an open task',search),field('Task',target),field('State',workflow),field('New due date (optional)',due),field('Next check (optional)',check),save);
    edit.append(el('summary','','Update an existing task'),form);card.append(edit);
    form.onsubmit=event=>{event.preventDefault();perform(async()=>{
     const task=daily.tasks.find(item=>item.id===target.value);if(!task)return;
     const changes={};if(workflow.value)changes.workflow_state=workflow.value;if(due.value)changes.due_date=due.value;if(check.value)changes.follow_up_date=check.value;
-    const message='Apply this update to “'+task.text+'”?\n\n'+row.text;
+    const message='Apply this update to “'+taskLabel(task)+'”?\n\n'+row.text;
     if(!(await ask(message,{ok:'Apply update'})))return;
     await withEditorSave(form,()=>review(row,'update',{task_id:task.id,task_revision:task.revision,changes}));
    });};
@@ -3168,17 +3174,35 @@ function renderDailyAfter(meeting,busy){
   }
   return card;
  };
- // Rows that ask for an action come first: commitments, blockers, decisions and updates that name an open task.
- // Other status lines wait under Context, with one Mark all reviewed (2026-11-25).
- const acts=row=>['tasks','blockers','needs_decision','decisions'].includes(row.field)||!!row.task_match;
- const first=pending.filter(acts),context=pending.filter(row=>!acts(row));
- for(const row of first)box.append(draw(row));
- if(context.length){
-  const more=el('details','daily-context');more.open=!first.length;
-  const all=actionBtn('quiet small-action','Mark all reviewed',async()=>{for(const row of context)await api('/api/daily/'+meeting.id+'/review',{revision:daily.revision,key:row.key,action:'confirm'});lastTasks='';await reload();});all.disabled=busy;
-  more.append(el('summary','','Status and context · '+context.length),el('p','hint','Status lines and questions without a matching open task.'),all,...context.map(draw));box.append(more);
+ function grouped(container,rows){
+  const groups=new Map();
+  for(const row of rows){
+   const person=row.person||'';
+   if(!groups.has(person))groups.set(person,[]);
+   groups.get(person).push(row);
+  }
+  const people=[...groups.keys()].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+  for(const person of [...people,'']){
+   const entries=groups.get(person);if(!entries?.length)continue;
+   const group=el('section','daily-person-group');
+   entries.sort((a,b)=>(a.topic||'').localeCompare(b.topic||''));
+   group.append(el('h3','',person||'Shared and unassigned'),...entries.map(draw));container.append(group);
+  }
  }
- if(reviewed.length){const archive=el('details','daily-reviewed');archive.append(el('summary','','Reviewed · '+reviewed.length),...reviewed.map(draw));box.append(archive);}
+ grouped(box,[...pending,...(daily.context||[])]);
+ if(reviewed.length){const archive=el('details','daily-reviewed');archive.append(el('summary','','Reviewed · '+reviewed.length));grouped(archive,reviewed);box.append(archive);}
+ // Rows that ask for an action come first: commitments, blockers, decisions and updates that name an open task.
+ // Other status lines wait under Context, with one Mark all reviewed (2026-11-25). Both parts group by person.
+ const acts=row=>['tasks','blockers','needs_decision','decisions'].includes(row.field)||!!row.task_match;
+ const first=pending.filter(acts),context=pending.filter(row=>!acts(row)),extra=daily.context||[];
+ grouped(box,first);
+ if(context.length||extra.length){
+  const more=el('details','daily-context');more.open=!first.length;
+  more.append(el('summary','','Status and context · '+(context.length+extra.length)),el('p','hint','Status lines and questions without a matching open task.'));
+  if(context.length){const all=actionBtn('quiet small-action','Mark all reviewed',async()=>{for(const row of context)await api('/api/daily/'+meeting.id+'/review',{revision:daily.revision,key:row.key,action:'confirm'});lastTasks='';await reload();});all.disabled=busy;more.append(all);}
+  grouped(more,[...context,...extra]);box.append(more);
+ }
+ if(reviewed.length){const archive=el('details','daily-reviewed');archive.append(el('summary','','Reviewed · '+reviewed.length));grouped(archive,reviewed);box.append(archive);}
 }
 function renderManagerAttention(data){
  const box=$('team-attention-panel');box.replaceChildren();
